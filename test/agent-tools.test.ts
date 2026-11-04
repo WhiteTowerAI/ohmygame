@@ -1,3 +1,4 @@
+import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +13,7 @@ import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
 import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
+import sharp from "sharp";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -106,9 +108,9 @@ describe("agent tools", () => {
   });
 
   it.each([
-    { skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }], mcpServers: [], count: "1 Skill" },
-    { skills: [], mcpServers: [{ id: "api", name: "API", enabled: true }], count: "1 MCP service" },
-  ])("reports installed capabilities and only installs from the current workspace ($count)", async ({ skills, mcpServers, count }) => {
+    { skills: true, count: "1 Skill", next: "applies by itself" },
+    { skills: false, count: "1 MCP service", next: "approve what it asks for" },
+  ])("reports what it installed and only installs from the current workspace ($count)", async ({ skills, count, next }) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
@@ -119,29 +121,28 @@ describe("agent tools", () => {
     await symlink(outsideDirectory, path.join(project.workspacePath, "linked-plugin"));
     await mkdir(path.join(pluginDirectory, ".ohmygame-plugin"));
     await writeFile(path.join(pluginDirectory, ".ohmygame-plugin/plugin.json"), JSON.stringify({
-      name: "character-workflow", version: "0.1.0", description: "Characters",
-      ...(skills.length ? { skills: "./skills/" } : { mcpServers: "./mcp.json" }),
+      id: "personal/character-workflow", version: "0.1.0", engines: { "ohmygame-api": "^2.0.0" },
+      displayName: "Character Workflow", description: "Characters",
+      ...(skills
+        ? { contributes: { skills: "./skills/" } }
+        : { capabilities: { network: ["example.com"] }, contributes: { mcpServers: [{ id: "api", title: "API", url: "https://example.com/mcp", tools: ["search"] }] } }),
     }));
-    if (skills.length) await mkdir(path.join(pluginDirectory, "skills/character"), { recursive: true });
-    else await writeFile(path.join(pluginDirectory, "mcp.json"), JSON.stringify({ mcpServers: { api: { url: "https://example.com/mcp" } } }));
+    if (skills) await mkdir(path.join(pluginDirectory, "skills/character"), { recursive: true });
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     let installedPath = "";
-    const plugin = {
-      id: "personal:character-workflow", name: "character-workflow", displayName: "Character Workflow", description: "Characters", version: "0.1.0",
-      marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" as const }, installed: true, enabled: true,
-      skills, mcpServers, connections: [],
-    };
     const tool = createAgentTools(project, runner, projects, undefined, async (sourcePath) => {
       installedPath = sourcePath;
-      return plugin;
+      const indexed = await indexPluginPackage(sourcePath);
+      if (!indexed.ok) throw new Error("Expected a valid package");
+      return indexed.entry;
     }).find(({ name }) => name === "install_plugin");
     if (!tool) throw new Error("Expected install plugin tool");
 
-    if (skills.length) {
+    if (skills) {
       const skillFile = path.join(pluginDirectory, "skills/character/SKILL.md");
       await writeFile(skillFile, "# Character\nCreate a game character.");
-      await expect(tool.execute("invalid-skill", { path: "character-workflow" }, undefined, undefined, {} as never)).rejects.toThrow("frontmatter");
+      await expect(tool.execute("invalid-skill", { path: "character-workflow" }, undefined, undefined, {} as never)).rejects.toThrow("/contributes/skills/character");
       expect(installedPath).toBe("");
       await writeFile(skillFile, "---\nname: character\ndescription: Create a game character.\n---\n\nUse the project's character brief.");
     }
@@ -150,6 +151,7 @@ describe("agent tools", () => {
     expect(installedPath).toBe(await realpath(pluginDirectory));
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Created and installed Character Workflow") }]);
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining(count) }]);
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining(next) }]);
     await expect(tool.execute("call-outside", { path: "../outside" }, undefined, undefined, {} as never))
       .rejects.toThrow("inside the current workspace");
     await expect(tool.execute("call-linked", { path: "linked-plugin" }, undefined, undefined, {} as never))
@@ -340,6 +342,30 @@ describe("agent tools", () => {
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
+  it("registers standalone image and frame processing tools", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-media-agent-tool-"));
+    const library = new AssetLibrary(dataDirectory);
+    const projects = new ProjectManager(dataDirectory, library);
+    await Promise.all([library.load(), projects.load()]);
+    const project = await projects.create("Media Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const tools = createAgentTools(project, runner, projects);
+    expect(tools.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "crop_image", "extract_gif_frames", "compose_gif", "image_grid_split", "video_frame_strip", "video_compose_frames",
+    ]));
+
+    const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: "red" } }).png().toBuffer();
+    await projects.addGeneratedAsset(project.id, "source.png", source);
+    const split = tools.find(({ name }) => name === "image_grid_split");
+    if (!split) throw new Error("Expected image_grid_split");
+    const splitResult = await split.execute("media-split", { sourcePath: "assets/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
+    const splitText = splitResult.content[0]?.type === "text" ? splitResult.content[0].text : "";
+    const splitPath = splitText.match(/(assets\/generated\/sprite-sheet-[^ ]+\.zip)/)?.[1];
+    expect(splitPath).toBeDefined();
+    expect(await readFile(path.join(project.workspacePath, splitPath!))).not.toHaveLength(0);
+  });
+
   it("registers playable_add_node only for Interactive Story and creates the Node", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
     const projects = new ProjectManager(dataDirectory);

@@ -295,6 +295,15 @@ describe("rendererReducer", () => {
     expect(started.turns.at(-1)).toMatchObject({ id: "turn-2", status: "inProgress" });
   });
 
+  it("follows this conversation's scheduled messages and no other's", () => {
+    const messages = [{ id: "one", prompt: "Go", at: 1 }];
+    const state = initialized();
+    expect(rendererReducer(state, { type: "conversation-loaded", detail: detail({ scheduledMessages: messages }) }).scheduledMessages).toEqual(messages);
+    const changed = { ...runtimeEvent(1, "scheduled.changed", { messages }), conversationId: "conversation-1" };
+    expect(event(state, changed).scheduledMessages).toEqual(messages);
+    expect(event(state, { ...changed, conversationId: "other" }).scheduledMessages).toEqual([]);
+  });
+
   it("creates a turn for manual compaction and closes it on agent completion", () => {
     let state = initialized();
     state = event(state, runtimeEvent(1, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }));
@@ -392,7 +401,7 @@ function conversation(): ConversationSummary {
 }
 
 function detail(overrides: Partial<ConversationDetail> = {}): ConversationDetail {
-  return { conversation: conversation(), agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], cursor: 0, pendingPrompts: [], ...overrides };
+  return { conversation: conversation(), agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], cursor: 0, pendingPrompts: [], scheduledMessages: [], ...overrides };
 }
 
 function initialized() {

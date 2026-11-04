@@ -6,6 +6,10 @@ afterPack: scripts/check-packaged-desktop.mjs
 asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
+  - node_modules/ffmpeg-static/**/*
+  # sharp loads libvips from beside its native module, which cannot run from the ASAR.
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
 
 directories:
   output: release
@@ -36,6 +40,8 @@ files:
 extraResources:
   - from: plugins
     to: plugins
+  - from: packages/plugin-ui
+    to: plugin-ui
   - from: integrations/skills
     to: integrations/skills
   - from: .runtime/preinstalled-plugins

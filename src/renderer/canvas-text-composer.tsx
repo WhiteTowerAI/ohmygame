@@ -3,6 +3,7 @@ import type { AgentModel, AgentModelRef, AgentReasoningLevel } from "../shared/c
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { ArrowUp, LoaderCircle } from "./icons.js";
+import { CanvasComposer } from "./canvas-node-interactions.js";
 import { t } from "./i18n.js";
 
 export interface CanvasTextModels {
@@ -33,7 +34,7 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? defaultReasoningLevel, selectedModel?.reasoningLevels ?? []);
   const canGenerate = !busy && !generating && Boolean(instruction.trim() && selectedModel);
   const generate = () => { if (canGenerate && selectedModel) onGenerate({ provider: selectedModel.provider, id: selectedModel.id }, effectiveReasoning); };
-  return <div className="story-text-composer nodrag nowheel">
+  return <CanvasComposer className="story-text-composer nodrag nowheel">
     {references}
     <CanvasTextarea aria-label={label} rows={3} value={instruction} disabled={busy} placeholder={placeholder} onChange={onInstruction} onSubmit={generate} />
     {error ? <p role="alert">{error}</p> : null}
@@ -44,7 +45,7 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
         {generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
       </button>
     </div>
-  </div>;
+  </CanvasComposer>;
 }
 
 function useCanvasTextDraft(value: string, onChange: (value: string) => void, disabled?: boolean) {

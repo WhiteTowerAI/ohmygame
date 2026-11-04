@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "scene": {
+      "type": "string",
+      "pattern": "^res://[^\\u0000]{1,300}\\.tscn$",
+      "description": "The scene to run, such as res://levels/level_1.tscn; the main scene when omitted"
+    },
+    "frames": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600,
+      "description": "How many frames to run before quitting; 60 when omitted"
+    }
+  },
+  "additionalProperties": false
+}

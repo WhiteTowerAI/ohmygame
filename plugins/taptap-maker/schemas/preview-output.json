@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["running", "stopped", "missing", "error"] },
+    "message": { "type": "string" },
+    "logs": { "type": "string" }
+  },
+  "required": ["status"]
+}

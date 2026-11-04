@@ -437,7 +437,13 @@ export class ExternalMcpLauncher {
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
         ...(connection.session ? { "mcp-session-id": connection.session } : {}),
-        [EXTERNAL_MCP_ROOTS_HEADER]: JSON.stringify(this.#folders()),
+        // HTTP headers cannot carry arbitrary Unicode. JSON escapes preserve
+        // paths and URIs exactly when the daemon parses the header.
+        [EXTERNAL_MCP_ROOTS_HEADER]: JSON.stringify(this.#folders()).replace(
+          /[\u007f-\uffff]/g,
+          (character) =>
+            `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+        ),
       },
       body: JSON.stringify(message),
       ...(signal ? { signal } : {}),
@@ -470,7 +476,7 @@ export function appStartCommand(
 }
 
 const TURNED_OFF =
-  "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → MCP Server → Allow other agents to use OhMyGame.";
+  "OhMyGame is not accepting other agents. Open OhMyGame and turn on the MCP Server switch in Settings → MCP Server.";
 const NOT_RUNNING = "Open the OhMyGame app and try again.";
 
 /** OhMyGame is off or closed; retrying the request would not help. */

@@ -23,7 +23,7 @@ import {
   textResult,
   type DriverContext,
 } from "./driver-context.js";
-import { stageSkills, stagedSkillsRoot } from "./skills.js";
+import { skillInstruction, stageSkills, stagedSkillsRoot } from "./skills.js";
 import { canonicalPath } from "./paths.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import {
@@ -262,7 +262,8 @@ export class OpenCodeDriver implements NativeDriver {
     });
     signal.throwIfAborted();
     await this.#api("POST", `/session/${sessionId}/prompt`, {
-      text: input.text,
+      // OpenCode loads Skills with its own tool, so named ones are asked for in words.
+      text: input.skills?.length ? `${skillInstruction(input.skills)}\n\n${input.text}` : input.text,
       files: input.images.map((image, index) => ({
         name: `image-${index + 1}`,
         uri: `data:${image.mimeType};base64,${image.data}`,
@@ -726,6 +727,14 @@ export class OpenCodeDriver implements NativeDriver {
         const tokens = record(data.tokens);
         if (tokens) {
           const cache = record(tokens.cache);
+          // Each step is one request and reports only its own tokens.
+          // Reasoning is reported apart from output but is output spent.
+          sink.spent({
+            input: number(tokens.input),
+            output: number(tokens.output) + number(tokens.reasoning),
+            cacheRead: number(cache?.read),
+            cacheWrite: number(cache?.write),
+          });
           sink.usage(
             {
               input: number(tokens.input),

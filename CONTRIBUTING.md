@@ -139,19 +139,38 @@ For changes that need the public checks, run:
 bun run prepare:preinstalled-plugins
 bun run changelog:check
 bun run typecheck
+bun run lint
 bun run test
 bun run build:renderer
 bun run test:node-runtime
 ```
 
 For example, run a focused suite with `bun run test -- test/preview.test.ts`.
+`bun run lint` runs oxlint with the rules in [.oxlintrc.json](.oxlintrc.json)
+and fails on warnings. To turn a rule off, do it there with a comment saying
+why, rather than with inline disable comments.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
-`main`, including documentation PRs. It checks the changelog, plugin preparation,
-types, tests, the renderer build, and the Node daemon/player build and startup.
+`main`, including documentation PRs. It checks the changelog, plugin
+preparation, types, lint, tests, the renderer build, and the Node daemon/player
+build and startup.
 `test:node-runtime` builds the host and player before checking Node startup, so
 this sequence covers the full application build without building them twice.
 These checks run on Ubuntu. Plugin preparation, types, tests and the Node
 startup check also run on macOS and Windows, the platforms the app ships for.
+On all three platforms, two test shards run alongside the build checks. Windows
+distributes test files by descending size, alternating between the two shards.
+Run `bun run test -- --shard=1/2 --config=vitest.windows.config.ts` locally
+to use the same sharding strategy (use `2/2` for the second shard).
+On macOS and Windows, the Node startup and Electron recording checks share
+one host build, and the build job also loads the plugins' panels in Electron.
+Windows jobs reuse `node_modules` for an exact match on the runner architecture,
+setup action, manifest, lockfile, Bun configuration, and dependency patches.
+On a miss they run a frozen install. The Windows build on pushes saves that
+install in four tar files before running checks. On a hit, Windows extracts
+the four files in parallel, each into its own set of top-level package paths.
+If extraction fails, CI removes the partial dependency tree and runs a frozen
+install. Packing or uploading the cache is optional. The `check` status
+requires every build and test shard to pass.
 When a test cannot hold on one platform, skip only the assertion that does not
 apply there, as the file permission checks do on Windows.
 CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;

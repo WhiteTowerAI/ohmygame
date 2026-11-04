@@ -11,7 +11,10 @@ import { createServer } from "node:net";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
+import {
+  buildsWebPreview,
+  supportsWebPreview,
+} from "../shared/project-runtime.js";
 import {
   packageManagerRunArguments,
   resolvePackageManager,
@@ -25,6 +28,7 @@ import {
   registerProjectProcess,
   terminateProjectProcess,
 } from "./process-lifecycle.js";
+import { GAME_TUNING_FILES, type GameTuningScalar } from "../shared/game-tuning.js";
 import { createPreviewProxy, type PreviewProxy } from "./preview-proxy.js";
 import {
   previewDependencyDirectory,
@@ -32,12 +36,30 @@ import {
 } from "./preview-launch.js";
 import { startStaticPreview } from "./preview-static.js";
 import { storyWebEditorBridge } from "./story-web-bundle.js";
+import { DEFAULT_PREVIEW_IDLE_MINUTES } from "../shared/preview-settings.js";
+
+/** Unused previews kept running at once: the project left last, so going back to it is instant. */
+const MAX_UNUSED_PREVIEWS = 1;
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
   installTimeoutMs?: number;
   idleTimeoutMs?: number;
   leaseTimeoutMs?: number;
+  /**
+   * Builds a `"web-build"` project's web version with its plugin and says
+   * which folder to serve; undefined when the project isn't built that way.
+   */
+  /** Keeps a project's tuned values; see src/daemon/game-tuning.ts. */
+  tuning?: {
+    refresh(project: ProjectState): Promise<void>;
+    setConnected(project: ProjectState, connected: boolean): void;
+  };
+  webBuild?: (
+    project: ProjectState,
+    signal: AbortSignal,
+    log: (message: string) => void,
+  ) => Promise<{ directory: string; entry: string } | undefined>;
 }
 interface PreviewSession {
   project: ProjectState;
@@ -47,11 +69,14 @@ interface PreviewSession {
   idleSince?: number;
   watcher?: FSWatcher;
   changeTimer?: ReturnType<typeof setTimeout>;
+  tuningTimer?: ReturnType<typeof setTimeout>;
   logTimer?: ReturnType<typeof setTimeout>;
   revision: number;
 }
 interface PreviewOperation {
   automatic: boolean;
+  /** Stops this operation's plugin build when another operation replaces it. */
+  controller?: AbortController;
 }
 const MAX_ERROR_OUTPUT = 8 * 1024;
 
@@ -69,6 +94,9 @@ function previewable(project: ProjectState): boolean {
   return supportsWebPreview(project) || project.type === "interactive-story";
 }
 
+/** The status command of a plugin-built preview; the watcher rebuilds it on changes. */
+const WEB_BUILD_COMMAND = "Build web version";
+
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #proxies = new Map<string, PreviewProxy>();
@@ -76,6 +104,8 @@ export class PreviewManager {
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, PreviewOperation>();
   readonly #starting = new Map<string, Promise<string>>();
+  /** A plugin build running for a project, even after it was cancelled, until it settles. */
+  readonly #builds = new Map<string, Promise<unknown>>();
   readonly #stopping = new Map<string, Promise<void>>();
   readonly #sessions = new Map<string, PreviewSession>();
   readonly #timer: ReturnType<typeof setInterval>;
@@ -137,7 +167,22 @@ export class PreviewManager {
     if (!session.leases.size) {
       session.idleSince ??= Date.now();
       this.#unwatch(session);
+      // Leaving one project for another stops the preview left before it now.
+      void this.collectIdle().catch(() => {});
     }
+  }
+
+  /** Gives the running game the values it should use, now and when pages connect. */
+  setTuning(project: Pick<ProjectState, "id">, values: Record<string, GameTuningScalar>): void {
+    this.#proxies.get(project.id)?.setTuning(values);
+  }
+
+  /** Starts or stops picking in one preview page; false when no preview is running. */
+  setPicking(project: ProjectState, client: string, active: boolean): boolean {
+    const proxy = this.#proxies.get(project.id);
+    if (!proxy || project.preview.status !== "ready") return false;
+    proxy.setPicking(client, active);
+    return true;
   }
 
   touch(project: ProjectState, id: string, active = true): void {
@@ -152,22 +197,71 @@ export class PreviewManager {
     } else this.release(project, id);
   }
 
+  /**
+   * Holds a short lease for as long as `work` takes and one term after, so a
+   * page it opens has time to connect. Cancelling releases the lease at once.
+   * Each call has its own lease, so cancelling one leaves the others held.
+   */
+  async holdWhile<T>(
+    project: ProjectState,
+    purpose: string,
+    work: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
+    const id = `${purpose}:${crypto.randomUUID()}`;
+    this.touch(project, id);
+    const renew = setInterval(
+      () => this.touch(project, id),
+      (this.options.leaseTimeoutMs ?? 75_000) / 3,
+    );
+    renew.unref();
+    const cancel = () => {
+      clearInterval(renew);
+      this.release(project, id);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const result = await work();
+      if (!signal?.aborted) this.touch(project, id);
+      return result;
+    } finally {
+      clearInterval(renew);
+      signal?.removeEventListener("abort", cancel);
+    }
+  }
+
   async collectIdle(now = Date.now()): Promise<void> {
+    const running = (session: PreviewSession) =>
+      !session.leases.size &&
+      ["ready", "starting"].includes(session.project.preview.status);
+    const timeoutOf = (session: PreviewSession) =>
+      this.options.idleTimeoutMs ??
+      (session.project.previewIdleMinutes ?? DEFAULT_PREVIEW_IDLE_MINUTES) *
+        60_000;
     for (const session of this.#sessions.values()) {
       for (const [id, expires] of session.leases)
         if (expires <= now) session.leases.delete(id);
       if (session.leases.size) continue;
       this.#unwatch(session);
       session.idleSince ??= now;
-      const timeout =
-        this.options.idleTimeoutMs ??
-        (session.project.previewIdleMinutes ?? 5) * 60_000;
-      if (
-        timeout > 0 &&
-        now - session.idleSince >= timeout &&
-        ["ready", "starting"].includes(session.project.preview.status)
-      )
+      const timeout = timeoutOf(session);
+      if (timeout > 0 && running(session) && now - session.idleSince >= timeout)
         await this.stop(session.project, "idle");
+    }
+    // Past the limit, the previews left longest ago stop without waiting. The
+    // oldest is picked again after each stop, which gives a preview time to be
+    // opened and left again. "Keep running" (zero) is a choice, so those don't count.
+    const stopped = new Set<PreviewSession>();
+    for (;;) {
+      const waiting = [...this.#sessions.values()]
+        .filter((session) => timeoutOf(session) > 0 && running(session))
+        .sort((a, b) => (b.idleSince ?? 0) - (a.idleSince ?? 0));
+      const oldest = waiting.at(-1);
+      if (waiting.length <= MAX_UNUSED_PREVIEWS || !oldest || stopped.has(oldest))
+        return;
+      stopped.add(oldest);
+      await this.stop(oldest.project, "idle");
     }
   }
 
@@ -258,8 +352,14 @@ export class PreviewManager {
         "Enable Web preview in project settings first.",
       );
     const session = this.#session(project);
-    const operation: PreviewOperation = { automatic };
-    this.#operations.set(project.id, operation);
+    const operation: PreviewOperation = {
+      automatic,
+      controller: new AbortController(),
+    };
+    this.#setOperation(project.id, operation);
+    // A new launch is fresh: its unused time, and its place among unused
+    // previews, start now rather than from before an earlier stop.
+    if (!session.leases.size) session.idleSince = Date.now();
     const assertCurrent = () => {
       this.#assertCurrent(project.id, operation);
       if (operation.automatic && !this.#automaticAllowed(session))
@@ -268,10 +368,24 @@ export class PreviewManager {
     let child: ChildProcess | undefined;
     let began = false;
     try {
-      // A web story is its own page: the folder is served as it is, whatever scripts it carries.
-      const workspace = await resolvePreviewWorkspace(project.type === "interactive-story"
-        ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
-        : project);
+      const built = buildsWebPreview(project);
+      if (built && !this.options.webBuild)
+        throw new ProjectWorkspaceError(
+          "This project's preview needs its plugin, which isn't available here.",
+        );
+      // A web story is its own page: the folder is served as it is, whatever
+      // scripts it carries. A plugin-built game is served once it is built.
+      const workspace = built
+        ? {
+            runnable: true,
+            mode: "static" as const,
+            absolutePath: project.workspacePath,
+            relativePath: ".",
+            error: undefined,
+          }
+        : await resolvePreviewWorkspace(project.type === "interactive-story"
+          ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
+          : project);
       assertCurrent();
       if (!workspace.runnable) {
         const message = workspace.error ?? "Workspace is not runnable yet";
@@ -305,6 +419,7 @@ export class PreviewManager {
         PORT: String(port),
       };
       let processError: Error | undefined;
+      let entry = "index.html";
       let output = () => "";
       const log = (value: string) => {
         if (
@@ -325,13 +440,44 @@ export class PreviewManager {
         }, 250);
         session.logTimer.unref?.();
       };
-      if (workspace.mode === "static") {
-        this.#update(project, {
-          phase: "launching",
-          command: "Serve static files",
-        });
+      let served = workspace.absolutePath;
+      if (built) {
+        this.#update(project, { phase: "building", command: WEB_BUILD_COMMAND });
+        // A cancelled build may still be writing the build folder.
+        await this.#settledBuild(project.id);
         assertCurrent();
-        const server = await startStaticPreview(workspace.absolutePath, port);
+        const building = this.options.webBuild!(
+          project,
+          operation.controller!.signal,
+          (message) => log(`${message}\n`),
+        );
+        this.#builds.set(project.id, building);
+        const forget = () => {
+          if (this.#builds.get(project.id) === building)
+            this.#builds.delete(project.id);
+        };
+        building.then(forget, forget);
+        const build = await building;
+        assertCurrent();
+        if (!build)
+          throw new ProjectWorkspaceError(
+            "This project's plugin doesn't build a web version.",
+          );
+        served = build.directory;
+        entry = build.entry;
+        this.#update(project, {
+          directory: path.relative(project.workspacePath, build.directory) || ".",
+        });
+      }
+      if (workspace.mode === "static") {
+        if (!built)
+          this.#update(project, {
+            phase: "launching",
+            command: "Serve static files",
+          });
+        assertCurrent();
+        // A build's page is served at the root, so the panel's routes work as for any web game.
+        const server = await startStaticPreview(served, port, entry);
         try {
           assertCurrent();
         } catch (cause) {
@@ -396,6 +542,7 @@ export class PreviewManager {
           );
           assertCurrent();
           args = packageManagerRunArguments(
+            manager,
             project.startupScript ?? "dev",
             previewScriptArguments(
               manifest.scripts[project.startupScript ?? "dev"],
@@ -487,6 +634,14 @@ export class PreviewManager {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);
           },
+          onTuningConnected: (connected) => {
+            if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
+              this.options.tuning?.setConnected(project, connected);
+          },
+          onPick: (client, pick) => {
+            if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
+              this.events.publish(project.id, "preview.picked", { client, ...(pick ? { pick } : {}) });
+          },
           onNavigation: (client, source, pathname) => {
             if (
               !proxyHandle ||
@@ -518,6 +673,7 @@ export class PreviewManager {
       }
       proxyHandle = proxy;
       this.#proxies.set(project.id, proxy);
+      void this.options.tuning?.refresh(project).catch(() => {});
       await this.#saveProxyPort(project, Number(new URL(proxy.url).port));
       assertCurrent();
       if (
@@ -596,9 +752,11 @@ export class PreviewManager {
       return;
     }
     const operation: PreviewOperation = { automatic: false };
-    this.#operations.set(project.id, operation);
+    this.#setOperation(project.id, operation);
     this.#starting.delete(project.id);
-    const stopping = this.#terminateProject(project.id);
+    const stopping = this.#terminateProject(project.id).then(() =>
+      this.#settledBuild(project.id),
+    );
     this.#stopping.set(project.id, stopping);
     try {
       await stopping;
@@ -629,10 +787,13 @@ export class PreviewManager {
       this.#unwatch(session);
       clearTimeout(session.logTimer);
     }
+    for (const operation of this.#operations.values())
+      operation.controller?.abort();
     this.#operations.clear();
     this.#starting.clear();
     await Promise.all([
       ...this.#stopping.values(),
+      ...[...this.#builds.values()].map((build) => build.catch(() => {})),
       ...[
         ...new Set([
           ...this.#children.keys(),
@@ -672,24 +833,22 @@ export class PreviewManager {
   }
 
   #watch(session: PreviewSession): void {
+    // It may have changed while nothing was watching.
+    void this.options.tuning?.refresh(session.project).catch(() => {});
     try {
       session.watcher = watch(
         session.project.workspacePath,
         { recursive: true },
         (_event, filename) => {
-          const parts = String(filename ?? "")
-            .replaceAll("\\", "/")
-            .split("/");
-          if (
-            parts.some(
-              (part) =>
-                part.startsWith(".") ||
-                ["node_modules", "dist", "build"].includes(part),
-            ) ||
-            !path.extname(parts.at(-1) ?? "") ||
-            /\.(?:pid|log|tmp|swp)$/i.test(parts.at(-1) ?? "")
-          )
+          if (isGameTuningFile(String(filename ?? ""))) {
+            clearTimeout(session.tuningTimer);
+            session.tuningTimer = setTimeout(() => {
+              void this.options.tuning?.refresh(session.project).catch(() => {});
+            }, 100);
+            session.tuningTimer.unref?.();
             return;
+          }
+          if (!isPreviewSourceChange(String(filename ?? ""))) return;
           session.dirty = true;
           clearTimeout(session.changeTimer);
           session.changeTimer = setTimeout(() => {
@@ -697,6 +856,25 @@ export class PreviewManager {
             if (session.project.preview.status === "ready") {
               if (session.project.preview.command === "Serve static files")
                 this.#proxies.get(session.project.id)?.reload();
+              else if (
+                session.project.preview.command === WEB_BUILD_COMMAND &&
+                this.#automaticAllowed(session)
+              )
+                void this.#beginStart(session.project, false, true).catch(
+                  () => {},
+                );
+            } else if (
+              session.project.preview.status === "starting" &&
+              session.project.preview.command === WEB_BUILD_COMMAND
+            ) {
+              // A build that started before this change would miss it: start
+              // again, which cancels it, as the same kind of start it was.
+              const automatic =
+                this.#operations.get(session.project.id)?.automatic ?? true;
+              if (!automatic || this.#automaticAllowed(session))
+                void this.#beginStart(session.project, false, automatic).catch(
+                  () => {},
+                );
             } else void this.automatic(session.project, true).catch(() => {});
           }, 800);
           session.changeTimer.unref?.();
@@ -712,6 +890,8 @@ export class PreviewManager {
     session.watcher = undefined;
     clearTimeout(session.changeTimer);
     session.changeTimer = undefined;
+    clearTimeout(session.tuningTimer);
+    session.tuningTimer = undefined;
   }
 
   async #savedProxyPort(project: ProjectState): Promise<number | undefined> {
@@ -738,6 +918,8 @@ export class PreviewManager {
     this.#running.delete(id);
     const proxy = this.#proxies.get(id);
     this.#proxies.delete(id);
+    const project = this.#sessions.get(id)?.project;
+    if (project) this.options.tuning?.setConnected(project, false);
     const staticServer = this.#static.get(id);
     this.#static.delete(id);
     const children = [...(this.#children.get(id) ?? [])];
@@ -790,6 +972,17 @@ export class PreviewManager {
       await terminateProjectProcess(child);
       this.#untrack(id, child);
     }
+  }
+  async #settledBuild(id: string): Promise<void> {
+    while (this.#builds.has(id))
+      await this.#builds.get(id)!.then(
+        () => {},
+        () => {},
+      );
+  }
+  #setOperation(id: string, operation: PreviewOperation): void {
+    this.#operations.get(id)?.controller?.abort();
+    this.#operations.set(id, operation);
   }
   #assertCurrent(id: string, operation: PreviewOperation): void {
     if (this.#operations.get(id) !== operation)
@@ -855,7 +1048,7 @@ async function waitUntilReady(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    withOutput(`Preview did not become ready within ${timeoutMs}ms`, output()),
+    withOutput(`Preview did not become ready at ${url} within ${timeoutMs}ms`, output()),
   );
 }
 
@@ -897,15 +1090,77 @@ async function waitForCommand(
   });
 }
 
-/** Hidden entries and generated folders are not files someone wrote for the project. */
+/**
+ * Whether a changed file, relative to the workspace, can change the running
+ * game. Hidden and generated folders, logs and temporary files can't, and nor
+ * can the files Design keeps in the workspace's root `canvas/` folder: opening
+ * Design saves its board there, which would otherwise reload the game beside
+ * it. Other files in `canvas/` may belong to the game and still count.
+ */
+function isGameTuningFile(filename: string): boolean {
+  return (GAME_TUNING_FILES as readonly string[]).includes(filename.replaceAll("\\", "/"));
+}
+
+export function isPreviewSourceChange(filename: string): boolean {
+  // Tuned values reach the running game without restarting it.
+  if (isGameTuningFile(filename)) return false;
+  const parts = filename.replaceAll("\\", "/").split("/");
+  const name = parts.at(-1) ?? "";
+  return !(
+    isDesignCanvasFile(parts) ||
+    parts.some((part) => part.startsWith(".") || ["node_modules", "dist", "build"].includes(part)) ||
+    !path.extname(name) ||
+    /\.(?:pid|log|tmp|swp)$/i.test(name)
+  );
+}
+
+// What Design writes in canvas/ (src/daemon/canvas-workspace.ts): its index,
+// lists and instructions, and one file per board, layout, document, table and
+// schema. Anything else there may be the game's.
+const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
+const DESIGN_CANVAS_ENTRIES: Record<string, RegExp> = {
+  boards: /^[^/]+\.json$/,
+  editor: /^[^/]+\.json$/,
+  tables: /^[^/]+\.json$/,
+  documents: /^[^/]+\.md$/,
+  schemas: /^[^/]+\.schema\.json$/,
+};
+
+function isDesignCanvasFile(parts: string[]): boolean {
+  if (parts[0] !== "canvas") return false;
+  if (parts.length === 2) return DESIGN_CANVAS_FILES.has(parts[1]);
+  return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]) && DESIGN_CANVAS_ENTRIES[parts[1]].test(parts[2]);
+}
+
+/**
+ * Hidden entries, generated folders and the files Design keeps in `canvas/`
+ * (written as soon as a new project opens) are not files someone wrote for
+ * the project.
+ */
 async function hasProjectFiles(directory: string): Promise<boolean> {
+  let names: string[];
   try {
-    return (await readdir(directory)).some(
-      (name) =>
-        !name.startsWith(".") &&
-        !["node_modules", "dist", "build"].includes(name),
-    );
+    names = await readdir(directory);
   } catch {
     return false;
+  }
+  for (const name of names) {
+    if (name.startsWith(".") || ["node_modules", "dist", "build"].includes(name)) continue;
+    if (name !== "canvas" || (await hasGameCanvasFiles(path.join(directory, name)))) return true;
+  }
+  return false;
+}
+
+async function hasGameCanvasFiles(canvas: string): Promise<boolean> {
+  try {
+    const entries = await readdir(canvas, { recursive: true, withFileTypes: true });
+    return entries.some((entry) => {
+      if (entry.isDirectory()) return false;
+      const relative = path.relative(canvas, path.join(entry.parentPath, entry.name));
+      return !isDesignCanvasFile(["canvas", ...relative.split(path.sep)]);
+    });
+  } catch {
+    // A plain file named `canvas` belongs to the project.
+    return true;
   }
 }

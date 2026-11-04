@@ -71,9 +71,9 @@ describe("project return navigation", () => {
     const previousLanguage = i18next.language;
     try {
       await i18next.changeLanguage("zh-CN");
-      await mount("#/general");
+      await mount("#/library");
       await navigate(projectHash("project"));
-      expect(container.textContent).toBe("返回通用游戏");
+      expect(container.textContent).toBe("返回素材库");
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }
@@ -81,11 +81,6 @@ describe("project return navigation", () => {
 
   it.each([
     ["#/", "Home"],
-    ["#/general", "General Game"],
-    ["#/web-game", "Web Game"],
-    ["#/interactive-story", "Interactive Story"],
-    ["#/godot", "Godot"],
-    ["#/asset-canvas", "Asset Canvas"],
     ["#/library", "Library"],
     ["#/community/games", "Community"],
     ["#/plugins", "Plugins"],
@@ -128,26 +123,26 @@ describe("project return navigation", () => {
   });
 
   it("captures plain hash links and inherits the entry when opening another project from the canvas", async () => {
-    await mount("#/asset-canvas");
+    await mount("#/library");
     await followHash(projectHash("canvas"));
     expect(navigation.route).toEqual({ page: "project", projectId: "canvas" });
     await navigate(conversationHash("canvas", "chat"), true);
     await followHash(projectHash("game"));
     expect(navigation.route).toEqual({ page: "project", projectId: "game" });
-    expect(navigation.projectReturnTo).toBe("#/asset-canvas");
+    expect(navigation.projectReturnTo).toBe("#/library");
   });
 
   it("restores each project's own entry through browser back and forward", async () => {
-    await mount("#/web-game");
+    await mount("#/library");
     await navigate(projectHash("first"));
-    await navigate("#/godot");
+    await navigate("#/plugins");
     await navigate(projectHash("second"));
     await traverseHistory(-2);
     expect(navigation.route).toEqual({ page: "project", projectId: "first" });
-    expect(navigation.projectReturnTo).toBe("#/web-game");
+    expect(navigation.projectReturnTo).toBe("#/library");
     await traverseHistory(2);
     expect(navigation.route).toEqual({ page: "project", projectId: "second" });
-    expect(navigation.projectReturnTo).toBe("#/godot");
+    expect(navigation.projectReturnTo).toBe("#/plugins");
   });
 
   it("uses Projects for a direct project link instead of another site's history", async () => {

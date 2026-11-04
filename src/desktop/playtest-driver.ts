@@ -16,6 +16,8 @@ import {
   type PlaytestViewport,
   type PlaytestWatchState,
 } from "../shared/playtest.js";
+import { AGENT_RECORDING_MAX_SECONDS, type GameRecordingSaved } from "../shared/game-recording.js";
+import type { GameRecorder } from "./game-recorder.js";
 import { isLocalSignInPage } from "./game-sign-in.js";
 
 interface PlaytestSession {
@@ -26,6 +28,8 @@ interface PlaytestSession {
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
   idleTimer?: ReturnType<typeof setTimeout>;
+  /** Settles when the recording in progress, or one that hit its time limit, has been saved. */
+  recording?: Promise<GameRecordingSaved>;
 }
 
 /** A frame of the page and how its coordinates map to the window's. */
@@ -59,6 +63,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   constructor(
     private readonly onWatchStateChange?: (state: PlaytestWatchState) => void,
     private readonly idleTimeoutMs = IDLE_TIMEOUT_MS,
+    private readonly recorder?: Pick<GameRecorder, "start" | "stop">,
   ) {}
 
   watchState(): PlaytestWatchState {
@@ -74,6 +79,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       } else {
         state.window.hide();
       }
+      state.window.webContents.setAudioMuted(!visible);
     }
     return this.#publishWatchState();
   }
@@ -85,6 +91,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
+      case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId));
+      case "recordStop": return await this.#recordStop(this.#activeSession(request.sessionId));
       case "close":
         this.#close(request.sessionId);
         return { operation: "close" };
@@ -163,6 +171,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     // The session outlives the window, and reading `window.webContents` after the window is destroyed throws.
     const webContents = window.webContents;
     const webContentsId = webContents.id;
+    // The game runs out of sight until someone watches it, so it must not be heard either.
+    webContents.setAudioMuted(true);
     webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
       const requestingUrl = details.requestingUrl ?? requestingOrigin;
       return contents === webContents && permission === "pointerLock" && details.isMainFrame &&
@@ -190,7 +200,10 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       await window.loadURL(url.href);
       signal?.throwIfAborted();
       state.ready = true;
-      if (this.#visible) window.showInactive();
+      if (this.#visible) {
+        window.showInactive();
+        webContents.setAudioMuted(false);
+      }
       return await this.#inspect(state, signal);
     } catch (cause) {
       this.#close(id);
@@ -382,6 +395,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     clearTimeout(state.idleTimer);
     this.#sessions.delete(id);
     this.#publishWatchState();
+    // Whatever was being recorded still goes to the Library.
+    this.recorder?.stop(recordingId(id));
     if (!state.window.isDestroyed()) {
       if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
       this.#closingSessions.add(id);
@@ -389,11 +404,33 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     }
   }
 
+  async #recordStart(state: PlaytestSession): Promise<PlaytestResult> {
+    if (!this.recorder) throw new Error("Recording is not available in this environment");
+    if (state.recording) throw new Error("This game session has already recorded; stop it first with recordStop");
+    const { outcome } = await this.recorder.start(recordingId(state.id), state.window.webContents, { title: "Agent playtest", maxSeconds: AGENT_RECORDING_MAX_SECONDS });
+    state.recording = outcome;
+    // Asked for or not, a failure must not end the process; recordStop reports it.
+    outcome.catch(() => undefined);
+    return { operation: "recordStart", sessionId: state.id, maxSeconds: AGENT_RECORDING_MAX_SECONDS };
+  }
+
+  async #recordStop(state: PlaytestSession): Promise<PlaytestResult> {
+    const outcome = state.recording;
+    if (!outcome) throw new Error("This game session is not recording; start with recordStart");
+    state.recording = undefined;
+    this.recorder?.stop(recordingId(state.id));
+    return { operation: "recordStop", sessionId: state.id, recording: await outcome };
+  }
+
   #publishWatchState(): PlaytestWatchState {
     const state = this.watchState();
     this.onWatchStateChange?.(state);
     return state;
   }
+}
+
+function recordingId(sessionId: string): string {
+  return `agent:${sessionId}`;
 }
 
 export function validatedPlaytestUrl(value: string): URL {

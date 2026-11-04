@@ -1,0 +1,7 @@
+{
+  "displayName": "Tiled",
+  "description": "Build tile maps, collisions, and gameplay object layers.",
+  "longDescription": "Create or edit TMX/TMJ maps and TSX/TSJ tilesets, keep image references and gameplay properties, export with the local Tiled CLI, and check the result in the game engine.",
+  "example.1": "Create a small Tiled level with a player spawn, collision layer, and goal, then integrate it into this game.",
+  "example.2": "Check this Tiled map's tilesets, object properties, and target-engine import."
+}

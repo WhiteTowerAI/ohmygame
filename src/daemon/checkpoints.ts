@@ -315,6 +315,46 @@ class GitignoreRules {
   }
 }
 
+/**
+ * Whether snapshots record a path of a workspace, so that Undo can bring back
+ * a change to it: it isn't excluded and no `.gitignore` on the way ignores it.
+ * `folder` says whether the path is a folder. The rules read are kept, so ask
+ * one of these about many paths of the same workspace at a time.
+ */
+export function checkpointCoverage(
+  workspacePath: string,
+): (relativePath: string, folder: boolean) => Promise<boolean> {
+  const cache = new Map<string, Promise<GitignoreRules>>();
+  const rulesIn = (folder: string): Promise<GitignoreRules> => {
+    let rules = cache.get(folder);
+    if (!rules) {
+      rules = (async () => {
+        const inherited = folder
+          ? await rulesIn(path.posix.dirname(folder) === "." ? "" : path.posix.dirname(folder))
+          : GitignoreRules.none;
+        const file = path.join(workspacePath, ...folder.split("/").filter(Boolean), GITIGNORE);
+        // As in a snapshot, a linked ignore file holds no rules.
+        if (!(await lstat(file).catch(() => undefined))?.isFile()) return inherited;
+        const content = await readFile(file).catch(() => undefined);
+        return content ? inherited.within(folder, gitignoreRules(content)) : inherited;
+      })();
+      cache.set(folder, rules);
+    }
+    return rules;
+  };
+  return async (relativePath, folder) => {
+    const parts = relativePath.split("/");
+    for (let index = 1; index <= parts.length; index += 1) {
+      const prefix = parts.slice(0, index).join("/");
+      if (excluded(prefix)) return false;
+      // Nothing below an ignored folder is looked at.
+      const rules = await rulesIn(parts.slice(0, index - 1).join("/"));
+      if (rules.ignores(prefix, index < parts.length || folder)) return false;
+    }
+    return true;
+  };
+}
+
 /** The rules a `.gitignore` holds. Undefined for one that is too large or that the matcher cannot take: it ignores nothing. */
 function gitignoreRules(content: Buffer): Ignore | undefined {
   if (content.length > MAX_GITIGNORE_BYTES) return undefined;
@@ -401,6 +441,20 @@ export class CheckpointStore {
         kind: !change.from ? "added" : !change.to ? "removed" : "modified",
       }))
       .sort((left, right) => compare(left.path, right.path));
+  }
+
+  /** Whether `to` couldn't read a path `from` could, so comparing them can't say whether it changed. */
+  async lostSight(
+    project: CheckpointProject,
+    from: string,
+    to: string,
+  ): Promise<boolean> {
+    const gitdir = checkpointDirectory(project);
+    const [before, after] = await Promise.all([
+      readCommit(gitdir, from),
+      readCommit(gitdir, to),
+    ]);
+    return after.unreadable.some((file) => !before.unreadable.includes(file));
   }
 
   /** Immutable, bounded text statistics for the end-of-turn summary. */

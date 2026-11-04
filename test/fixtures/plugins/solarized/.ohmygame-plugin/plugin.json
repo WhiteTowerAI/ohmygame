@@ -1,0 +1,54 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/solarized",
+  "version": "1.0.0",
+  "engines": { "ohmygame-api": "^2.0.0" },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "icon": "./assets/icon.svg",
+  "categories": ["theme"],
+  "contributes": {
+    "themes": [
+      {
+        "id": "solarized",
+        "title": "%theme.title%",
+        "dark": {
+          "--gray-0": "#002b36",
+          "--gray-1": "#073642",
+          "--gray-2": "#0b3d4a",
+          "--gray-3": "#124652",
+          "--gray-4": "#1d5260",
+          "--gray-6": "#586e75",
+          "--gray-8": "#839496",
+          "--gray-9": "#93a1a1",
+          "--gray-12": "#fdf6e3",
+          "--color-accent": "#268bd2",
+          "--color-on-accent": "#fdf6e3",
+          "--color-grid-dot": "#0e4250",
+          "--syntax-comment": "#586e75",
+          "--syntax-keyword": "#859900",
+          "--syntax-number": "#d33682",
+          "--syntax-string": "#2aa198"
+        },
+        "light": {
+          "--gray-0": "#fdf6e3",
+          "--gray-1": "#eee8d5",
+          "--gray-2": "#e6dfca",
+          "--gray-3": "#ddd6c1",
+          "--gray-4": "#d3cbb4",
+          "--gray-6": "#93a1a1",
+          "--gray-8": "#657b83",
+          "--gray-9": "#586e75",
+          "--gray-12": "#002b36",
+          "--color-accent": "#268bd2",
+          "--color-on-accent": "#fdf6e3",
+          "--color-grid-dot": "#e2dbc6",
+          "--syntax-comment": "#93a1a1",
+          "--syntax-keyword": "#859900",
+          "--syntax-number": "#d33682",
+          "--syntax-string": "#2aa198"
+        }
+      }
+    ]
+  }
+}

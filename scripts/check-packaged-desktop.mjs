@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractFile } from "@electron/asar";
@@ -34,6 +34,12 @@ export default async function checkPackagedDesktop(context) {
     console.log("Packaged Pi patch and story resources verified; daemon startup requires the target platform.");
     return;
   }
+  const ffmpegDirectory = path.join(resources, "app.asar.unpacked", "node_modules", "ffmpeg-static");
+  const ffmpegName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  assert((await stat(path.join(ffmpegDirectory, ffmpegName))).isFile(), "Packaged FFmpeg executable is missing");
+  // FFmpeg is distributed under its own license, which must ship beside it.
+  // ffmpeg-static names it after the executable, so it is ffmpeg.exe.LICENSE on Windows.
+  assert((await stat(path.join(ffmpegDirectory, `${ffmpegName}.LICENSE`))).isFile(), "Packaged FFmpeg license is missing");
   const name = packager.appInfo.productFilename;
   const executable = electronPlatformName === "darwin"
     ? path.join(resources, "..", "MacOS", name)

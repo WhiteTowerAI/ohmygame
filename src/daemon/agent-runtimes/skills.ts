@@ -1,6 +1,7 @@
 import { cp, mkdir, readdir, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import { skillMentionRanges } from "../../shared/skill-mentions.js";
 
 const STAGED_SKILLS: Record<AgentRuntimeId, string> = {
   // Claude Code reads Skills from a plugin of the session's own.
@@ -60,4 +61,17 @@ export async function skillFolders(root: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * The Skills a message names as `$name`, anywhere and any number, in the order
+ * they first appear. Only names the agent has count, so `$5` stays text.
+ */
+export function invokedSkills(text: string, available: Iterable<string>): string[] {
+  return [...new Set(skillMentionRanges(text, available).map((range) => range.name))];
+}
+
+/** Asks an agent that loads Skills itself, with its Skill tool, to load the named ones. */
+export function skillInstruction(names: readonly string[]): string {
+  return `Load and follow these Skills before you answer: ${names.join(", ")}.`;
 }

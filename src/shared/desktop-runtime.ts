@@ -1,6 +1,8 @@
 export interface DaemonRuntime {
   url: string;
   token: string;
+  /** Where plugin pages are served from; their frames can't leave it. */
+  pluginUiUrl?: string;
 }
 
 export interface DesktopRuntimeState {

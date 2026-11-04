@@ -11,6 +11,13 @@ export interface ProjectPreviewSettings {
   previewIdleMinutes?: number;
 }
 
+/**
+ * Minutes an unused preview keeps running when a project hasn't chosen.
+ * Restarting takes about a second and the game reloads either way, so a short
+ * wait only covers looking at another project and coming back.
+ */
+export const DEFAULT_PREVIEW_IDLE_MINUTES = 1;
+
 export const PREVIEW_SETTING_KEYS = [
   "previewAutoStart",
   "previewMode",

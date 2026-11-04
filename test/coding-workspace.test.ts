@@ -10,6 +10,7 @@ import {
   workspaceFileTree,
   workspacePathAfterChange,
 } from "../src/renderer/coding-workspace.js";
+import { publishAction } from "../src/renderer/project-frame.js";
 import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
 import { filterAssets } from "../src/renderer/asset-browser.js";
 
@@ -30,22 +31,21 @@ describe("coding workspace", () => {
     expect(renderToStaticMarkup(createElement(PreviewView, { ...props, active: true }))).toContain("<iframe");
   });
 
-  it("uses device presets and bounds the fit viewport to supported dimensions", () => {
+  it("uses device presets and a fixed fit viewport independent of the preview panel", () => {
     expect(playerViewport("mobile")).toEqual({ width: 375, height: 667 });
     expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
-    expect(playerViewport("fit", { width: 930.4, height: 660.8 })).toEqual({ width: 930, height: 661 });
-    expect(playerViewport("fit", { width: 0, height: 0 })).toEqual({ width: 1280, height: 720 });
-    expect(playerViewport("fit", { width: 20000, height: 200 })).toEqual({ width: 8192, height: 240 });
+    expect(playerViewport("fit")).toEqual({ width: 1280, height: 720 });
   });
 
-  it("browses project assets without file mutation menus and keeps a shared filter entry", () => {
+  it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
     const html = renderToStaticMarkup(createElement(AssetsView, {
       projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],
       loading: false, revision: 0, onShowInCode: () => undefined,
     }));
-    expect(html).toContain('aria-label="Filter assets"');
-    expect(html).toContain("<strong>hero.png</strong>");
+    expect(html).toContain('aria-label="Source"');
+    expect(html).toContain('aria-label="Use"');
+    expect(html).toContain('<span class="ui-media-name-text">hero.png</span>');
     expect(html).not.toContain("Asset actions");
     expect(html).not.toContain("Save to Library");
     expect(html).not.toContain("Rename");
@@ -83,11 +83,9 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "waiting" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
-        onOpenPublish: () => undefined,
         onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),
@@ -95,11 +93,13 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
-    expect(html).toContain('aria-label="Project settings"');
+    // Project settings moved into the More menu, beside picking an element.
+    expect(html).toContain('aria-label="More"');
+    expect(html).toContain('aria-label="Pick an element in the game"');
     expect(html).not.toContain('aria-label="View publication"');
   });
 
-  it("keeps a single Publish entry after publishing", () => {
+  it("leaves Publish to the top bar after publishing", () => {
     const html = renderToStaticMarkup(createElement(CodingWorkspace, {
       project: {
         id: "project-1", name: "Published game", type: "web-game",
@@ -107,12 +107,11 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       onPublish: async () => false, onRestart: () => undefined,
-      onOpenPublish: () => undefined, onClosePublish: () => undefined,
+      onClosePublish: () => undefined,
     }));
-    expect(html.match(/aria-label="Publish"/g)).toHaveLength(1);
-    expect(html).toContain("<span>Publish</span>");
+    expect(html).not.toContain("workspace-publish-button");
     expect(html).not.toContain('aria-label="View publication"');
     expect(html).not.toContain('aria-label="Publish update"');
   });
@@ -125,10 +124,10 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", title: "Published title", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       publishDialog: "success",
       onPublish: async () => false, onRestart: () => undefined,
-      onOpenPublish: () => undefined, onClosePublish: () => undefined,
+      onClosePublish: () => undefined,
     }));
     expect(html.match(/role="dialog"/g)).toHaveLength(1);
     expect(html).toContain("Published successfully");
@@ -137,7 +136,17 @@ describe("coding workspace", () => {
     expect(html).not.toContain("<form");
   });
 
-  it("exposes Godot workspace controls without enabling publishing", () => {
+  it("puts Publish in the top bar for projects that can publish", () => {
+    const idle = { publishing: false, agentBusy: false };
+    expect(publishAction({ type: "web-game" }, idle)).toEqual({ disabled: false, label: "Publish" });
+    expect(publishAction({ type: "general" }, idle)).toEqual({ disabled: false, label: "Publish" });
+    expect(publishAction({ type: "web-game" }, { publishing: false, agentBusy: true })?.disabled).toBe(true);
+    expect(publishAction({ type: "web-game" }, { publishing: true, agentBusy: false })).toEqual({ disabled: true, label: "Publishing" });
+    expect(publishAction({ type: "godot-game" }, idle)).toEqual({ disabled: true, label: "Godot publishing is not available yet" });
+    expect(publishAction({ type: "asset-canvas" }, idle)).toBeUndefined();
+  });
+
+  it("opens a Godot workspace on its code and leaves publishing to the top bar", () => {
     const html = renderToStaticMarkup(
       createElement(CodingWorkspace, {
         project: {
@@ -148,21 +157,17 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "stopped" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
-        onOpenPublish: () => undefined,
         onClosePublish: () => undefined,
         onRestart: () => undefined,
-        onClose: () => undefined,
       }),
     );
 
-    expect(html).toContain(
-      '<button class="publish-button workspace-publish-button" type="button" disabled="" title="Godot publishing is not available yet"',
-    );
-    expect(html).toContain('aria-label="Hide workspace"');
+    expect(html).not.toContain("workspace-publish-button");
+    expect(html).toContain('data-active-tab="code"');
+    expect(html).not.toContain("<iframe");
   });
 
   it.each(["mobile", "mobile-landscape"] as const)("uses the saved route and %s preset when opening a Web Game preview", (viewport) => {
@@ -178,11 +183,9 @@ describe("coding workspace", () => {
           previewViewport: viewport,
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
-        onOpenPublish: () => undefined,
         onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),
@@ -194,22 +197,20 @@ describe("coding workspace", () => {
 
   it("respects the saved General preview capability when opening the workspace directly", () => {
     const props = {
-      agentBusy: false, publishing: false, workspaceRevision: 0,
-      onPublish: async () => false, onOpenPublish: () => undefined,
+      publishing: false, workspaceRevision: 0,
+      onPublish: async () => false,
       onClosePublish: () => undefined, onRestart: () => undefined,
     };
     const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
     const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
     expect(blank).toContain('aria-label="Project settings"');
-    expect(blank).not.toContain(">Preview<");
+    expect(blank).toContain('data-active-tab="code"');
     expect(blank).not.toContain("<iframe");
-    expect(blank).toContain('title="Publish" aria-label="Publish"');
-    expect(blank).not.toContain('disabled="" title="Publish"');
 
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
-    expect(runnable).toContain(">Preview<");
+    expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
-    expect(runnable).toContain('aria-label="Play"');
+    expect(runnable).toMatch(/preview-play-button[^>]*>.*Play<\/button>/);
     expect(runnable).not.toContain("Publishing requires a Web build");
   });
 
@@ -224,11 +225,9 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
-        onOpenPublish: () => undefined,
         onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),

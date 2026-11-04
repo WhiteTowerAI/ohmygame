@@ -198,10 +198,6 @@ export function NodePlayer({
   );
 }
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}
-
 function reportDiagnostic(error: string): void {
   console.error(`[Node Runtime] ${error}`);
 }

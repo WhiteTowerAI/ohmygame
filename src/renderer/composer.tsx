@@ -1,25 +1,26 @@
-import { FileText, X } from "./icons.js";
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
+import { DangerCircle, FileText, InfoCircle, X } from "./icons.js";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ScheduledMessage } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
-import { MessageQueue } from "./message-queue.js";
-import { PromptBox, type DroppedFile } from "./prompt-box.js";
+import { MessageQueue, ScheduledMessages } from "./message-queue.js";
+import { isLaterCommand, laterCommand, parseLaterCommand } from "./later-command.js";
+import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import { ComposerActions } from "./composer-actions.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
-import { useComposerContextMenu } from "./composer-context-menu.js";
-import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
-import { ComposerCapabilityReferences } from "./composer-capability-references.js";
+import { useComposerContextMenu, type ComposerPluginCommands } from "./composer-context-menu.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
+import { activePluginMentions, formatPluginInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
 import { t } from "./i18n.js";
 import type { AgentContextUsage } from "../shared/contracts.js";
+import { ComposerStatus } from "./composer-status.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
-import { LIMIT_RESUME_PROMPT, limitResumeAt } from "./limit-resume.js";
 
 export type { ComposerDraft } from "./composer-drafts.js";
 
@@ -31,11 +32,16 @@ interface ComposerProps {
   running: boolean;
   stopping: boolean;
   pendingPrompts: PendingPrompt[];
+  scheduledMessages: ScheduledMessage[];
   plan?: PlanState;
   planMode: PlanMode;
   notice?: string;
-  /** The last turn stopped at a usage limit; offer to continue once it resets. */
-  limitReached?: boolean;
+  /** Something to know that isn't a failure, such as a message put back in the box. */
+  status?: string;
+  /** The person began writing while a continue was armed, or changed the agent's setting from the notice. */
+  /** This conversation will continue by itself after a usage limit, until the person starts writing. */
+  limitResumeArmed?: boolean;
+  onSkipLimitResume?: () => void;
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   model?: AgentModelRef;
@@ -49,7 +55,8 @@ interface ComposerProps {
   onInitialDraftHandled?: () => void;
   onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[], references: PromptReference[], contexts: PromptContext[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
-  onContextUsage: () => Promise<AgentContextUsage | undefined>;
+  /** `passive` reads what is known without loading the agent's session. */
+  onContextUsage: (passive?: boolean) => Promise<AgentContextUsage | undefined>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -58,11 +65,18 @@ interface ComposerProps {
   onRemovePending: (turnId: string) => Promise<boolean>;
   onSteerPending: (turnId: string) => Promise<boolean>;
   onEditPending: (item: PendingPrompt) => Promise<boolean>;
+  onScheduleMessage: (prompt: string, at: number) => Promise<boolean>;
+  onRemoveScheduled: (id: string) => Promise<boolean>;
   /** Editor context the next message carries, such as the open Node. */
   contexts?: ChatContextChip[];
   onRemoveContext?: (key: string) => void;
   canPublish?: boolean;
   onPublish?: () => void;
+  /** Plugin commands for the "/" list and the + menu; the project shell runs them. */
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
+  /** Turns on a plugin that is off in the project, for mentioning it; false when the person declined. */
+  onTurnOnPlugin?: (plugin: ConversationCapabilities["plugins"][number]) => Promise<boolean>;
 }
 
 export function Composer({
@@ -73,10 +87,13 @@ export function Composer({
   running,
   stopping,
   pendingPrompts,
+  scheduledMessages,
   plan,
   planMode,
   notice,
-  limitReached = false,
+  status,
+  limitResumeArmed,
+  onSkipLimitResume,
   models,
   modelStatus,
   model,
@@ -88,6 +105,7 @@ export function Composer({
   capabilities,
   initialDraft,
   onInitialDraftHandled,
+  onTurnOnPlugin,
   onSubmit,
   onCompact,
   onContextUsage,
@@ -99,10 +117,14 @@ export function Composer({
   onRemovePending,
   onSteerPending,
   onEditPending,
+  onScheduleMessage,
+  onRemoveScheduled,
   contexts = [],
   onRemoveContext,
   canPublish,
   onPublish,
+  pluginCommands,
+  onPluginCommand,
 }: ComposerProps) {
   const [draftSession] = useState(() => composerDrafts.get(
     projectId && conversationId ? { projectId, conversationId } : undefined,
@@ -110,7 +132,7 @@ export function Composer({
     planMode === "planning",
   ));
   const draft = useSyncExternalStore(draftSession.subscribe, draftSession.getSnapshot, draftSession.getSnapshot);
-  const { prompt, selectedSkill, selectedPlugin, mentions: pluginMentions, attachments, designReference, reference, planning, submitting } = draft;
+  const { prompt, mentions: pluginMentions, attachments, uploaded: carried = [], designReference, reference, planning, submitting } = draft;
   const updateDraft = draftSession.update;
   const [referencingDesign, setReferencingDesign] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string>();
@@ -119,32 +141,41 @@ export function Composer({
   const [runtimeUsage, setRuntimeUsage] = useState<AgentContextUsage>();
   const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
-  // Opting in pins the time, so later renders (a reset passing, a usage refresh) cannot drop the schedule.
-  const [resumeArmedAt, setResumeArmedAt] = useState<number>();
-  const resumeAt = resumeArmedAt ?? (limitReached && isAgentRuntimeId(model?.provider) ? limitResumeAt(runtimeUsage?.limits) : undefined);
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<PromptInput>(null);
+  // The text now, for a mention that goes in once its plugin is on.
+  const latestPrompt = useRef(prompt);
+  latestPrompt.current = prompt;
   useEffect(() => {
-    if (!initialDraft) return;
-    const cursor = prompt.length;
-    setMentionCursor(cursor);
-    requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(cursor, cursor);
+    // A draft saved when a plugin sat in a slot before the text gets it back in the text, after its Skill as it was sent.
+    const legacy = draftSession.getSnapshot().selectedPlugin;
+    if (legacy) updateDraft((current) => {
+      const skill = parseSkillInvocation(current.prompt);
+      return {
+        prompt: formatSkillInvocation(skill?.name, formatPluginInvocation(legacy, skill?.prompt ?? current.prompt)),
+        selectedPlugin: undefined,
+        mentions: [...current.mentions, legacy],
+      };
     });
+    if (!initialDraft) return;
+    focusAt(draftSession.getSnapshot().prompt.length);
     onInitialDraftHandled?.();
   }, []);
 
+  function focusAt(cursor: number): void {
+    setMentionCursor(cursor);
+    requestAnimationFrame(() => input.current?.focus(cursor));
+  }
+
   async function submit() {
-    const value = formatComposerPrompt(selectedSkill, selectedPlugin, prompt.trim());
-    if (!conversationReady || (!value && attachments.length === 0) || stopping || draftSession.getSnapshot().submitting || !projectId) return;
+    const value = prompt.trim();
+    if (!conversationReady || (!value && attachments.length === 0 && carried.length === 0) || stopping || draftSession.getSnapshot().submitting || !projectId) return;
     setAttachmentError(undefined);
-    setResumeArmedAt(undefined);
     updateDraft({ submitting: true });
     try {
       const batchId = crypto.randomUUID();
       let uploaded: PromptAttachment[];
       try {
-        uploaded = await uploadAttachments(projectId, batchId, attachments);
+        uploaded = [...carried, ...await uploadAttachments(projectId, batchId, attachments)];
       } catch (error) {
         setAttachmentError(error instanceof Error ? error.message : String(error));
         return;
@@ -163,7 +194,7 @@ export function Composer({
         setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
         if (draftSession.clearSubmitted(draft)) setMentionCursor(0);
         setAttachmentError(undefined);
-        textarea.current?.focus();
+        input.current?.focus();
       }
     } finally {
       updateDraft({ submitting: false });
@@ -185,46 +216,35 @@ export function Composer({
           text: "Reference the saved game design document for this message.",
         },
       } });
-      textarea.current?.focus();
+      input.current?.focus();
     } catch (cause) {
       setAttachmentError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setReferencingDesign(false);
-      requestAnimationFrame(() => textarea.current?.focus());
+      requestAnimationFrame(() => input.current?.focus());
     }
   }
 
   function browseHistory(direction: "previous" | "next") {
-    const result = direction === "previous" ? previousPrompt(history, formatComposerPrompt(selectedSkill, selectedPlugin, prompt)) : nextPrompt(history);
+    const result = direction === "previous" ? previousPrompt(history, prompt) : nextPrompt(history);
     if (!result) return;
-    const skill = parseSkillInvocation(result.prompt);
-    const historicalMentions = mentionHistory.get(result.prompt) ?? [];
-    const plugin = extractLeadingPluginMention(skill?.prompt ?? result.prompt, historicalMentions);
     setHistory(result.history);
-    updateDraft({ prompt: plugin.prompt, selectedSkill: skill?.name, selectedPlugin: plugin.mention, mentions: historicalMentions });
-    const cursor = plugin.prompt.length;
-    setMentionCursor(cursor);
-    requestAnimationFrame(() => {
-      textarea.current?.setSelectionRange(cursor, cursor);
-    });
+    updateDraft({ prompt: result.prompt, mentions: mentionHistory.get(result.prompt) ?? [] });
+    focusAt(result.prompt.length);
   }
 
   function changePrompt(value: string, mentions = pluginMentions) {
-    updateDraft({ prompt: value, mentions: activePluginMentions(formatComposerPrompt(selectedSkill, selectedPlugin, value), mentions) });
+    updateDraft({ prompt: value, mentions: activePluginMentions(value, mentions) });
     setHistory((current) => current.index === current.entries.length
       ? current
-      : { ...current, index: current.entries.length, draft: formatComposerPrompt(selectedSkill, selectedPlugin, value) });
-  }
-
-  function clearSelectedPlugin(): void {
-    updateDraft((current) => ({ selectedPlugin: undefined, mentions: activePluginMentions(formatSkillInvocation(selectedSkill, prompt), current.mentions) }));
+      : { ...current, index: current.entries.length, draft: value });
   }
 
   function addAttachments(next: ComposerAttachment[]): void {
     setAttachmentError(undefined);
     try { updateDraft({ attachments: appendAttachments(attachments, next) }); }
     catch (cause) { setAttachmentError(cause instanceof Error ? cause.message : String(cause)); return; }
-    textarea.current?.focus();
+    input.current?.focus();
   }
 
   function addFiles(files: DroppedFile[]): void {
@@ -232,63 +252,53 @@ export function Composer({
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery) {
-    const activeMention = query ?? { start: mentionCursor, end: mentionCursor, trigger: "@" as const, query: "" };
-    if (mention.type === "skill") {
-      const suffix = prompt.slice(activeMention.end).replace(/^\s+/, "");
-      updateDraft({ selectedSkill: mention.value.name, ...(query ? { prompt: `${prompt.slice(0, activeMention.start)}${suffix}` } : {}) });
-      setMentionCursor(activeMention.start);
-      requestAnimationFrame(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(activeMention.start, activeMention.start);
-      });
+    // A plugin that is off here is turned on first, then mentioned.
+    if (mention.type === "plugin" && mention.value.off && onTurnOnPlugin) {
+      setAttachmentError(undefined);
+      const before = prompt;
+      void onTurnOnPlugin(mention.value).then(
+        // Text typed meanwhile stays; the plugin is on, so `@` puts it in at once.
+        (on) => { if (on && latestPrompt.current === before) insertSelectedMention(mention, query); },
+        (cause: unknown) => setAttachmentError(cause instanceof Error ? cause.message : String(cause)),
+      );
       return;
     }
-    const selected = toPluginMention(mention.value);
-    const candidates = [
-      ...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
-      selected,
-    ];
-    if ((!query || activeMention.start === 0) && !selectedPlugin) {
-      const nextPrompt = query ? prompt.slice(activeMention.end).replace(/^\s+/, "") : prompt;
-      updateDraft({ prompt: nextPrompt, selectedPlugin: selected, mentions: activePluginMentions(formatComposerPrompt(selectedSkill, selected, nextPrompt), candidates) });
-      setMentionCursor(0);
-      requestAnimationFrame(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(0, 0);
-      });
-      return;
-    }
-    const inserted = insertMention(prompt, activeMention, mention);
-    changePrompt(inserted.value, candidates);
-    setMentionCursor(inserted.cursor);
-    requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(inserted.cursor, inserted.cursor);
-    });
+    insertSelectedMention(mention, query);
   }
 
-  const showStop = running && !selectedSkill && !prompt.trim() && attachments.length === 0;
+  function insertSelectedMention(mention: ComposerMention, query?: ComposerMentionQuery) {
+    // Plugins and Skills go where they are typed, any number of each.
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
+    if (mention.type === "plugin") {
+      const selected = toPluginMention(mention.value);
+      changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
+    } else {
+      changePrompt(inserted.value);
+    }
+    focusAt(inserted.cursor);
+  }
+
+  const showStop = running && !prompt.trim() && attachments.length === 0 && carried.length === 0;
   const awaitingApproval = planMode === "awaiting_approval";
   const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
-  const showPlanCommand = !selectedSkill && !selectedPlugin && canTogglePlanning && matchesPlanCommand(prompt);
-  const showCompactCommand = !selectedSkill && !selectedPlugin && conversationReady && !running && !stopping && matchesCompactCommand(prompt);
+  const showPlanCommand = canTogglePlanning && matchesPlanCommand(prompt);
+  const showCompactCommand = conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
   const textareaDisabled = !conversationReady || planInputLocked;
   // A disabled field drops focus to the page, where canvas shortcuts such as
   // Backspace (delete the selected Node) would take the next keystrokes.
   const textareaReadOnly = submitting || referencingDesign;
   const inputDisabled = textareaDisabled || textareaReadOnly;
+  const skillNames = useMemo(() => capabilities.skills.map((skill) => skill.name), [capabilities.skills]);
   const publishAvailable = Boolean(canPublish && onPublish && !running && !stopping);
   useEffect(() => {
     const requestId = draft.focusRequestId;
     if (!requestId || inputDisabled) return;
     const frame = requestAnimationFrame(() => {
-      const input = textarea.current;
       const current = draftSession.getSnapshot();
-      if (!input || input.disabled || input.readOnly || current.focusRequestId !== requestId) return;
+      if (!input.current || current.focusRequestId !== requestId) return;
       const cursor = current.prompt.length;
-      input.focus();
-      input.setSelectionRange(cursor, cursor);
+      input.current.focus(cursor);
       setMentionCursor(cursor);
       updateDraft({ focusRequestId: undefined });
     });
@@ -298,7 +308,7 @@ export function Composer({
   const contextMenu = useComposerContextMenu({
     prompt,
     cursor: mentionCursor,
-    textarea,
+    input,
     disabled: inputDisabled,
     capabilities,
     planning,
@@ -306,7 +316,8 @@ export function Composer({
     onFiles: addAttachments,
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
-    onCompact: conversationReady && !running && !stopping && !selectedSkill && !selectedPlugin ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
+    onCompact: conversationReady && !running && !stopping ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
+    onLater: later,
     onPublish,
     onMention: selectMention,
     onChange: changePrompt,
@@ -314,6 +325,8 @@ export function Composer({
     contextPercent,
     canPublish: publishAvailable,
     usageLimits: isAgentRuntimeId(model?.provider) ? runtimeUsage?.limits : undefined,
+    pluginCommands,
+    onPluginCommand,
   });
 
   useEffect(() => {
@@ -331,17 +344,20 @@ export function Composer({
     return () => { disposed = true; };
   }, [showCompactCommand, running, modelStatus, model?.provider, model?.id, conversationId, accountProfileId, contextMenu.open]);
 
+  // The status line under the composer follows each finished response.
+  const [statusUsage, setStatusUsage] = useState<AgentContextUsage>();
   useEffect(() => {
-    if (resumeArmedAt === undefined) return;
-    // The conversation moved on (a new turn started or the failure is no longer last), so the offer no longer applies.
-    if (!limitReached) { setResumeArmedAt(undefined); return; }
-    const timer = window.setTimeout(() => {
-      setResumeArmedAt(undefined);
-      if (!conversationReady || running || stopping) return;
-      void onSubmit(LIMIT_RESUME_PROMPT, [], [], "normal", [], [], []);
-    }, Math.max(0, resumeArmedAt - Date.now()));
-    return () => window.clearTimeout(timer);
-  }, [resumeArmedAt, limitReached, conversationReady, running, stopping]);
+    if (!conversationId || running) return;
+    let disposed = false;
+    void onContextUsage(true).then((usage) => { if (!disposed) setStatusUsage(usage); }).catch(() => {});
+    return () => { disposed = true; };
+  }, [conversationId, running, model?.provider, model?.id]);
+  useEffect(() => setStatusUsage(undefined), [conversationId]);
+
+  const writing = Boolean(prompt.trim()) || attachments.length > 0;
+  useEffect(() => {
+    if (writing && limitResumeArmed) onSkipLimitResume?.();
+  }, [writing, limitResumeArmed]);
 
   useEffect(() => {
     if (planMode === "planning") updateDraft({ planning: true });
@@ -352,15 +368,18 @@ export function Composer({
     if (planning && planMode === "planning" && !await onCancelPlan()) return;
     updateDraft((current) => ({
       planning: !current.planning,
-      selectedSkill: clearDraft || !current.planning ? undefined : current.selectedSkill,
-      ...(clearDraft ? { prompt: "", selectedPlugin: undefined, mentions: [] } : {}),
+      ...(clearDraft ? { prompt: "", mentions: [] } : {}),
     }));
     if (clearDraft) setMentionCursor(0);
-    textarea.current?.focus();
+    input.current?.focus();
   }
 
   function submitOrRunCommand() {
-    if (publishAvailable && !inputDisabled && !selectedSkill && !selectedPlugin && prompt.trim().toLowerCase() === "/publish") {
+    if (isLaterCommand(prompt)) {
+      later();
+      return;
+    }
+    if (publishAvailable && !inputDisabled && prompt.trim().toLowerCase() === "/publish") {
       changePrompt("");
       setMentionCursor(0);
       onPublish?.();
@@ -378,20 +397,55 @@ export function Composer({
     void submit();
   }
 
+  /** Offers the time first, ahead of anything already written, then schedules once there is one to read. */
+  function later(): void {
+    if (/^\s*\/later\s/i.test(prompt)) {
+      void scheduleLater();
+      return;
+    }
+    changePrompt(`/later ${prompt.replace(/^\s*\/\S*\s*/, "")}`);
+    focusAt("/later ".length);
+  }
+
+  async function scheduleLater(): Promise<void> {
+    if (!conversationReady || draftSession.getSnapshot().submitting) return;
+    const scheduled = parseLaterCommand(prompt);
+    const textOnly = !attachments.length && !carried.length && !reference && !designReference && !activePluginMentions(prompt, pluginMentions).length;
+    const problem = planning ? t("later.planning") : !textOnly ? t("later.textOnly") : scheduled ? undefined : t("later.invalid");
+    setAttachmentError(problem);
+    if (problem || !scheduled) return;
+    updateDraft({ submitting: true });
+    try {
+      if (!await onScheduleMessage(scheduled.prompt, scheduled.at)) return;
+      setHistory((current) => recordPrompt(current, prompt.trim()));
+      if (draftSession.clearSubmitted(draft)) setMentionCursor(0);
+      input.current?.focus();
+    } finally {
+      updateDraft({ submitting: false });
+    }
+  }
+
+  async function editScheduled(item: ScheduledMessage): Promise<void> {
+    if (inputDisabled || !(await onRemoveScheduled(item.id))) return;
+    // A missed message comes back to send as it is, or to put a new time on.
+    const command = item.missed ? item.prompt : laterCommand(item);
+    updateDraft({ prompt: command, mentions: [], attachments: [], uploaded: undefined, reference: undefined, designReference: undefined });
+    setAttachmentError(undefined);
+    focusAt(command.length);
+  }
+
   async function runCompact(instructions?: string) {
     updateDraft({ prompt: "" });
     setMentionCursor(0);
-    textarea.current?.focus();
+    input.current?.focus();
     await onCompact(instructions);
   }
 
   async function editPending(item: PendingPrompt): Promise<void> {
     if (inputDisabled || !(await onEditPending(item))) return;
-    const skill = parseSkillInvocation(item.prompt);
-    const plugin = extractLeadingPluginMention(skill?.prompt ?? item.prompt, item.mentions);
-    const nextPrompt = plugin.prompt;
+    const nextPrompt = item.prompt;
     const referencedDesign = item.references.find((reference) => reference.type === "workspace-file" && /^canvas\/documents\/[a-zA-Z0-9_-]+\.md$/.test(reference.path));
-    updateDraft({ prompt: nextPrompt, selectedSkill: skill?.name, selectedPlugin: plugin.mention, mentions: item.mentions,
+    updateDraft({ prompt: nextPrompt, mentions: item.mentions,
       attachments: [], reference: undefined, designReference: referencedDesign ? {
       references: [referencedDesign],
       context: {
@@ -400,28 +454,13 @@ export function Composer({
         text: "The user explicitly referenced this saved design document.",
       },
     } : undefined });
-    setMentionCursor(nextPrompt.length);
     setAttachmentError(undefined);
-    requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(nextPrompt.length, nextPrompt.length);
-    });
+    focusAt(nextPrompt.length);
   }
 
-  function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
-    setMentionCursor(event.currentTarget.selectionStart);
-    if (contextMenu.handleKeyDown(event)) return true;
-    if (selectedSkill && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
-      event.preventDefault();
-      updateDraft({ selectedSkill: undefined });
-      return true;
-    }
-    if (selectedPlugin && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
-      event.preventDefault();
-      clearSelectedPlugin();
-      return true;
-    }
-    return false;
+  function handleCommandKeyDown(event: KeyboardEvent, selection: PromptSelection): boolean {
+    setMentionCursor(selection.start);
+    return contextMenu.handleKeyDown(event);
   }
 
   return (
@@ -437,10 +476,20 @@ export function Composer({
         onSteer={(turnId) => { void onSteerPending(turnId); }}
         onEdit={(item) => { void editPending(item); }}
       />
-      {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
-      {resumeAt !== undefined && !running ? <div className="composer-resume" role="status">
-        <span>{t(resumeArmedAt !== undefined ? "composer.resume.armed" : "composer.resume.available", { time: new Date(resumeAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
-        <button type="button" disabled={resumeArmedAt === undefined && !conversationReady} onClick={() => setResumeArmedAt(resumeArmedAt === undefined ? resumeAt : undefined)}>{t(resumeArmedAt !== undefined ? "composer.resume.cancel" : "composer.resume.arm")}</button>
+      <ScheduledMessages
+        items={scheduledMessages}
+        disabled={!conversationReady}
+        editDisabled={inputDisabled}
+        onEdit={(item) => { void editScheduled(item); }}
+        onRemove={(id) => { void onRemoveScheduled(id); }}
+      />
+      {status ? <div className="composer-notice composer-info" role="status">
+        <InfoCircle size={14} aria-hidden="true" />
+        <span>{status}</span>
+      </div> : null}
+      {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
+        <DangerCircle size={14} aria-hidden="true" />
+        <span>{attachmentError ?? notice}</span>
       </div> : null}
       <PromptBox
         actions={<ComposerActions
@@ -449,7 +498,7 @@ export function Composer({
           disabled={!conversationReady || running || stopping || modelChanging}
           onChange={onModelChange} onReasoningChange={onReasoningChange}
           showStop={showStop} stopping={stopping} onStop={onStop}
-          sendDisabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || stopping}
+          sendDisabled={inputDisabled || (!prompt.trim() && attachments.length === 0 && carried.length === 0) || stopping}
           sendLabel={running ? t("composer.queue") : t("composer.send")}
         />}
         content={<>
@@ -474,22 +523,13 @@ export function Composer({
               <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label={t("composer.removeDesign")}><X size={11} /></button>
             </div>
           </div> : null}
-          <AttachmentStrip items={attachments} onRemove={(id) => updateDraft((current) => ({ attachments: current.attachments.filter((attachment) => attachment.id !== id) }))} />
+          <AttachmentStrip items={attachments} uploaded={carried} onRemove={(id) => updateDraft((current) => ({
+            attachments: current.attachments.filter((attachment) => attachment.id !== id),
+            uploaded: current.uploaded?.filter((attachment) => attachment.id !== id),
+          }))} />
         </>}
         disabled={textareaDisabled}
         readOnly={textareaReadOnly}
-        prefix={<ComposerCapabilityReferences
-          skill={selectedSkill}
-          plugin={selectedPlugin}
-          onRemoveSkill={() => {
-            updateDraft({ selectedSkill: undefined });
-            textarea.current?.focus();
-          }}
-          onRemovePlugin={() => {
-            clearSelectedPlugin();
-            textarea.current?.focus();
-          }}
-        />}
         leading={(
           <>
             {contextMenu.button}
@@ -507,16 +547,16 @@ export function Composer({
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
         overlay={contextMenu.open ? contextMenu.overlay : null}
-        placeholder={selectedSkill || selectedPlugin ? "" : awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
-        textareaRef={textarea}
+        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
+        inputRef={input}
         onSelectionChange={setMentionCursor}
         value={prompt}
         variant="project"
+        mentions={pluginMentions}
+        plugins={capabilities.plugins}
+        skills={skillNames}
       />
+      <ComposerStatus usage={runtimeUsage ?? statusUsage} />
     </div>
   );
-}
-
-function formatComposerPrompt(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
-  return formatComposerInvocation(skill, plugin, prompt);
 }

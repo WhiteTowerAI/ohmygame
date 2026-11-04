@@ -1,5 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,8 +233,12 @@ describe("coding agent routes", () => {
     expect((await call<ConversationDetail>("GET", second)).body.settings.accountProfiles?.["codex-cli"]).toBe(personal.id);
     const independent = new AgentRuntimeService(dataDirectory, () => undefined);
     await independent.settings.load();
-    expect((await independent.cli("codex-cli"))?.env.CODEX_HOME).toBe(process.env.CODEX_HOME);
-    expect((await independent.codexImageConnection())?.env.CODEX_HOME).toBe(process.env.CODEX_HOME);
+    // System default is the CLI's default home, whatever CODEX_HOME OhMyGame was launched with.
+    vi.stubEnv("CODEX_HOME", path.join(dataDirectory, "inherited-codex"));
+    try {
+      expect((await independent.cli("codex-cli"))?.env.CODEX_HOME).toBeUndefined();
+      expect((await independent.codexImageConnection())?.env.CODEX_HOME).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
     const busy = await call<{turnId:string}>("POST", `${second}/turns`, {prompt:"hold busy"});
     await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", second)).body.agent.status).toBe("running"));
     expect((await call("PUT", `${second}/account-profile`, {runtime:"codex-cli",profileId:work.id})).status).toBe(409);
@@ -285,12 +289,20 @@ describe("coding agent routes", () => {
     await writeFile(path.join(managed.configDirectory!, "auth.json"), "managed credentials");
     await call("PATCH", `/agent-runtimes/${runtime}`, { defaultProfileId: managed.id });
     expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Alias", configDirectory: managed.configDirectory })).status).toBe(400);
-    const systemDirectory = path.join(dataDirectory, "system-cli");
-    await mkdir(systemDirectory);
-    vi.stubEnv(runtime === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", systemDirectory);
+    const home = path.join(dataDirectory, "home");
+    const systemDirectory = path.join(home, runtime === "claude-code-cli" ? ".claude" : ".codex");
+    const inheritedDirectory = path.join(dataDirectory, "inherited-cli");
+    await mkdir(systemDirectory, { recursive: true });
+    await mkdir(inheritedDirectory);
+    const homedir = vi.spyOn(os, "homedir").mockReturnValue(home);
+    vi.stubEnv(runtime === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", inheritedDirectory);
     try {
       expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "System", configDirectory: systemDirectory })).status).toBe(400);
-    } finally { vi.unstubAllEnvs(); }
+      // The folder OhMyGame was launched with is an ordinary account, not System default.
+      const inherited = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Inherited", configDirectory: inheritedDirectory })).body;
+      expect(inherited.managed).toBe(false);
+      expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/${inherited.id}`)).status).toBe(204);
+    } finally { vi.unstubAllEnvs(); homedir.mockRestore(); }
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/system`)).status).toBe(400);
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/missing`)).status).toBe(404);
     expect((await call("DELETE", `/agent-runtimes/opencode-cli/profiles/${managed.id}`)).status).toBe(404);
@@ -424,8 +436,16 @@ describe("coding agent routes", () => {
       .replace('if (message.type !== "control_request") return;', `if (message.type === "user") { console.log(JSON.stringify({type:"system", subtype:"init", session_id:"test-thread"})); console.log(JSON.stringify({type:"assistant", message:{content:[{type:"text",text:"Profile answer"}]}})); console.log(JSON.stringify({type:"result",subtype:"success"})); return; } if (message.type !== "control_request") return;`);
     await writeFile(claude, source);
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-ambient-token");
+    vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dataDirectory, "inherited-claude"));
     try {
       await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+      // System default signs in to the default folder, not the one OhMyGame was launched with.
+      // The command shown for a terminal clears the variable, which that terminal may set even when OhMyGame has none.
+      for (const inherited of [path.join(dataDirectory, "inherited-claude"), undefined]) {
+        vi.stubEnv("CLAUDE_CONFIG_DIR", inherited);
+        expect((await call<{command: string}>("POST", "/agent-runtimes/claude-code-cli/login")).body.command).toBe(`env -u CLAUDE_CONFIG_DIR '${claude}' auth login`);
+      }
+      vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dataDirectory, "inherited-claude"));
       const profile = (await call<AgentAccountProfile>("POST", "/agent-runtimes/claude-code-cli/profiles", { name: "Work" })).body;
       const login = await call<{command: string}>("POST", `/agent-runtimes/claude-code-cli/login?profileId=${profile.id}`);
       expect(login.body.command).toContain(profile.configDirectory);
@@ -436,6 +456,8 @@ describe("coding agent routes", () => {
       expect((await call("POST", `${base}/turns`, { prompt: "Hello" })).status).toBe(202);
       await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
       const records = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(records.some((record) => record.args[0] === "auth" && record.args[1] === "login" && record.dir === undefined)).toBe(true);
+      expect(records.some((record) => String(record.dir).includes("inherited-claude"))).toBe(false);
       const selected = records.filter((record) => record.dir === profile.configDirectory);
       expect(selected.some((record) => record.args[0] === "auth" && record.args[1] === "login")).toBe(true);
       expect(selected.some((record) => record.args[0] === "-p")).toBe(true);
@@ -558,16 +580,16 @@ describe("coding agent routes", () => {
     },
   );
 
-  it.skipIf(process.platform === "win32")("persists the optional media step and completes setup using only a CLI", async () => {
+  it.skipIf(process.platform === "win32")("persists the start step and completes setup using only a CLI", async () => {
     const { call, claude } = await start();
-    expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "media" })).status).toBe(200);
-    expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("media");
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+    expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "start" })).status).toBe(200);
+    expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("start");
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(409);
     await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
     await call("PUT", "/models/default", { model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "high" });
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(200);
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(200);
     await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(409);
   });
 
   it("branches a completed stored response through the API and rejects invalid targets", async () => {
@@ -589,6 +611,150 @@ describe("coding agent routes", () => {
     expect((await call("POST", `${base}/branch`, {})).status).toBe(400);
     expect((await call("POST", `/projects/${project.id}/conversations/missing/branch`, { entryId })).status).toBe(404);
   });
+  it.skipIf(process.platform === "win32")("continues a conversation stopped at a usage limit once it resets, and follows the agent's setting", async () => {
+    const { call, claude } = await start(FAKE_CLAUDE.replace(
+      'if (message.type !== "control_request") return;',
+      `if (message.type === "user") {
+    const log = process.argv[1] + ".log", fs = require("node:fs");
+    fs.appendFileSync(log, JSON.stringify(message.message.content) + "\\n");
+    const limited = fs.readFileSync(log, "utf8").includes("Hit the limit") && !fs.readFileSync(log, "utf8").includes("Continue where you left off");
+    const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+    if (limited) {
+      send({ type: "rate_limit_event", rate_limit_info: { rateLimitType: "five_hour", utilization: 1, resetsAt: Math.floor(Date.now() / 1000) + 2 } });
+      send({ type: "result", subtype: "success", is_error: true, result: "You've hit your 5-hour limit · resets 2:30am (Asia/Shanghai)" });
+    } else send({ type: "result", subtype: "success" });
+    return;
+  }
+  if (message.type !== "control_request") return;`,
+    ));
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", { name: "Limit", preset: "blank" })).body;
+    const create = async () => `/projects/${project.id}/conversations/${(await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: "claude-code-cli", id: "sonnet" } })).body.id}`;
+    const stopped = async (base: string) => {
+      expect(await call("POST", `${base}/turns`, { prompt: "Hit the limit" })).toMatchObject({ status: 202 });
+      await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("error"));
+    };
+    const usage = async (base: string) => (await call<{ contextUsage?: { limitResume?: { state: string } } }>("GET", `${base}/context-usage?passive=1`)).body.contextUsage?.limitResume;
+    const sent = async () => (await readFile(`${claude}.log`, "utf8")).split("Continue where you left off").length - 1;
+
+    // Only the wait for the margin after the reset is cut short.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay !== undefined && delay > 30_000 && delay <= 32_000 ? 1_000 : delay)) as typeof setTimeout);
+
+    const off = await create();
+    await stopped(off);
+    await expect(usage(off)).resolves.toMatchObject({ state: "armed" });
+    const turnedOff = await call<AgentRuntimeStatus>("PATCH", "/agent-runtimes/claude-code-cli", { autoContinue: false });
+    expect(turnedOff.body.autoContinue).toBe(false);
+    await expect(usage(off)).resolves.toMatchObject({ state: "off" });
+    await new Promise((resolve) => realTimeout(resolve, 1_500));
+    expect(await sent()).toBe(0);
+    await expect(usage(off)).resolves.toBeUndefined();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { autoContinue: true });
+
+    const skipped = await create();
+    await stopped(skipped);
+    expect((await call("POST", `${skipped}/limit-resume/skip`)).status).toBe(204);
+    await expect(usage(skipped)).resolves.toMatchObject({ state: "skipped" });
+    await new Promise((resolve) => realTimeout(resolve, 1_500));
+    expect(await sent()).toBe(0);
+
+    // Nothing reads this conversation between its failure and the continue.
+    const armed = await create();
+    await stopped(armed);
+    await vi.waitFor(async () => expect(await sent()).toBe(1), { timeout: 5_000 });
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", armed)).body.agent.status).toBe("idle"));
+    expect(JSON.stringify((await call<ConversationDetail>("GET", armed)).body.turns)).toContain("Continue where you left off.");
+    await expect(usage(armed)).resolves.toBeUndefined();
+  });
+
+  it.skipIf(process.platform === "win32")("sends a scheduled message when it is due and the conversation is free, with nobody reading it", async () => {
+    const { app, call, claude, dataDirectory } = await start(FAKE_CLAUDE.replace(
+      'if (message.type !== "control_request") return;',
+      `if (message.type === "user") {
+    const fs = require("node:fs"), log = process.argv[1] + ".log", content = JSON.stringify(message.message.content);
+    fs.appendFileSync(log, content + "\\n");
+    const finish = () => {
+      fs.appendFileSync(log, "finished\\n");
+      process.stdout.write(JSON.stringify({ type: "result", subtype: "success" }) + "\\n");
+    };
+    if (content.includes("Take a while")) setTimeout(finish, 1_500);
+    else finish();
+    return;
+  }
+  if (message.type !== "control_request") return;`,
+    ));
+    // Only the wait between its looks is cut short: other timers of this length, like the agent's handshake, stay.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay === 30_000 && new Error().stack?.includes("scheduled-messages") ? 50 : delay)) as typeof setTimeout);
+    const pause = (ms: number) => new Promise((resolve) => realTimeout(resolve, ms));
+
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", { name: "Later", preset: "blank" })).body;
+    const id = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: "claude-code-cli", id: "sonnet" } })).body.id;
+    const base = `/projects/${project.id}/conversations/${id}`;
+    const scheduled = async () => (await call<ConversationDetail>("GET", base)).body.scheduledMessages;
+    const schedule = async (prompt: string, at = Date.now() + 100) => expect((await call("POST", `${base}/scheduled-messages`, { prompt, at })).status).toBe(204);
+    const log = () => readFile(`${claude}.log`, "utf8").catch(() => "");
+    const idle = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"), { timeout: 5_000 });
+
+    expect((await call("POST", `${base}/scheduled-messages`, { prompt: "   ", at: Date.now() })).status).toBe(400);
+    expect((await call("POST", `/projects/${project.id}/conversations/missing/scheduled-messages`, { prompt: "Hello", at: Date.now() })).status).toBe(404);
+
+    await schedule("Removed before its time", Date.now() + 60_000);
+    const [removed] = await scheduled();
+    expect((await call("DELETE", `${base}/scheduled-messages/${removed.id}`)).status).toBe(204);
+    expect((await call("DELETE", `${base}/scheduled-messages/${removed.id}`)).status).toBe(404);
+
+    // It waits for a running turn to end, and doesn't join it as a follow-up.
+    expect(await call("POST", `${base}/turns`, { prompt: "Take a while" })).toMatchObject({ status: 202 });
+    await vi.waitFor(async () => expect(await log()).toContain("Take a while"), { timeout: 5_000 });
+    await schedule("Sent at its time");
+    await pause(300);
+    expect((await call<ConversationDetail>("GET", base)).body).toMatchObject({ pendingPrompts: [], scheduledMessages: [{ prompt: "Sent at its time" }] });
+    await vi.waitFor(async () => expect(await log()).toContain("Sent at its time"), { timeout: 5_000 });
+    expect((await log()).indexOf("finished")).toBeLessThan((await log()).indexOf("Sent at its time"));
+    await vi.waitFor(async () => expect(await scheduled()).toEqual([]));
+    await idle();
+    expect(await log()).not.toContain("Removed before its time");
+
+    // With the agent turned off it waits, and goes once the agent is back.
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    await schedule("Held while off");
+    await pause(300);
+    expect(await log()).not.toContain("Held while off");
+    await expect(scheduled()).resolves.toMatchObject([{ prompt: "Held while off" }]);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: true });
+    await vi.waitFor(async () => expect(await log()).toContain("Held while off"), { timeout: 5_000 });
+    await idle();
+
+    // Archived past its time, it is dropped and doesn't come back with the conversation.
+    await schedule("Dropped when archived", Date.now() + 300);
+    expect((await call("POST", `${base}/archive`)).status).toBe(204);
+    await pause(600);
+    expect((await call("POST", `${base}/unarchive`)).status).toBe(200);
+    await expect(scheduled()).resolves.toEqual([]);
+    expect(await log()).not.toContain("Dropped when archived");
+    await idle();
+
+    // Due while OhMyGame was closed, it comes back as missed and isn't sent on startup.
+    await schedule("Due while closed", Date.now() + 200);
+    // One due after the restart, in a conversation not opened since, waits for the plan saved in its session.
+    await schedule("Waits for the plan", Date.now() + 1_000);
+    await app.close();
+    await pause(300);
+    const stored = new ConversationManager();
+    stored.open(project, (await stored.get(project, id))!).appendCustomEntry("ohmygame-plan", { mode: "awaiting_approval", plan: { title: "Plan", steps: [] } });
+    const reopened = createApp({ dataDirectory, piAgentDirectory: path.join(dataDirectory, "pi-agent"), accessToken: "app-token" });
+    cleanup.push(() => reopened.close());
+    await reopened.ready();
+    await pause(1_500);
+    expect(await log()).not.toContain("Due while closed");
+    expect(await log()).not.toContain("Waits for the plan");
+    const detail = await reopened.inject({ method: "GET", url: base, headers: { authorization: "Bearer app-token" } });
+    expect((JSON.parse(detail.body) as ConversationDetail).scheduledMessages).toMatchObject([{ prompt: "Due while closed", missed: true }, { prompt: "Waits for the plan" }]);
+  });
+
   it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),

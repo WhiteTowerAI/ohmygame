@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
+import { sameJson } from "../src/shared/same-json.js";
 
 const api = {
   getCanvasBoard: vi.fn(), saveCanvasBoard: vi.fn(), generateCanvasMedia: vi.fn(),
@@ -43,6 +44,40 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("recovers character-tool drafts created before prompt-only canvas nodes", async () => {
+    const base = createAssetCanvasDocument();
+    const local = structuredClone(base);
+    local.nodes = [{ id: "character", type: "image", position: { x: 0, y: 0 }, data: { prompt: "pixel knight", generationMode: "character-asset", resolution: "1K", aspectRatio: "1:1", images: [] } }];
+    local.editorLayout.nodes.character = { x: 0, y: 0 };
+    entries.set(recoveryKey, JSON.stringify({ base, local }));
+    api.getCanvasBoard.mockResolvedValue(detail(base));
+    const storage = adapter();
+    const recovered = await storage.load();
+    const node = recovered.nodes[0];
+    if (node?.type !== "image") throw new Error("Expected recovered image node");
+    expect(node.data.prompt).toContain("pixel knight");
+    expect(node.data.prompt).toContain("production-oriented 2D pixel art game character");
+    expect(node.data).not.toHaveProperty("generationMode");
+    await storage.save(recovered);
+    expect(api.saveCanvasBoard.mock.calls[0]![1].board.nodes[0]?.data).not.toHaveProperty("generationMode");
+  });
+
+  it("compares JSON by own keys, whatever their order", () => {
+    expect(sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
+    expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);
+    expect(sameJson({ a: undefined, b: 1 }, { b: 1 })).toBe(true);
+    expect(sameJson([1, 2], { 0: 1, 1: 2 })).toBe(false);
+  });
+
+  it("does not save a board that only came back with its keys in another order", async () => {
+    const loaded = canvas();
+    api.getCanvasBoard.mockResolvedValue(detail(loaded));
+    const storage = adapter();
+    const local = await storage.load();
+    await storage.save(Object.fromEntries(Object.entries(local).reverse()) as AssetCanvasDocument);
+    expect(api.saveCanvasBoard).not.toHaveBeenCalled();
+  });
+
   it("recovers a draft unchanged from its base after a disk type conversion", async () => {
     const base = canvas(), local = structuredClone(base), remote = structuredClone(base);
     const node = local.nodes[0]!;

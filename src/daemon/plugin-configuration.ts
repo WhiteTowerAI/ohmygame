@@ -9,7 +9,6 @@ import path from "node:path";
 import type {
   PluginConfigurationValues,
   PluginConfigurationView,
-  PluginDetail,
   PluginConfigurationField,
   McpServerDefinition,
 } from "../shared/plugins.js";
@@ -24,11 +23,12 @@ interface StoredConfiguration {
     }
   >;
   credentials: Record<string, string>;
-  legacyOwners: Record<string, { pluginId: string; serverId: string }>;
-  migrated: boolean;
   serverOverrides?: Record<string, string>;
   extraFields?: Record<string, Record<string, PluginConfigurationField>>;
 }
+
+/** Whose configuration it is: a plugin, or a connection (`connection:<id>`) whose fields are all generated. */
+export type ConfigurationOwner = { id: string; configuration?: Record<string, PluginConfigurationField> };
 
 export class PluginConfigurationError extends Error {
   readonly statusCode = 400;
@@ -41,8 +41,6 @@ export class PluginConfigurationStore {
     version: 1,
     plugins: {},
     credentials: {},
-    legacyOwners: {},
-    migrated: false,
   };
   #key!: Buffer;
   #writes: Promise<unknown> = Promise.resolve();
@@ -62,12 +60,7 @@ export class PluginConfigurationStore {
       const state = JSON.parse(
         await readFile(this.filePath, "utf8"),
       ) as StoredConfiguration;
-      if (
-        state.version !== 1 ||
-        !state.plugins ||
-        !state.credentials ||
-        !state.legacyOwners
-      )
+      if (state.version !== 1 || !state.plugins || !state.credentials)
         throw new Error("Invalid plugin configuration store");
       this.#state = state;
     } catch (cause) {
@@ -76,17 +69,6 @@ export class PluginConfigurationStore {
   }
   get filePath(): string {
     return path.join(this.directory, "plugin-configuration.json");
-  }
-  get migrated(): boolean {
-    return this.#state.migrated;
-  }
-  get legacyOwners(): StoredConfiguration["legacyOwners"] {
-    return structuredClone(this.#state.legacyOwners);
-  }
-  legacyName(pluginId: string, serverId: string): string | undefined {
-    return Object.entries(this.#state.legacyOwners).find(
-      ([, owner]) => owner.pluginId === pluginId && owner.serverId === serverId,
-    )?.[0];
   }
   override(pluginId: string, serverId: string): unknown {
     const ref = this.#state.serverOverrides?.[`${pluginId}/${serverId}`];
@@ -102,7 +84,7 @@ export class PluginConfigurationStore {
     values,
     definitions,
   }: {
-    plugin: PluginDetail;
+    plugin: ConfigurationOwner;
     serverId: string;
     definition: McpServerDefinition;
     fields: Record<string, PluginConfigurationField>;
@@ -155,24 +137,10 @@ export class PluginConfigurationStore {
       );
     });
   }
-  async markMigrated(): Promise<void> {
-    await this.#mutate((next) => {
-      next.migrated = true;
-    });
-  }
-  async setLegacyOwner(
-    id: string,
-    pluginId: string,
-    serverId: string,
-  ): Promise<void> {
-    await this.#mutate((next) => {
-      next.legacyOwners[id] = { pluginId, serverId };
-    });
-  }
-  fields(plugin: PluginDetail): Record<string, PluginConfigurationField> {
+  fields(plugin: ConfigurationOwner): Record<string, PluginConfigurationField> {
     return { ...plugin.configuration, ...this.#state.extraFields?.[plugin.id] };
   }
-  view(plugin: PluginDetail): PluginConfigurationView {
+  view(plugin: ConfigurationOwner): PluginConfigurationView {
     const fields = this.fields(plugin);
     const stored = this.#state.plugins[plugin.id];
     const values: Record<string, string | boolean> = {};
@@ -197,7 +165,7 @@ export class PluginConfigurationStore {
       .map(([key]) => key);
     return { fields, values, configuredSecrets, missing };
   }
-  resolved(plugin: PluginDetail): Record<string, string | boolean> {
+  resolved(plugin: ConfigurationOwner): Record<string, string | boolean> {
     const values = { ...this.view(plugin).values };
     const stored = this.#state.plugins[plugin.id];
     const fields = this.fields(plugin);
@@ -208,9 +176,8 @@ export class PluginConfigurationStore {
     return values;
   }
   async update(
-    plugin: PluginDetail,
+    plugin: ConfigurationOwner,
     values: PluginConfigurationValues,
-    allowSecrets = true,
   ): Promise<PluginConfigurationView> {
     const fields = this.fields(plugin);
     for (const [key, value] of Object.entries(values)) {
@@ -218,10 +185,6 @@ export class PluginConfigurationStore {
       if (!field)
         throw new PluginConfigurationError(
           `Unknown configuration field: ${key}`,
-        );
-      if (field.type === "secret" && !allowSecrets)
-        throw new PluginConfigurationError(
-          "Enter credentials in the plugin configuration form",
         );
       if (
         value !== null &&
@@ -247,36 +210,6 @@ export class PluginConfigurationStore {
   async remove(pluginId: string): Promise<void> {
     await this.#mutate(next => this.#remove(next, pluginId));
   }
-  /** Adopt the archive's templates and nonsecret values while retaining only
-   * credentials still declared as secret by the restored package. */
-  async restorePortable(plugin: PluginDetail, values: Record<string, string | boolean>): Promise<void> {
-    await this.#mutate(next => {
-      const fields = plugin.configuration ?? {};
-      const stored = next.plugins[plugin.id];
-      const secretRefs = Object.fromEntries(Object.entries(stored?.secretRefs ?? {}).filter(([key]) => fields[key]?.type === "secret"));
-      for (const [key, ref] of Object.entries(stored?.secretRefs ?? {}))
-        if (!Object.hasOwn(secretRefs, key)) delete next.credentials[ref];
-      next.plugins[plugin.id] = { values: {}, secretRefs };
-      if (next.extraFields) delete next.extraFields[plugin.id];
-      for (const [key, ref] of Object.entries(next.serverOverrides ?? {})) {
-        if (!key.startsWith(`${plugin.id}/`)) continue;
-        delete next.credentials[ref];
-        delete next.serverOverrides![key];
-      }
-      this.#applyValues(next, plugin.id, fields, values);
-    });
-  }
-  /** Transfer draft values and retire their private identity in one write. */
-  async promoteDraft(draft: PluginDetail, plugin: PluginDetail): Promise<void> {
-    if (draft.id === plugin.id) return;
-    await this.#mutate(next => {
-      // A retry after promotion succeeded but metadata saving failed must not
-      // overwrite the installed configuration with draft defaults.
-      if (!next.plugins[draft.id]) return;
-      this.#applyValues(next, plugin.id, this.fields(plugin), this.resolved(draft));
-      this.#remove(next, draft.id);
-    });
-  }
   #remove(next: StoredConfiguration, pluginId: string): void {
     for (const ref of Object.values(next.plugins[pluginId]?.secretRefs ?? {})) delete next.credentials[ref];
     delete next.plugins[pluginId];
@@ -286,12 +219,9 @@ export class PluginConfigurationStore {
       delete next.credentials[ref];
       delete next.serverOverrides![key];
     }
-    for (const [key, owner] of Object.entries(next.legacyOwners)) {
-      if (owner.pluginId === pluginId) delete next.legacyOwners[key];
-    }
   }
   redact(
-    plugin: PluginDetail,
+    plugin: ConfigurationOwner,
     value: string,
     literalSecrets: string[] = [],
   ): string {

@@ -1,11 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
-import type { PluginDetail } from "../shared/plugins.js";
+import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
+import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -18,8 +19,12 @@ import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
+import { CanvasError } from "./canvas-files.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
+import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
+import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
+import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
@@ -70,7 +75,7 @@ export type AskQuestionnaire = (
   signal?: AbortSignal,
 ) => Promise<QuestionnaireResult>;
 
-export type InstallPlugin = (sourcePath: string) => Promise<PluginDetail>;
+export type InstallPlugin = (sourcePath: string) => Promise<PluginIndexEntry>;
 export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 
 const mediaModelParameter = () => Type.Object({
@@ -78,6 +83,12 @@ const mediaModelParameter = () => Type.Object({
   id: Type.String({ description: "Provider model ID" }),
 }, { description: "Override the project or global default generation model" });
 
+const imageSourceParameter = Type.String({ minLength: 1 });
+const imageParameters = {
+  sourcePath: imageSourceParameter,
+  format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+};
+const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: MAX_MEDIA_FRAMES });
 const audioToolSettings = {
   pitch: Type.Optional(Type.Integer({ minimum: -12, maximum: 12 })),
   volume: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
@@ -102,7 +113,7 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
+  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
   configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
@@ -139,6 +150,27 @@ export function createAgentTools(
         details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType } },
       };
     } finally { await tools.removeRun(run.id); }
+  };
+  const imageSource = async (sourcePath: string) => {
+    const source = await getWorkspaceMedia(project.workspacePath, sourcePath);
+    if (!source.contentType.startsWith("image/")) throw new Error("This tool requires an image file");
+    return source.absolutePath;
+  };
+  const saveMedia = async (name: string, process: () => Promise<MediaOutput | MediaOutput[]>, signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    return withMediaTask(async () => {
+      signal?.throwIfAborted();
+      const result = await process();
+      signal?.throwIfAborted();
+      const outputs = Array.isArray(result) ? result : [result];
+      const batchId = randomUUID();
+      const artifacts = [];
+      for (const output of outputs) {
+        const relativePath = await projects.addGeneratedAsset(project.id, `${name}-${batchId}-${output.name}`, output.bytes);
+        artifacts.push({ type: "image" as const, path: relativePath, mediaType: output.mediaType });
+      }
+      return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
+    });
   };
   return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
     name: "multiplayer_setup",
@@ -250,14 +282,18 @@ export function createAgentTools(
       const draft = await inspectPluginDraft(sourcePath);
       if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
+      const servers = plugin.manifest.contributes?.mcpServers?.length ?? 0;
       const counts = [
         plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        plugin.mcpServers?.length ? `${plugin.mcpServers.length} MCP service${plugin.mcpServers.length === 1 ? "" : "s"}` : undefined,
-        plugin.connections.length ? `${plugin.connections.length} Connection${plugin.connections.length === 1 ? "" : "s"}` : undefined,
+        servers ? `${servers} MCP service${servers === 1 ? "" : "s"}` : undefined,
       ].filter(Boolean).join(" · ") || "No components";
+      const displayName = localizePluginString(plugin, plugin.manifest.displayName, "en");
+      const next = isAppWidePlugin(plugin.manifest)
+        ? "It applies by itself to every project it suits."
+        : "The person turns it on in a project's Plugins sheet, which also asks them to approve what it asks for.";
       return {
-        content: [{ type: "text", text: `Created and installed ${plugin.displayName}.\n${counts}\nSource: ${sourcePath}` }],
-        details: { plugin: { id: plugin.id, displayName: plugin.displayName, sourcePath } },
+        content: [{ type: "text", text: `Created and installed ${displayName} (${plugin.id} ${plugin.version}).\n${counts}\n${next}\nSource: ${sourcePath}` }],
+        details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
   }), defineTool({
@@ -560,6 +596,134 @@ export function createAgentTools(
       durationSeconds: input.durationSeconds, loop: input.loop, output: input.output ?? { format: input.format },
     }, input.prompt, "music", signal),
   }), defineTool({
+    name: "crop_image",
+    label: "Crop Image",
+    description: "Extract a rectangle in source pixels.",
+    parameters: Type.Object({
+      ...imageParameters,
+      left: Type.Integer({ minimum: 0 }),
+      top: Type.Integer({ minimum: 0 }),
+      width: Type.Integer({ minimum: 1 }),
+      height: Type.Integer({ minimum: 1 }),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "crop_image",
+        async () =>
+          cropImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "extract_gif_frames",
+    label: "Extract GIF Frames",
+    description: "Extract all GIF frames as numbered PNG images.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "extract_gif_frames",
+        async () =>
+          extractGifFrames({ inputPath: await imageSource(input.sourcePath) }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "compose_gif",
+    label: "Compose GIF",
+    description:
+      "Compose ordered frames into a looping GIF; normalize dimensions without cropping.",
+    parameters: Type.Object({
+      framePaths: framePathsParameter,
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "compose_gif",
+        async () =>
+          composeGif(
+            await Promise.all(input.framePaths.map(imageSource)),
+            input.fps,
+            signal,
+          ),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "image_grid_split",
+    label: "Split Image Grid",
+    description: "Split a sprite sheet into row-major grid cells. The result is a ZIP containing numbered frame images and a manifest.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1, description: "Sprite sheet image path in the current project workspace" }),
+      columns: Type.Integer({ minimum: 1, maximum: 100 }),
+      rows: Type.Integer({ minimum: 1, maximum: 100 }),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+      includeManifest: Type.Optional(Type.Boolean()),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("image/")) throw new Error("image_grid_split requires an image file");
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
+      });
+    },
+  }), defineTool({
+    name: "video_frame_strip",
+    label: "Pull Video Strip",
+    description: "Create an ordered frame strip from a video for animation inspection, using FFmpeg and returning a ZIP of frames.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1 }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120, description: "Sampling rate" })),
+      startTime: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
+      duration: Type.Optional(Type.Number({ minimum: 0.01, maximum: 300 })),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpg")])),
+      includeManifest: Type.Optional(Type.Boolean({ description: "Include a JSON frame index in the ZIP; defaults to true" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("video/")) throw new Error("video_frame_strip requires a video file");
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
+        return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+      });
+    },
+  }), defineTool({
+    name: "video_compose_frames",
+    label: "Compose Video",
+    description: "Compose project image frames into an MP4 or looping GIF using FFmpeg.",
+    parameters: Type.Object({
+      framePaths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: MAX_MEDIA_FRAMES }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+      format: Type.Optional(Type.Union([Type.Literal("mp4"), Type.Literal("gif")])),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const framePaths = await Promise.all(input.framePaths.map(async (framePath) => {
+        const source = await getWorkspaceMedia(project.workspacePath, framePath);
+        if (!source.contentType.startsWith("image/")) throw new Error(`Frame is not an image: ${framePath}`);
+        return source.absolutePath;
+      }));
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const output = await composeVideo({ ...input, framePaths, signal });
+        const relativePath = await projects.addGeneratedAsset(project.id, `composed-${randomUUID()}.${output.name.split(".").pop()}`, output.bytes);
+        const artifact = output.mediaType === "video/mp4" ? { type: "video" as const, path: relativePath, mediaType: "video/mp4" as const } : undefined;
+        return { content: [{ type: "text", text: `Composed ${input.format ?? "mp4"} saved to ${relativePath}` }], details: { ...(artifact ? { artifact } : {}), media: { path: relativePath, mediaType: output.mediaType } } };
+      });
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
     description: "Create game scene audio combining dialogue, sound effects, ambience and music. Use Seed Audio with a text prompt or a Speaker ID. Duration is a target, not an exact cut. Save audio and metadata companions to the project.",
     parameters: Type.Object({ ...audioToolSettings, prompt: Type.String({ minLength: 1, maxLength: 2744 }), model: Type.Optional(mediaModelParameter()), durationSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 120 })) }),
@@ -646,44 +810,101 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool. If the node is already generating, this waits for that run; if its current output came from the same settings, this returns it without generating again unless regenerate is true.",
+    description: "Generate saved media nodes using their current prompt, configured model and references. List nodes that don't depend on each other together to generate them at once; a node using another listed node's output starts after it. Use it only for nodes whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the nodes and shares the canvas generation history. Edit ordinary canvas files before calling this tool. A node already generating is waited for; a node whose current output came from the same settings returns it without generating again unless regenerate is true.",
     parameters: Type.Object({
       boardId: Type.String({ minLength: 1, maxLength: 100 }),
-      nodeId: Type.String({ minLength: 1, maxLength: 120 }),
-      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when the node's current output came from the same settings, for example when the user wants another variation." })),
+      nodeIds: Type.Array(Type.String({ minLength: 1, maxLength: 120 }), { minItems: 1, maxItems: 8, uniqueItems: true }),
+      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when a node's current output came from the same settings, for example when the user wants another variation." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId, !input.regenerate);
-      // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
-      // so aborting just ends this wait.
-      const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
-      if (!job.reused) {
-        signal?.addEventListener("abort", cancel, { once: true });
-        if (signal?.aborted) cancel();
-      }
-      try {
-        let current = job;
-        while (current.status === "running") {
-          signal?.throwIfAborted();
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          const next = (await canvasStore.jobs(project.id)).find((candidate) => candidate.id === job.id);
-          if (!next) throw new Error("Generation job is no longer available");
-          current = next;
-        }
+      const { board } = await canvasStore.board(project.id, input.boardId);
+      // A node waits for the listed nodes whose output it uses, such as an image a video starts from.
+      const waitsFor = new Map(input.nodeIds.map((nodeId) => [nodeId, nodeReferences(board.nodes.find((node) => node.id === nodeId)?.data)
+        .filter((other) => other !== nodeId && input.nodeIds.includes(other))]));
+      const visit = (nodeId: string, path: string[]): void => {
+        if (path.includes(nodeId)) throw new Error(`Nodes ${[...path.slice(path.indexOf(nodeId)), nodeId].join(" → ")} use each other's output`);
+        for (const other of waitsFor.get(nodeId) ?? []) visit(other, [...path, nodeId]);
+      };
+      for (const nodeId of input.nodeIds) visit(nodeId, []);
+      // The calls in one batch share one read of the jobs.
+      let jobs: Promise<ToolJob[]> | undefined;
+      const latestJobs = () => jobs ??= canvasStore.jobs(project.id).finally(() => setTimeout(() => { jobs = undefined; }, 200));
+      const generate = async (nodeId: string, retried = false): Promise<{ job: ToolJob; text: string }> => {
+        // Once the agent is stopped, no new run starts, such as one waiting for another node's output.
         signal?.throwIfAborted();
-        if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
-        const manifest = await readCanvasAssets(project.workspacePath);
-        const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        const summary = job.reused === "output"
-          ? `Node ${input.nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
-          : `${job.reused === "running" ? `Node ${input.nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${input.nodeId}.`} Saved: ${paths.join(", ")}.`;
-        return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
-      } finally { signal?.removeEventListener("abort", cancel); }
+        let job: Awaited<ReturnType<typeof canvasStore.generateNode>>;
+        try {
+          job = await canvasStore.generateNode(project.id, input.boardId, nodeId, !input.regenerate);
+        } catch (cause) {
+          // Another listed node saving its output changes the board while this one starts.
+          if (!retried && cause instanceof CanvasError && cause.statusCode === 409 && cause.message.startsWith("The node settings changed")) return generate(nodeId, true);
+          throw cause;
+        }
+        // Stopping the agent ends only this wait: the provider may already be charging for the run, so it finishes on
+        // the canvas, where the node's own button can cancel it. Cancelling the call itself cancels a run it started.
+        const cancel = () => { if (signal?.reason === CANCEL_GENERATION) void canvasStore.cancel(project.id, job.id).catch(() => {}); };
+        if (!job.reused) {
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
+        }
+        try {
+          let current: ToolJob = job;
+          while (current.status === "running") {
+            signal?.throwIfAborted();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
+            if (!next) throw new Error("Generation job is no longer available");
+            current = next;
+          }
+          signal?.throwIfAborted();
+          if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
+          const manifest = await readCanvasAssets(project.workspacePath);
+          const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
+          const text = job.reused === "output"
+            ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+            : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
+          return { job: current, text };
+        } finally { signal?.removeEventListener("abort", cancel); }
+      };
+      const runs = new Map<string, Promise<{ job: ToolJob; text: string }>>();
+      const run = (nodeId: string): Promise<{ job: ToolJob; text: string }> => {
+        const existing = runs.get(nodeId);
+        if (existing) return existing;
+        const started = (async () => {
+          for (const other of waitsFor.get(nodeId) ?? []) {
+            try { await run(other); } catch { throw new Error(`Not generated, because node ${other}, whose output it uses, failed`); }
+          }
+          return generate(nodeId);
+        })();
+        runs.set(nodeId, started);
+        return started;
+      };
+      const results = await Promise.allSettled(input.nodeIds.map(run));
+      signal?.throwIfAborted();
+      const failure = (result: PromiseSettledResult<unknown>) => result.status === "rejected" ? (result.reason instanceof Error ? result.reason.message : String(result.reason)) : "";
+      if (results.every((result) => result.status === "rejected")) {
+        throw new Error(input.nodeIds.length === 1 ? failure(results[0]!) : results.map((result, index) => `Node ${input.nodeIds[index]}: ${failure(result)}`).join("\n"));
+      }
+      const lines = results.map((result, index) => result.status === "fulfilled" ? result.value.text : `Node ${input.nodeIds[index]} failed: ${failure(result)}`);
+      return {
+        content: [{ type: "text", text: `${lines.join("\n")}\nInspect or play the relevant output to evaluate the actual result.` }],
+        details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
+      };
     },
-  })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))
+  })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
     : [])];
+}
+
+/** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */
+export const CANCEL_GENERATION = Symbol("cancel generation");
+
+/** The nodes whose output a node's generation uses: its reference images, a video's references and a 3D source. */
+function nodeReferences(data: unknown): string[] {
+  const { images, references, source } = (data ?? {}) as Record<string, unknown>;
+  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source]
+    .flatMap((reference) => reference && typeof reference === "object" && (reference as { type?: unknown }).type === "node" && typeof (reference as { nodeId?: unknown }).nodeId === "string" ? [(reference as { nodeId: string }).nodeId] : []);
 }
 
 /** Matches an agent-supplied action name to the library, case-insensitively, and suggests close names when it misses. */

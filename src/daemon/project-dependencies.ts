@@ -149,9 +149,13 @@ async function dependencySnapshot(
 }> {
   assertCurrent?.();
   const hash = createHash("sha256").update(manager);
-  const manifest: DependencyManifest = JSON.parse(
-    await readFile(path.join(directory, "package.json"), "utf8"),
-  );
+  let manifest: DependencyManifest = {};
+  try {
+    manifest = JSON.parse(await readFile(path.join(directory, "package.json"), "utf8"));
+  } catch (cause) {
+    // A pnpm workspace can declare its packages in YAML without a root package.json.
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT" || !(await exists(path.join(directory, "pnpm-workspace.yaml")))) throw cause;
+  }
   const manifests = [{ directory, manifest }];
   let patterns = Array.isArray(manifest.workspaces)
     ? manifest.workspaces

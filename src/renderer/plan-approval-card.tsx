@@ -1,6 +1,6 @@
-import { ArrowRight, X } from "./icons.js";
 import { useState } from "react";
 import { InlineAnswer } from "./inline-answer.js";
+import { Button } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 interface PlanApprovalCardProps {
@@ -10,13 +10,15 @@ interface PlanApprovalCardProps {
   onCancel: () => Promise<boolean>;
 }
 
+/** The plan waits here to be approved and run, revised with feedback, or cancelled. */
 export function PlanApprovalCard({ disabled, onApprove, onRefine, onCancel }: PlanApprovalCardProps) {
   const [editing, setEditing] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const busy = disabled || submitting;
 
   async function run(action: () => Promise<boolean>) {
-    if (disabled || submitting) return;
+    if (busy) return;
     setSubmitting(true);
     try {
       await action();
@@ -28,38 +30,28 @@ export function PlanApprovalCard({ disabled, onApprove, onRefine, onCancel }: Pl
   return (
     <section className="plan-approval-card" aria-label={t("planApproval.label")}>
       <header>
+        <span className="chat-card-kind">{t("planApproval.kind")}</span>
         <strong>{t("planApproval.title")}</strong>
-        <button type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)} aria-label={t("planApproval.cancel")}><X size={15} /></button>
       </header>
-
-      <button className="plan-approval-approve" type="button" disabled={disabled || submitting} onClick={() => void run(onApprove)}>
-        <span>1</span>
-        <strong>{t("planApproval.approve")}</strong>
-        <ArrowRight size={15} />
-      </button>
 
       {editing ? (
         <InlineAnswer
           editing
           value={feedback}
-          disabled={disabled || submitting}
+          disabled={busy}
           label={t("planApproval.refine")}
           placeholder={t("planApproval.refinePlaceholder")}
           onChange={setFeedback}
           onSubmit={() => void run(() => onRefine(feedback.trim()))}
           onCancel={() => { setEditing(false); setFeedback(""); }}
         />
-      ) : (
-        <div className="plan-approval-footer">
-          <InlineAnswer
-            editing={false}
-            disabled={disabled || submitting}
-            label={t("planApproval.refine")}
-            onEdit={() => setEditing(true)}
-          />
-          <button className="plan-approval-skip" type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)}>{t("common.skip")}</button>
-        </div>
-      )}
+      ) : null}
+
+      <footer>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(onApprove)}>{t("planApproval.approve")}</Button>
+        {editing ? null : <Button size="sm" disabled={busy} onClick={() => setEditing(true)}>{t("planApproval.refine")}</Button>}
+        <Button size="sm" variant="ghost" className="plan-approval-cancel" disabled={busy} onClick={() => void run(onCancel)}>{t("planApproval.cancel")}</Button>
+      </footer>
     </section>
   );
 }

@@ -392,33 +392,23 @@ describe("desktop window", () => {
     }
   });
 
-  it.each([
-    ["win32", false, "#00000000"],
-    ["win32", true, "#00000000"],
-    ["darwin", false, undefined],
-    ["linux", false, undefined],
-  ] as const)("configures %s window chrome with dark mode %s", async (platform, dark, color) => {
+  it.each(["win32", "darwin", "linux"] as const)("configures %s window chrome", async (platform) => {
     vi.stubGlobal("process", { ...process, platform });
-    electron.dark = dark;
     await createDesktopWindow({
       runtime: { url: "http://127.0.0.1:43110", token: "token" },
       preloadPath: "/tmp/preload.cjs",
       rendererUrl: "http://127.0.0.1:43120",
-      integratedMenuBar: true,
+      integratedWindowControls: true,
     });
 
     const window = electron.windows[0] as { options: Record<string, unknown> };
+    expect(window.options.titleBarOverlay).toBeUndefined();
     if (platform === "win32") {
-      expect(window.options).toMatchObject({
-        titleBarStyle: "hidden",
-        titleBarOverlay: { color, symbolColor: dark ? "#ffffff" : "#202020", height: 32 },
-      });
+      expect(window.options.titleBarStyle).toBe("hidden");
     } else if (platform === "darwin") {
       expect(window.options.titleBarStyle).toBe("hiddenInset");
-      expect(window.options.titleBarOverlay).toBeUndefined();
     } else {
       expect(window.options.titleBarStyle).toBeUndefined();
-      expect(window.options.titleBarOverlay).toBeUndefined();
     }
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { CanvasPort } from "./canvas-node-interactions.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
@@ -49,7 +49,7 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
     <div className="story-text-output">
       <div data-alignment-frame className="design-document-node-content">
-        <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header"
+        <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header is-document"
           titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label={t("canvasDoc.title")} value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
         {issue ? <div className="design-document-issue" role="status">{t(doc ? "canvasDoc.unavailableDraftKept" : "canvasDoc.unavailableRestore", { source: issue.source })}</div> : null}
         {doc ? <div ref={bodyRef} className={`design-document-node-body${selected ? " nowheel" : ""}${isEditing ? " nodrag" : " is-preview"}`} onScrollCapture={(event) => {
@@ -65,8 +65,8 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
           <CanvasTextarea hidden={!isEditing} spellCheck={false} aria-label={t("canvasDoc.markdown")} value={doc.markdown} onChange={(markdown) => runtime?.design.update(doc.id, { markdown })} />
           <div hidden={isEditing} className="design-document-node-preview"><CanvasMarkdown projectId={runtime!.design.projectId} document={doc} /></div>
         </div> : <div className="design-document-node-body">{t("canvas.documentNotFound")}</div>}
-        <Handle type="target" position={Position.Left} id="references" />
-        <Handle type="source" position={Position.Right} id="out" />
+        <CanvasPort type="target" id="references" />
+        <CanvasPort type="source" id="out" />
       </div>
       {doc ? <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}>
         <div className="design-mode-control" role="group" aria-label={t("canvasDoc.view")}>

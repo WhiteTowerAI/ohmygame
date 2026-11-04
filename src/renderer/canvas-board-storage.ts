@@ -1,7 +1,9 @@
 import { assertWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
 import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
+import { normalizeLegacyCharacterModes } from "../shared/canvas-character-tools.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
+import { sameJson } from "../shared/same-json.js";
 import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
 import { t } from "./i18n.js";
 
@@ -19,7 +21,7 @@ export interface CanvasBoardStorage {
 }
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
 
-const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => canvas;
+const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => normalizeLegacyCharacterModes(canvas);
 const conflictMessage = t("canvas.boardEditedElsewhere");
 
 export function createCanvasBoardStorage({ projectId, boardId, onConflict, flushDocuments }: {
@@ -37,8 +39,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   const assertWritable = (local?: AssetCanvasDocument) => {
     assertWorkspaceVersion(projectId, version);
     if (!conflicting) return;
-    const serialized = JSON.stringify(local);
-    if (local && serialized !== JSON.stringify(canvasOnly(conflicting.remote.board)) && serialized !== JSON.stringify(conflicting.local)) {
+    if (local && !sameJson(local, canvasOnly(conflicting.remote.board)) && !sameJson(local, conflicting.local)) {
       remember(local, conflicting.base);
       conflicting = { ...conflicting, local };
       onConflict({ local, remote: conflicting.remote });
@@ -73,7 +74,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
         let canvas = canvasOnly(base.board);
         try {
           const stored = JSON.parse(localStorage.getItem(recoveryKey) ?? "null") as { base: AssetCanvasDocument; local: AssetCanvasDocument } | null;
-          const draft = stored && { base: withoutContentNodeSizes(stored.base), local: withoutContentNodeSizes(stored.local) };
+          const draft = stored && { base: withoutContentNodeSizes(normalizeLegacyCharacterModes(stored.base)), local: withoutContentNodeSizes(normalizeLegacyCharacterModes(stored.local)) };
           if (draft && isAssetCanvasDocument(draft.base) && isAssetCanvasDocument(draft.local)) {
             const merged = mergeCanvasDocument(draft.base, draft.local, canvas);
             if (merged) canvas = merged;
@@ -89,7 +90,8 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
     save: (local) => enqueue(async () => {
       await ready();
       assertWritable(local);
-      if (JSON.stringify(local) === JSON.stringify(canvasOnly(base!.board))) {
+      // The board as loaded, its keys perhaps in another order, is not an edit.
+      if (sameJson(local, canvasOnly(base!.board))) {
         try { localStorage.removeItem(recoveryKey); } catch { /* The disk version is already saved. */ }
         return local;
       }
@@ -115,12 +117,12 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
     refresh: (local) => enqueue(async () => {
       await ready();
       assertWritable(local);
-      const remote = await getCanvasBoard(projectId, boardId);
-      if (remote.revision === base!.revision) return;
+      const remote = await getCanvasBoard(projectId, boardId, base!.revision);
+      if (!remote || remote.revision === base!.revision) return;
       const merged = mergeCanvasDocument(canvasOnly(base!.board), local, canvasOnly(remote.board));
       if (!merged) { conflict(local, remote); throw new Error(conflictMessage); }
       base = remote;
-      if (JSON.stringify(merged) !== JSON.stringify(canvasOnly(remote.board))) remember(merged);
+      if (!sameJson(merged, canvasOnly(remote.board))) remember(merged);
       loading = Promise.resolve(merged);
       return merged;
     }),

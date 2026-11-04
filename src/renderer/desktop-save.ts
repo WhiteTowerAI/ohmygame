@@ -24,13 +24,16 @@ export class DesktopSaveCoordinator {
     this.#publish({ closing: true });
     // A cancelled attempt may still be finishing an import or save. Drain it,
     // then save the currently registered workspace on the next close attempt.
-    const saving = (this.#saving ?? Promise.resolve()).catch(() => {}).then(async () => {
-      const results = await Promise.allSettled([...this.#handlers].map((handler) => Promise.resolve().then(handler)));
-      const failure = results.find((result) => result.status === "rejected");
-      if (failure?.status === "rejected") throw failure.reason;
-    }).finally(() => { if (this.#saving === saving) this.#saving = undefined; });
+    const saving = (this.#saving ?? Promise.resolve()).catch(() => {}).then(() => this.flush())
+      .finally(() => { if (this.#saving === saving) this.#saving = undefined; });
     this.#saving = saving;
     return saving;
+  }
+  /** Saves every registered workspace now, rejecting with the first failure. */
+  async flush(): Promise<void> {
+    const results = await Promise.allSettled([...this.#handlers].map((handler) => Promise.resolve().then(handler)));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   }
   cancel(error?: string): void { this.#publish({ closing: false, error }); }
 }

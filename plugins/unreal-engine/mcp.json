@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "unreal": {
-      "url": "${config.endpoint}",
-      "lifecycle": "lazy"
-    }
-  }
-}

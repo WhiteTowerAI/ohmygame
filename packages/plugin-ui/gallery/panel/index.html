@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page components</title>
+    <link rel="stylesheet" href="/_ohmygame/plugin-ui.css" />
+    <script type="module" src="/_ohmygame/ui/1/index.js"></script>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <omg-page heading="Page components" description="Version 1. Each section shows one component in its states.">
+      <omg-tabs aria-label="Kinds of component">
+        <omg-tab name="layout" heading="Layout">
+          <omg-section heading="omg-grid" description="As many equal columns as fit, or a fixed number.">
+            <omg-grid min="180">
+              <omg-card heading="Pixel garden" description="Updated today"></omg-card>
+              <omg-card heading="Zombie farm" description="Updated yesterday"></omg-card>
+              <omg-card heading="Space miner" description="Updated last week"></omg-card>
+            </omg-grid>
+          </omg-section>
+
+          <omg-section heading="omg-split" description="A sidebar beside the content; one above the other in a narrow panel.">
+            <omg-split side-width="180">
+              <omg-card slot="sidebar" heading="Sidebar"><p>Filters or a list.</p></omg-card>
+              <omg-card heading="Content"><p>What the sidebar chooses.</p></omg-card>
+            </omg-split>
+          </omg-section>
+
+          <omg-section heading="omg-card" description="A raised surface that groups its content.">
+            <omg-card heading="Build" description="The last build of this project.">
+              <omg-button slot="actions" variant="ghost">Open</omg-button>
+              <p>Finished 3 minutes ago.</p>
+            </omg-card>
+          </omg-section>
+
+          <omg-section heading="omg-list" description="Rows with a title, a value and buttons.">
+            <omg-list>
+              <omg-list-item heading="Account" description="Signed in with TapTap">Dogxi<omg-button slot="actions" variant="ghost">Sign out</omg-button></omg-list-item>
+              <omg-list-item heading="Project">Zombie farm<omg-button slot="actions" variant="ghost">Change</omg-button></omg-list-item>
+              <omg-list-item heading="Version">1.4.2</omg-list-item>
+            </omg-list>
+          </omg-section>
+
+          <omg-section heading="omg-divider" description="A line between groups, with or without a label.">
+            <omg-divider></omg-divider>
+            <omg-divider label="Or"></omg-divider>
+          </omg-section>
+
+          <omg-section heading="omg-stack" description="Rows and columns spaced by the app's steps.">
+            <omg-stack direction="row" gap="1"><omg-status>gap 1</omg-status><omg-status>gap 1</omg-status></omg-stack>
+            <omg-stack direction="row" gap="6"><omg-status>gap 6</omg-status><omg-status>gap 6</omg-status></omg-stack>
+            <omg-stack direction="row" justify="between"><omg-status>between</omg-status><omg-status>between</omg-status></omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-empty">
+            <omg-empty heading="No projects yet" description="This account has no projects. Create one to start.">
+              <omg-button variant="primary">Create a project</omg-button>
+            </omg-empty>
+          </omg-section>
+        </omg-tab>
+        <omg-tab name="navigation" heading="Navigation">
+          <omg-section heading="omg-tabs" description="Views of one place, one at a time. Arrow keys move between them.">
+            <omg-tabs id="demo-tabs" aria-label="Project views">
+              <omg-tab name="overview" heading="Overview"><p>What the project is.</p></omg-tab>
+              <omg-tab name="builds" heading="Builds"><p>Its builds so far.</p></omg-tab>
+              <omg-tab name="settings" heading="Settings"><p>How it's set up.</p></omg-tab>
+              <omg-tab name="archive" heading="Archive" disabled></omg-tab>
+            </omg-tabs>
+            <omg-status id="demo-tab">Open tab: “overview”</omg-status>
+          </omg-section>
+
+          <omg-section heading="omg-steps" description="A flow; the current step shows its content.">
+            <omg-steps id="steps">
+              <omg-step heading="Prepare" state="done"><span slot="summary">The tools are ready.</span><p>Download the tools.</p></omg-step>
+              <omg-step heading="Sign in" state="current"><p>Sign in to your account in the browser.</p></omg-step>
+              <omg-step heading="Connect a project"><span slot="summary">After you sign in.</span><p>Choose a project to connect.</p></omg-step>
+              <omg-step heading="Preview"><p>Start the preview.</p></omg-step>
+            </omg-steps>
+            <omg-stack direction="row" wrap>
+              <omg-button variant="primary" data-step="next">Next step</omg-button>
+              <omg-button data-step="fail">Fail this step</omg-button>
+            </omg-stack>
+            <omg-button variant="ghost" slot="actions" data-step="reset">Reset</omg-button>
+          </omg-section>
+        </omg-tab>
+        <omg-tab name="actions" heading="Actions">
+          <omg-section heading="omg-button">
+            <omg-stack direction="row" wrap>
+              <omg-button variant="primary">Primary</omg-button>
+              <omg-button>Secondary</omg-button>
+              <omg-button variant="ghost">Ghost</omg-button>
+              <omg-button variant="danger">Danger</omg-button>
+              <omg-button disabled>Disabled</omg-button>
+              <omg-button busy>Busy</omg-button>
+            </omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-command-button" description="Runs the plugin's commands. While one runs, the others wait.">
+            <omg-stack direction="row" wrap align="start">
+              <omg-command-button command="work" variant="primary">Run a slow command</omg-command-button>
+              <omg-command-button command="fail">Run a failing command</omg-command-button>
+            </omg-stack>
+            <omg-status id="result">No command has finished yet.</omg-status>
+          </omg-section>
+
+          <omg-section heading="The app's toasts and dialogs" description="The app draws these, outside the page. “Run a slow command” is also in the panel's toolbar.">
+            <omg-stack direction="row" wrap>
+              <omg-button data-host="toast">Show a toast</omg-button>
+              <omg-button data-host="toast-bad">Show a failure</omg-button>
+              <omg-button data-host="confirm">Ask a question</omg-button>
+            </omg-stack>
+            <omg-status id="answer">No question asked yet.</omg-status>
+          </omg-section>
+        </omg-tab>
+        <omg-tab name="forms" heading="Forms">
+          <omg-section heading="omg-input" description="One line of text. A control carries its own label, hint and error.">
+            <omg-input id="name" label="Game name" placeholder="Zombie farm" hint="Shown on the store page."></omg-input>
+            <omg-input label="Access key" type="password" value="not-a-real-key"></omg-input>
+            <omg-input label="Build number" type="number" value="" error="Use a whole number."></omg-input>
+            <omg-input label="Disabled" value="Can't be changed" disabled></omg-input>
+            <omg-status id="typed">Typed: nothing yet</omg-status>
+          </omg-section>
+
+          <omg-section heading="omg-textarea" description="Several lines of text.">
+            <omg-textarea label="What changed" placeholder="Fixed the save button." rows="3"></omg-textarea>
+          </omg-section>
+
+          <omg-section heading="omg-segmented" description="A few choices side by side, all in view.">
+            <omg-segmented id="segmented" label="Build for" value="web">
+              <option value="web">Web</option>
+              <option value="windows">Windows</option>
+              <option value="android">Android</option>
+              <option value="ios" disabled>iOS</option>
+            </omg-segmented>
+          </omg-section>
+
+          <omg-section heading="omg-switch" description="Takes effect at once.">
+            <omg-switch label="Upload after each build" checked></omg-switch>
+            <omg-switch label="Show the debug overlay" hint="Only you see it."></omg-switch>
+            <omg-switch label="Beta channel" disabled></omg-switch>
+          </omg-section>
+
+          <omg-section heading="omg-checkbox" description="Goes with the rest of a form.">
+            <omg-checkbox label="Include source maps" checked></omg-checkbox>
+            <omg-checkbox label="Compress images" hint="Takes longer."></omg-checkbox>
+            <omg-checkbox label="Accept the terms" error="Needed to publish."></omg-checkbox>
+            <omg-checkbox label="Disabled" disabled checked></omg-checkbox>
+          </omg-section>
+
+          <omg-section heading="omg-select">
+            <omg-select id="select" label="Project" value="b">
+              <option value="">Choose a project</option>
+              <option value="a">Pixel garden</option>
+              <option value="b">Zombie farm</option>
+              <option value="c" disabled>Archived project</option>
+            </omg-select>
+            <omg-status id="chosen"></omg-status>
+          </omg-section>
+        </omg-tab>
+        <omg-tab name="media" heading="Media">
+          <omg-section heading="omg-image" description="A picture: in a frame of a given shape, or at its own size.">
+            <omg-grid min="140">
+              <omg-image src="../assets/scene.svg" alt="Hills under a sun" ratio="16/9" fit="cover"></omg-image>
+              <omg-image src="../assets/sprite.png" alt="A green slime" ratio="16/9" pixelated checker></omg-image>
+              <omg-image src="../assets/missing.png" alt="A picture that isn't there" ratio="1"></omg-image>
+            </omg-grid>
+          </omg-section>
+
+          <omg-section heading="omg-tile" description="A picture with its name, to pick from a grid.">
+            <omg-grid id="tiles" min="140">
+              <omg-tile heading="hills.svg" description="SVG &middot; 1 KB" src="../assets/scene.svg" selected></omg-tile>
+              <omg-tile heading="slime.png" description="PNG &middot; 16 &times; 16" src="../assets/sprite.png" fit="contain" pixelated checker badge="4 frames"></omg-tile>
+              <omg-tile heading="a-very-long-file-name-for-the-intro-scene.png" description="Missing" src="../assets/missing.png"></omg-tile>
+              <omg-tile heading="locked.png" description="Can't be picked" src="../assets/scene.svg" disabled></omg-tile>
+            </omg-grid>
+          </omg-section>
+
+          <omg-section heading="Pictures in a list" description="An omg-image before a row's title is a thumbnail.">
+            <omg-list>
+              <omg-list-item heading="Hills" description="Background">
+                <omg-image slot="leading" src="../assets/scene.svg" alt="" ratio="1" fit="cover"></omg-image>
+              </omg-list-item>
+              <omg-list-item heading="Slime" description="Sprite">
+                <omg-image slot="leading" src="../assets/sprite.png" alt="" ratio="1" pixelated checker></omg-image>
+              </omg-list-item>
+              <omg-list-item heading="Hills, whole" description="A picture of its own shape, drawn whole">
+                <omg-image slot="leading" src="../assets/scene.svg" alt=""></omg-image>
+              </omg-list-item>
+            </omg-list>
+          </omg-section>
+        </omg-tab>
+        <omg-tab name="feedback" heading="Feedback">
+          <omg-section heading="omg-status">
+            <omg-stack direction="row" gap="4" wrap>
+              <omg-status>Stopped</omg-status>
+              <omg-status tone="good">Running</omg-status>
+              <omg-status tone="warning">Out of date</omg-status>
+              <omg-status tone="bad">Didn't start</omg-status>
+              <omg-status tone="busy">Starting</omg-status>
+            </omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-badge" description="A short label for what something is or how it stands.">
+            <omg-stack direction="row" wrap>
+              <omg-badge>Draft</omg-badge>
+              <omg-badge tone="info">New</omg-badge>
+              <omg-badge tone="good">Published</omg-badge>
+              <omg-badge tone="warning">In review</omg-badge>
+              <omg-badge tone="bad">Rejected</omg-badge>
+            </omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-progress" description="How far something has got, or a moving bar until that's known.">
+            <omg-progress label="Uploading" value="40"></omg-progress>
+            <omg-progress label="Preparing"></omg-progress>
+          </omg-section>
+
+          <omg-section heading="omg-banner">
+            <omg-banner tone="info" heading="Info">A new version of the tools is available.</omg-banner>
+            <omg-banner tone="good" heading="Done">The project is connected.</omg-banner>
+            <omg-banner tone="warning" heading="Warning">The preview is using files from before your last change.</omg-banner>
+            <omg-banner tone="bad" heading="Preparation failed">
+              Python 3.8 or later is required.
+              <omg-button slot="actions">Try again</omg-button>
+            </omg-banner>
+          </omg-section>
+
+          <omg-section heading="omg-log">
+            <omg-log id="log" follow empty="No log lines yet."></omg-log>
+            <omg-stack direction="row" wrap>
+              <omg-button data-log="add">Add a line</omg-button>
+              <omg-button variant="ghost" data-log="clear">Clear</omg-button>
+            </omg-stack>
+          </omg-section>
+        </omg-tab>
+      </omg-tabs>
+    </omg-page>
+  </body>
+</html>

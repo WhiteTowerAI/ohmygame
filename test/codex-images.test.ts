@@ -105,6 +105,20 @@ describe("Codex image import", () => {
     );
   });
 
+  it("finds System default's generated images from USERPROFILE without CODEX_HOME or HOME", async () => {
+    const { home, saveGeneratedImage } = await setup();
+    const root = path.join(home, ".codex", "generated_images", "thread-1");
+    await mkdir(root, { recursive: true });
+    const savedPath = path.join(root, "cat.png");
+    await writeFile(savedPath, png);
+    const context = {
+      env: { USERPROFILE: home },
+      saveGeneratedImage,
+    } as unknown as DriverContext;
+    await importCodexImage({ id: "cat", result: "", savedPath }, "thread-1", context);
+    expect(saveGeneratedImage).toHaveBeenCalledWith(expect.any(String), png, undefined);
+  });
+
   it.each(["outside", "symlink"])(
     "refuses %s file-only results",
     async (kind) => {

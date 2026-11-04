@@ -1,10 +1,13 @@
-import { useState } from "react";
 import type { ChangelogEntry } from "../shared/changelog.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
+import { SettingsGroup } from "./settings-parts.js";
+import { Collapsible } from "./ui/index.js";
 
 const RELEASES_URL = "https://github.com/WhiteTowerAI/ohmygame/releases";
+/** Older releases are on GitHub. */
+const SHOWN_RELEASES = 6;
 
 export function ChangelogPanel({
   currentVersion,
@@ -13,7 +16,6 @@ export function ChangelogPanel({
   currentVersion: string;
   availableRelease?: DesktopUpdateState["availableRelease"];
 }) {
-  const [selection, setSelection] = useState<string>();
   const entries: Array<Omit<ChangelogEntry, "date"> & { date?: string }> = [
     ...__APP_CHANGELOG__,
   ];
@@ -31,56 +33,36 @@ export function ChangelogPanel({
       notes: availableRelease.notes || bundled?.notes || "",
     });
   }
-  const selected =
-    entries.find((entry) => entry.version === selection) ??
-    entries.find((entry) => entry.version === availableRelease?.version) ??
-    entries.find((entry) => entry.version === currentVersion)!;
+  // The release the person is about to get, else the one they run, starts open.
+  const open = entries.find((entry) => entry.version === availableRelease?.version)?.version ?? currentVersion;
+  const shown = entries.slice(0, SHOWN_RELEASES);
+  if (!shown.some((entry) => entry.version === open)) shown.push(entries.find((entry) => entry.version === open)!);
   return (
-    <section
-      className="settings-panel settings-overview-panel settings-changelog-panel"
-      aria-label={t("settings.about.changelog")}
+    <SettingsGroup
+      title={t("settings.about.changelog")}
+      actions={entries.length > shown.length ? (
+        <a className="ui-button ui-button-ghost ui-button-sm" href={RELEASES_URL} target="_blank" rel="noreferrer">{t("settings.about.allReleases")}</a>
+      ) : undefined}
     >
-      <header className="settings-changelog-header">
-        <h3>{t("settings.about.changelog")}</h3>
-        <div className="settings-changelog-meta">
-          {entries.length > 1 ? (
-            <select
-              className="settings-changelog-version"
-              aria-label={t("settings.about.releaseVersion")}
-              value={selected.version}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              {entries.map((entry) => (
-                <option value={entry.version} key={entry.version}>
-                  v{entry.version}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span>v{selected.version}</span>
-          )}
-          {selected.date ? (
-            <time dateTime={selected.date}>{selected.date}</time>
-          ) : null}
-        </div>
-      </header>
-      {selected.notes ? (
-        <MarkdownContent
-          className="settings-changelog-content"
-          text={selected.notes}
-        />
-      ) : (
-        <p className="settings-changelog-empty">
-          {t("settings.about.notesUnavailable")}{" "}
-          <a
-            href={`${RELEASES_URL}/tag/v${encodeURIComponent(selected.version)}`}
-            target="_blank"
-            rel="noreferrer"
+      {shown.map((entry) => (
+          <Collapsible
+            key={`${entry.version}:${open}`}
+            title={`v${entry.version}`}
+            meta={entry.date ? <time dateTime={entry.date}>{entry.date}</time> : undefined}
+            defaultOpen={entry.version === open}
           >
-            {t("settings.about.viewRelease")}
-          </a>
-        </p>
-      )}
-    </section>
+            {entry.notes ? (
+              <MarkdownContent className="settings-changelog settings-changelog-content" text={entry.notes} />
+            ) : (
+              <p className="settings-changelog settings-changelog-empty">
+                {t("settings.about.notesUnavailable")}{" "}
+                <a href={`${RELEASES_URL}/tag/v${encodeURIComponent(entry.version)}`} target="_blank" rel="noreferrer">
+                  {t("settings.about.viewRelease")}
+                </a>
+              </p>
+            )}
+          </Collapsible>
+      ))}
+    </SettingsGroup>
   );
 }

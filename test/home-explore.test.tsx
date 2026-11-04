@@ -21,11 +21,29 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listExamples: async () => examples,
   getExampleCover: async () => undefined,
   waitForRuntime: async () => undefined,
+  getHomeComposerCapabilities: async () => ({ plugins: [], skills: [] }),
+  getProjectLocation: async () => ({ location: "/tmp/projects" }),
+  createProject,
+  createConversation: async () => ({ id: "first" }),
 }));
-vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), () => ({ AppSidebar: () => null }));
-vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({ ProjectPromptCreator: () => null }));
+const created = { id: "maze", name: "Maze", type: "web-game", updatedAt: "2026-10-31T00:00:00Z", workspacePath: "/tmp/maze", preview: { status: "waiting" } };
+const createProject = vi.fn(async (_input: unknown): Promise<typeof created> => created);
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children, inert }: { children: React.ReactNode; inert?: boolean }) => <div className="page-frame" inert={inert}>{children}</div>,
+}));
+// Stands in for the prompt box: sending hands its message to Home.
+vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
+  ProjectPromptCreator: ({ onSubmit, starts }: { onSubmit: (message: unknown) => void; starts?: React.ReactNode }) => (<>
+    <button type="button" onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal" })}>Send prompt</button>
+    {starts}
+  </>),
+}));
+
+const createPixelAssetTemplateProject = vi.fn(async (_category: string, _level: string) => ({ projectId: "pixel", nodeId: "start" }));
+vi.doMock(path.resolve("src/renderer/asset-canvas-template-project.ts"), () => ({ createPixelAssetTemplateProject }));
 
 const { Home } = await import("../src/renderer/home.js");
+const { pixelAssetTemplateCategories } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
 
@@ -35,16 +53,84 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("shows two rows of examples in Explore, so an example past the first row is there too", async () => {
+it("shows two rows of examples in Explore, above Asset templates, so an example past the first row is there too", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} />));
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} />));
 
   const shown = [...container.querySelectorAll(".home-explore-card")].map((card) => card.textContent);
   // Four columns by default: eight cards, including Last Bus in sixth place.
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
+  // Asset templates come after Explore.
+  const headings = [...container.querySelectorAll(".home-section-head h2")].map((heading) => heading.textContent);
+  expect(headings.indexOf("Asset templates")).toBeGreaterThan(headings.indexOf("Explore"));
+});
+
+it("creates the project from the prompt at once, and opens the new-project dialog from Blank project", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const onCreate = vi.fn();
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={onCreate} onOpen={() => {}} onOpenAssetCanvas={() => {}} />));
+  const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+
+  // The prompt names the project and picks its type, so there is nothing to fill in.
+  await act(async () => button("Send prompt").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
+  expect(onCreate).toHaveBeenCalledWith(created, "first", "Make a maze", [], [], "normal", []);
+
+  // While it is being made, the other ways to start wait.
+  let finish!: (value: typeof created) => void;
+  createProject.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => button("Send prompt").click());
+  expect(button("Blank project").disabled).toBe(true);
+  // The page waits too, so a click elsewhere cannot leave the new project behind.
+  expect(container!.querySelector(".page-frame")!.hasAttribute("inert")).toBe(true);
+  await act(async () => finish(created));
+  expect(button("Blank project").disabled).toBe(false);
+  expect(container!.querySelector(".page-frame")!.hasAttribute("inert")).toBe(false);
+
+  // A failure shows the dialog with the error, so the person can try again.
+  createProject.mockRejectedValueOnce(new Error("Disk full"));
+  await act(async () => button("Send prompt").click());
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Disk full");
+  expect(document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')?.value).toBe("Make a maze");
+  await act(async () => button("Cancel").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+  await act(async () => button("Blank project").click());
+  expect(document.querySelector('[role="dialog"] textarea')).toBeNull();
+  expect(button("Create")).toBeDefined();
+  // Import folder needs the desktop folder picker.
+  expect(button("Import folder")).toBeUndefined();
+});
+
+it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const onOpenAssetCanvas = vi.fn();
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} onOpenAssetCanvas={onOpenAssetCanvas} />));
+
+  // Every pixel category, then the effect library.
+  const cards = [...container.querySelectorAll<HTMLButtonElement>(".home-templates .home-template-card")];
+  expect(cards).toHaveLength(pixelAssetTemplateCategories().length + 1);
+  await act(async () => cards[0]!.click());
+  const dialog = document.querySelector<HTMLElement>(".pixel-template-density-dialog")!;
+  expect(dialog.querySelectorAll('input[type="radio"]')).toHaveLength(3);
+
+  await act(async () => {
+    dialog.querySelector<HTMLInputElement>('input[value="detailed"]')!.click();
+    dialog.querySelector<HTMLButtonElement>(".project-create-submit")!.click();
+  });
+  expect(createPixelAssetTemplateProject).toHaveBeenCalledWith(pixelAssetTemplateCategories()[0]!.id, "detailed");
+  expect(onOpenAssetCanvas).toHaveBeenCalledWith("pixel", "start");
+  expect(document.querySelector(".pixel-template-density-dialog")).toBeNull();
 });

@@ -1,7 +1,7 @@
-import type { PluginMention, PromptContext, PromptReference } from "../shared/contracts.js";
+import type { PluginMention, PromptAttachment, PromptContext, PromptReference } from "../shared/contracts.js";
 import type { ChatReference } from "./chat-reference.js";
 import type { ComposerAttachment } from "./composer-attachments.js";
-import { extractLeadingPluginMention, parseSkillInvocation } from "./composer-mentions.js";
+import { formatSkillInvocation } from "./composer-mentions.js";
 
 export interface ComposerDraft {
   prompt: string;
@@ -14,9 +14,13 @@ export interface ComposerDraftScope {
 }
 
 export interface SavedComposerDraft extends ComposerDraft {
-  selectedSkill?: string;
+  /** Home's starter plugin, which leads the message without showing in it. */
   selectedPlugin?: PluginMention;
+  /** Home's other chosen plugins, sent as mentions after `selectedPlugin`. */
+  extraPlugins?: PluginMention[];
   attachments: ComposerAttachment[];
+  /** Files already in the project from a message that was not sent, such as a new project's first. Never saved. */
+  uploaded?: PromptAttachment[];
   reference?: ChatReference;
   designReference?: { references: PromptReference[]; context: PromptContext };
   planning: boolean;
@@ -44,23 +48,22 @@ const STORAGE_PREFIX = "ohmygame:composer-draft:v1:";
 /** A session belongs to a conversation, rather than to a mounted input box. */
 export function createComposerDraftStore(storage?: DraftStorage) {
   const sessions = new Map<string, { session: ComposerDraftSession; forget: () => void }>();
+  const watchers = new Map<string, Set<() => void>>();
+  const notify = (key: string | undefined) => { for (const watcher of key ? watchers.get(key) ?? [] : []) watcher(); };
 
   function get(scope?: ComposerDraftScope, initialDraft?: ComposerDraft, planning = false): ComposerDraftSession {
-    const key = scope ? `${projectPrefix(scope.projectId)}${encodeURIComponent(scope.conversationId)}` : undefined;
+    const key = scope ? scopeKey(scope) : undefined;
     const existing = key ? sessions.get(key) : undefined;
     if (existing) return existing.session;
 
-    const skill = parseSkillInvocation(initialDraft?.prompt ?? "");
-    const plugin = extractLeadingPluginMention(skill?.prompt ?? initialDraft?.prompt ?? "", initialDraft?.mentions ?? []);
     const restored = readDraft(storage, key);
     let snapshot: SavedComposerDraft = {
-      prompt: plugin.prompt,
+      prompt: initialDraft?.prompt ?? "",
       mentions: initialDraft?.mentions ?? [],
-      selectedSkill: skill?.name,
-      selectedPlugin: plugin.mention,
       planning,
       ...restored,
       attachments: [],
+      uploaded: undefined,
       submitting: false,
     };
     const listeners = new Set<() => void>();
@@ -84,13 +87,14 @@ export function createComposerDraftStore(storage?: DraftStorage) {
           saveDraft(storage, key, serialized);
         }
         for (const listener of listeners) listener();
+        notify(key);
       },
       clearSubmitted: (submitted) => {
         // Mode and sending status can change while the server accepts a prompt.
         // Only clear the message that was sent, never a newer message or reference.
         if (!active || !sameMessage(snapshot, submitted)) return false;
-        session.update({ prompt: "", mentions: [], selectedSkill: undefined, selectedPlugin: undefined,
-          attachments: [], reference: undefined, designReference: undefined, focusRequestId: undefined });
+        session.update({ prompt: "", mentions: [], selectedPlugin: undefined, extraPlugins: undefined,
+          attachments: [], uploaded: undefined, reference: undefined, designReference: undefined, focusRequestId: undefined });
         return true;
       },
       insertPrompt: (text) => {
@@ -108,12 +112,30 @@ export function createComposerDraftStore(storage?: DraftStorage) {
           active = false;
           snapshot = { prompt: "", mentions: [], attachments: [], planning: false, submitting: false };
           for (const listener of listeners) listener();
+          notify(key);
         },
       });
       // Preserve initial plugin/skill drafts even if the input is never edited.
       if (!restored && serializedDraft !== null) saveDraft(storage, key, serializedDraft);
+      notify(key);
     }
     return session;
+  }
+
+  /** A conversation's draft, without creating it: the input box sets it up with its first prompt and mode. */
+  function peek(scope: ComposerDraftScope): SavedComposerDraft | undefined {
+    return sessions.get(scopeKey(scope))?.session.getSnapshot();
+  }
+
+  /** Follows a conversation's draft, including once its input box creates it. */
+  function watch(scope: ComposerDraftScope, listener: () => void): () => void {
+    const key = scopeKey(scope);
+    const set = watchers.get(key) ?? new Set();
+    watchers.set(key, set.add(listener));
+    return () => {
+      set.delete(listener);
+      if (!set.size) watchers.delete(key);
+    };
   }
 
   function deleteProject(projectId: string): void {
@@ -130,24 +152,29 @@ export function createComposerDraftStore(storage?: DraftStorage) {
     } catch { /* Memory drafts are still cleared when storage is unavailable. */ }
   }
 
-  return { get, deleteProject };
+  return { get, peek, watch, deleteProject };
 }
 
 function projectPrefix(projectId: string): string {
   return `${STORAGE_PREFIX}${encodeURIComponent(projectId)}:`;
 }
 
+function scopeKey(scope: ComposerDraftScope): string {
+  return `${projectPrefix(scope.projectId)}${encodeURIComponent(scope.conversationId)}`;
+}
+
 function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boolean {
   return left.prompt === right.prompt && left.mentions === right.mentions
-    && left.selectedSkill === right.selectedSkill && left.selectedPlugin === right.selectedPlugin
-    && left.attachments === right.attachments && left.reference === right.reference
+    && left.selectedPlugin === right.selectedPlugin
+    && left.extraPlugins === right.extraPlugins
+    && left.attachments === right.attachments && left.uploaded === right.uploaded && left.reference === right.reference
     && left.designReference === right.designReference;
 }
 
 function serializeDraft(draft: SavedComposerDraft): string | null {
-  if (!draft.prompt && !draft.selectedSkill && !draft.selectedPlugin && !draft.reference && !draft.designReference && !draft.planning) return null;
-  const { prompt, mentions, selectedSkill, selectedPlugin, reference, designReference, planning } = draft;
-  return JSON.stringify({ version: 1, prompt, mentions, selectedSkill, selectedPlugin, reference, designReference, planning });
+  if (!draft.prompt && !draft.selectedPlugin && !draft.extraPlugins?.length && !draft.reference && !draft.designReference && !draft.planning) return null;
+  const { prompt, mentions, selectedPlugin, extraPlugins, reference, designReference, planning } = draft;
+  return JSON.stringify({ version: 1, prompt, mentions, selectedPlugin, extraPlugins, reference, designReference, planning });
 }
 
 function saveDraft(storage: DraftStorage | undefined, key: string | undefined, serialized: string | null): void {
@@ -166,10 +193,11 @@ function readDraft(storage: DraftStorage | undefined, key: string | undefined): 
     const design = value.designReference;
     const context = isRecord(design) ? design.context : undefined;
     return {
-      prompt: value.prompt,
+      // Skills used to sit in a slot of their own; they are now part of the text.
+      prompt: formatSkillInvocation(typeof value.selectedSkill === "string" ? value.selectedSkill : undefined, value.prompt),
       mentions: value.mentions.filter(isPluginMention),
-      selectedSkill: typeof value.selectedSkill === "string" ? value.selectedSkill : undefined,
       selectedPlugin: isPluginMention(value.selectedPlugin) ? value.selectedPlugin : undefined,
+      extraPlugins: Array.isArray(value.extraPlugins) ? value.extraPlugins.filter(isPluginMention) : undefined,
       planning: value.planning,
       reference: isRecord(value.reference) && typeof value.reference.text === "string" ? { text: value.reference.text } : undefined,
       designReference: isRecord(design) && Array.isArray(design.references)

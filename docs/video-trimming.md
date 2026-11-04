@@ -1,9 +1,10 @@
 # Video trimming
 
-Any video in the Library or on an Asset Canvas can be trimmed where it is
-previewed. Click a video in **Library**, or double-click a video node on an
-Asset Canvas, to open its preview. Instead of the browser's own controls, the
-preview shows:
+Any video in the Library or on an Asset Canvas can be trimmed. In **Library**,
+open a video's details and click **Trim** (or right-click its tile), which opens
+the trimmer in its own dialog. On an Asset Canvas, double-click a video node;
+its preview is the trimmer. Instead of the browser's own controls, the trimmer
+shows:
 
 - the video, which plays and pauses when clicked;
 - a play button and a track with frames from across the video, to scrub;
@@ -18,8 +19,8 @@ after the original, such as `opening (trimmed).mp4`. Saving shows its
 progress and can be cancelled. The original stays as it is, and so does
 everything that uses it.
 
-- In the Library, the preview switches to the new video. Its details name the
-  video it was trimmed from.
+- In the Library, the dialog closes and the details show the new video. They
+  name the video it was trimmed from.
 - On an Asset Canvas, the new video is added as an asset node beside the node
   it came from, and the preview closes.
 
@@ -31,8 +32,10 @@ A Scene uses a trimmed video like any other video, for example through
 The preview and yellow-handle timeline live in the controlled
 `src/renderer/video-trim-editor.tsx` component. It only edits a range and
 previews it; it never encodes, uploads, or writes project files.
-`VideoTrimmer` wraps that component with the Library/Asset Canvas save action.
-Other editing flows can reuse the same controls and `.video-trimmer-*` styles
+`useVideoTrimSave` in `src/renderer/video-trimmer.tsx` holds the encode and
+save; `VideoTrimmer` pairs it with the editor for the Asset Canvas preview, and
+the Library's trim dialog pairs it with the editor and its own buttons. Other
+editing flows can reuse the same controls and `.video-trimmer-*` styles
 without inheriting the encode/upload action.
 
 Space on the timeline or either handle toggles playback once. Failed video

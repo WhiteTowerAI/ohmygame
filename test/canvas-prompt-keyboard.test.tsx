@@ -171,3 +171,54 @@ it("selects video references before submitting and allows Shift+Enter inside the
   await enter();
   expect(submit).toHaveBeenCalledTimes(1);
 });
+
+
+it("keeps the prompt and settings when expanded, traps focus and restores the expand button", async () => {
+  const generate = vi.fn();
+  function Editable() {
+    const [instruction, setInstruction] = useState("Long prompt draft");
+    return <CanvasTextComposer models={[model]} modelStatus="ready" defaultModel={model} instruction={instruction}
+      onInstruction={setInstruction} onModel={() => {}} onReasoningChange={() => {}} onGenerate={generate} />;
+  }
+  await render(<Editable />);
+  const expand = host.querySelector<HTMLButtonElement>('[aria-label="Expand prompt editor"]')!;
+  await act(async () => expand.click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent).toBe("Prompt editor");
+  const input = dialog.querySelector("textarea")!;
+  expect(input.value).toBe("Long prompt draft");
+  expect(document.activeElement).toBe(input);
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => { setter.call(input, "Edited expanded draft"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(dialog.querySelector('[aria-label="Generate text"]')).not.toBeNull();
+  const boardKey = vi.fn();
+  document.addEventListener("keydown", boardKey);
+  await act(async () => dialog.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true })));
+  document.removeEventListener("keydown", boardKey);
+  expect(boardKey).not.toHaveBeenCalled();
+  const last = dialog.querySelector<HTMLButtonElement>('[aria-label="Generate text"]')!;
+  last.focus();
+  await act(async () => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(dialog.querySelector("button"));
+  // A picker opened here is portaled out of the dialog, and Tab stays in it.
+  const tab = async (target: HTMLElement, shiftKey = false) => {
+    target.focus();
+    await act(async () => target.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true })));
+  };
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-haspopup]')!.click());
+  const picker = document.querySelector<HTMLElement>(".model-picker")!;
+  expect(dialog.contains(picker)).toBe(false);
+  const controls = [...picker.querySelectorAll<HTMLElement>("button, input")];
+  expect(controls.length).toBeGreaterThan(1);
+  await tab(controls.at(-1)!);
+  expect(document.activeElement).toBe(controls[0]);
+  await tab(controls[0]!, true);
+  expect(document.activeElement).toBe(controls.at(-1));
+  await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector(".model-picker")).toBeNull();
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.querySelector("textarea")!.value).toBe("Edited expanded draft");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Expand prompt editor"]'));
+  expect(generate).not.toHaveBeenCalled();
+});

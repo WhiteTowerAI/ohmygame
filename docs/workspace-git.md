@@ -3,7 +3,12 @@
 The Files view renders `.md` and `.markdown` files as formatted Markdown.
 Workspace links and images resolve relative to the document's folder; links
 open the selected file in Code, and relative paths cannot leave the project.
-Other source files keep their syntax-highlighted preview.
+Supported source files appear immediately as text. A local worker adds syntax
+colors using Prism, and line numbers stay visible when scrolling sideways. In the Code panel, the open
+file's path and its open actions sit in the panel's toolbar; the file tree
+stays beside the file, and files in it carry an icon for their kind.
+
+![TypeScript and JSX in the dark workspace code viewer](assets/workspace-code-highlight.png)
 
 ![Markdown file preview and the publish slash command](assets/workspace-markdown-publish-command.png)
 
