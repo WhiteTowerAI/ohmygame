@@ -1434,6 +1434,7 @@ const en = {
     loadingCode: "Loading code",
     filterFiles: "Filter files…",
     filterFilesLabel: "Filter workspace files",
+    refreshFiles: "Refresh files",
     files: "Workspace files",
     gitViews: "Code browser views",
     gitFiles: "Files",

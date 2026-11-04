@@ -11971,6 +11971,19 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
+.file-explorer-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: var(--space-2) var(--space-2) 4px;
+}
+
+.file-explorer-filter .file-filter {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
 .file-filter {
   display: flex;
   min-height: 28px;

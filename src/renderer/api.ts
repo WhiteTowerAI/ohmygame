@@ -1069,8 +1069,8 @@ export async function setProjectLogo(projectId: string, logo: Blob | undefined):
   return response.json() as Promise<ProjectState>;
 }
 
-export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
-  return request(`/projects/${projectId}/files`);
+export async function listWorkspaceFiles(projectId: string, directory?: string): Promise<WorkspaceFile[]> {
+  return request(`/projects/${projectId}/files${directory === undefined ? "" : `?directory=${encodeURIComponent(directory)}`}`);
 }
 
 export async function getWorkspaceGitChanges(projectId: string): Promise<WorkspaceGitChanges> {

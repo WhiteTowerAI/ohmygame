@@ -1416,6 +1416,7 @@ const zhCN: typeof en = {
     loadingCode: "正在加载代码",
     filterFiles: "筛选文件…",
     filterFilesLabel: "筛选工作区文件",
+    refreshFiles: "刷新文件",
     files: "工作区文件",
     gitViews: "代码浏览视图",
     gitFiles: "文件",
