@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 async function fixture(
-  options: { maxAutomaticRestarts?: number; projectChild?: boolean } = {},
+  options: { maxAutomaticRestarts?: number; projectChild?: boolean; environment?: NodeJS.ProcessEnv } = {},
 ) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-supervisor-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -26,6 +26,7 @@ async function fixture(
     const count = existsSync(${JSON.stringify(path.join(directory, "count"))}) ? Number(readFileSync(${JSON.stringify(path.join(directory, "count"))}, 'utf8')) + 1 : 1;
     writeFileSync(${JSON.stringify(path.join(directory, "count"))}, String(count));
     writeFileSync(${JSON.stringify(path.join(directory, "pid"))}, String(process.pid));
+    writeFileSync(${JSON.stringify(path.join(directory, "safe-mode"))}, process.env.OHMYGAME_SAFE_MODE ?? "");
     const server = createServer((request, response) => {
       response.end('ready');
       if (request.url === '/crash') setImmediate(() => process.exit(9));
@@ -54,7 +55,7 @@ async function fixture(
     token: "test-token",
     allowedOrigins: [],
     executable: process.execPath,
-    environment: {},
+    environment: options.environment ?? {},
     healthTimeoutMs: 2_000,
     maxAutomaticRestarts: options.maxAutomaticRestarts,
     onState: (state) => states.push(state),
@@ -107,6 +108,21 @@ describe("background service recovery", () => {
       recovered: true,
     });
     expect((await fetch(`${supervisor.runtime.url}/health`)).status).toBe(200);
+  });
+
+  it("restarts with plugins off and back, keeping the mode through an automatic restart", async () => {
+    // An inherited setting doesn't decide it.
+    const { supervisor, directory } = await fixture({ environment: { OHMYGAME_SAFE_MODE: "1" } });
+    const mode = () => readFile(path.join(directory, "safe-mode"), "utf8");
+    expect(await mode()).toBe("");
+    expect(supervisor.state().safeMode).toBeUndefined();
+    expect(await supervisor.restart({ safeMode: true })).toMatchObject({ status: "ready", safeMode: true });
+    expect(await mode()).toBe("1");
+    await fetch(`${supervisor.runtime.url}/crash`);
+    await vi.waitFor(() => expect(supervisor.state()).toMatchObject({ status: "ready", generation: 3, safeMode: true }));
+    expect(await mode()).toBe("1");
+    expect((await supervisor.restart()).safeMode).toBeUndefined();
+    expect(await mode()).toBe("");
   });
 
   it.skipIf(process.platform === "win32")(

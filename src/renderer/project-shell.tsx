@@ -106,12 +106,15 @@ import {
   writePluginFile,
   setPluginPageValue,
   runPluginCommand,
+  reportPluginPanelError,
+  setStorePluginEnabled,
   undoProjectPluginChange,
   type PluginPanel,
   skipLimitResume,
   updateAgentRuntime,
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
+import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
@@ -309,6 +312,10 @@ export function ProjectShell({
   }, [pluginToolbarRuns]);
   /** The question a plugin's page is asking, in a dialog the app draws. */
   const [pluginConfirm, setPluginConfirm] = useState<{ panel: PanelId; plugin: string; request: PluginUiConfirm; answer: (yes: boolean) => void }>();
+  // The plugin whose log is open, from an error it caused.
+  const [pluginLog, setPluginLog] = useState<string>();
+  // A panel's uncaught errors go to its log; the first one each session says so.
+  const pluginErrorsShown = useRef(new Set<string>());
   const pluginConfirmOpen = useRef(false);
   // A question from a panel that's gone has nobody to answer to.
   useEffect(() => {
@@ -1156,9 +1163,17 @@ export function ProjectShell({
       return { result };
     } catch (cause) {
       const error = errorMessage(cause);
-      toast({ title: command.title, description: error, tone: "danger" });
+      toast({ title: command.title, description: t("pluginLog.commandFailed", { plugin: command.plugin, error }), tone: "danger",
+        action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(command.plugin) } });
       return { error };
     }
+  }
+  /** Turns a plugin off everywhere, as from a panel that stopped responding. */
+  function turnPluginOff(plugin: string): void {
+    void setStorePluginEnabled(plugin, false).then(
+      () => setCapabilitiesRevision((value) => value + 1),
+      (cause: unknown) => toast({ title: plugin, description: errorMessage(cause), tone: "danger" }),
+    );
   }
   /** Answers a plugin page's question, and lets another be asked. */
   function answerPluginConfirm(yes: boolean): void {
@@ -1201,6 +1216,14 @@ export function ProjectShell({
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
       toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
+      reportError: (message) => {
+        void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
+        if (pluginErrorsShown.current.has(panel.plugin)) return;
+        pluginErrorsShown.current.add(panel.plugin);
+        toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
+          action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
+      },
+      turnOff: () => turnPluginOff(panel.plugin),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
@@ -1452,6 +1475,8 @@ export function ProjectShell({
       {pluginConfirm.request.message ? <p className="plugin-confirm-message">{pluginConfirm.request.message}</p> : null}
       <p className="plugin-confirm-source">{t("pluginCommands.askedBy", { plugin: pluginConfirm.plugin })}</p>
     </Dialog> : null}
+    {pluginLog ? <PluginLogDialog plugin={pluginLog} displayName={pluginLog} onClose={() => setPluginLog(undefined)}
+      onChanged={() => setCapabilitiesRevision((value) => value + 1)} /> : null}
     {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
       onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
       onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}

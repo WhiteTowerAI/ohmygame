@@ -11,10 +11,13 @@ export interface DesktopRuntimeState {
   recovered: boolean;
   runtime?: DaemonRuntime;
   error?: string;
+  /** Started with no plugins running, to recover from one that breaks the app. */
+  safeMode?: boolean;
 }
 
 export interface DesktopRuntimeService {
   state(): Promise<DesktopRuntimeState>;
-  restart(): Promise<DesktopRuntimeState>;
+  /** Restarts the service; `safeMode` starts it with no plugins running, and without it, normally. */
+  restart(options?: { safeMode?: boolean }): Promise<DesktopRuntimeState>;
   onState(listener: (state: DesktopRuntimeState) => void): () => void;
 }

@@ -99,6 +99,36 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+## When a plugin misbehaves
+
+- **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's
+  last 500 lines since the app started, in memory: what its native code
+  printed through `console` while it ran (the host tags it with the plugin,
+  so one host's plugins stay apart), its failed tools, commands and hooks,
+  its host stopping under it, a failed call to its MCP service from an
+  agent, and its panels' uncaught errors, which the page bridge sends and
+  the app posts to `POST /plugin-store/:publisher/:name/log`. `GET` on the
+  same route returns it with the plugin's saved secrets, and what looks like
+  a key, token or URL password, replaced by `[redacted]`, so what the app
+  shows or copies has been through that. A failed command's toast and a
+  panel's first error offer **View log**; the log has **Turn off** and
+  **Copy log**.
+- **Quarantine.** A plugin blamed for three host crashes or hangs within
+  five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
+  page and card say it stopped, and it stays so until it is turned on again
+  or the app restarts.
+- **A panel that stops answering.** While a page with the bridge shows, the
+  app pings it every five seconds and the bridge answers by itself. After
+  fifteen seconds without an answer the app offers to wait, reload the
+  panel, or turn the plugin off.
+- **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
+  from the service-stopped notice or the Plugins page's Add menu, the
+  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
+  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
+  type. Saved choices don't change, plugins can't be turned on, and the
+  Plugins page offers to restart normally. Electron can't tell a key held
+  at launch without native code, so there is no Shift shortcut.
+
 ## Modules
 
 | Area | Code | Tests |

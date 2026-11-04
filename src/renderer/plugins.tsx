@@ -1,11 +1,11 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, Server, Sparkles, Store } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles, Store } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, readPluginMarket, readPluginUpdates, waitForRuntime } from "./api.js";
+import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash } from "./routes.js";
@@ -48,6 +48,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [adding, setAdding] = useState<MarketPlugin>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [updating, setUpdating] = useState<PluginSourceUpdate>();
+  const [safeMode, setSafeMode] = useState(false);
+  const runtimeService = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.runtimeService;
+  const restart = (mode: boolean) => void runtimeService?.restart({ safeMode: mode }).catch((cause: unknown) => setError(errorMessage(cause)));
   const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
@@ -97,6 +100,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   // Where installed plugins came from is checked when the page opens, and again after one is added.
   const readUpdates = () => void waitForRuntime().then(readPluginUpdates).then(setUpdates, () => {});
   useEffect(readUpdates, [serviceGeneration]);
+  useEffect(() => { void waitForRuntime().then(readPluginStatus).then((status) => setSafeMode(status.safeMode), () => {}); }, [serviceGeneration]);
   const added = (id: string) => void reload().then(() => { readUpdates(); onPluginChange(id); });
 
   function createWithAi(): void {
@@ -131,6 +135,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },
+    // For a plugin that breaks the app: everything starts again with no plugin running.
+    ...(runtimeService && !safeMode ? ["separator" as const, { label: t("pluginSafeMode.restartSafe"), icon: <RotateCcw size={14} />, onSelect: () => restart(true) }] : []),
   ];
   const searchCopy = tab === "skills"
     ? { placeholder: t("plugins.searchSkills"), label: t("plugins.searchSkillsLabel") }
@@ -216,6 +222,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
 
   return <section className="plugins-page">
+    {safeMode ? <Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
+      ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
+      {t("pluginSafeMode.hint")}
+    </Alert> : null}
     {pluginId ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>

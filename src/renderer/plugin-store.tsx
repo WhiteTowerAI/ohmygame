@@ -11,6 +11,7 @@ import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSpa
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
+import { PluginLogDialog } from "./plugin-log.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
 import { Alert, Badge, Button, Checkbox, Dialog, Skeleton, Switch, Tabs } from "./ui/index.js";
@@ -204,6 +205,7 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
           {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
+          {enabled && plugin.quarantined ? <Badge tone="danger">{t("pluginLog.stoppedBadge")}</Badge> : null}
           {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
@@ -280,6 +282,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
+  const [logOpen, setLogOpen] = useState(false);
   const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
@@ -379,6 +382,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     </header>
     {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
+    {enabled && plugin.quarantined ? <Alert tone="danger" title={t("pluginLog.quarantined")} action={<>
+      <Button size="sm" variant="ghost" onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
+      <Button size="sm" disabled={!!busy} onClick={() => toggle(true)}>{t("pluginLog.turnOnAgain")}</Button>
+    </>}>{t("pluginLog.quarantinedHint")}</Alert> : null}
     {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
       <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
     }>
@@ -468,12 +475,16 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>
           {onAddAgain ? <Button disabled={!!busy} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
         </div> : null}
+        <div className="plugin-side-actions">
+          <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
+        </div>
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
           {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
           {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
       </aside>
     </div>
+    {logOpen ? <PluginLogDialog plugin={plugin.id} displayName={plugin.displayName} onClose={() => setLogOpen(false)} onChanged={() => void onChanged()} /> : null}
     {removing ? <UninstallDialog plugin={plugin} version={removing} onCancel={() => setRemoving(undefined)}
       onUninstall={(keepData) => remove(removing, keepData)} /> : null}
     {everyProject.dialog}

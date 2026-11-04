@@ -1,0 +1,53 @@
+import type { PluginLogEntry } from "../shared/plugins.js";
+
+// What each plugin did wrong, and what its native code printed, since the app
+// started: kept in memory only, so a restart starts it again, as it does a
+// quarantine. Each plugin keeps its last `PLUGIN_LOG_MAX_ENTRIES` entries.
+
+export const PLUGIN_LOG_MAX_ENTRIES = 500;
+/** Longer lines are cut to this many characters. */
+export const PLUGIN_LOG_MAX_CHARS = 2_000;
+
+export class PluginLogs {
+  readonly #entries = new Map<string, PluginLogEntry[]>();
+
+  add(plugin: string, entry: Omit<PluginLogEntry, "at">): void {
+    const text = entry.text.length > PLUGIN_LOG_MAX_CHARS ? `${entry.text.slice(0, PLUGIN_LOG_MAX_CHARS - 1)}…` : entry.text;
+    const entries = this.#entries.get(plugin) ?? [];
+    entries.push({ at: new Date().toISOString(), level: entry.level, source: entry.source, text });
+    entries.splice(0, Math.max(0, entries.length - PLUGIN_LOG_MAX_ENTRIES));
+    this.#entries.set(plugin, entries);
+  }
+
+  /** The plugin's entries, oldest first, with `secrets` and anything shaped like a credential redacted. */
+  read(plugin: string, secrets: readonly string[] = []): PluginLogEntry[] {
+    return (this.#entries.get(plugin) ?? []).map((entry) => ({ ...entry, text: redactCredentials(entry.text, secrets) }));
+  }
+
+  forget(plugin: string): void {
+    this.#entries.delete(plugin);
+  }
+}
+
+const REDACTED = "[redacted]";
+
+/**
+ * Takes out the plugin's saved secrets, wherever they appear, and what looks
+ * like a credential: a bearer token, `token=…`, a URL's password, and common
+ * key formats. It can't know every format, so it is a safety net, not a promise.
+ */
+export function redactCredentials(text: string, secrets: readonly string[] = []): string {
+  let result = text;
+  // Longest first, so a secret that contains another goes whole.
+  for (const secret of [...secrets].filter((value) => value.length >= 4).sort((a, b) => b.length - a.length))
+    result = result.split(secret).join(REDACTED);
+  return result
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`)
+    .replace(/\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization)["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, `$1${REDACTED}`)
+    .replace(/(\/\/[^/\s:@]+:)[^@\s/]+@/g, `$1${REDACTED}@`)
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g, REDACTED)
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b/g, REDACTED)
+    .replace(/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, REDACTED)
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, REDACTED)
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, REDACTED);
+}

@@ -40,6 +40,17 @@ import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
+  chatty: `
+    export function activate(context) {
+      console.log("starting", { ready: true });
+      context.registerTool("later", () => new Promise((resolve) => setTimeout(() => { console.warn("after a while"); resolve("ok"); }, 10)));
+      context.registerTool("fail", () => { throw new Error("nope"); });
+      context.registerTool("forge", () => {
+        process.send({ type: "log", plugin: "test/elsewhere", level: "error", text: "not mine" });
+        return "sent";
+      });
+    }
+  `,
   tools: `
     let activations = 0;
     export function activate(context) {
@@ -135,6 +146,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const TOOLS: Record<string, string[]> = {
+  chatty: ["later", "fail", "forge"],
   tools: [
     "echo",
     "pid",
@@ -357,6 +369,33 @@ describe("extension hosts", () => {
         input: "back",
       }),
     ).toMatchObject({ input: "back" });
+  });
+
+  it("logs what each plugin prints and what of it fails, under its own id", async () => {
+    const logged: Array<[string, string, string, string]> = [];
+    const extensionHosts = hosts({ crashLimit: 2, onLog: (id, entry) => logged.push([id, entry.level, entry.source, entry.text]) });
+    const call = (name: string, tool: string) => extensionHosts.invoke({ scope: "app", plugin: plugin(name), tool });
+    expect(await call("chatty", "later")).toBe("ok");
+    await failure(call("chatty", "fail"));
+    // Another plugin's name can't be borrowed.
+    expect(await call("chatty", "forge")).toBe("sent");
+    await failure(call("tools", "crash"));
+    await failure(call("tools", "crash"));
+    await vi.waitFor(() => expect(logged.filter(([id]) => id === "test/tools")).toHaveLength(5));
+    // What a plugin's own code printed or threw is in order; a crash also says its host stopped, twice here, then that it is off.
+    expect(logged.filter(([id]) => id === "test/chatty")).toEqual([
+      ["test/chatty", "info", "native", "starting { ready: true }"],
+      ["test/chatty", "warn", "native", "after a while"],
+      ["test/chatty", "error", "call", "Tool fail failed: nope"],
+    ]);
+    const tools = logged.filter(([id]) => id === "test/tools").map(([, , source, text]) => `${source}: ${text}`);
+    expect(tools.filter((line) => line.startsWith("call: Tool crash failed"))).toHaveLength(2);
+    expect(tools.filter((line) => line.startsWith("host: Its extension host stopped"))).toHaveLength(2);
+    expect(tools).toContainEqual(expect.stringMatching(/^host: Turned off: it stopped its extension host 2 times/));
+    expect(logged.some(([id]) => id === "test/elsewhere")).toBe(false);
+    // A refused call isn't the plugin's failure.
+    await failure(call("tools", "echo"));
+    expect(logged.filter(([, , , text]) => text.includes("quarantined"))).toEqual([]);
   });
 
   it("reports a plugin that fails to activate and keeps the host for others", async () => {

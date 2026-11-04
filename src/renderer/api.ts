@@ -93,7 +93,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
+import type { PluginLogView, PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -817,6 +817,21 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 /** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+/** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
+export function readPluginLog(id: string): Promise<PluginLogView> {
+  return request(`/plugin-store/${pluginPath(id)}/log`);
+}
+
+/** Adds a panel's uncaught error to its plugin's log. */
+export async function reportPluginPanelError(id: string, text: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/log`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+}
+
+/** Whether the service started in safe mode, with no plugin running. */
+export function readPluginStatus(): Promise<{ safeMode: boolean }> {
+  return request("/plugin-store/status");
 }
 
 /** Newer packages where installed plugins came from; checked at startup and when the Plugins page opens. */

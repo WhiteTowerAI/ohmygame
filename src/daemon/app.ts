@@ -132,7 +132,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginSourceUpdate, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -210,6 +210,8 @@ export interface AppOptions {
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
   preinstalledPluginsDirectory?: string;
+  /** Safe mode: every plugin is off, its own choices kept for when the app starts normally. */
+  pluginSafeMode?: boolean;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -847,6 +849,7 @@ export function createApp(options: AppOptions = {}) {
     bundledOff: BUNDLED_PLUGINS_OFF,
     projectKind: projectKindAtFolder,
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
+    ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the plugins"));
@@ -1060,6 +1063,10 @@ export function createApp(options: AppOptions = {}) {
   }, (projectId, conversationId, messages) => events.publish(projectId, "scheduled.changed", { messages }, { conversationId }));
   agents = new AgentManager(events, {
     onActivityChange: notifyProjectActivity,
+    onMcpToolFailed: (server, tool, message) => {
+      const plugin = pluginServices.mcpServerPlugin(server);
+      if (plugin) pluginServices.logs.add(plugin, { level: "error", source: "mcp", text: `MCP tool ${tool} failed: ${message || "no details"}` });
+    },
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
@@ -1327,6 +1334,7 @@ export function createApp(options: AppOptions = {}) {
         ...(added ? { origin: added } : {}),
         ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
+        ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
         ...(entry.manifest.beta ? { beta: true } : {}),
         // The digest changes with the package, which holds the icon.
@@ -1372,6 +1380,7 @@ export function createApp(options: AppOptions = {}) {
     },
   };
   app.get("/plugin-store/updates", (): Promise<PluginSourceUpdate[]> => pluginUpdates.check());
+  app.get("/plugin-store/status", (): { safeMode: boolean } => ({ safeMode: pluginServices.safeMode }));
   const pluginSourceBody = {
     type: "object",
     required: ["type"],
@@ -1505,6 +1514,20 @@ export function createApp(options: AppOptions = {}) {
     if (!pluginServices.index.get(id, request.params.version)) return reply.code(404).send({ error: `${id} ${request.params.version} is not installed` });
     const preview = await pluginServices.uninstallPreview(id, request.params.version);
     return { ...preview, projects: (await projectsUsingPlugin(id))[request.params.version] ?? [] };
+  });
+  // A plugin's log, redacted, and whether it is quarantined; a panel's uncaught errors are added from the app.
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/log", async (request): Promise<PluginLogView> => {
+    await pluginServices.ready();
+    return pluginServices.log(`${request.params.publisher}/${request.params.name}`);
+  });
+  app.post<{ Params: { publisher: string; name: string }; Body: { text: string } }>("/plugin-store/:publisher/:name/log", {
+    schema: { body: { type: "object", required: ["text"], additionalProperties: false, properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
+  }, async (request, reply) => {
+    await pluginServices.ready();
+    const id = `${request.params.publisher}/${request.params.name}`;
+    if (!pluginServices.index.get(id)) return reply.code(404).send({ error: `${id} is not installed` });
+    pluginServices.logs.add(id, { level: "error", source: "panel", text: request.body.text });
+    return reply.code(204).send();
   });
   // Which projects use each installed version, so older ones no project uses can go.
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/usage", async (request): Promise<Record<string, string[]>> => {

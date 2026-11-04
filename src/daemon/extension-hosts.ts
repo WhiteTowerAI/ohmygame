@@ -10,6 +10,7 @@ import {
   type HostStats,
   type PluginConfigurationValues,
 } from "../shared/extension-host-protocol.js";
+import type { PluginLogEntry } from "../shared/plugins.js";
 import {
   registerProjectProcess,
   terminateProjectProcess,
@@ -62,6 +63,8 @@ export interface ExtensionHostOptions {
   maxHeapMb?: number;
   /** The host process entry; tests may point at their own. */
   hostEntry?: string;
+  /** Hears what each plugin printed, what of its failed, and when its host stopped, for its log. */
+  onLog?: (plugin: string, entry: Omit<PluginLogEntry, "at">) => void;
 }
 
 export type InvokeOptions = {
@@ -152,7 +155,7 @@ const DEFAULTS = {
   crashLimit: 3,
   crashWindowMs: 5 * 60_000,
   maxHeapMb: 1024,
-} satisfies Omit<Required<ExtensionHostOptions>, "hostEntry">;
+} satisfies Omit<Required<ExtensionHostOptions>, "hostEntry" | "onLog">;
 
 /** The built host is a sibling `.js`; from source (tsx, Bun, tests) it is the `.ts`. */
 function defaultHostEntry(): string {
@@ -207,7 +210,8 @@ class ExtensionHost {
     readonly project: string | undefined,
     entry: string,
     private readonly options: typeof DEFAULTS,
-    private readonly onExit: (host: ExtensionHost, plugins: string[]) => void,
+    private readonly onExit: (host: ExtensionHost, plugins: string[], reason: string) => void,
+    private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     this.#ready = new Promise<void>((resolve, reject) => {
@@ -510,7 +514,7 @@ class ExtensionHost {
       : this.#culprit
         ? [this.#culprit]
         : [...plugins];
-    this.onExit(this, blamed);
+    this.onExit(this, blamed, reason);
   }
 
   #request(
@@ -635,6 +639,11 @@ class ExtensionHost {
       );
       return;
     }
+    if (message.type === "log") {
+      // Only a plugin this host runs can have printed it.
+      if (this.#activations.has(message.plugin)) this.onLog?.(message.plugin, message.level, message.text);
+      return;
+    }
     const pending = this.#pending.get(message.id);
     if (!pending) return;
     if (message.type === "progress") {
@@ -668,12 +677,14 @@ export class ExtensionHosts {
   readonly #quarantined = new Set<string>();
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
+  readonly #onLog: ExtensionHostOptions["onLog"];
   #disposed = false;
 
   constructor(options: ExtensionHostOptions = {}) {
-    const { hostEntry, ...rest } = options;
+    const { hostEntry, onLog, ...rest } = options;
     this.#options = { ...DEFAULTS, ...rest };
     this.#entry = hostEntry ?? defaultHostEntry();
+    this.#onLog = onLog;
   }
 
   /** Calls one of a plugin's tools or commands in the host for `scope`, starting it if needed. */
@@ -683,7 +694,17 @@ export class ExtensionHosts {
         "quarantined",
         `${options.plugin.id} stopped its extension host too often and is turned off until it is released`,
       );
-    return this.#host(options.scope, options.project).invoke(options);
+    try {
+      return await this.#host(options.scope, options.project).invoke(options);
+    } catch (error) {
+      // Cancelled, or not on here, isn't the plugin's failure.
+      const code = error instanceof ExtensionHostError ? error.code : "failed";
+      if (code !== "cancelled" && code !== "unavailable") {
+        const kind = options.command !== undefined ? `Command ${options.command}` : options.projectType !== undefined ? `Project type hook ${options.projectType}` : `Tool ${options.tool}`;
+        this.#onLog?.(options.plugin.id, { level: "error", source: "call", text: `${kind} failed: ${error instanceof Error ? error.message : String(error)}` });
+      }
+      throw error;
+    }
   }
 
   quarantined(plugin: string): boolean {
@@ -768,7 +789,7 @@ export class ExtensionHosts {
       project,
       this.#entry,
       this.#options,
-      (exited, plugins) => {
+      (exited, plugins, reason) => {
         if (this.#hosts.get(scope) === exited) this.#hosts.delete(scope);
         const now = Date.now();
         for (const plugin of plugins) {
@@ -779,10 +800,14 @@ export class ExtensionHosts {
             now,
           ];
           this.#crashes.set(plugin, recent);
-          if (recent.length >= this.#options.crashLimit)
+          this.#onLog?.(plugin, { level: "error", source: "host", text: `Its extension host stopped (${reason}) while it was running` });
+          if (recent.length >= this.#options.crashLimit && !this.#quarantined.has(plugin)) {
             this.#quarantined.add(plugin);
+            this.#onLog?.(plugin, { level: "error", source: "host", text: `Turned off: it stopped its extension host ${recent.length} times in ${Math.round(this.#options.crashWindowMs / 60_000)} minutes. It stays off until it is turned on again or OhMyGame restarts.` });
+          }
         }
       },
+      (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }
 }

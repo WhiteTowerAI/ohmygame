@@ -14,6 +14,7 @@ const api = {
   uninstallStorePlugin: vi.fn(async () => {}),
   readPluginUninstall: vi.fn(async () => uninstallPreview),
   readPluginUsage: vi.fn(async (): Promise<Record<string, string[]>> => ({ "2.0.0": ["Castle"] })),
+  readPluginLog: vi.fn(async () => ({ entries: [{ at: "2026-11-04T08:00:00.000Z", level: "error", source: "host", text: "Its extension host stopped (1) while it was running" }], quarantined: true })),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
@@ -135,6 +136,18 @@ it("updates from where it came from, removes older versions no project uses, and
   expect(document.body.textContent).toContain("Added from this computer, so it has nowhere to update from.");
   await act(async () => button("Add again").click());
   expect(onAddAgain).toHaveBeenCalled();
+});
+
+it("says a plugin stopped after crashing, shows its log, and turns it on again", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { quarantined: true })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).toContain("Stopped after it kept crashing");
+  await act(async () => [...document.querySelectorAll("button")].find((item) => item.textContent === "View log")!.click());
+  const dialog = document.querySelector("[role=dialog]")!;
+  expect(api.readPluginLog).toHaveBeenCalledWith("acme/maker");
+  expect(dialog.querySelector("pre")!.textContent).toBe("2026-11-04T08:00:00.000Z ERROR [host] Its extension host stopped (1) while it was running");
+  await act(async () => [...dialog.querySelectorAll("button")].find((item) => item.textContent === "Turn on again")!.click());
+  expect(api.setStorePluginEnabled).toHaveBeenCalledWith("acme/maker", true);
 });
 
 it("says what uninstalling the last version removes and leaves, and can keep its settings and data", async () => {

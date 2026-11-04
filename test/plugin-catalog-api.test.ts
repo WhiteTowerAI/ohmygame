@@ -265,6 +265,15 @@ describe("plugin catalog API", () => {
     // No project uses it, and one that ships with the app has nowhere to update from.
     expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/usage" })).json()).toEqual({});
     expect((await app.inject({ method: "GET", url: "/plugin-store/updates" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/plugin-store/status" })).json()).toEqual({ safeMode: false });
+    // A panel's uncaught error joins the plugin's log, which the page reads back; only an installed plugin has one.
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/log" })).json()).toEqual({ entries: [], quarantined: false });
+    expect((await app.inject({ method: "POST", url: "/plugin-store/ohmygame/godot/log", payload: { text: "Editor: TypeError: token=abc123 is undefined" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/log" })).json()).toEqual({
+      entries: [{ at: expect.any(String), level: "error", source: "panel", text: "Editor: TypeError: token=[redacted] is undefined" }],
+      quarantined: false,
+    });
+    expect((await app.inject({ method: "POST", url: "/plugin-store/acme/missing/log", payload: { text: "x" } })).statusCode).toBe(404);
     expect((await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0?keepData=yes" })).statusCode).toBe(400);
     // A plugin that ships with the app only turns off.
     const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });

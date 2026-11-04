@@ -518,6 +518,30 @@
   gap: var(--space-2);
 }
 
+/* A plugin's log (plugin-log.tsx). */
+.plugin-log {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.plugin-log p {
+  margin: 0;
+}
+
+.plugin-log-lines {
+  max-height: 360px;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* What uninstalling removes and leaves (plugin-store.tsx). */
 .plugin-uninstall {
   display: grid;

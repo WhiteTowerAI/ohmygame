@@ -273,6 +273,8 @@ export interface StorePlugin {
   origin?: PluginOrigin;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
+  /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
+  quarantined?: true;
   categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
@@ -340,6 +342,23 @@ export interface PluginSourceUpdate {
   commit?: string;
   /** Read and reviewed in the Add plugin dialog, like any package. */
   source: PluginAddSource;
+}
+
+/** One line of a plugin's log: what its native code printed, or something of its that failed. */
+export interface PluginLogEntry {
+  /** ISO time. */
+  at: string;
+  level: "info" | "warn" | "error";
+  /** `native`: its code printed it; `call`: a tool, command or hook failed; `host`: its extension host stopped; `mcp`: an MCP service failed; `panel`: a page hit an uncaught error. */
+  source: "native" | "call" | "host" | "mcp" | "panel";
+  text: string;
+}
+
+/** A plugin's log, credentials redacted, and whether it is quarantined. */
+export interface PluginLogView {
+  entries: PluginLogEntry[];
+  /** It stopped its extension host too often; it stays off until it is turned on again or OhMyGame restarts. */
+  quarantined: boolean;
 }
 
 /** What uninstalling a version, or a plugin's every version, removes and leaves. */

@@ -146,6 +146,11 @@ export class PluginValues {
     });
   }
 
+  /** A plugin's saved secrets, so what is shown of its log leaves them out. */
+  secrets(id: string): string[] {
+    return Object.values(this.#values[id] ?? {}).flatMap((stored) => stored.type === "secret" && typeof stored.value === "string" ? [stored.value] : []);
+  }
+
   /** How many values are saved for a plugin, for what uninstalling it removes. */
   count(id: string): number {
     return Object.keys(this.#values[id] ?? {}).length;

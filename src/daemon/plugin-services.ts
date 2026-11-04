@@ -9,7 +9,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition, PluginUninstallPreview } from "../shared/plugins.js";
+import type { McpServerDefinition, PluginLogView, PluginUninstallPreview } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -27,6 +27,7 @@ import {
   type PluginPackageResult,
 } from "./plugin-index.js";
 import { PluginValues } from "./plugin-values.js";
+import { PluginLogs } from "./plugin-logs.js";
 import {
   capabilityGrants,
   missingGrants,
@@ -134,9 +135,16 @@ export interface PluginServicesOptions {
   bundledOff?: readonly string[];
   /** What the project in a folder (its real path) is, for matching plugins' `appliesTo`. */
   projectKind?: PluginScope["kind"];
+  /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
+  safeMode?: boolean;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
+/** How agent sessions name a plugin's MCP server: unique to the plugin and server, and short. */
+function pluginMcpServerName(id: string, server: string): string {
+  return `plugin-${createHash("sha256").update(id).digest("hex").slice(0, 12)}-v2-${server}`;
+}
+
 /** The bytes of the files under a folder, not following links; 0 when it doesn't exist. */
 async function folderBytes(folder: string): Promise<number> {
   const entries = await readdir(folder, { withFileTypes: true, recursive: true }).catch(() => []);
@@ -169,6 +177,10 @@ export class PluginServices {
   readonly native: NativePlugins;
   /** The person's values for plugins' `configuration` fields. */
   readonly values: PluginValues;
+  /** Started in safe mode, so no plugin runs. */
+  readonly safeMode: boolean;
+  /** What each plugin printed and what of its failed, since the app started. */
+  readonly logs = new PluginLogs();
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
   #packageChanges: Promise<unknown> = Promise.resolve();
@@ -196,8 +208,9 @@ export class PluginServices {
 
   constructor(options: PluginServicesOptions) {
     this.index = new PluginIndex(path.join(options.directory, "index.json"));
-    this.grants = new PluginGrants(path.join(options.directory, "grants.json"));
-    this.hosts = new ExtensionHosts(options.hosts);
+    this.safeMode = options.safeMode ?? false;
+    this.grants = new PluginGrants(path.join(options.directory, "grants.json"), { safeMode: this.safeMode });
+    this.hosts = new ExtensionHosts({ ...options.hosts, onLog: (plugin, entry) => this.logs.add(plugin, entry) });
     this.values = new PluginValues(
       path.join(options.directory, "configuration.json"),
     );
@@ -338,10 +351,17 @@ export class PluginServices {
       if (plugin.status !== "active" || !entry) continue;
       for (const server of entry.manifest.contributes?.mcpServers ?? []) {
         const definition = await this.#mcpDefinition(entry, server);
-        if (definition) servers[`plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${server.id}`] = definition;
+        if (definition) servers[pluginMcpServerName(entry.id, server.id)] = definition;
       }
     }
     return servers;
+  }
+
+  /** The installed plugin a session's MCP server name belongs to. */
+  mcpServerPlugin(name: string): string | undefined {
+    const prefix = /^plugin-[0-9a-f]{12}-v2-/.exec(name)?.[0];
+    if (!prefix) return undefined;
+    return this.index.entries().find((entry) => pluginMcpServerName(entry.id, "") === prefix)?.id;
   }
 
   /** How to start one of a plugin's MCP servers, unless a setting is missing or a value breaks a rule. */
@@ -692,6 +712,11 @@ export class PluginServices {
     return this.#onePackageChangeAtATime(() => this.#uninstall(id, version, options.keepData ?? false));
   }
 
+  /** A plugin's log, its saved secrets and anything shaped like a credential redacted. */
+  log(id: string): PluginLogView {
+    return { entries: this.logs.read(id, this.values.secrets(id)), quarantined: this.native.quarantined(id) };
+  }
+
   /** What uninstalling a version, or every version, removes and leaves. */
   async uninstallPreview(id: string, version?: string): Promise<Omit<PluginUninstallPreview, "projects">> {
     await this.ready();
@@ -733,7 +758,10 @@ export class PluginServices {
       if (inside && !inside.startsWith("..") && !path.isAbsolute(inside))
         await rm(entry.root, { recursive: true, force: true });
     }
-    if (last && !keepData) await rm(this.dataFolder(id), { recursive: true, force: true });
+    if (last && !keepData) {
+      await rm(this.dataFolder(id), { recursive: true, force: true });
+      this.logs.forget(id);
+    }
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */
@@ -754,6 +782,7 @@ export class PluginServices {
   /** The switch that stops a plugin everywhere; turning it back on releases a quarantine. */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     await this.ready();
+    if (enabled && this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
     await this.grants.setEnabled(id, enabled);
     if (enabled) this.native.release(id);
     await this.changed();

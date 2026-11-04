@@ -409,6 +409,8 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
+  /** Told when a call to an MCP server fails, so the plugin that runs it can log it. */
+  onMcpToolFailed?: (server: string, tool: string, message: string) => void;
 }
 
 interface UndoneChanges {
@@ -2216,6 +2218,8 @@ export class AgentManager {
       const item = current?.type === "dynamicToolCall" || current?.type === "mcpToolCall"
         ? current
         : toolThreadItem(active.turnId, itemId, event.toolCallId, event.toolName, undefined, "inProgress");
+      if (event.isError && item.type === "mcpToolCall" && item.server)
+        this.options.onMcpToolFailed?.(item.server, item.tool, result.output ?? "");
       this.#completeItem(projectId, active, {
         ...item,
         status: event.isError ? "failed" : "completed",
