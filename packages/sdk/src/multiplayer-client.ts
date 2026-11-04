@@ -2,6 +2,7 @@ import { Client as ColyseusClient, type Room } from "@colyseus/sdk";
 import {
   DEFAULT_TICK_MS,
   isMultiplayerEvent,
+  isRealtimeAction,
   isRealtimeInput,
   isMultiplayerManifestConfig,
   isMultiplayerSnapshot,
@@ -22,7 +23,7 @@ import {
 } from "./multiplayer-protocol.js";
 import { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 import { browserStorage, GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
-import type { ClientInput, ClientMoves } from "./define-game.js";
+import type { ClientAction, ClientInput, ClientMoves } from "./define-game.js";
 import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
@@ -304,6 +305,21 @@ export class MultiplayerClient<Game = unknown> {
       if (this.latestInput) this.flushInput();
       else this.stopInput();
     }, this.tickMs);
+  }
+  /**
+   * Sends something the player does once in a realtime game, such as { fire: true }, in
+   * the shape the rules' action function reads. The rules read it in exactly one tick, so
+   * send it once per press, not every frame. Returns false when no room is connected, in
+   * which case nothing is sent: an action is about this moment, so it is never queued.
+   * Throws invalid_option for an action that is not plain JSON of at most
+   * REALTIME_INPUT_MAX_LENGTH characters. The service reports a refused action through onError.
+   */
+  sendAction(action: ClientAction<Game>): boolean {
+    if (!isRealtimeAction(action))
+      throw new OhMyGameError("invalid_option", "An action must be a small plain object of JSON data.");
+    if (!this.room || this.status !== "connected") return false;
+    this.room.send("action", action);
+    return true;
   }
   private flushInput(): void {
     const input = this.latestInput;

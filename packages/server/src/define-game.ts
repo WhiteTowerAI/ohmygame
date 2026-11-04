@@ -2,6 +2,7 @@ import { getRandomValues } from "node:crypto";
 import {
   isRealtimeGameDefinition,
   type GameContext,
+  type PlayerAction,
   type GameDefinition,
   type MoveContext,
   type MoveDefinition,
@@ -18,7 +19,7 @@ import {
 import type { GameAdapter } from "./adapters.js";
 import { checkTickMs, createRoomAdapter, finishMatch, TURN_SECONDS } from "./game.js";
 
-const ROOM_COMMANDS = new Set<TurnCommand["type"]>(["start", "close", "kick"]);
+const ROOM_COMMANDS = new Set<TurnCommand["type"]>(["start", "restart", "close", "kick"]);
 
 function random(): number {
   return getRandomValues(new Uint32Array(1))[0]! / 2 ** 32;
@@ -64,20 +65,20 @@ function checkPlayers({ min, max }: { min: number; max: number }): void {
 
 /**
  * Turns rules from defineGame or defineRealtimeGame into the adapter rooms run. The room
- * keeps its own lobby, start, close and kick commands; for turn-based rules every other
+ * keeps its own lobby, start, restart, close and kick commands; for turn-based rules every other
  * command is a move named by payload.action, and realtime rules read each player's input.
  */
 export function compileGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(
   definition: GameDefinition<G, Moves>,
 ): GameAdapter;
-export function compileGame<G extends object, Input extends object>(
-  definition: RealtimeGameDefinition<G, Input>,
+export function compileGame<G extends object, Input extends object, Action extends object>(
+  definition: RealtimeGameDefinition<G, Input, Action>,
 ): GameAdapter;
 export function compileGame(
-  definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object>,
+  definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>,
 ): GameAdapter;
 export function compileGame(
-  definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object>,
+  definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>,
 ): GameAdapter {
   return isRealtimeGameDefinition(definition) ? compileRealtimeGame(definition) : compileTurnGame(definition);
 }
@@ -144,15 +145,20 @@ function compileTurnGame<G extends object, Moves extends Record<string, MoveDefi
       if (!ROOM_COMMANDS.has(command.type)) return validated.get(command) ?? play(state, playerId, command);
       const next = room.applyCommand(state, playerId, command);
       const now = Date.now();
-      if (command.type === "start") {
-        next.game = plainGame(definition.setup(context(next, now)), "setup");
-        next.turnDeadline = now + turnMs;
-      } else if (command.type === "kick" && state.phase === "playing") {
+      if (command.type === "kick" && state.phase === "playing") {
         // The removed player's turn passes on with a full turn; the rules may now decide the match.
         if (next.currentPlayerId !== state.currentPlayerId) next.turnDeadline = now + turnMs;
         const result = definition.endIf?.(next.game as G, context(next, now));
         if (result) finishMatch(next, result.winners);
       }
+      return next;
+    },
+    // The room calls it after start and restart, with the finished match on a restart.
+    onRoundStart(state, now, finished) {
+      const next = structuredClone(state);
+      const previous = finished?.game === undefined ? undefined : (structuredClone(finished.game) as G);
+      next.game = plainGame(definition.setup(context(next, now), previous), "setup");
+      next.turnDeadline = now + turnMs;
       return next;
     },
     onTurnTimeout(state, now) {
@@ -188,12 +194,14 @@ function realtimeContext(state: MultiplayerGameState, now: number): RealtimeGame
  * Realtime rules run on the room's tick. Each round starts from setup, and the room's
  * own commands work as for any rules; the game's players act only through their input.
  */
-function compileRealtimeGame<G extends object, Input extends object>(
-  definition: RealtimeGameDefinition<G, Input>,
+function compileRealtimeGame<G extends object, Input extends object, Action extends object>(
+  definition: RealtimeGameDefinition<G, Input, Action>,
 ): GameAdapter {
   checkPlayers(definition.players);
   if (definition.tickMs !== undefined) checkTickMs(definition.tickMs);
   if (typeof definition.input !== "function") throw new Error("Realtime rules need an input function that reads each player's input.");
+  const readAction = definition.action;
+  if (readAction !== undefined && typeof readAction !== "function") throw new Error("action must be a function that reads one action.");
   const room = createRoomAdapter("realtime", definition.players);
   /** Runs one of the rules' functions on a copy of the game and keeps the result if it is plain data. */
   const update = (
@@ -211,9 +219,10 @@ function compileRealtimeGame<G extends object, Input extends object>(
     if (result) finishMatch(next, result.winners);
     return next;
   };
-  const begin = (state: MultiplayerGameState, now: number): MultiplayerGameState => {
+  const begin = (state: MultiplayerGameState, now: number, finished?: MultiplayerGameState): MultiplayerGameState => {
     const next = structuredClone(state);
-    next.game = plainGame(definition.setup(realtimeContext(next, now)), "setup");
+    const previous = finished?.game === undefined ? undefined : (structuredClone(finished.game) as G);
+    next.game = plainGame(definition.setup(realtimeContext(next, now), previous), "setup");
     return next;
   };
   const running = (state: MultiplayerGameState) => state.phase === "playing" && state.game !== undefined;
@@ -223,7 +232,14 @@ function compileRealtimeGame<G extends object, Input extends object>(
     validateInput(input, playerId) {
       definition.input(input, playerId);
     },
-    step(state, inputs, now, dt) {
+    ...(readAction
+      ? {
+          validateAction(action: Record<string, unknown>, playerId: string) {
+            readAction(action, playerId);
+          },
+        }
+      : {}),
+    step(state, inputs, now, dt, actions) {
       if (!running(state)) return state;
       const read: Record<string, Input> = {};
       for (const [playerId, { input }] of inputs) {
@@ -233,18 +249,26 @@ function compileRealtimeGame<G extends object, Input extends object>(
           /* An input the rules reject for this player is ignored. */
         }
       }
-      return update(state, now, "tick", (G, ctx) => definition.tick(G, ctx, read, dt));
+      const acted: PlayerAction<Action>[] = [];
+      // The room only queues actions when the rules read them.
+      for (const { playerId, action } of readAction ? actions : []) {
+        try {
+          acted.push({ playerId, action: readAction!(action, playerId) });
+        } catch {
+          /* The room checked it on arrival; an action refused now is dropped. */
+        }
+      }
+      return update(state, now, "tick", (G, ctx) => definition.tick(G, ctx, read, dt, acted));
     },
     applyCommand(state, playerId, command) {
       const next = room.applyCommand(state, playerId, command);
       const now = Date.now();
-      if (command.type === "start") return begin(next, now);
       const removed = command.type === "kick" ? command.payload?.playerId : undefined;
       if (removed && running(next) && definition.leave)
         return update(next, now, "leave", (G, ctx) => definition.leave!(G, ctx, removed));
       return next;
     },
-    onRoundStart: (state, now) => begin(state, now),
+    onRoundStart: (state, now, finished) => begin(state, now, finished),
     onPlayerJoin(state, playerId, now) {
       if (!running(state) || !definition.join) return state;
       return update(state, now, "join", (G, ctx) => definition.join!(G, ctx, playerId));

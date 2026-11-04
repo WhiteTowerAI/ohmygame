@@ -138,7 +138,14 @@ always sets both `winnerPlayerIds` and `winnerPlayerId`.
 `stones` is a take-away race written with `defineGame`. `state.game.remaining`
 starts at 21; the current player sends `{ action: "take", count }` with a count of
 1 to 3, there is no pass, and whoever takes the last stone wins. After the race the
-owner sends `{ action: "reset" }` for a new pile, which the first seat starts.
+owner sends `restart` for a new pile, which the first seat starts.
+
+Once a match has finished, the owner sends `restart` to play another with the same
+seats; before then it is rejected. It works for every game in a room with an owner,
+turn-based or realtime, and needs as many connected players as `start`. The room
+clears the winners and sets the round up again as at `start`: rules from
+`defineGame` or `defineRealtimeGame` run `setup` with the finished match's game, so
+a score can carry over. Drop-in rooms have no owner and restart on their own.
 
 `arena` is a race: the first player to reach the centre wins, and in a drop-in
 room everyone respawns on a ring around it for the next round. `roam` has no goal
@@ -148,7 +155,9 @@ leave. It suits shared towns, lobbies, and exploration. The service knows nothin
 of a game's map, so buildings and obstacles cannot block movement, and
 interactions with them are not shared between players.
 
-Realtime games call `sendInput(input)` every frame while input is held. The input
+Realtime games call `sendInput(input)` every frame while input is held, and
+`sendAction(action)` once for something that happens once, such as firing; see
+[realtime rules](#realtime-rules-with-definerealtimegame). The input
 is a plain object in the shape the rules read: `arena` and `roam` take
 `{ x, y }`, each axis from -1 to 1, and `{ x: 0, y: 0 }` on release. Any input is
 plain JSON of at most 512 characters (`REALTIME_INPUT_MAX_LENGTH`), nested no more
@@ -169,17 +178,23 @@ a flat 15 × 15 board, move history, winning line, and black/white scores. Use
 `isGomokuState` from `src/ohmygame/gomoku.js` to validate it. The owner sends `start` after both players join;
 players send `action` with `{ action: "move", point: { r, c } }`. The service
 rejects out-of-turn, out-of-bounds, occupied, and extra-field moves, calculates
-five-in-a-row and draws, and preserves scores across the owner's
-`{ action: "reset" }`. A turn timeout skips the player without placing a stone.
+five-in-a-row and draws, and preserves scores across the owner's `restart`,
+which is accepted once a match has ended. A turn timeout skips the player without
+placing a stone.
 
 `createMultiplayerServer({ adapters })` can accept additional trusted rules
 adapters keyed by ID. `MultiplayerGameAdapter` is experimental: rules should use
 `defineGame` or `defineRealtimeGame`, and the adapter form may change. A realtime
-adapter supplies `step(state, inputs, now, dt)`, which the
+adapter supplies `step(state, inputs, now, dt, actions)`, which the
 room calls on every tick of a round, with or without input, where `dt` is the
-tick in seconds. It may set `tickMs` (a whole number from 20 to 1000, default 50)
-and `validateInput(input, playerId)`, which throws to reject an input with that
-message, and `onPlayerLeave` when a seat is given up during a round;
+tick in seconds and `actions` lists the actions since the last tick in arrival
+order. It may set `tickMs` (a whole number from 20 to 1000, default 50),
+`validateInput(input, playerId)`, which throws to reject an input with that
+message, `validateAction(action, playerId)`, without which the room refuses
+actions, and `onPlayerLeave` when a seat is given up during a round. Any adapter
+may set `onRoundStart(state, now, finished)`, which the room calls after `start`
+and `restart` and when a drop-in round begins, with the finished state when there
+is one;
 `arena` and `roam` move at a fixed number of map units per second times `dt`. Adapters use the common room state envelope, keep custom
 serializable state in `state.game`, and validate action payloads on the service.
 Rules with hidden information, such as a hand of cards, implement
@@ -195,7 +210,8 @@ rules. Merely declaring an adapter name or a multiplayer manifest is insufficien
 
 Turn-based rules can be plain functions instead of an adapter.
 `defineGame` (from `@ohmygame/server`, or `@ohmygame/sdk/game` for types in the
-page) takes `players`, `setup(ctx)` for the game at `start`, `moves`, and the
+page) takes `players`, `setup(ctx, previous)` for the game at `start` and
+`restart` (`previous` is the finished match's game on a restart), `moves`, and the
 optional `endIf(G, ctx)`, `playerView(G, ctx, playerId)`, and `turnSeconds`
 (default 60). `compileGame(rules)` returns the adapter to register:
 
@@ -232,8 +248,9 @@ written this way. `legalMoves` is reserved for bots and is not called yet.
 
 Realtime games, such as multiplayer snake, run on the room's tick instead of turns.
 `defineRealtimeGame` takes `players`, `tickMs` (20 to 1000, default 50),
-`setup(ctx)`, `input(value, playerId)`, `tick(G, ctx, inputs, dt)`, and the optional
-`join`, `leave`, `endIf`, and `playerView`. `compileGame` compiles either kind:
+`setup(ctx, previous)`, `input(value, playerId)`, `tick(G, ctx, inputs, dt, actions)`,
+and the optional `action`, `join`, `leave`, `endIf`, and `playerView`. `compileGame`
+compiles either kind:
 
 ```ts
 const rules = defineRealtimeGame({
@@ -244,7 +261,12 @@ const rules = defineRealtimeGame({
     if (!DIRECTIONS.includes(value.dir)) throw new Error("Send { dir }.");
     return { dir: value.dir as Direction };
   },
-  tick(G, ctx, inputs) {
+  action(value) {
+    if (value.boost !== true) throw new Error("Send { boost: true }.");
+    return { boost: true as const };
+  },
+  tick(G, ctx, inputs, _dt, actions) {
+    for (const { playerId } of actions) if (G.snakes[playerId]) G.snakes[playerId].boostTicks = 5;
     for (const [id, snake] of Object.entries(G.snakes)) {
       if (inputs[id]) snake.dir = turn(snake.dir, inputs[id].dir);
       advance(G, snake, ctx);
@@ -256,24 +278,35 @@ const rules = defineRealtimeGame({
 });
 ```
 
-- `setup` runs whenever a round starts: at the owner's `start`, or when a drop-in
-  room starts or restarts a round. `ctx.players` lists the seats and `ctx.connected`
-  those with an open connection.
+- `setup` runs whenever a round starts: at the owner's `start` or `restart`, or
+  when a drop-in room starts or restarts a round. `ctx.players` lists the seats and
+  `ctx.connected` those with an open connection. `previous` is the finished round's
+  game when there is one, so scores can carry over.
 - `input` reads an input as the page sent it with `sendInput`, and returns it typed;
   throwing rejects it with the error message. It runs when the input arrives and
   again when `tick` reads it.
 - `tick` runs every tick of a round, with or without input. `inputs` holds each
   player's latest input from the last five ticks, keyed by player ID, so state that
-  must outlast an input, such as a heading, belongs in `G`, and a one-off action
-  carried in an input may be seen on several ticks.
+  must outlast an input, such as a heading, belongs in `G`.
+- Something that happens once, such as firing or jumping, is an action: the page
+  calls `sendAction(action)` once per press, `action` reads and checks it when it
+  arrives, and `tick` sees it in `actions` exactly once, in arrival order, with the
+  player's ID. Actions follow the same size limits as inputs and count toward the
+  same message limit. A player may have at most eight
+  (`REALTIME_ACTIONS_PER_TICK`) waiting for one tick. Rules without `action` take
+  none, and the room refuses them, as it does outside a running round. A round
+  start and a player leaving drop waiting actions. `sendAction` returns `false`
+  without sending when no room is connected; the service reports a refused action
+  through `onError`.
 - `join` and `leave` run when a seat is taken or given up during a round, as in a
   drop-in room or when the owner removes a player. `endIf` runs after every tick.
 - Every tick that changes the state sends each player a full snapshot, so `G`
   should hold game data only. The page interpolates between snapshots.
 
 In the page, `createMultiplayerClient<typeof rules>(game)` types `client.sendInput`
-to what `input` returns. A finished round in a room with an owner does not restart;
-drop-in rooms start the next round on their own.
+to what `input` returns and `client.sendAction` to what `action` returns. In a room
+with an owner, a finished round waits for the owner's `restart`; drop-in rooms
+start the next round on their own.
 
 ## Drop-in rooms
 
@@ -306,8 +339,8 @@ has no turn to take. Call `quickPlay({ displayName })` instead of `createRoom`:
   `MULTIPLAYER_ROOM_LIMIT_CODE` (503). `quickPlay` retries after one and then two
   seconds, then rejects so the game can show the error and a retry button.
 
-Rules place a joining seat with `onPlayerJoin` and reset a round with
-`onRoundStart`. Arena uses both to spawn every player 35 units from the centre
+Rules place a joining seat with `onPlayerJoin` and set up a round with
+`onRoundStart`, which also runs at an owner's `start` and `restart`. Arena uses both to spawn every player 35 units from the centre
 goal, spread around the ring. Matchmaking and its room creation lock are
 per-process; running more than one service instance needs a shared Colyseus
 presence and driver.

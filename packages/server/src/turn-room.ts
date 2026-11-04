@@ -1,17 +1,20 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
+  isRealtimeAction,
   isRealtimeInputMessage,
   isRecord,
   isTurnCommand,
   MULTIPLAYER_ROOM_LIMIT_CODE,
   normalizeDisplayName,
+  REALTIME_ACTIONS_PER_TICK,
   type JoinRoomOptions,
   type MultiplayerErrorCode,
   type MultiplayerEventType,
   type MultiplayerGameState,
   type MultiplayerManifestConfig,
   type MultiplayerSnapshot,
+  type RealtimeAction,
   type RealtimeInput,
   type TurnCommand,
   type TurnCommandResult,
@@ -58,6 +61,8 @@ export class GameRoom extends Room {
     string,
     { input: RealtimeInput; at: number }
   >();
+  /** Actions for the next tick, in the order they arrived. */
+  private actions: { playerId: string; action: RealtimeAction }[] = [];
   private shuttingDown = false;
   private lastInputId = new Map<string, number>();
   private inviteCode = "";
@@ -146,6 +151,9 @@ export class GameRoom extends Room {
     );
     this.onMessage("input", (client, value: unknown) =>
       this.input(client, value),
+    );
+    this.onMessage("action", (client, value: unknown) =>
+      this.action(client, value),
     );
     this.clock.setInterval(() => this.maintenance(), 1000);
     if (config.mode === "realtime")
@@ -261,7 +269,7 @@ export class GameRoom extends Room {
     const player = state.players.find((p) => p.playerId === id);
     if (!player) return;
     player.connected = false;
-    this.playerInputs.delete(id);
+    this.forgetInput(id);
     // During a match seats persist for asynchronous turns; timeout skips them.
     // A drop-in seat frees once its reconnection window ends, so a newcomer can take it.
     let next = state;
@@ -339,7 +347,7 @@ export class GameRoom extends Room {
     const player = state.players.find((p) => p.playerId === id);
     if (!player || this.shuttingDown) return;
     player.connected = connected;
-    this.playerInputs.delete(player.playerId);
+    this.forgetInput(player.playerId);
     this.commit(state, connected ? "member.joined" : "member.left", {
       playerId: id,
       reconnected: connected,
@@ -383,13 +391,19 @@ export class GameRoom extends Room {
     }
     try {
       const adapter = this.services.adapter;
-      if (value.type === "start") {
+      if (value.type === "start" || value.type === "restart") {
         const connected = this.record.snapshot.state.players.filter((p) => p.connected).length;
         if (connected < adapter.players.min)
           throw new Error(`This game needs ${describePlayerRange(adapter.players)} connected players to start.`);
       }
       adapter.validateCommand(this.record.snapshot.state, id, value);
-      const state = adapter.applyCommand(this.record.snapshot.state, id, value);
+      let state = adapter.applyCommand(this.record.snapshot.state, id, value);
+      if (value.type === "start" || value.type === "restart")
+        state = this.roundStarted(
+          state,
+          Date.now(),
+          value.type === "restart" ? this.record.snapshot.state : undefined,
+        );
       const members = this.record.members.map((member) => ({ ...member }));
       if (value.type === "kick") {
         const member = members.find(
@@ -467,8 +481,35 @@ export class GameRoom extends Room {
     this.lastInputId.set(id, inputId);
     this.playerInputs.set(id, { input, at: Date.now() });
   }
+  /** A one-off action waits for the next tick, which reads it once. */
+  private action(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    const reject = (message: string) =>
+      client.send("input.error", { code: "invalid_command", message });
+    const { validateAction } = this.services.adapter;
+    if (!id || !isRealtimeAction(value) || this.services.config.mode !== "realtime")
+      return reject("The action is invalid.");
+    if (!validateAction) return reject("This game takes no actions.");
+    if (this.record.snapshot.state.phase !== "playing")
+      return reject("The round is not running.");
+    if (this.actions.filter((entry) => entry.playerId === id).length >= REALTIME_ACTIONS_PER_TICK)
+      return reject("Too many actions at once. Send fewer actions per tick.");
+    try {
+      validateAction(value, id);
+    } catch (cause) {
+      return reject(cause instanceof Error ? cause.message : "The action is invalid.");
+    }
+    this.actions.push({ playerId: id, action: value });
+  }
+  /** A player who leaves or drops stops steering, and their waiting actions go. */
+  private forgetInput(playerId: string): void {
+    this.playerInputs.delete(playerId);
+    this.actions = this.actions.filter((entry) => entry.playerId !== playerId);
+  }
   /** Runs every tick of a round, so rules can move things nobody is steering. */
   private tick(): void {
+    const actions = this.actions;
+    this.actions = [];
     if (this.record.snapshot.state.phase !== "playing") return;
     const now = Date.now();
     const lifetime = inputLifetimeMs(this.tickMs);
@@ -479,6 +520,7 @@ export class GameRoom extends Room {
       this.playerInputs,
       now,
       this.tickMs / 1000,
+      actions,
     );
     if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state))
       return;
@@ -495,11 +537,26 @@ export class GameRoom extends Room {
   private enoughPlayers(state: MultiplayerGameState): boolean {
     return state.players.filter((p) => p.connected).length >= this.services.adapter.players.min;
   }
-  private startRound(state: MultiplayerGameState, now = Date.now()): MultiplayerGameState {
-    this.playerInputs.clear();
+  /** A drop-in room starts a round by itself; finished is the round before, when it restarts. */
+  private startRound(
+    state: MultiplayerGameState,
+    now = Date.now(),
+    finished?: MultiplayerGameState,
+  ): MultiplayerGameState {
     const next: MultiplayerGameState = { ...state, phase: "playing", winnerPlayerId: "", currentPlayerId: "" };
     delete next.winnerPlayerIds;
-    return this.services.adapter.onRoundStart ? this.services.adapter.onRoundStart(next, now) : next;
+    return this.roundStarted(next, now, finished);
+  }
+  /** Every round starts clean: no input or action carries over, and the rules set it up. */
+  private roundStarted(
+    state: MultiplayerGameState,
+    now: number,
+    finished?: MultiplayerGameState,
+  ): MultiplayerGameState {
+    this.playerInputs.clear();
+    this.actions = [];
+    const { onRoundStart } = this.services.adapter;
+    return onRoundStart ? onRoundStart(state, now, finished) : state;
   }
   private maintenance(): void {
     const now = Date.now();
@@ -511,7 +568,7 @@ export class GameRoom extends Room {
     ) {
       const state = structuredClone(this.record.snapshot.state);
       this.commit(
-        this.enoughPlayers(state) ? this.startRound(state, now) : { ...state, phase: "lobby" },
+        this.enoughPlayers(state) ? this.startRound(state, now, this.record.snapshot.state) : { ...state, phase: "lobby" },
         "state.updated",
         { reason: "round_restart" },
       );

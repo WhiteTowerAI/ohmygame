@@ -177,8 +177,11 @@ export type CreateRoomOptions = JoinRoomOptions;
 export interface TurnCommand {
   commandId: string;
   expectedSequence: number;
-  /** start, close and kick manage the room; action carries a move of the game's rules. */
-  type: "start" | "close" | "kick" | "action";
+  /**
+   * start, restart, close and kick manage the room; action carries a move of the game's
+   * rules. restart is the owner starting another match once one has finished.
+   */
+  type: "start" | "restart" | "close" | "kick" | "action";
   payload?: { playerId?: string; [key: string]: unknown };
 }
 /**
@@ -187,6 +190,13 @@ export interface TurnCommand {
  * REALTIME_INPUT_MAX_LENGTH characters, without the key inputId, which the SDK adds.
  */
 export type RealtimeInput = Record<string, unknown>;
+/**
+ * Something a player does once in a realtime game, such as { fire: true }: the rules read
+ * each action in exactly one tick. Plain JSON of at most REALTIME_INPUT_MAX_LENGTH characters.
+ */
+export type RealtimeAction = Record<string, unknown>;
+/** The most actions one player may have waiting for the next tick; more are refused. */
+export const REALTIME_ACTIONS_PER_TICK = 8;
 export interface MultiplayerPlayer {
   playerId: string;
   displayName: string;
@@ -226,11 +236,23 @@ export interface MultiplayerGameAdapter<State, Command> {
    * Realtime only: advances the world by one tick of dt seconds. inputs holds each seat's
    * latest input that is still fresh; a player who stops sending drops out of it.
    */
-  step?(state: State, inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>, now: number, dt: number): State;
+  step?(
+    state: State,
+    inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
+    now: number,
+    dt: number,
+    actions: readonly { playerId: string; action: RealtimeAction }[],
+  ): State;
   /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
   tickMs?: number;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
   validateInput?(input: RealtimeInput, playerId: string): void;
+  /**
+   * Realtime only: throws when an action does not have the shape the rules read. Without
+   * it the rules take no actions, and the room refuses them. Each accepted action reaches
+   * step once, in the order the room received it.
+   */
+  validateAction?(action: RealtimeAction, playerId: string): void;
   /**
    * The state one player may see, such as their own hand but not others'. playerId is
    * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -238,8 +260,12 @@ export interface MultiplayerGameAdapter<State, Command> {
   viewFor?(state: State, playerId: string | undefined): State;
   /** Places a new seat, including one joining a drop-in round in progress. Without it the room lines seats up. */
   onPlayerJoin?(state: State, playerId: string, now: number): State;
-  /** Resets the round when a drop-in room starts or restarts it, for example respawning every seat. */
-  onRoundStart?(state: State, now: number): State;
+  /**
+   * Sets up a round when it starts: the owner starts or restarts the match, or a drop-in
+   * room starts or restarts a round. finished is the state of the round that just ended,
+   * when there is one, so rules can carry a score over.
+   */
+  onRoundStart?(state: State, now: number, finished?: State): State;
   /** A seat was given up, after the room removed it from players: a drop-in player left, or a lobby seat emptied. */
   onPlayerLeave?(state: State, playerId: string, now: number): State;
 }
@@ -306,7 +332,7 @@ export function isTurnCommand(value: unknown): value is TurnCommand {
     !isSequence(value.expectedSequence)
   )
     return false;
-  if (!["start", "close", "kick", "action"].includes(String(value.type)))
+  if (!["start", "restart", "close", "kick", "action"].includes(String(value.type)))
     return false;
   if (value.type === "action") return isRecord(value.payload);
   if (value.type === "kick")
@@ -339,6 +365,10 @@ export function isRealtimeInput(value: unknown): value is RealtimeInput {
   );
 }
 /** An input message as it travels to the service: the game's input with the SDK's increasing inputId. */
+/** An action as the game passes it to sendAction and as it travels to the service. */
+export function isRealtimeAction(value: unknown): value is RealtimeAction {
+  return isRecord(value) && isPlainJson(value) && JSON.stringify(value).length <= REALTIME_INPUT_MAX_LENGTH;
+}
 export function isRealtimeInputMessage(value: unknown): value is RealtimeInput & { inputId: number } {
   if (!isRecord(value) || !isSequence(value.inputId)) return false;
   const { inputId: _inputId, ...input } = value;

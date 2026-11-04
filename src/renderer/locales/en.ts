@@ -1929,7 +1929,7 @@ const en = {
     createRoom: "Create room",
     joinRoom: "Join room",
     start: "Start",
-    newRace: "New race",
+    playAgain: "Play again",
     leave: "Leave",
     commandRejected: "Command rejected",
   },

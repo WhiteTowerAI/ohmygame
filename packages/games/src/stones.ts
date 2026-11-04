@@ -21,17 +21,6 @@ export const stonesRules = defineGame({
       G.remaining -= count;
       G.lastTaker = ctx.playerId;
     },
-    /** The owner deals a new pile once the race is over; the first seat starts again. */
-    reset: {
-      by: "owner",
-      afterEnd: true,
-      run(G, ctx, args: Record<string, never>) {
-        if (Object.keys(args).length) throw new Error("A new race takes no options.");
-        if (G.remaining > 0) throw new Error("Finish this race first.");
-        ctx.setCurrentPlayer(ctx.players[0]!);
-        return { remaining: STONES, lastTaker: "" };
-      },
-    },
   },
   endIf: (G) => (G.remaining === 0 ? { winners: [G.lastTaker] } : undefined),
 });

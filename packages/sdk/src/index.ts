@@ -22,8 +22,10 @@ export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from 
 export {
   defineGame,
   defineRealtimeGame,
+  type ClientAction,
   type ClientInput,
   type ClientMoves,
+  type PlayerAction,
   type RealtimeGameContext,
   type RealtimeGameDefinition,
   type GameContext,

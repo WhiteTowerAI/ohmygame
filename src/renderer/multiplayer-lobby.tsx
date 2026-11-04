@@ -462,13 +462,13 @@ export function MultiplayerLobby({
           })}
         </p>
       ) : null}
-      {state?.phase === "finished" && manifest.mode === "turn-based" && owner ? (
+      {state?.phase === "finished" && owner ? (
         <button
           disabled={!connected || pending}
           type="button"
-          onClick={() => command("action", { action: "reset" })}
+          onClick={() => command("restart")}
         >
-          {t("multiplayer.newRace")}
+          {t("multiplayer.playAgain")}
         </button>
       ) : null}
     </main>

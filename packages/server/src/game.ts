@@ -38,7 +38,8 @@ export function finishMatch(state: MultiplayerGameState, winners: readonly strin
 }
 
 /**
- * The room's own commands: the owner starts, closes and removes players. Rules build on it
+ * The room's own commands: the owner starts, restarts once a match has finished, closes and
+ * removes players. The room sets up each round through onRoundStart. Rules build on it
  * and handle their game's commands themselves; any other command is rejected. A match left
  * with fewer than players.min seats after a removal ends without a winner.
  */
@@ -70,10 +71,14 @@ export function createRoomAdapter(
             command.payload?.playerId === playerId)
         )
           throw new Error("Choose another player to remove.");
-      } else if (command.type === "start") {
+      } else if (command.type === "start" || command.type === "restart") {
         // The room checks the player count against the adapter's seats.
-        if (state.ownerId !== playerId || state.phase !== "lobby")
+        if (state.ownerId !== playerId)
           throw new Error("Only the room owner can start the match.");
+        if (command.type === "start" && state.phase !== "lobby")
+          throw new Error("The match has already started.");
+        if (command.type === "restart" && state.phase !== "finished")
+          throw new Error("Finish this match before starting another.");
       } else throw new Error("This game does not support that action.");
     },
     applyCommand(state, _playerId, command) {
@@ -84,8 +89,10 @@ export function createRoomAdapter(
         if (next.currentPlayerId === id) nextTurn(next);
         next.players = next.players.filter((p) => p.playerId !== id);
         if (next.phase === "playing" && next.players.length < players.min) finishMatch(next, []);
-      } else if (command.type === "start") {
+      } else if (command.type === "start" || command.type === "restart") {
         next.phase = "playing";
+        next.winnerPlayerId = "";
+        delete next.winnerPlayerIds;
         next.currentPlayerId = next.players[0]!.playerId;
         next.turnDeadline = Date.now() + TURN_SECONDS * 1000;
       }

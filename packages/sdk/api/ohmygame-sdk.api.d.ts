@@ -13,7 +13,7 @@ export { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors
 export type { GameAuth } from "./account.js";
 export { gameTokenAudience, isGameAccountConfig, type GameAccountConfig, type OhMyGamePlayer, } from "./account-protocol.js";
 export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from "./identity.js";
-export { defineGame, defineRealtimeGame, type ClientInput, type ClientMoves, type RealtimeGameContext, type RealtimeGameDefinition, type GameContext, type GameDefinition, type GameResult, type MoveContext, type MoveDefinition, type MoveFunction, type MoveOptions, } from "./define-game.js";
+export { defineGame, defineRealtimeGame, type ClientAction, type ClientInput, type ClientMoves, type PlayerAction, type RealtimeGameContext, type RealtimeGameDefinition, type GameContext, type GameDefinition, type GameResult, type MoveContext, type MoveDefinition, type MoveFunction, type MoveOptions, } from "./define-game.js";
 export interface InitOptions {
     /**
      * The game's manifest, or where to load it. Defaults to manifest.json beside the
@@ -205,8 +205,11 @@ export interface GameDefinition<G extends object, Moves extends Record<string, M
         min: number;
         max: number;
     };
-    /** The game when the owner starts the match. */
-    setup(ctx: GameContext): G;
+    /**
+     * The game when the owner starts a match. previous is the finished match's game when the
+     * owner starts another one, so a score can carry over; it is undefined for the first.
+     */
+    setup(ctx: GameContext, previous?: G): G;
     moves: Moves;
     /** Checked after every accepted move. A result ends the match. */
     endIf?(G: G, ctx: GameContext): GameResult | undefined;
@@ -234,13 +237,19 @@ export interface RealtimeGameContext {
     shuffle<T>(items: readonly T[]): T[];
     now(): number;
 }
+/** One player's action, as tick reads it. */
+export interface PlayerAction<Action> {
+    playerId: string;
+    action: Action;
+}
 /**
  * Realtime rules: the service calls tick at a fixed rate with each player's latest input,
  * whether or not anyone is pressing anything. A player who stops sending drops out of
  * inputs after five ticks, so keep anything that should persist, such as a snake's
- * heading, in G.
+ * heading, in G. Something that happens once, such as firing or jumping, is an action:
+ * tick reads each action exactly once.
  */
-export interface RealtimeGameDefinition<G extends object, Input extends object> {
+export interface RealtimeGameDefinition<G extends object, Input extends object, Action extends object = never> {
     /** Seats the rules support. A round starts once at least min players are connected. */
     players: {
         min: number;
@@ -248,15 +257,29 @@ export interface RealtimeGameDefinition<G extends object, Input extends object> 
     };
     /** Milliseconds between ticks, 20 to 1000. Defaults to 50. */
     tickMs?: number;
-    /** The game when a round starts: when the owner starts it, or when a drop-in room starts or restarts one. */
-    setup(ctx: RealtimeGameContext): G;
+    /**
+     * The game when a round starts: the owner starts or restarts the match, or a drop-in
+     * room starts or restarts a round. previous is the finished round's game when there is
+     * one, so a score can carry over.
+     */
+    setup(ctx: RealtimeGameContext, previous?: G): G;
     /**
      * Reads one input as the player sent it, such as { dir: "up" }, and returns it in the
      * shape tick reads. Throw an Error to reject it; its message reaches the player.
      */
     input(value: Record<string, unknown>, playerId: string): Input;
-    /** Advances the game by dt seconds. Change G in place or return a new one. */
-    tick(G: G, ctx: RealtimeGameContext, inputs: Readonly<Record<string, Input>>, dt: number): G | void;
+    /**
+     * Reads one action as the player sent it with sendAction, such as { fire: true }, and
+     * returns it in the shape tick reads. Throw an Error to refuse it; its message reaches
+     * the player. Without it the game takes no actions.
+     */
+    action?(value: Record<string, unknown>, playerId: string): Action;
+    /**
+     * Advances the game by dt seconds. Change G in place or return a new one. actions holds
+     * every action since the last tick, in the order they arrived; the next tick will not
+     * see them again.
+     */
+    tick(G: G, ctx: RealtimeGameContext, inputs: Readonly<Record<string, Input>>, dt: number, actions: readonly PlayerAction<Action>[]): G | void;
     /** A player takes a seat while a round is running, as in a drop-in room. */
     join?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
     /** A player gives up their seat while a round is running: they left a drop-in room or were removed. */
@@ -267,13 +290,17 @@ export interface RealtimeGameDefinition<G extends object, Input extends object> 
     playerView?(G: G, ctx: RealtimeGameContext, playerId: string | undefined): object;
 }
 /** Checks the shape of realtime rules and returns them unchanged, with their types inferred. */
-export declare function defineRealtimeGame<G extends object, Input extends object>(definition: RealtimeGameDefinition<G, Input>): RealtimeGameDefinition<G, Input>;
+export declare function defineRealtimeGame<G extends object, Input extends object, Action extends object = never>(definition: RealtimeGameDefinition<G, Input, Action>): RealtimeGameDefinition<G, Input, Action>;
 /** Whether rules are realtime rules from defineRealtimeGame. */
-export declare function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object>;
+export declare function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object, object>;
 /** The input client.sendInput takes for a game: what its rules' input function returns. */
 export type ClientInput<Game> = Game extends {
     input(value: never, playerId: never): infer Input extends object;
 } ? Input : Record<string, unknown>;
+/** The action client.sendAction takes for a game: what its rules' action function returns. */
+export type ClientAction<Game> = Game extends {
+    action?(value: never, playerId: never): infer Action extends object;
+} ? Action : Record<string, unknown>;
 type MoveArgs<M> = M extends {
     run: (G: never, ctx: never, args: infer A) => unknown;
 } ? A : M extends (G: never, ctx: never, args: infer A) => unknown ? A : never;
@@ -289,7 +316,7 @@ export {};
 import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
-import type { ClientInput, ClientMoves } from "./define-game.js";
+import type { ClientAction, ClientInput, ClientMoves } from "./define-game.js";
 import type { OhMyGame } from "./index.js";
 export type MultiplayerConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
@@ -390,6 +417,15 @@ export declare class MultiplayerClient<Game = unknown> {
      * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
      */
     sendInput(input: ClientInput<Game>): void;
+    /**
+     * Sends something the player does once in a realtime game, such as { fire: true }, in
+     * the shape the rules' action function reads. The rules read it in exactly one tick, so
+     * send it once per press, not every frame. Returns false when no room is connected, in
+     * which case nothing is sent: an action is about this moment, so it is never queued.
+     * Throws invalid_option for an action that is not plain JSON of at most
+     * REALTIME_INPUT_MAX_LENGTH characters. The service reports a refused action through onError.
+     */
+    sendAction(action: ClientAction<Game>): boolean;
     private flushInput;
     /**
      * Quick play only places a player when they arrive, so two players can end up alone
@@ -538,8 +574,11 @@ export type CreateRoomOptions = JoinRoomOptions;
 export interface TurnCommand {
     commandId: string;
     expectedSequence: number;
-    /** start, close and kick manage the room; action carries a move of the game's rules. */
-    type: "start" | "close" | "kick" | "action";
+    /**
+     * start, restart, close and kick manage the room; action carries a move of the game's
+     * rules. restart is the owner starting another match once one has finished.
+     */
+    type: "start" | "restart" | "close" | "kick" | "action";
     payload?: {
         playerId?: string;
         [key: string]: unknown;
@@ -551,6 +590,13 @@ export interface TurnCommand {
  * REALTIME_INPUT_MAX_LENGTH characters, without the key inputId, which the SDK adds.
  */
 export type RealtimeInput = Record<string, unknown>;
+/**
+ * Something a player does once in a realtime game, such as { fire: true }: the rules read
+ * each action in exactly one tick. Plain JSON of at most REALTIME_INPUT_MAX_LENGTH characters.
+ */
+export type RealtimeAction = Record<string, unknown>;
+/** The most actions one player may have waiting for the next tick; more are refused. */
+export declare const REALTIME_ACTIONS_PER_TICK = 8;
 export interface MultiplayerPlayer {
     playerId: string;
     displayName: string;
@@ -596,11 +642,20 @@ export interface MultiplayerGameAdapter<State, Command> {
     step?(state: State, inputs: ReadonlyMap<string, {
         input: RealtimeInput;
         at: number;
-    }>, now: number, dt: number): State;
+    }>, now: number, dt: number, actions: readonly {
+        playerId: string;
+        action: RealtimeAction;
+    }[]): State;
     /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
     tickMs?: number;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
     validateInput?(input: RealtimeInput, playerId: string): void;
+    /**
+     * Realtime only: throws when an action does not have the shape the rules read. Without
+     * it the rules take no actions, and the room refuses them. Each accepted action reaches
+     * step once, in the order the room received it.
+     */
+    validateAction?(action: RealtimeAction, playerId: string): void;
     /**
      * The state one player may see, such as their own hand but not others'. playerId is
      * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -608,8 +663,12 @@ export interface MultiplayerGameAdapter<State, Command> {
     viewFor?(state: State, playerId: string | undefined): State;
     /** Places a new seat, including one joining a drop-in round in progress. Without it the room lines seats up. */
     onPlayerJoin?(state: State, playerId: string, now: number): State;
-    /** Resets the round when a drop-in room starts or restarts it, for example respawning every seat. */
-    onRoundStart?(state: State, now: number): State;
+    /**
+     * Sets up a round when it starts: the owner starts or restarts the match, or a drop-in
+     * room starts or restarts a round. finished is the state of the round that just ended,
+     * when there is one, so rules can carry a score over.
+     */
+    onRoundStart?(state: State, now: number, finished?: State): State;
     /** A seat was given up, after the room removed it from players: a drop-in player left, or a lobby seat emptied. */
     onPlayerLeave?(state: State, playerId: string, now: number): State;
 }
@@ -650,6 +709,8 @@ export declare function isTurnCommand(value: unknown): value is TurnCommand;
 /** An input as the game passes it to sendInput, before the SDK numbers it. */
 export declare function isRealtimeInput(value: unknown): value is RealtimeInput;
 /** An input message as it travels to the service: the game's input with the SDK's increasing inputId. */
+/** An action as the game passes it to sendAction and as it travels to the service. */
+export declare function isRealtimeAction(value: unknown): value is RealtimeAction;
 export declare function isRealtimeInputMessage(value: unknown): value is RealtimeInput & {
     inputId: number;
 };

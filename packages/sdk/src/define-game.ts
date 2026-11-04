@@ -55,8 +55,11 @@ export interface GameResult {
 export interface GameDefinition<G extends object, Moves extends Record<string, MoveDefinition<G>>> {
   /** Seats the rules support. A match starts once at least min players are connected. */
   players: { min: number; max: number };
-  /** The game when the owner starts the match. */
-  setup(ctx: GameContext): G;
+  /**
+   * The game when the owner starts a match. previous is the finished match's game when the
+   * owner starts another one, so a score can carry over; it is undefined for the first.
+   */
+  setup(ctx: GameContext, previous?: G): G;
   moves: Moves;
   /** Checked after every accepted move. A result ends the match. */
   endIf?(G: G, ctx: GameContext): GameResult | undefined;
@@ -88,26 +91,53 @@ export interface RealtimeGameContext {
   now(): number;
 }
 
+/** One player's action, as tick reads it. */
+export interface PlayerAction<Action> {
+  playerId: string;
+  action: Action;
+}
+
 /**
  * Realtime rules: the service calls tick at a fixed rate with each player's latest input,
  * whether or not anyone is pressing anything. A player who stops sending drops out of
  * inputs after five ticks, so keep anything that should persist, such as a snake's
- * heading, in G.
+ * heading, in G. Something that happens once, such as firing or jumping, is an action:
+ * tick reads each action exactly once.
  */
-export interface RealtimeGameDefinition<G extends object, Input extends object> {
+export interface RealtimeGameDefinition<G extends object, Input extends object, Action extends object = never> {
   /** Seats the rules support. A round starts once at least min players are connected. */
   players: { min: number; max: number };
   /** Milliseconds between ticks, 20 to 1000. Defaults to 50. */
   tickMs?: number;
-  /** The game when a round starts: when the owner starts it, or when a drop-in room starts or restarts one. */
-  setup(ctx: RealtimeGameContext): G;
+  /**
+   * The game when a round starts: the owner starts or restarts the match, or a drop-in
+   * room starts or restarts a round. previous is the finished round's game when there is
+   * one, so a score can carry over.
+   */
+  setup(ctx: RealtimeGameContext, previous?: G): G;
   /**
    * Reads one input as the player sent it, such as { dir: "up" }, and returns it in the
    * shape tick reads. Throw an Error to reject it; its message reaches the player.
    */
   input(value: Record<string, unknown>, playerId: string): Input;
-  /** Advances the game by dt seconds. Change G in place or return a new one. */
-  tick(G: G, ctx: RealtimeGameContext, inputs: Readonly<Record<string, Input>>, dt: number): G | void;
+  /**
+   * Reads one action as the player sent it with sendAction, such as { fire: true }, and
+   * returns it in the shape tick reads. Throw an Error to refuse it; its message reaches
+   * the player. Without it the game takes no actions.
+   */
+  action?(value: Record<string, unknown>, playerId: string): Action;
+  /**
+   * Advances the game by dt seconds. Change G in place or return a new one. actions holds
+   * every action since the last tick, in the order they arrived; the next tick will not
+   * see them again.
+   */
+  tick(
+    G: G,
+    ctx: RealtimeGameContext,
+    inputs: Readonly<Record<string, Input>>,
+    dt: number,
+    actions: readonly PlayerAction<Action>[],
+  ): G | void;
   /** A player takes a seat while a round is running, as in a drop-in room. */
   join?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
   /** A player gives up their seat while a round is running: they left a drop-in room or were removed. */
@@ -119,20 +149,25 @@ export interface RealtimeGameDefinition<G extends object, Input extends object> 
 }
 
 /** Checks the shape of realtime rules and returns them unchanged, with their types inferred. */
-export function defineRealtimeGame<G extends object, Input extends object>(
-  definition: RealtimeGameDefinition<G, Input>,
-): RealtimeGameDefinition<G, Input> {
+export function defineRealtimeGame<G extends object, Input extends object, Action extends object = never>(
+  definition: RealtimeGameDefinition<G, Input, Action>,
+): RealtimeGameDefinition<G, Input, Action> {
   return definition;
 }
 
 /** Whether rules are realtime rules from defineRealtimeGame. */
-export function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object> {
+export function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object, object> {
   return typeof value === "object" && value !== null && typeof (value as { tick?: unknown }).tick === "function";
 }
 
 /** The input client.sendInput takes for a game: what its rules' input function returns. */
 export type ClientInput<Game> = Game extends { input(value: never, playerId: never): infer Input extends object }
   ? Input
+  : Record<string, unknown>;
+
+/** The action client.sendAction takes for a game: what its rules' action function returns. */
+export type ClientAction<Game> = Game extends { action?(value: never, playerId: never): infer Action extends object }
+  ? Action
   : Record<string, unknown>;
 
 // A move is a function or { run }; its third parameter is the move's arguments.

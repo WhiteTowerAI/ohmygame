@@ -226,7 +226,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(first.snapshot!.state.winnerPlayerIds).toEqual([first.ready!.playerId]);
   });
 
-  it("plays stones as defineGame moves: no pass, and the owner deals a new pile after the race", async () => {
+  it("plays stones as defineGame moves: no pass, and the owner restarts the race once it ends", async () => {
     const [first, second] = await match();
     // Turn-based connections may send ten messages a second; pace this player's commands.
     const paced = async (...args: Parameters<typeof command>) => {
@@ -235,7 +235,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     };
     expect((await paced(first, "action", { action: "pass" })).result.error?.message).toBe("This game has no such move.");
     expect((await paced(first, "action", take(4))).result.error?.message).toBe("Take one to three stones.");
-    expect((await paced(first, "action", { action: "reset" })).result.error?.message).toBe("Finish this race first.");
+    expect((await paced(first, "restart")).result.error?.message).toBe("Finish this match before starting another.");
     let next = first;
     while (next.snapshot!.state.phase === "playing") {
       const result = await paced(next, "action", take(Math.min(3, pile(next))));
@@ -246,8 +246,9 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     }
     const winner = first.snapshot!.state.winnerPlayerId;
     expect(first.snapshot!.state.winnerPlayerIds).toEqual([winner]);
-    expect((await paced(second, "action", { action: "reset" })).result.error?.message).toBe("Only the room owner can do that.");
-    expect((await paced(first, "action", { action: "reset" })).result.accepted).toBe(true);
+    expect((await paced(second, "restart")).result.error?.message).toBe("Only the room owner can start the match.");
+    expect((await paced(first, "start")).result.error?.message).toBe("The match has already started.");
+    expect((await paced(first, "restart")).result.accepted).toBe(true);
     await wait(() => expect(second.snapshot!.state.phase).toBe("playing"));
     expect(pile(second)).toBe(21);
     expect(second.snapshot!.state.currentPlayerId).toBe(first.ready!.playerId);
@@ -263,7 +264,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(owner.snapshot!.state.winnerPlayerIds).toEqual([]);
   });
 
-  it("synchronizes Gomoku, rejects invalid moves, declares a winner and resets on the server", async () => {
+  it("synchronizes Gomoku, rejects invalid moves, declares a winner and restarts with the score kept", async () => {
     const [black, white] = await match(deployments[4]!);
     const send: typeof command = async (...args) => {
       await new Promise(resolve => setTimeout(resolve, 120));
@@ -292,8 +293,8 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(white.snapshot!.state.winnerPlayerId).toBe(black.ready!.playerId);
     expect(white.snapshot!.state.phase).toBe("finished");
     expect(white.snapshot!.state.game?.winningLine).toHaveLength(5);
-    expect((await send(white, "action", { action: "reset" })).result.accepted).toBe(false);
-    const reset = await send(black, "action", { action: "reset" });
+    expect((await send(white, "restart")).result.accepted).toBe(false);
+    const reset = await send(black, "restart");
     expect(reset.result.accepted).toBe(true);
     await wait(() => expect(white.snapshot!.sequence).toBe(reset.result.sequence));
     expect(white.snapshot!.state.game?.history).toEqual([]);
@@ -506,6 +507,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
       // @ts-expect-error the rules have no such move.
       owner.moves.cheat();
       const board = null as unknown as MultiplayerClient<typeof gomokuRules>;
+      // @ts-expect-error a new match is the room's restart command, not a move.
       board.moves.reset();
       board.moves.move({ point: { r: 7, c: 7 } });
       // @ts-expect-error a move needs its point.
@@ -600,12 +602,11 @@ export default defineGame({
     const rules = createBuiltInAdapter("stones");
     const hands: GameAdapter = {
       ...rules,
-      applyCommand(state, playerId, value) {
-        const next = rules.applyCommand(state, playerId, value);
-        if (value.type === "start")
-          next.game = { hands: Object.fromEntries(next.players.map((p) => [p.playerId, [`secret-${p.playerId}`]])) };
-        return next;
-      },
+      // The room sets up each round through onRoundStart, after the start command.
+      onRoundStart: (state) => ({
+        ...state,
+        game: { hands: Object.fromEntries(state.players.map((p) => [p.playerId, [`secret-${p.playerId}`]])) },
+      }),
       viewFor(state, playerId) {
         const all = (state.game?.hands ?? {}) as Record<string, string[]>;
         if (!state.game) return state;
@@ -1098,21 +1099,31 @@ export default defineGame({
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-realtime-rules-"));
     const rulesFile = path.join(workspace, "server", "rules.ts");
     await mkdir(path.dirname(rulesFile));
-    // A one-row snake: it keeps its heading in G, and reaching the wall wins the round.
+    // A one-row snake: it keeps its heading in G, a dash jumps it forward once, reaching the
+    // wall wins the round, and wins carry over to the next round.
     await writeFile(rulesFile, `import { defineRealtimeGame } from "@ohmygame/sdk";
 type Snake = { x: number; dir: "none" | "left" | "right" };
 export default defineRealtimeGame({
   players: { min: 1, max: 4 },
-  setup: (ctx) => ({ snakes: Object.fromEntries(ctx.players.map((id) => [id, { x: 2, dir: "none" }])) as Record<string, Snake> }),
+  setup: (ctx, previous?: { snakes: Record<string, Snake>; wins: Record<string, number> }) => ({
+    snakes: Object.fromEntries(ctx.players.map((id) => [id, { x: 2, dir: "none" }])) as Record<string, Snake>,
+    wins: previous?.wins ?? {} as Record<string, number>,
+  }),
   input(value) {
     if (value.dir !== "left" && value.dir !== "right") throw new Error("Send { dir }.");
     return { dir: value.dir as "left" | "right" };
   },
-  tick(G, _ctx, inputs) {
+  action(value) {
+    if (value.dash !== 1 && value.dash !== 2 && value.dash !== 3) throw new Error("Dash one to three cells.");
+    return { dash: value.dash as 1 | 2 | 3 };
+  },
+  tick(G, _ctx, inputs, _dt, actions) {
     for (const [id, snake] of Object.entries(G.snakes)) {
       if (inputs[id]) snake.dir = inputs[id].dir;
       if (snake.dir !== "none") snake.x += snake.dir === "right" ? 1 : -1;
     }
+    for (const { playerId, action } of actions) if (G.snakes[playerId]) G.snakes[playerId].x += action.dash;
+    for (const [id, snake] of Object.entries(G.snakes)) if (snake.x >= 19) G.wins[id] = (G.wins[id] ?? 0) + 1;
   },
   join: (G, _ctx, playerId) => { G.snakes[playerId] = { x: 2, dir: "none" }; },
   leave: (G, _ctx, playerId) => { delete G.snakes[playerId]; },
@@ -1136,7 +1147,9 @@ export default defineRealtimeGame({
         clients.push(client);
         return client;
       };
-      const snakes = (client: MultiplayerClient) => (client.snapshot?.state.game as { snakes: Record<string, { x: number }> } | undefined)?.snakes ?? {};
+      const game = (client: MultiplayerClient) =>
+        client.snapshot?.state.game as { snakes: Record<string, { x: number }>; wins: Record<string, number> } | undefined;
+      const snakes = (client: MultiplayerClient) => game(client)?.snakes ?? {};
       const [first, second] = [join(), join()];
       await first.quickPlay();
       // One player is enough to start, and a latecomer joins the running round.
@@ -1153,9 +1166,42 @@ export default defineRealtimeGame({
       await wait(() => expect(first.snapshot?.state.phase).toBe("finished"));
       expect(first.snapshot!.state.winnerPlayerIds).toEqual([first.playerId]);
       expect(snakes(first)[first.playerId!]!.x).toBe(19);
-      // The drop-in room starts the next round from setup.
+      // The drop-in room starts the next round from setup, which keeps the wins.
       await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
       expect(snakes(first)[first.playerId!]).toEqual({ x: 2, dir: "none" });
+      expect(game(first)!.wins).toEqual({ [first.playerId!]: 1 });
+      // An action is read in exactly one tick: one dash moves the snake once and no more.
+      expect(first.sendAction({ dash: 4 })).toBe(true);
+      await wait(() => expect(errors).toContain("Dash one to three cells."));
+      expect(first.sendAction({ dash: 3 })).toBe(true);
+      await wait(() => expect(snakes(first)[first.playerId!]!.x).toBe(5));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(snakes(first)[first.playerId!]!.x).toBe(5);
+      await first.leave();
+      expect(first.sendAction({ dash: 1 })).toBe(false);
+
+      // In a room with an owner, the owner restarts a finished round, and setup keeps the wins.
+      const owned = await runtime.configure("snake", "custom", { dropIn: false }, rulesFile);
+      const owner = new MultiplayerClient(
+        { manifest: owned, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
+        { onError: (error) => errors.push(error.message) },
+      );
+      clients.push(owner);
+      await owner.createRoom();
+      await wait(() => expect(owner.snapshot?.state.phase).toBe("lobby"));
+      owner.sendAction({ dash: 1 });
+      await wait(() => expect(errors).toContain("The round is not running."));
+      owner.sendCommand("start");
+      await wait(() => expect(owner.snapshot?.state.phase).toBe("playing"));
+      owner.sendInput({ dir: "right" });
+      await wait(() => expect(owner.snapshot?.state.phase).toBe("finished"));
+      // The finished round stays finished until the owner asks for another.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(owner.snapshot!.state.phase).toBe("finished");
+      owner.sendCommand("restart");
+      await wait(() => expect(owner.snapshot?.state.phase).toBe("playing"));
+      expect(game(owner)).toEqual({ snakes: { [owner.playerId!]: { x: 2, dir: "none" } }, wins: { [owner.playerId!]: 1 } });
+      expect(owner.snapshot!.state.winnerPlayerIds).toBeUndefined();
     } finally {
       for (const client of clients) client.dispose();
       await runtime.close();
@@ -1171,13 +1217,28 @@ export default defineRealtimeGame({
       tick: () => {},
     });
     const typed = null as unknown as MultiplayerClient<typeof rules>;
+    const acting = defineRealtimeGame({
+      ...rules,
+      action: (value) => ({ fire: value.fire === true }),
+      tick: (_G, _ctx, _inputs, _dt, actions) => {
+        for (const { action } of actions) if (action.fire) return;
+      },
+    });
+    const firing = null as unknown as MultiplayerClient<typeof acting>;
     const send = () => {
       typed.sendInput({ dir: "left" });
       // @ts-expect-error The rules read a direction, not a speed.
       typed.sendInput({ speed: 3 });
+      // @ts-expect-error These rules take no actions.
+      typed.sendAction({ fire: true });
+      firing.sendAction({ fire: true });
+      // @ts-expect-error The rules read fire, not jump.
+      firing.sendAction({ jump: true });
     };
     expect(typeof send).toBe("function");
     expect(compileGame(rules)).toMatchObject({ mode: "realtime", tickMs: undefined });
+    expect(compileGame(rules).validateAction).toBeUndefined();
+    expect(compileGame(acting).validateAction).toBeTypeOf("function");
     expect(() => compileGame({ ...rules, tickMs: 5 })).toThrow("tickMs must be a whole number from 20 to 1000.");
   });
 

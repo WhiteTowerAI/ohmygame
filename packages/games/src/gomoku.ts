@@ -12,7 +12,12 @@ import {
 export const gomokuRules = defineGame({
   // Black and white: the board, the colours and the scores have no third seat.
   players: { min: 2, max: 2 },
-  setup: (): GomokuState => initialGomokuState(),
+  // Another match keeps the score; black, the first seat, moves first again.
+  setup: (_ctx, previous?: GomokuState): GomokuState => ({
+    ...initialGomokuState(),
+    blackWins: previous?.blackWins ?? 0,
+    whiteWins: previous?.whiteWins ?? 0,
+  }),
   moves: {
     move(G, ctx, args: { point: GomokuPoint }) {
       if (Object.keys(args).length !== 1 || !isGomokuPoint(args.point))
@@ -28,17 +33,6 @@ export const gomokuRules = defineGame({
         if (cell === 1) G.blackWins++;
         else G.whiteWins++;
       }
-    },
-    /** The owner starts a new match at any time; black moves first and the score carries over. */
-    reset: {
-      by: "owner",
-      afterEnd: true,
-      run(G, ctx, args: Record<string, never>) {
-        if (Object.keys(args).length || ctx.players.length !== 2)
-          throw new Error("Only the room owner can start a new match.");
-        ctx.setCurrentPlayer(ctx.players[0]!);
-        return { ...initialGomokuState(), blackWins: G.blackWins, whiteWins: G.whiteWins };
-      },
     },
   },
   endIf(G, ctx) {

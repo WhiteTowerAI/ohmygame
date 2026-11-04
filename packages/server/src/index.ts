@@ -5,6 +5,7 @@ export {
   defineGame,
   defineRealtimeGame,
   type GameContext,
+  type PlayerAction,
   type RealtimeGameContext,
   type RealtimeGameDefinition,
   type GameDefinition,

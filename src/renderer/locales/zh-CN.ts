@@ -1884,7 +1884,7 @@ const zhCN: typeof en = {
     createRoom: "创建房间",
     joinRoom: "加入房间",
     start: "开始",
-    newRace: "再来一局",
+    playAgain: "再来一局",
     leave: "离开",
     commandRejected: "操作未接受",
   },
