@@ -371,6 +371,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private saved?;
     private current?;
     private lastEventSequence;
+    /** Whether this connection has already reported a snapshot it could not read. */
+    private reportedUnreadable;
     private generation;
     private busy;
     private disposed;

@@ -78,6 +78,53 @@ describe("multiplayer connection failures", () => {
     client.dispose();
   });
 
+  it("reports once when the service sends a room update the SDK cannot read", async () => {
+    const transport = new Client(manifest.serverUrl);
+    const handlers = new Map<string, (value: unknown) => void>();
+    const room = {
+      roomId: "room-1",
+      reconnectionToken: "token",
+      reconnection: { enabled: true },
+      onMessage: (type: string, handler: (value: unknown) => void) => handlers.set(type, handler),
+      onDrop: () => {},
+      onReconnect: () => {},
+      onError: () => {},
+      onLeave: () => {},
+      send: vi.fn(),
+      removeAllListeners: () => {},
+      leave: vi.fn(async () => {}),
+    } as unknown as Room;
+    vi.spyOn(transport, "create").mockResolvedValue(room);
+    const errors: OhMyGameError[] = [];
+    const snapshots: unknown[] = [];
+    const client = new MultiplayerClient(
+      { manifest, transport, identity: { getToken: async () => "account-token" } },
+      { onError: (error) => errors.push(error), onSnapshot: (snapshot) => snapshots.push(snapshot) },
+    );
+    await client.createRoom();
+    const snapshot = {
+      roomId: "room-1",
+      gameId: manifest.gameId,
+      deploymentId: manifest.deploymentId,
+      mode: manifest.mode,
+      sequence: 1,
+      serverTime: new Date().toISOString(),
+      state: { phase: "lobby", ownerId: "", currentPlayerId: "", winnerPlayerId: "", turnDeadline: 0, players: [] },
+    };
+    // An older or newer room protocol, and a snapshot for another deployment.
+    handlers.get("snapshot")!({ ...snapshot, state: { ...snapshot.state, phase: "voting" } });
+    handlers.get("snapshot")!({ ...snapshot, deploymentId: "v2" });
+    expect(errors).toHaveLength(1);
+    expect(isOhMyGameError(errors[0], "invalid_response")).toBe(true);
+    expect(client.snapshot).toBeUndefined();
+    handlers.get("snapshot")!(snapshot);
+    // An out-of-date snapshot is normal and stays quiet.
+    handlers.get("snapshot")!({ ...snapshot, sequence: 0 });
+    expect(snapshots).toEqual([snapshot]);
+    expect(errors).toHaveLength(1);
+    client.dispose();
+  });
+
   it("accepts a realtime input only as a small plain object without inputId", () => {
     const client = new MultiplayerClient({ manifest: { ...manifest, mode: "realtime", adapterId: "arena" } });
     // Before a room is joined, a valid input is ignored rather than queued.

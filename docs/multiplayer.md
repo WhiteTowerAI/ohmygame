@@ -67,6 +67,10 @@ HTTP requests have their own 10-second timeout. The game must display the error
 and allow retry instead of keeping an indefinite connection spinner. Every SDK
 error is an `OhMyGameError` whose `code` (such as `timeout`, `room_limit`,
 `sign_in_required`, or `not_connected`) stays stable while messages may change.
+A snapshot the SDK cannot read, such as one from a service with a newer room
+protocol, or one for another deployment, is dropped and reported once per
+connection as `invalid_response`, so a game with an out-of-date SDK shows an error
+instead of an empty room.
 
 Test two independent players creating and joining a room, an accepted command,
 an illegal command, a refresh/reconnect, and an unavailable service. The local

@@ -107,6 +107,8 @@ export class MultiplayerClient<Game = unknown> {
   private saved?: SavedRoom;
   private current?: MultiplayerSnapshot;
   private lastEventSequence = -1;
+  /** Whether this connection has already reported a snapshot it could not read. */
+  private reportedUnreadable = false;
   private generation = 0;
   private busy = false;
   private disposed = false;
@@ -490,6 +492,7 @@ export class MultiplayerClient<Game = unknown> {
       this.room = room;
       this.current = undefined;
       this.lastEventSequence = -1;
+      this.reportedUnreadable = false;
       this.inputId = 0;
       this.bind(room);
       this.persist();
@@ -598,10 +601,22 @@ export class MultiplayerClient<Game = unknown> {
       value.roomId !== this.room?.roomId ||
       value.gameId !== config.gameId ||
       value.deploymentId !== config.deploymentId ||
-      value.mode !== config.mode ||
-      value.sequence < (this.current?.sequence ?? -1)
-    )
+      value.mode !== config.mode
+    ) {
+      // Ignoring it silently would leave the game connected with no room to show, as when
+      // a game keeps an older SDK than its service. Report it once per connection.
+      if (!this.reportedUnreadable) {
+        this.reportedUnreadable = true;
+        this.error(
+          new OhMyGameError(
+            "invalid_response",
+            "The multiplayer service sent a room update this game cannot read. The game's OhMyGame SDK may not match its multiplayer service.",
+          ),
+        );
+      }
       return;
+    }
+    if (value.sequence < (this.current?.sequence ?? -1)) return;
     const first = !this.current;
     this.current = value;
     this.callbacks.onSnapshot?.(value);
