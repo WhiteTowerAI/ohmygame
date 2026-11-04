@@ -9,7 +9,7 @@ import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
 import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasBatchCopies, duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
-import { canvasChainTextStep, staleCanvasNodes } from "../src/shared/canvas-chains.js";
+import { canvasChainHasCycle, canvasChainTextStep, staleCanvasNodes } from "../src/shared/canvas-chains.js";
 import { canvasNodeLayout } from "../src/shared/canvas-node-layout.js";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
@@ -283,6 +283,11 @@ describe("plugin canvas nodes", () => {
     const reader = plugin("reader", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "caption" }] });
     expect(canvasChainTextStep([image, caption, reader], "hero")?.id).toBe("caption");
     expect(canvasChainTextStep([image, caption], "hero")).toBeUndefined();
+    // Two nodes after the image that read each other have no order to run in.
+    const first = plugin("first", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "hero" }, { type: "node", nodeId: "second" }] });
+    const second = plugin("second", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "first" }] });
+    expect(canvasChainHasCycle([image, first, second], "hero")).toBe(true);
+    expect(canvasChainHasCycle([image, copy, describe], "hero")).toBe(false);
 
     const saved = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
     saved.board.nodes = [image, copy, describe, ...copies];

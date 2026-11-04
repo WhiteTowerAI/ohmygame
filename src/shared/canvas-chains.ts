@@ -76,11 +76,27 @@ export function canvasNodeRuns(node: Pick<AssetCanvasNode, "type" | "data">): bo
 }
 
 /**
- * A Text node after `id` that something run after it reads. A chain doesn't
- * write text, so the nodes after it would run on its old words.
+ * A Text or Document node after `id` that something run after it reads. A
+ * chain doesn't write text, so the nodes after it would run on its old words.
  */
 export function canvasChainTextStep(nodes: readonly AssetCanvasNode[], id: string): AssetCanvasNode | undefined {
-  return canvasDownstream(nodes, id).find((node) => node.type === "text" && canvasDownstream(nodes, node.id).some(canvasNodeRuns));
+  return canvasDownstream(nodes, id).find((node) => (node.type === "text" || node.type === "document") && canvasDownstream(nodes, node.id).some(canvasNodeRuns));
+}
+
+/** Whether `id` and the nodes after it read one another in a loop, which no order can run. */
+export function canvasChainHasCycle(nodes: readonly AssetCanvasNode[], id: string): boolean {
+  const members = new Set([id, ...canvasDownstream(nodes, id).map((node) => node.id)]);
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const state = new Map<string, "open" | "done">();
+  const loops = (nodeId: string): boolean => {
+    if (state.get(nodeId) === "done") return false;
+    if (state.get(nodeId) === "open") return true;
+    state.set(nodeId, "open");
+    if (canvasNodeSourceIds(byId.get(nodeId)!).some((source) => members.has(source) && loops(source))) return true;
+    state.set(nodeId, "done");
+    return false;
+  };
+  return [...members].some(loops);
 }
 
 /**

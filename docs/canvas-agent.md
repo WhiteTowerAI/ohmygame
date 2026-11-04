@@ -144,8 +144,9 @@ PNG, JPEG or WebP Library images and copies the chain once per image, each in
 its own group below the original named after the image (keeping the pixel
 density its groups gave each image), then runs every copy. A chain doesn't
 write text, so neither Regenerate from here nor Run with several images is
-offered, and the route answers 409, while a Text node a model writes sits
-between the node and something that runs after it.
+offered, and the route answers 409, while a Text node a model writes or a
+Document sits between the node and something that runs after it, or while the
+nodes after it read each other in a loop.
 Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
 it, and drag the heading to move its entire tree. The empty frame interior
 allows marquee selection of its children. Dropping a node with its center

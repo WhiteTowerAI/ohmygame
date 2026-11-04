@@ -136,7 +136,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
-import { canvasChainTextStep, canvasDownstream, canvasNodeRuns, staleCanvasNodes } from "../shared/canvas-chains.js";
+import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeRuns, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -3857,7 +3857,7 @@ function pluginSourceMedia(node: AssetCanvasFlowNode, libraryAssets: LibraryAsse
 /** Whether the daemon runs this node, or anything after it. */
 function canRegenerateFrom(nodes: readonly AssetCanvasNode[], id: string): boolean {
   const node = nodes.find((candidate) => candidate.id === id);
-  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)) && !canvasChainTextStep(nodes, id));
+  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)) && !canvasChainTextStep(nodes, id) && !canvasChainHasCycle(nodes, id));
 }
 
 /** Images the batch run takes; the ones every image node and plugin reads. */
@@ -3867,7 +3867,7 @@ const BATCH_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg
 function canRunWithImages(nodes: readonly AssetCanvasNode[], id: string): boolean {
   const node = nodes.find((candidate) => candidate.id === id);
   const image = node?.type === "image" || (node?.type === "asset" && node.data.mediaType === "image");
-  return Boolean(image && node?.data && "assetId" in node.data && node.data.assetId && canvasDownstream(nodes, id).some(canvasNodeRuns) && !canvasChainTextStep(nodes, id));
+  return Boolean(image && node?.data && "assetId" in node.data && node.data.assetId && canvasDownstream(nodes, id).some(canvasNodeRuns) && !canvasChainTextStep(nodes, id) && !canvasChainHasCycle(nodes, id));
 }
 
 function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {
