@@ -431,7 +431,10 @@ asking, with feedback, so the agent adjusts instead of stopping; a bare
 OpenCode rejection would end its loop. Native agents are told that OhMyGame's
 tools, including `update_plan`, come from its `ohmygame` tool server under
 their CLI's MCP names. Claude's `ExitPlanMode` is declined with a pointer to
-`update_plan`, because OhMyGame reviews plans itself. Codex registers every
+`update_plan`, because OhMyGame reviews plans itself. Claude's
+`AskUserQuestion` is disallowed: an approval card cannot answer it. Claude asks
+with `questionnaire` while planning and in its reply otherwise, like every
+agent. Codex registers every
 OhMyGame tool when its thread starts, since a thread that begins in planning
 continues after the plan is approved; tools the current mode does not allow
 are refused when called.

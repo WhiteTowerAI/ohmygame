@@ -1072,6 +1072,7 @@ describe("Claude Code adapter", () => {
         "high",
         "--disallowedTools",
         "mcp__ohmygame-studio",
+        "AskUserQuestion",
         "--append-system-prompt",
         "Project instructions",
       ]),
