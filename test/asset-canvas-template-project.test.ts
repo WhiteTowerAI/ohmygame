@@ -88,7 +88,7 @@ describe("pixel asset template projects", () => {
       const introduction = introductions[0]!;
       expect(introduction.parentId).toBeUndefined();
       expect(introduction.type === "text" && introduction.data.instruction).toBe(`pixel-asset-template:${category}`);
-      expect(introduction.type === "text" && introduction.data.text).toContain("Add a reference and description");
+      expect(introduction.type === "text" && introduction.data.text).toContain("Then choose a generator below and generate.");
       expect(introduction.type === "text" && introduction.data.text).not.toContain("Coarse");
       expect(introduction.type === "text" && introduction.data.text).not.toContain("assetCanvas.");
       expect(saved.board.editorLayout.nodes[introduction.id]).toMatchObject({ ...introduction.position, width: 760 });
@@ -98,8 +98,8 @@ describe("pixel asset template projects", () => {
       // The guide sits just above the groups, close enough to read as their introduction.
       expect(groups.every((group) => group.position.y - introduction.position.y > 250 && group.position.y - introduction.position.y < 700)).toBe(true);
       if (category === "animation") {
-        expect(introduction.type === "text" && introduction.data.text).toContain("trigger it on a hit event");
-        expect(introduction.type === "text" && introduction.data.text).toContain("not consecutive animation frames");
+        expect(introduction.type === "text" && introduction.data.text).toContain("Feedback when the character takes damage.");
+        expect(introduction.type === "text" && introduction.data.text).toContain("not animation frames");
         const steps = saved.board.nodes.filter((node) => node.type === "text");
         expect(steps).toHaveLength(3);
         expect(steps.filter((node) => node.id !== introduction.id).every((node) => node.type === "text" && node.data.instruction === "pixel-asset-template-note")).toBe(true);
@@ -244,6 +244,16 @@ describe("template text after a language change", () => {
     const saved = await savedText("en");
     await i18next.changeLanguage("zh-CN");
     expect(saved.filter((text) => !/\p{Script=Han}/u.test(localizedTemplateText(text)))).toEqual([]);
+  });
+
+  it("shows wording saved by earlier versions as today's text", async () => {
+    await i18next.changeLanguage("en");
+    expect(localizedTemplateText("第二步：宫格切分")).toBe("Step 2: Split the grid");
+    expect(localizedTemplateText("Step 1: Introduction")).toBe("Step 1: Generate");
+    expect(localizedTemplateText("A 12-frame idle animation sheet.")).toBe("A 12-frame idle sprite sheet.");
+    await i18next.changeLanguage("zh-CN");
+    expect(localizedTemplateText("Characters · Output uses")).toMatch(/ · 使用说明$/);
+    expect(localizedTemplateText("火焰爆发并化为余烬的 12 帧特效图集。")).toBe("火焰爆发并化为余烬，12 帧。");
   });
 
   it("leaves text a person wrote as it is", async () => {
