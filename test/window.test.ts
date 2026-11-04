@@ -274,6 +274,12 @@ describe("desktop window", () => {
     ])
       expect(window.onWindowOpen?.(details)).toEqual({ action: "deny" });
     expect(electron.openExternal).toHaveBeenCalledTimes(5);
+    // A locally published game signs in through OhMyGame's local test sign-in, on this computer only.
+    expect(window.onWindowOpen?.({ url: "http://127.0.0.1:43139/v1/game-auth/authorize?state=s", frameName: "ohmygame-sign-in" })).toMatchObject({ action: "allow" });
+    expect(window.onWindowOpen?.({ url: "http://127.0.0.1:43139/other", frameName: "ohmygame-sign-in" })).toEqual({ action: "deny" });
+    expect(window.onWindowOpen?.({ url: "http://192.168.1.2:43139/v1/game-auth/authorize", frameName: "ohmygame-sign-in" })).toEqual({ action: "deny" });
+    electron.openExternal.mockClear();
+    electron.openExternal.mock.calls.length = 0;
 
     // The child may pass through an identity provider over HTTPS, and opens no windows of its own.
     const child = { handlers: new Map<string, (event: { preventDefault(): void }, url: string) => void>(), open: undefined as undefined | ((details: { url: string }) => unknown) };
@@ -290,6 +296,7 @@ describe("desktop window", () => {
     expect(navigate("will-navigate", "https://accounts.google.com/o/oauth2/auth")).toBe(false);
     expect(navigate("will-redirect", "https://g-game.play.example/?code=c&state=s")).toBe(false);
     expect(navigate("will-navigate", "http://g-game.play.example/")).toBe(true);
+    expect(navigate("will-redirect", "http://127.0.0.1:5173/?code=c&state=s")).toBe(false);
     expect(navigate("will-navigate", "file:///etc/passwd")).toBe(true);
     expect(child.open!({ url: "https://help.example/" })).toEqual({ action: "deny" });
     expect(electron.openExternal).toHaveBeenLastCalledWith("https://help.example/");

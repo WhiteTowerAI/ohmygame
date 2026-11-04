@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { build } from "esbuild";
-import { installGameSdk, installMultiplayerWorkspace, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "../src/daemon/multiplayer-workspace.js";
+import { installGameSdk, installMultiplayerWorkspace, moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "../src/daemon/multiplayer-workspace.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 describe("multiplayer workspace integration", () => {
@@ -140,6 +140,38 @@ describe("multiplayer workspace integration", () => {
 
       await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ runtime: "playable-nodes" }));
       await expect(installGameSdk(project)).rejects.toThrow("supported Web Game manifest");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("points a game at the local service's sign-in, saves and leaderboards, and follows it to a new address", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-local-services-"));
+    const services = (port: number) => ({
+      account: { issuer: `http://127.0.0.1:${port}` },
+      cloud: { serverUrl: `http://127.0.0.1:${port}/`, gameId: "project-1" },
+    });
+    const manifest = async () => JSON.parse(await readFile(path.join(directory, "public/manifest.json"), "utf8"));
+    try {
+      const project = { workspacePath: directory };
+      await installGameSdk(project, services(43139));
+      expect(await manifest()).toEqual({ version: 1, ...services(43139) });
+      expect(await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8")).toContain("init({ allowLocalhost: true })");
+
+      // After a restart on another port, the local entries move; nothing else does.
+      let asked = 0;
+      await moveLocalGameServices(project, async () => (asked++, services(50000)));
+      expect(await manifest()).toEqual({ version: 1, ...services(50000) });
+      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ title: "Solo" }));
+      await moveLocalGameServices(project, async () => (asked++, services(50001)));
+      expect(asked).toBe(1);
+      expect(await manifest()).toEqual({ title: "Solo" });
+
+      // A game that names services off this computer keeps them.
+      const own = { account: { issuer: "https://accounts.example" }, cloud: { serverUrl: "https://games.example/", gameId: "g" } };
+      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify(own));
+      await installGameSdk(project, services(43139));
+      expect(await manifest()).toEqual({ version: 1, ...own });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

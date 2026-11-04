@@ -46,6 +46,15 @@ function localPlayerRange({ players }: GameAdapter) {
   };
 }
 
+/**
+ * Where a local game signs players in and keeps saves and leaderboards: the local service's
+ * test accounts and in-memory store, written to manifest.json as "account" and "cloud".
+ */
+export interface LocalGameServices {
+  account: { issuer: string };
+  cloud: { serverUrl: string; gameId: string };
+}
+
 /** One daemon-owned service for local playtests. No public registration endpoint. */
 export class LocalMultiplayerRuntime {
   private service?: ReturnType<typeof createMultiplayerServer>;
@@ -80,29 +89,7 @@ export class LocalMultiplayerRuntime {
     const maxClients = options.maxClients ?? Math.min(Math.max(LOCAL_MULTIPLAYER_DEFAULT_CLIENTS, range.min), range.max);
     if (!Number.isInteger(maxClients) || maxClients < range.min || maxClients > range.max)
       throw new Error(`Local ${adapterId} rooms hold ${describePlayerRange(range)} players.`);
-    if (!this.starting) {
-      this.starting = (async () => {
-        const { createMultiplayerServer } =
-          await import("@ohmygame/server");
-        this.service = createMultiplayerServer({
-          deployments: [],
-          adapters: BUILT_IN_ADAPTERS,
-          auth: { guestSecret: randomBytes(32).toString("hex") },
-          databasePath: ":memory:",
-          host: "127.0.0.1",
-          port: await availablePort(this.preferredPort),
-          allowLocalhost: true,
-          logger: false,
-        });
-        await this.service.start();
-      })().catch(async (cause) => {
-        await this.service?.stop();
-        this.service = undefined;
-        this.starting = undefined;
-        throw cause;
-      });
-    }
-    await this.starting;
+    await this.ensureService();
     const config: MultiplayerManifestConfig = {
       enabled: true,
       mode,
@@ -137,6 +124,45 @@ export class LocalMultiplayerRuntime {
       dropIn: config.roomPolicy === "drop-in",
     }, rulesFile);
     return sameMultiplayerConfig({ ...config, serverUrl: restored.serverUrl }, restored) ? restored : undefined;
+  }
+
+  /**
+   * The local service's test accounts, saves and leaderboards for a game, starting the
+   * service if needed. They last until OhMyGame quits, like rooms.
+   */
+  async gameServices(gameId: string): Promise<LocalGameServices> {
+    const base = await this.ensureService();
+    return { account: { issuer: base }, cloud: { serverUrl: `${base}/`, gameId } };
+  }
+
+  /** Starts the shared local service once; resolves with its address. */
+  private async ensureService(): Promise<string> {
+    if (!this.starting) {
+      this.starting = (async () => {
+        const { createMultiplayerServer, MemoryGameDataStore } = await import("@ohmygame/server");
+        this.service = createMultiplayerServer({
+          deployments: [],
+          adapters: BUILT_IN_ADAPTERS,
+          auth: { guestSecret: randomBytes(32).toString("hex") },
+          databasePath: ":memory:",
+          host: "127.0.0.1",
+          port: await availablePort(this.preferredPort),
+          allowLocalhost: true,
+          logger: false,
+          // Local games sign in test players and keep saves and scores here, in memory.
+          gameData: { store: new MemoryGameDataStore() },
+          localAccounts: true,
+        });
+        await this.service.start();
+      })().catch(async (cause) => {
+        await this.service?.stop();
+        this.service = undefined;
+        this.starting = undefined;
+        throw cause;
+      });
+    }
+    await this.starting;
+    return `http://127.0.0.1:${this.service!.port}`;
   }
 
   async close(): Promise<void> {

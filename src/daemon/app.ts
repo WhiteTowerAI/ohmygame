@@ -45,7 +45,7 @@ import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
-import { moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
+import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -594,6 +594,10 @@ export function createApp(options: AppOptions = {}) {
       const restored = config && await localMultiplayer.restore(project.id, config, await gameRulesFile(project));
       if (config && restored && restored.serverUrl !== config.serverUrl) await moveWorkspaceMultiplayer(project, config, restored);
     } catch {}
+    // Local sign-in, saves and leaderboards follow the local service to its current address.
+    try {
+      await moveLocalGameServices(project, () => localMultiplayer.gameServices(project.id));
+    } catch {}
   };
   const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
@@ -859,6 +863,7 @@ export function createApp(options: AppOptions = {}) {
         options,
         adapterId === "custom" ? await gameRulesFile(project) : undefined,
       ),
+      () => localMultiplayer.gameServices(project.id),
     ), ...(project.integration?.preview === "external" ? [projectPreviewTool(project, plugins, pluginIntegrations)] : [])];
   };
   const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {

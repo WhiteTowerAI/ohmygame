@@ -31,9 +31,14 @@ Public publishing writes the account service to the game's `manifest.json`:
 | `hostOrigins` | Optional. Pages that may embed the game and hand it the player. Defaults to `issuer`'s origin. |
 
 The desktop app takes the issuer from `OHMYGAME_ACCOUNT_ISSUER`, or else the cloud API
-URL it publishes to, and writes it only when that URL uses HTTPS. Local publishing and
-local previews never write it: local builds play as guests, and `signIn()` rejects with
-`unsupported`.
+URL it publishes to, and writes it only when that URL uses HTTPS. Locally, the manifest
+names OhMyGame's local game service instead (`localAccounts` in `@ohmygame/server`,
+`packages/server/src/local-accounts.ts`), which speaks this protocol with test
+players: its sign-in page signs in anyone by name, the same name being the same
+player in every browser, and its tokens are good for every local game. The desktop
+app lets that page open from previews and playtests, and lets a playtest's page
+navigate there and back when no popup opens. Public publishing replaces the local
+entry with the real issuer, or removes it.
 
 ## Player and game identity
 

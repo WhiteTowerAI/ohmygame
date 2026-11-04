@@ -21,7 +21,7 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
-import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalMultiplayerOptions } from "./local-multiplayer.js";
+import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
@@ -106,6 +106,8 @@ export function createAgentTools(
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
   configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
+  /** The local service's test accounts, saves and leaderboards for this game. */
+  localGameServices?: () => Promise<LocalGameServices>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio",
@@ -159,7 +161,7 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn });
       signal?.throwIfAborted();
-      const result = await installMultiplayerWorkspace(project, config);
+      const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {
         content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
@@ -168,13 +170,15 @@ export function createAgentTools(
   })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
     name: "game_sdk_setup",
     label: "Set up the OhMyGame SDK",
-    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Saves stay in the browser in local previews; publishing to OhMyGame adds cloud saves and leaderboards with no code change.",
+    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
-      const result = await installGameSdk(project);
+      const services = await localGameServices?.();
+      const result = await installGameSdk(project, services);
+      const viewer = services ? ` Local saves and leaderboards are kept by OhMyGame's local service until it quits; see them at ${services.cloud.serverUrl}dev/games/${encodeURIComponent(services.cloud.gameId)}.` : "";
       return {
-        content: [{ type: "text" as const, text: `Read ${result.guidePath} and import init from ${result.sdkPath}/client.js. ${result.manifestPath} must be copied into the build output so init() can load it.` }],
+        content: [{ type: "text" as const, text: `Read ${result.guidePath} and import init from ${result.sdkPath}/client.js. ${result.manifestPath} must be copied into the build output so init() can load it.${viewer}` }],
         details: { sdk: result },
       };
     },

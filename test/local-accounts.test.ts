@@ -6,6 +6,7 @@ import { init } from "@ohmygame/sdk";
 import type { AccountEnvironment } from "../packages/sdk/src/account.js";
 import { createMultiplayerServer, MemoryGameDataStore } from "@ohmygame/server";
 import { localPlayerId } from "../packages/server/src/local-accounts.js";
+import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
 
 const PREVIEW = "http://127.0.0.1:5173";
 
@@ -156,6 +157,24 @@ describe("local test accounts", () => {
       state: "s",
     })}`, { redirect: "manual" });
     expect(outside.status).toBe(400);
+  });
+
+  it("comes with OhMyGame's local service, which games reach from their manifest", async () => {
+    const runtime = new LocalMultiplayerRuntime(0);
+    try {
+      const services = await runtime.gameServices("project-1");
+      expect(services.cloud).toEqual({ serverUrl: `${services.account.issuer}/`, gameId: "project-1" });
+      const game = await init({ manifest: services, allowLocalhost: true, storage: browserStorage() });
+      expect(game.storage.cloud).toBe(true);
+      await game.storage.set("progress", 1);
+      await game.leaderboard.submit("points", 7);
+      expect(await (await fetch(`${services.cloud.serverUrl}dev/games/project-1`)).text()).toContain("points");
+      // Multiplayer and game data share the one service.
+      const rooms = await runtime.configure("project-1", "stones");
+      expect(rooms.serverUrl).toBe(services.account.issuer);
+    } finally {
+      await runtime.close();
+    }
   });
 
   it("is only for a local service", () => {

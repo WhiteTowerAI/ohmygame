@@ -16,6 +16,7 @@ import {
   type PlaytestViewport,
   type PlaytestWatchState,
 } from "../shared/playtest.js";
+import { isLocalSignInPage } from "./game-sign-in.js";
 
 interface PlaytestSession {
   id: string;
@@ -142,8 +143,9 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       if (this.#sessions.delete(id)) this.#publishWatchState();
     });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // The game may leave for its local test sign-in page and come back; nowhere else.
     const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
-      if (!sameOrigin(destination, state.origin)) event.preventDefault();
+      if (!sameOrigin(destination, state.origin) && !isLocalSignInPage(destination)) event.preventDefault();
     };
     window.webContents.on("will-navigate", preventCrossOriginNavigation);
     window.webContents.on("will-redirect", preventCrossOriginNavigation);

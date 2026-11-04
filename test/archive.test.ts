@@ -110,6 +110,17 @@ describe("publish archives", () => {
       title: "Puzzle",
       cloud: { serverUrl: "https://games.ohmygame.example/", gameId: "game-1" },
     });
+    // The local service's test sign-in and saves give way to OhMyGame's, or go.
+    const local = { account: { issuer: "http://127.0.0.1:43139" }, cloud: { serverUrl: "http://127.0.0.1:43139/", gameId: "project-1" } };
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ title: "Puzzle", ...local }));
+    const replaced = await builder.prepare(projectAt(directory));
+    expect(JSON.parse(await zipFile(await replaced.package("game-1"), "manifest.json"))).toEqual({
+      title: "Puzzle",
+      cloud: { serverUrl: "https://games.ohmygame.example/", gameId: "game-1" },
+    });
+    await replaced.dispose();
+    expect(JSON.parse(await zipFile(await builder.createLocal(projectAt(directory)), "manifest.json"))).toEqual({ title: "Puzzle", ...local });
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ title: "Puzzle" }));
     // Without the game's ID, or in a local build, saves stay in the browser.
     expect(JSON.parse(await zipFile(await builder.create(projectAt(directory)), "manifest.json"))).toEqual({ title: "Puzzle" });
     expect(JSON.parse(await zipFile(await builder.createLocal(projectAt(directory)), "manifest.json"))).toEqual({ title: "Puzzle" });

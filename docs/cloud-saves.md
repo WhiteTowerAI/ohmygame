@@ -19,8 +19,14 @@ Every save lands in the browser's `localStorage` first. When the game's
   (or `MULTIPLAYER_PUBLISH_SERVER_URL`), HTTPS only. Publishing creates or finds the
   game record before it builds, so the build can name it; a build that fails leaves
   the record unpublished, and the next attempt reuses it.
-- Local previews and local publishing never write it: saves stay in the browser,
-  `game.storage.cloud` is `false`, and `game.leaderboard.available` is `false`.
+- Locally, `game_sdk_setup` and `multiplayer_setup` point `cloud` and `account` at
+  OhMyGame's local game service, which keeps saves and leaderboards in memory until
+  OhMyGame quits and signs in test players: any name signs in, the same name being
+  the same player in every browser. `http://127.0.0.1:<port>/dev/games/<gameId>`
+  on that service shows every leaderboard entry and who has saves. When OhMyGame
+  restarts on another port, the manifest follows it before a preview, playtest or
+  local publish. Public publishing replaces these local entries with OhMyGame's
+  services, or removes them when none is configured.
 
 The browser keeps saves apart per player: the signed-in account, a custom
 identity from `init({ identity })`, or the guest. A save made while the service

@@ -8,10 +8,56 @@ import {
 } from "@ohmygame/sdk/protocol";
 import { resolveStartupDirectory } from "./projects.js";
 import { multiplayerSdkResources } from "./multiplayer-sdk.js";
+import type { LocalGameServices } from "./local-multiplayer.js";
+
+/** Whether a URL is on this computer, as the local service's addresses are. */
+function isLoopbackUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+/**
+ * The manifest with the local service's sign-in, saves and leaderboards. A game that names
+ * services of its own, off this computer, keeps them.
+ */
+function withLocalServices(manifest: Record<string, unknown>, services?: LocalGameServices): Record<string, unknown> {
+  if (!services) return manifest;
+  const next = { ...manifest };
+  const account = manifest.account as { issuer?: unknown } | undefined;
+  const cloud = manifest.cloud as { serverUrl?: unknown } | undefined;
+  if (account === undefined || isLoopbackUrl(account?.issuer)) next.account = services.account;
+  if (cloud === undefined || isLoopbackUrl(cloud?.serverUrl)) next.cloud = services.cloud;
+  return next;
+}
+
+/**
+ * Points a game's local sign-in, saves and leaderboards at the local service's current
+ * address, after OhMyGame restarted. Only a game that already uses local ones changes.
+ */
+export async function moveLocalGameServices(
+  project: Pick<ProjectState, "workspacePath" | "startupDirectory">,
+  services: () => Promise<LocalGameServices>,
+): Promise<void> {
+  const { absolutePath: root } = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+  const file = path.join(root, "public", "manifest.json");
+  const manifest = await readJsonObject(file);
+  const account = manifest?.account as { issuer?: unknown } | undefined;
+  const cloud = manifest?.cloud as { serverUrl?: unknown } | undefined;
+  if (!manifest || (!isLoopbackUrl(account?.issuer) && !isLoopbackUrl(cloud?.serverUrl))) return;
+  const current = await services();
+  const next = { ...manifest };
+  if (isLoopbackUrl(account?.issuer)) next.account = current.account;
+  if (isLoopbackUrl(cloud?.serverUrl)) next.cloud = { ...current.cloud, gameId: (cloud as { gameId?: string }).gameId ?? current.cloud.gameId };
+  if (JSON.stringify(next) !== JSON.stringify(manifest)) await writeFile(file, `${JSON.stringify(next, null, 2)}\n`);
+}
 
 export async function installMultiplayerWorkspace(
   project: Pick<ProjectState, "workspacePath" | "startupDirectory">,
   config: MultiplayerManifestConfig,
+  services?: LocalGameServices,
 ) {
   if (!isMultiplayerManifestConfig(config, { allowLocalhost: true }))
     throw new Error("Invalid multiplayer deployment.");
@@ -54,7 +100,7 @@ export async function installMultiplayerWorkspace(
   await mkdir(path.dirname(manifestPath), { recursive: true });
   await writeFile(
     manifestPath,
-    `${JSON.stringify({ ...manifest, version: 1, multiplayer: config }, null, 2)}\n`,
+    `${JSON.stringify(withLocalServices({ ...manifest, version: 1, multiplayer: config }, services), null, 2)}\n`,
   );
   await writeFile(
     path.join(root, "multiplayer.json"),
@@ -75,7 +121,7 @@ export async function installMultiplayerWorkspace(
  * and makes sure the game has a manifest for init() to load. A game set up for multiplayer
  * keeps its multiplayer deployment and guide.
  */
-export async function installGameSdk(project: Pick<ProjectState, "workspacePath" | "startupDirectory">) {
+export async function installGameSdk(project: Pick<ProjectState, "workspacePath" | "startupDirectory">, services?: LocalGameServices) {
   const { absolutePath: root } = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
   let sdk: Record<string, string>;
   try {
@@ -100,7 +146,7 @@ export async function installGameSdk(project: Pick<ProjectState, "workspacePath"
     await writeFile(path.join(sdkPath, name), contents);
   }
   await mkdir(path.dirname(manifestPath), { recursive: true });
-  await writeFile(manifestPath, `${JSON.stringify({ version: 1, ...existing }, null, 2)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(withLocalServices({ version: 1, ...existing }, services), null, 2)}\n`);
   const multiplayer = await readWorkspaceMultiplayer(project);
   const guidePath = path.join(sdkPath, "README.md");
   await writeFile(guidePath, multiplayer ? `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}` : `${SDK_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
@@ -153,7 +199,7 @@ const MULTIPLAYER_WORKSPACE_GUIDE = `# OhMyGame multiplayer
 
 Use the Colyseus client in ./multiplayer.js, with init and the shared types from ./client.js. Do not replace it with PeerJS, WebRTC, public signaling servers, or browser-authoritative state.
 
-Start with const game = await init({ allowLocalhost: true }) from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output, and it validates the deployment. Pass allowLocalhost: true as written, never import.meta.env.DEV or another build flag: local publishing plays the production build against the same local service, and public publishing already rejects a loopback deployment. Create the room connection with createMultiplayerClient(game, callbacks) from ./multiplayer.js and keep its default storage. multiplayer.js imports ./client.js, so keep both files together; a page that never imports multiplayer.js carries no room client. Keep create, join and play controls disabled until init and createMultiplayerClient have finished, and show init's error in the page if it fails. The guest identity and room recovery live in localStorage, so one browser is one player in every tab and can return to its seat after closing the tab. Do not pass sessionStorage or another per-tab store to create extra players. A second tab of the same browser is the same player and cannot take a second seat in the room; test another player in a private window or a different browser. Sign-in with an OhMyGame account comes with publishing to OhMyGame: there game.auth.available is true, game.auth.signIn() signs the player in, game.auth.player is { id, name }, and rooms then use that account instead of a guest. Local previews and local publishing always play as guests (game.auth.available is false and signIn() rejects with code unsupported), so an account-required deployment cannot be tested locally; hide sign-in when game.auth.available is false.
+Start with const game = await init({ allowLocalhost: true }) from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output, and it validates the deployment. Pass allowLocalhost: true as written, never import.meta.env.DEV or another build flag: local publishing plays the production build against the same local service, and public publishing already rejects a loopback deployment. Create the room connection with createMultiplayerClient(game, callbacks) from ./multiplayer.js and keep its default storage. multiplayer.js imports ./client.js, so keep both files together; a page that never imports multiplayer.js carries no room client. Keep create, join and play controls disabled until init and createMultiplayerClient have finished, and show init's error in the page if it fails. The guest identity and room recovery live in localStorage, so one browser is one player in every tab and can return to its seat after closing the tab. Do not pass sessionStorage or another per-tab store to create extra players. A second tab of the same browser is the same player and cannot take a second seat in the room; test another player in a private window or a different browser. Players sign in with their OhMyGame account: game.auth.signIn() signs the player in, game.auth.player is { id, name }, and rooms then use that account instead of a guest. Locally, OhMyGame's local service stands in with test accounts: any name signs in, and the same name is the same player in every browser. Offer sign-in only when game.auth.available is true.
 
 Every SDK error is an OhMyGameError with a stable code, such as timeout, room_limit, sign_in_required or not_connected. Show error.message to the player and branch on error.code, never on the message text.
 
@@ -241,16 +287,18 @@ Local setup starts a loopback Colyseus backend owned by the running OhMyGame dae
 
 const SDK_WORKSPACE_GUIDE = `# OhMyGame SDK
 
-Start with const game = await init() from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output; Vite does this for files in public/. Show init's error in the page if it fails. A page that never imports ./multiplayer.js carries no multiplayer code.
+Start with const game = await init({ allowLocalhost: true }) from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output; Vite does this for files in public/. Show init's error in the page if it fails. A page that never imports ./multiplayer.js carries no multiplayer code.
 
-Sign-in with an OhMyGame account comes with publishing to OhMyGame: there game.auth.available is true, game.auth.signIn() signs the player in, and game.auth.player is { id, name }. Local previews and local publishing always play as guests: game.auth.available is false and signIn() rejects with code unsupported, so hide sign-in when game.auth.available is false.
+Pass allowLocalhost: true as written: locally the manifest names OhMyGame's local service, and publishing replaces it with OhMyGame's own services, so the same code runs in both.
+
+Players sign in with their OhMyGame account: game.auth.signIn() signs the player in and game.auth.player is { id, name }. In a game published to OhMyGame that is the real account. In local previews, playtests and local publishing, OhMyGame's local service stands in: signIn() opens a local test sign-in page where any name signs in, and the same name is the same test player in every browser, so a second browser can test another device. Offer sign-in only when game.auth.available is true.
 
 Every SDK error is an OhMyGameError with a stable code, such as offline, quota_exceeded, rate_limited or not_configured. Show error.message to the player and branch on error.code, never on the message text.
 `;
 
 const CLOUD_SAVES_GUIDE = `## Saves and leaderboards
 
-game.storage keeps the player's progress. Await game.storage.set(key, value) with plain JSON (at most 64 KB a save, 32 keys a player; keys are letters, digits, dot, dash and underscore), game.storage.get(key), which resolves undefined when nothing is saved, game.storage.remove(key) and game.storage.keys(). Saves always land in this browser first. A game published to OhMyGame also keeps them on OhMyGame's game service (game.storage.cloud is true), so a signed-in player finds them on another device; a save made offline is sent when the browser is back online. In local previews and local publishing, saves stay in the browser and game.storage.cloud is false: the same code works in both, so never branch on it to decide whether to save. Save at natural points such as a finished level, not every frame. When a player who played as a guest signs in, a save the account does not have yet moves into it on the next get. Suggest signing in to keep progress across devices when game.auth.available is true and game.auth.player is undefined.
+game.storage keeps the player's progress. Await game.storage.set(key, value) with plain JSON (at most 64 KB a save, 32 keys a player; keys are letters, digits, dot, dash and underscore), game.storage.get(key), which resolves undefined when nothing is saved, game.storage.remove(key) and game.storage.keys(). Saves always land in this browser first, then on the game service (game.storage.cloud is true), so a signed-in player finds them on another device; a save made offline is sent when the browser is back online. Locally that service is OhMyGame's local one, which keeps saves in memory until OhMyGame quits; a published game uses OhMyGame's game service. Without a game service (game.storage.cloud is false) saves stay in the browser. The same code works everywhere, so never branch on cloud to decide whether to save. Save at natural points such as a finished level, not every frame. When a player who played as a guest signs in, a save the account does not have yet moves into it on the next get. Suggest signing in to keep progress across devices when game.auth.available is true and game.auth.player is undefined.
 
-game.leaderboard works in games published to OhMyGame (game.leaderboard.available is true); elsewhere every call rejects with code not_configured, so hide leaderboards when available is false. Submit once at the end of a run with await game.leaderboard.submit(board, score), which resolves with the player's best { score, rank, public, improved }; pass { order: "asc" } for boards where lower is better, such as times; a board keeps the order of its first score. Show await game.leaderboard.top(board, { limit }) as [{ rank, playerId, name, score }] and await game.leaderboard.me(board) for the player's own rank. Only signed-in players appear on the public board: a guest's score is kept for them, with public false and the rank it would have. A player may submit 10 scores a minute; more reject with rate_limited.
+game.leaderboard works wherever the game has a game service (game.leaderboard.available is true), locally too; otherwise every call rejects with code not_configured, so hide leaderboards when available is false. Locally, http://127.0.0.1:<port>/dev/games/<gameId> on the local service (the manifest's cloud.serverUrl and cloud.gameId) shows every leaderboard entry and who has saves. Submit once at the end of a run with await game.leaderboard.submit(board, score), which resolves with the player's best { score, rank, public, improved }; pass { order: "asc" } for boards where lower is better, such as times; a board keeps the order of its first score. Show await game.leaderboard.top(board, { limit }) as [{ rank, playerId, name, score }] and await game.leaderboard.me(board) for the player's own rank. Only signed-in players appear on the public board: a guest's score is kept for them, with public false and the rank it would have. A player may submit 10 scores a minute; more reject with rate_limited.
 `;

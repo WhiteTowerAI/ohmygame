@@ -29,12 +29,30 @@ export function gameSignInIssuer(environment: NodeJS.ProcessEnv): string | undef
   }
 }
 
+/**
+ * Whether a page belongs to the local test sign-in of OhMyGame's local game service, which
+ * stands in for the account service in local previews and playtests. It runs on this
+ * computer, so it may open and navigate where an outside page may not.
+ */
+export function isLocalSignInPage(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
+      !url.username && !url.password && url.pathname.startsWith("/v1/game-auth/");
+  } catch {
+    return false;
+  }
+}
+
 /** Whether a frame asks for the account service's sign-in page, in the SDK's sign-in window. */
 export function isGameSignInRequest(
   details: { url: string; frameName: string },
   issuer: string | undefined,
 ): boolean {
-  if (!issuer || details.frameName !== GAME_SIGN_IN_WINDOW_NAME) return false;
+  if (details.frameName !== GAME_SIGN_IN_WINDOW_NAME) return false;
+  if (isLocalSignInPage(details.url)) return true;
+  if (!issuer) return false;
   try {
     const url = new URL(details.url);
     const expected = new URL(`${issuer}${AUTHORIZE_PATH}`);
@@ -69,9 +87,19 @@ export function guardGameSignInWindow(child: BrowserWindow): void {
     if (/^https:\/\//i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
+  // Local test sign-in returns over plain HTTP to a game on this computer.
   const secureOnly = (event: { preventDefault(): void }, url: string) => {
-    if (!/^https:\/\//i.test(url)) event.preventDefault();
+    if (!/^https:\/\//i.test(url) && !isLocalPage(url)) event.preventDefault();
   };
   contents.on("will-navigate", secureOnly);
   contents.on("will-redirect", secureOnly);
+}
+
+function isLocalPage(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  } catch {
+    return false;
+  }
 }

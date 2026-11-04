@@ -148,13 +148,18 @@ export class ArtifactBuilder {
         package: async (gameId?: string) => {
           const manifestUpdates = { ...updates };
           if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
+          // The local service's test sign-in and in-memory saves never ship: published games
+          // get OhMyGame's services above, or none.
+          const manifest = sdk ? await readOptionalManifest(built) : {};
+          const local = (["account", "cloud"] as const).filter((key) => !(key in manifestUpdates) && pointsAtThisComputer(manifest[key]));
           let packaged = built;
-          if (Object.keys(manifestUpdates).length) {
+          if (Object.keys(manifestUpdates).length || local.length) {
             packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
             temporaries.push(packaged);
             await cp(built, packaged, { recursive: true });
-            const manifest = await readOptionalManifest(built);
-            await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify({ ...manifest, ...manifestUpdates }, null, 2)}\n`);
+            const published: Record<string, unknown> = { ...(await readOptionalManifest(built)), ...manifestUpdates };
+            for (const key of local) delete published[key];
+            await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify(published, null, 2)}\n`);
           }
           return createZip(packaged, false, cover, maxBytes, false, media);
         },
@@ -171,6 +176,18 @@ export class ArtifactBuilder {
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
+  }
+}
+
+/** Whether a manifest's account or cloud entry names a service on this computer. */
+function pointsAtThisComputer(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const address = value.issuer ?? value.serverUrl;
+  if (typeof address !== "string") return false;
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(address).hostname);
+  } catch {
+    return false;
   }
 }
 
