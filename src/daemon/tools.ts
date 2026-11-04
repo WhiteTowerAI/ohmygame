@@ -246,19 +246,20 @@ export class ToolRunner {
     });
   }
 
-  async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
+  /** `hooksApplied`: the input was prepared before (a retry), so plugins' changes and their records are kept as they are. */
+  async prepare(toolId: string, input: RunToolRequest, projectId?: string, options: { hooksApplied?: boolean } = {}): Promise<RunToolRequest> {
     const started = Date.now();
     try {
-      return await this.#prepare(toolId, input, projectId);
+      return await this.#prepare(toolId, input, projectId, options.hooksApplied);
     } catch (cause) {
       this.#recordGeneration(toolId, () => input, projectId, started, "failed", cause instanceof Error ? cause.message : String(cause));
       throw cause;
     }
   }
 
-  async #prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
+  async #prepare(toolId: string, input: RunToolRequest, projectId?: string, hooksApplied = false): Promise<RunToolRequest> {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
-    if (toolId === "generate-image") {
+    if (toolId === "generate-image" && !hooksApplied) {
       // Only the app records what plugins changed.
       const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
       input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;

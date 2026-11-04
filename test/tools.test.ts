@@ -273,6 +273,11 @@ describe("tool runner", () => {
     await reloaded.load();
     expect(reloaded.get(run.files[0]!.assetId!)).toMatchObject(recorded);
 
+    // A retry brings back the prepared request: plugins don't change it twice, and its record stays.
+    const prepared = await runner.prepare("generate-image", { prompt: "A bird", size: "1024x1024" }, "project-1");
+    const retried = await runner.prepare("generate-image", prepared, "project-1", { hooksApplied: true });
+    expect(retried).toMatchObject({ prompt: "A bird, pixel art", requestedPrompt: "A bird", pluginChanges: changes });
+
     const plain = await runner.run("generate-image", { prompt: "A dog", ...forged } as never);
     expect(plain).not.toHaveProperty("pluginChanges");
     expect(library.get(plain.files[0]!.assetId!)).not.toHaveProperty("requestedPrompt");

@@ -336,3 +336,7 @@ export function accentTokens(
     return { "--omg-accent": wanted, "--omg-on-accent": contrast(brand, WHITE) >= contrast(brand, BLACK) ? "#ffffff" : "#000000" };
   return { "--omg-accent": tokens["--color-accent"] ?? "", "--omg-on-accent": tokens["--color-on-accent"] ?? "" };
 }
+
+/** The changed paths a page hears about: not hidden ones, which pages can't use. */
+export const pageFilePaths = (paths: readonly string[]): string[] =>
+  paths.filter((path) => !path.split("/").some((part) => part.startsWith(".")));

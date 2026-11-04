@@ -7,7 +7,7 @@ import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginPageStorage } from "../src/daemon/plugin-page-storage.js";
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
 import { PAGE_TOKENS } from "../src/renderer/plugin-frame.js";
-import { pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
+import { pageFilePaths, pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -411,6 +411,8 @@ describe("plugin pages", () => {
     expect(pluginUiRefusal("usage.get", { "project.usage": true })).toBeUndefined();
     expect(readPluginUiRequest({ id: 15, method: "history.list", params: { limit: 100 } }).ok).toBe(true);
     expect(readPluginUiRequest({ id: 16, method: "history.list", params: { limit: 101 } }).ok).toBe(false);
+    // Pages don't hear about hidden files, which they can't use.
+    expect(pageFilePaths(["src/main.ts", ".env", ".private/key.txt", "assets/.cache/x.png"])).toEqual(["src/main.ts"]);
     expect(pluginUiRefusal("project.info", {})).toBeUndefined();
     // A frame showing a plugin page stays within that plugin version's files.
     const ui = "http://127.0.0.1:9000";

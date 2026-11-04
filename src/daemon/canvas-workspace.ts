@@ -480,7 +480,8 @@ export class CanvasStore {
       const running = nodeJobs.find((job) => job.status === "running");
       if (running && reuse) return { reused: "running" as const, job: running };
       if (running) throw new CanvasError("This node is already generating", 409);
-      const resolved = await this.tools.prepare(toolId, input, id);
+      // Only a retry passes a recovery id; its input was prepared, and plugins changed it, the first time.
+      const resolved = await this.tools.prepare(toolId, input, id, { hooksApplied: recoveryId !== undefined });
       const inputRevision = revision(resolved), latest = nodeJobs.find((job) => job.status !== "cancelled");
       const currentAssetId = (node.data as { assetId?: string }).assetId;
       if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && currentAssetId && latest.run?.files[0]?.assetId === currentAssetId) return { reused: "output" as const, job: latest };

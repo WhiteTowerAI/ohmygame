@@ -5,6 +5,7 @@ import {
   PLUGIN_ACCENT_MIN_CONTRAST,
   PLUGIN_UI_HANDSHAKE,
   PLUGIN_UI_PROTOCOL_VERSION,
+  pageFilePaths,
   pluginUiRefusal,
   readPluginUiRequest,
   type PluginAccent,
@@ -372,7 +373,9 @@ export function PluginFrame({
   useEffect(() => {
     if (heardChange.current === fileChange || !fileChange) return;
     heardChange.current = fileChange;
-    if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files", paths: fileChange.paths, ...(fileChange.truncated ? { truncated: true } : {}) });
+    if (!latest.current.capabilities["project.files"]) return;
+    const paths = pageFilePaths(fileChange.paths);
+    if (paths.length || fileChange.truncated) connection.current?.send({ event: "files", paths, ...(fileChange.truncated ? { truncated: true } : {}) });
   }, [fileChange]);
 
   useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
