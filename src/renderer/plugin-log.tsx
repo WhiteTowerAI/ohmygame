@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PluginLogEntry, PluginLogView } from "../shared/plugins.js";
 import { readPluginLog, setStorePluginEnabled } from "./api.js";
 import { t } from "./i18n.js";
 import { Alert, Button, Dialog, Skeleton } from "./ui/index.js";
+import "./plugin-log.css";
 
 // A plugin's log since the app started: what its code printed, and what of
 // it failed. The daemon redacts credentials before any of it gets here, so
@@ -19,6 +20,7 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const lines = useRef<HTMLPreElement>(null);
   const load = () => readPluginLog(plugin).then(setView, (cause: unknown) => setError(message(cause)));
   useEffect(() => { void load(); }, [plugin]);
 
@@ -38,6 +40,8 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
   }
 
   const text = view?.entries.map(logLine).join("\n") ?? "";
+  // The newest lines, which say what just went wrong, are the ones in view.
+  useEffect(() => { if (lines.current) lines.current.scrollTop = lines.current.scrollHeight; }, [text]);
   return <Dialog open size="lg" title={t("pluginLog.title", { name: displayName })} onClose={onClose}
     footer={<>
       <Button variant="ghost" disabled={busy} onClick={() => void switchTo(false)}>{t("pluginLog.turnOff")}</Button>
@@ -53,9 +57,9 @@ export function PluginLogDialog({ plugin, displayName, onClose, onChanged }: {
       }>{t("pluginLog.quarantinedHint")}</Alert> : null}
       {!view && !error ? <Skeleton height={120} /> : null}
       {view ? view.entries.length
-        ? <pre className="plugin-log-lines" aria-label={t("pluginLog.title", { name: displayName })}>{text}</pre>
-        : <p className="plugins-note">{t("pluginLog.empty")}</p> : null}
-      <p className="plugins-note">{t("pluginLog.redacted")}</p>
+        ? <pre ref={lines} className="plugin-log-lines" aria-label={t("pluginLog.title", { name: displayName })}>{text}</pre>
+        : <p className="plugin-log-note">{t("pluginLog.empty")}</p> : null}
+      <p className="plugin-log-note">{t("pluginLog.redacted")}</p>
     </div>
   </Dialog>;
 }

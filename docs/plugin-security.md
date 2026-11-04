@@ -82,8 +82,9 @@ a plugin's last version forgets what was allowed.
 - A plugin's log (`src/daemon/plugin-logs.ts`) is kept in memory and goes
   through `redactCredentials` before the app shows or copies it: the plugin's
   saved secrets, bearer and basic tokens, `token=`-style values, URL passwords,
-  and common key formats become `[redacted]`. It can't know every format, so
-  it is a safety net, not a promise.
+  and common key formats become `[redacted]`. A failed tool's or command's
+  error loses the plugin's saved secrets before it reaches a toast, a page or
+  an agent. It can't know every format, so it is a safety net, not a promise.
 
 ## When something goes wrong
 

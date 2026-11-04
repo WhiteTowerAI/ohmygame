@@ -222,10 +222,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
 
   return <section className="plugins-page">
-    {safeMode ? <Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
+    {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
       ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
       {t("pluginSafeMode.hint")}
-    </Alert> : null}
+    </Alert></div> : null}
     {pluginId ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>

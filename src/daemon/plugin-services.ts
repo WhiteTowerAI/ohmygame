@@ -27,7 +27,7 @@ import {
   type PluginPackageResult,
 } from "./plugin-index.js";
 import { PluginValues } from "./plugin-values.js";
-import { PluginLogs } from "./plugin-logs.js";
+import { PluginLogs, redactCredentials } from "./plugin-logs.js";
 import {
   capabilityGrants,
   missingGrants,
@@ -949,7 +949,7 @@ export class PluginServices {
     if (!Check(input, options.input ?? {})) throw new PluginToolSchemaError(id, "input", input, options.input ?? {});
     // A session made before a version change must not run the new code with
     // this version's schemas.
-    const value = await this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version });
+    const value = await this.#redacting(entry.id, this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version }));
     const output = tool.output ? this.#schema(entry, tool.output) : undefined;
     if (output && !Check(output, value)) throw new PluginToolSchemaError(id, "output", output, value);
     return value;
@@ -971,12 +971,22 @@ export class PluginServices {
     if (!("native" in run)) throw new PluginCommandInputError(`${id} runs in the app`);
     if (!run.input) {
       if (options.input !== undefined) throw new PluginCommandInputError(`${id} takes no input`);
-      return this.native.runCommand(id, { ...options, version: entry.version });
+      return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version }));
     }
     const schema = this.#schema(entry, run.input);
     const input = options.input ?? {};
     if (!Check(schema, input)) throw new PluginToolSchemaError(id, "input", schema, input);
-    return this.native.runCommand(id, { ...options, version: entry.version, input });
+    return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version, input }));
+  }
+
+  /** A plugin's error reaches a toast, a page or an agent as its log does, with its secrets taken out. */
+  async #redacting<T>(plugin: string, call: Promise<T>): Promise<T> {
+    try {
+      return await call;
+    } catch (cause) {
+      if (cause instanceof Error) cause.message = redactCredentials(cause.message, this.values.secrets(plugin));
+      throw cause;
+    }
   }
 
   /** A tool whose schema can't be read still shows, and says why it can't run. */

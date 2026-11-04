@@ -115,7 +115,9 @@ its code runs with the person's own access (`NativeCodeWarning`).
   the app posts to `POST /plugin-store/:publisher/:name/log`. `GET` on the
   same route returns it with the plugin's saved secrets, and what looks like
   a key, token or URL password, replaced by `[redacted]`, so what the app
-  shows or copies has been through that. A failed command's toast and a
+  shows or copies has been through that. A failed tool's or command's error
+  loses the plugin's saved secrets the same way before it reaches a toast, a
+  page or an agent (`PluginServices.callTool`, `runCommand`). A failed command's toast and a
   panel's first error offer **View log**; the log has **Turn off** and
   **Copy log**.
 - **Quarantine.** A plugin blamed for three host crashes or hangs within

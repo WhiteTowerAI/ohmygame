@@ -1459,6 +1459,7 @@ describe("plugin settings and commands", () => {
       path.join(dir, "index.mjs"),
       `export function activate(context) {
         context.registerTool("settings", (_input, call) => call.configuration);
+        context.registerTool("leak", () => { throw new Error("The service refused s3cret"); });
       }`,
     );
     await writeFile(
@@ -1477,7 +1478,10 @@ describe("plugin settings and commands", () => {
           token: { type: "secret", title: "Token" },
         },
         contributes: {
-          tools: [{ name: "settings", description: "Echoes settings.", input: "./tools/empty.json" }],
+          tools: [
+            { name: "settings", description: "Echoes settings.", input: "./tools/empty.json" },
+            { name: "leak", description: "Fails with the token.", input: "./tools/empty.json" },
+          ],
           commands: [
             { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
@@ -1499,6 +1503,8 @@ describe("plugin settings and commands", () => {
       await services.configure("acme/keys", { engine: "/opt/engine", token: "s3cret" });
       // Without `capabilities.secrets`, native code never sees the token.
       expect(await call()).toEqual({ engine: "/opt/engine", mode: "safe" });
+      // Its errors reach a toast, a page or an agent with saved secrets taken out, as its log does.
+      await expect(services.callTool(services.index.get("acme/keys")!, "leak", { folder })).rejects.toThrow("The service refused [redacted]");
       expect(services.values.view(services.index.get("acme/keys")!)).toEqual({
         engine: { type: "path", value: "/opt/engine" },
         mode: { type: "select", value: "safe" },

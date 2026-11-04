@@ -13,6 +13,19 @@
   padding-bottom: 0;
 }
 
+/* Safe mode's notice comes first, with the page's top space above it instead of below. */
+.plugins-safe-mode {
+  margin-top: var(--space-6);
+}
+
+.plugins-safe-mode + .sidebar-page-header {
+  padding-top: 0;
+}
+
+.plugins-safe-mode + .plugins-back {
+  margin-top: 0;
+}
+
 .plugins-toolbar {
   display: flex;
   min-width: 0;
@@ -518,30 +531,6 @@
   gap: var(--space-2);
 }
 
-/* A plugin's log (plugin-log.tsx). */
-.plugin-log {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.plugin-log p {
-  margin: 0;
-}
-
-.plugin-log-lines {
-  max-height: 360px;
-  margin: 0;
-  padding: var(--space-3);
-  overflow: auto;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 /* What uninstalling removes and leaves (plugin-store.tsx). */
 .plugin-uninstall {
   display: grid;
@@ -554,7 +543,7 @@
 }
 
 .plugin-uninstall ul {
-  padding-left: var(--space-5);
+  padding-left: var(--space-6);
 }
 
 .plugin-store-capabilities {
