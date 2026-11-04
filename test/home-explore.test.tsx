@@ -53,7 +53,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("shows two rows of examples in Explore, so an example past the first row is there too", async () => {
+it("shows two rows of examples in Explore, above Asset templates, so an example past the first row is there too", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -65,6 +65,9 @@ it("shows two rows of examples in Explore, so an example past the first row is t
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
+  // Asset templates come after Explore.
+  const headings = [...container.querySelectorAll(".home-section-head h2")].map((heading) => heading.textContent);
+  expect(headings.indexOf("Asset templates")).toBeGreaterThan(headings.indexOf("Explore"));
 });
 
 it("creates the project from the prompt at once, and opens the new-project dialog from Blank project", async () => {

@@ -2199,7 +2199,7 @@ select.settings-search-input {
 .asset-template-guide-content { padding-bottom: 12px; }
 .story-text-node.asset-template-guide-node { width: 100%; height: auto; }
 .asset-template-guide-node .story-text-output { display: flex; flex-direction: column; }
-.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; white-space: pre-line; }
 .pixel-template-guide-uses { display: grid; gap: 10px; margin: 12px 15px 4px; font-size: 12px; line-height: 1.5; }
 .pixel-template-guide-uses > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
 .pixel-template-guide-uses dt { font-weight: 600; color: var(--text); }

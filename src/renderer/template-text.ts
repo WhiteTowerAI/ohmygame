@@ -2,13 +2,15 @@ import en from "./locales/en.js";
 import zhCN from "./locales/zh-CN.js";
 import i18next from "i18next";
 import { t } from "./i18n.js";
+import { LEGACY_TEMPLATE_TEXT } from "./template-text-legacy.js";
 
 /**
  * Creation templates save node titles, group names and guide text as plain
  * text in the language they were made in, so files stay readable without the
  * app. These sections hold that text; the editor shows it in the current
  * language instead. Text a person wrote, or edited, matches nothing here and
- * shows as saved.
+ * shows as saved. Wording from earlier versions maps to the strings that
+ * replaced it.
  */
 const TEMPLATE_SECTIONS = [
   "assetCanvasTemplates",
@@ -41,7 +43,7 @@ function section(resources: unknown, path: string): unknown {
 function collect(
   value: unknown,
   key: string,
-  into: Array<[string, string]>,
+  into: Array<readonly [string, string]>,
 ): void {
   if (typeof value === "string") into.push([key, value]);
   else if (value && typeof value === "object")
@@ -53,28 +55,28 @@ function templateIndex() {
   if (index) return index;
   const exact = new Map<string, Set<string>>();
   const patterns: Pattern[] = [];
-  for (const resources of [en, zhCN]) {
-    const entries: Array<[string, string]> = [];
+  const entries: Array<readonly [string, string]> = [];
+  for (const resources of [en, zhCN])
     for (const path of TEMPLATE_SECTIONS)
       collect(section(resources, path), path, entries);
-    for (const [key, text] of entries) {
-      if (!text.trim()) continue;
-      const names = [...text.matchAll(PLACEHOLDER)].map((match) => match[1]!);
-      if (!names.length) {
-        const keys = exact.get(text) ?? new Set<string>();
-        keys.add(key);
-        exact.set(text, keys);
-        continue;
-      }
-      if (text.includes("\n")) continue;
-      const source = text
-        .split(PLACEHOLDER)
-        .map((piece, position) =>
-          position % 2 ? "(.+?)" : piece.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        )
-        .join("");
-      patterns.push({ key, names, expression: new RegExp(`^${source}$`) });
+  entries.push(...LEGACY_TEMPLATE_TEXT);
+  for (const [key, text] of entries) {
+    if (!text.trim()) continue;
+    const names = [...text.matchAll(PLACEHOLDER)].map((match) => match[1]!);
+    if (!names.length) {
+      const keys = exact.get(text) ?? new Set<string>();
+      keys.add(key);
+      exact.set(text, keys);
+      continue;
     }
+    if (text.includes("\n")) continue;
+    const source = text
+      .split(PLACEHOLDER)
+      .map((piece, position) =>
+        position % 2 ? "(.+?)" : piece.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      )
+      .join("");
+    patterns.push({ key, names, expression: new RegExp(`^${source}$`) });
   }
   index = { exact, patterns };
   return index;

@@ -11,8 +11,9 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-New Asset Canvas boards start empty. Home's Creative templates picker groups
-character, creature, animation, scene, terrain, object, and skin presets.
+New Asset Canvas boards start empty. Home's Asset templates section, below
+Explore, groups character, creature, animation, scene, terrain, object, and skin
+presets.
 Choosing a template first asks for one pixel density (the last choice is
 remembered), then creates a new canvas with one group for that density, filled
 with the category's generators or workflow. Character outfits &

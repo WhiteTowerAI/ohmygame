@@ -26,13 +26,13 @@ it.each(["en", "zh-CN"])("explains every output in all six template canvases in 
   for (const category of PIXEL_ASSET_TEMPLATE_CATEGORIES) {
     await act(async () => root.render(<PixelAssetTemplateGuide category={category} />));
     expect(container.querySelectorAll("dt")).toHaveLength(pixelAssetTemplatePresetIds(category).length);
-    expect([...container.querySelectorAll("dd")].every((entry) => entry.textContent!.length > 20)).toBe(true);
+    expect([...container.querySelectorAll("dd")].every((entry) => entry.textContent!.length > 8)).toBe(true);
     expect(container.textContent).not.toContain("assetCanvas.");
-    if (category === "characters") expect(container.textContent).toContain(language === "en" ? "dialogue" : "剧情对话");
+    if (category === "characters") expect(container.textContent).toContain(language === "en" ? "Dialogue" : "剧情对话");
     if (category === "animation") {
-      expect(container.textContent).toContain(language === "en" ? "12-frame static sheet" : "12 帧静态图集");
-      expect(container.textContent).toContain(language === "en" ? "not consecutive animation frames" : "不是连续动作帧");
+      expect(container.textContent).toContain(language === "en" ? "Every action below uses it" : "下面每个动作都会参考它");
+      expect(container.textContent).toContain(language === "en" ? "not animation frames" : "不是连续动作帧");
     }
-    if (category === "skins") expect(container.textContent).toContain(language === "en" ? "does not generate a full animation set" : "不直接生成整套动作动画");
+    if (category === "skins") expect(container.textContent).toContain(language === "en" ? "not an animation set" : "不生成整套动作动画");
   }
 });

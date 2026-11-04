@@ -4,6 +4,23 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.4] - 2026-11-04
+
+### Changed
+
+- Rename the home page's creative templates to asset templates, move them
+  below Explore, and give each card a short description of what it makes.
+  ([#685](https://github.com/WhiteTowerAI/ohmygame/pull/685) by @dihuangdh)
+- Rewrite the pixel-art and effect template guides to start with how to begin,
+  with shorter step lists and where each result fits in a game.
+  ([#686](https://github.com/WhiteTowerAI/ohmygame/pull/686) by @dihuangdh)
+
+### Fixed
+
+- Stop showing "The background service is unavailable" when macOS reopens the
+  app, such as after an update, before its background service has started.
+  ([#690](https://github.com/WhiteTowerAI/ohmygame/pull/690) by @xinyang6879)
+
 ## [0.0.0-beta.5.3] - 2026-11-04
 
 ### Added
