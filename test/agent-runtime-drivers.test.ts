@@ -2978,7 +2978,8 @@ describe("ACP adapter", () => {
     );
     // This process staged the Skills in its own folder, so the continued session hears where.
     expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
-      path.join(resumed.privateDirectory, "skills", path.basename(skill), "SKILL.md"),
+      // As JSON writes it, with Windows backslashes escaped.
+      JSON.stringify(path.join(resumed.privateDirectory, "skills", path.basename(skill), "SKILL.md")).slice(1, -1),
     );
 
     acpAgent({ loadSession: false });
