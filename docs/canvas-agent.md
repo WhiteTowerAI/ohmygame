@@ -131,6 +131,17 @@ their saved outputs must be synchronized before dependent nodes can start.
 Failed or cancelled nodes cause their dependents to be skipped; independent nodes
 still run. Circular generation references prevent the batch from starting.
 Text nodes use their own selected model, falling back to the default text model.
+Each canvas job records `upstream`, what every node it read gave when it
+started (`asset:<id>`, or a hash of the text). A node whose last finished run
+read something that has changed since, and every node after it that made
+something, shows **Out of date**; clicking that, or **Regenerate from here** in
+the node's menu, runs the node and the nodes after it one at a time in the
+daemon (`POST …/boards/:boardId/nodes/:nodeId/regenerate`, 202 with the planned
+node ids). The first node runs again; the rest reuse their output when nothing
+they read changed. A failure stops the chain before what reads it. On an image
+with something after it that runs, **Run with several images…** picks 2 to 10
+PNG, JPEG or WebP Library images and copies the chain once per image, each in
+its own group below the original named after the image, then runs every copy.
 Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
 it, and drag the heading to move its entire tree. The empty frame interior
 allows marquee selection of its children. Dropping a node with its center

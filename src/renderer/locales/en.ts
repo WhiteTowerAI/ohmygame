@@ -3214,6 +3214,12 @@ const en = {
       plugins: "Plugins",
       presets: "Presets",
     },
+    stale: "Out of date",
+    staleHint: "What this node reads has changed since it ran. Run it and the nodes after it again.",
+    regenerateFrom: "Regenerate from here",
+    batchRun: "Run with several images…",
+    batchTitle: "Pick 2 to 10 images to run this chain with",
+    batchAction: "Run {{count}} copies",
     plugin: {
       off: "This node's plugin is off or removed. Turn it on in Plugins to run it.",
       run: "Run",
@@ -3760,6 +3766,7 @@ const en = {
     noMatch: "No assets match your search",
     empty: "No assets in Library",
     projectCount: "{{count}} projects",
+    pickedCount: "{{count}} of {{max}} picked",
     uploadTypes: "Upload a PNG, JPEG, WebP, MP4, MOV, WebM, MP3, or WAV file.",
   },
   playtest: {

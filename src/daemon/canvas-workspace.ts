@@ -1,4 +1,5 @@
 import { Compile } from "typebox/schema";
+import { canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
 import { audioSettings } from "../shared/audio.js";
 import { CANVAS_TABLE_SCHEMA, createCanvasTable, isCanvasTable, canvasTablePath, type CanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
@@ -320,6 +321,14 @@ export interface CanvasPluginRunner {
 const publicJob = ({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
 export type CanvasGenerationReuse = "running" | "output";
+/** The nodes the daemon runs, and the tool each runs as. */
+const NODE_TOOLS = { image: "generate-image", video: "generate-video", "model-3d": "image-to-3d", "animate-3d": "animate-3d", speech: "generate-speech", "sound-effect": "generate-sound-effect", music: "generate-music", "audio-scene": "generate-audio", plugin: "plugin-node" } as const satisfies Partial<Record<AssetCanvasNode["type"], ToolJob["toolId"]>>;
+/** What a run of a node reads from the board: its own data and what each of its sources gives. */
+function nodeReads(board: CanvasBoard, nodeId: string): string | undefined {
+  const node = board.nodes.find((candidate) => candidate.id === nodeId);
+  return node && JSON.stringify([node.type, node.data, canvasUpstreamKeys(board.nodes, node)]);
+}
+
 export class CanvasStore {
   readonly #executions = new Map<string, Set<Promise<void>>>();
 
@@ -484,12 +493,14 @@ export class CanvasStore {
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
   async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(publicJob)); }
-  async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedRevision?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
+  async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
+    const read = await this.board(id, boardId), reading = read.board.nodes.find((node) => node.id === nodeId);
+    const upstream = reading ? await this.#upstream(id, read.board, reading) : {};
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
       const detail = await this.board(id, boardId);
-      if (expectedRevision && detail.revision !== expectedRevision) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
+      if (expectedReads && nodeReads(detail.board, nodeId) !== expectedReads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const node = detail.board.nodes.find((node) => node.id === nodeId);
       const expectedNodeType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music", "generate-audio": "audio-scene" } as Partial<Record<ToolId, string>>)[toolId];
       if (!node || !expectedNodeType || expectedNodeType !== node.type) throw new CanvasError("Generation node not found", 404);
@@ -507,7 +518,7 @@ export class CanvasStore {
       if (toolId === "generate-video" && "references" in prepared) for (const reference of prepared.references ?? []) reference.assetId = await canvasLibraryAsset(this.#project(id), this.library, reference.assetId);
       if (toolId === "animate-3d" && "assetId" in prepared) prepared.assetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.assetId);
       if (toolId === "image-to-3d" && "sourceAssetId" in prepared && prepared.sourceAssetId) prepared.sourceAssetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.sourceAssetId);
-      const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "text" in input ? (input.text.trim().slice(0, 200) || "Speech") : "Model 3D", context: { projectId: id, boardId, nodeId }, ...(model ? { model } : {}), input: structuredClone(resolved) };
+      const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "text" in input ? (input.text.trim().slice(0, 200) || "Speech") : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: structuredClone(resolved) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job, prepared };
     });
@@ -519,9 +530,11 @@ export class CanvasStore {
   }
   /** With `reuse`, an agent request follows a run already in progress, or returns the node's current output when it came from identical settings, instead of paying for another generation. */
   async generateNode(id: string, boardId: string, nodeId: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
-    const project = this.#project(id), { board, revision } = await this.board(id, boardId);
+    const project = this.#project(id), { board } = await this.board(id, boardId);
     const node = board.nodes.find((node) => node.id === nodeId);
     if (node?.type === "plugin") return this.#startPlugin(id, boardId, nodeId, reuse);
+    // The request is built from this read; edits elsewhere on the board, such as another node's output, don't stop it.
+    const revision = nodeReads(board, nodeId);
     if (!node || !["image", "video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene"].includes(node.type)) throw new CanvasError("Choose a media generation node");
     const manifest = await readCanvasAssets(project.workspacePath);
     const assetId = (reference: Parameters<typeof resolveAssetCanvasAssetId>[1]): string => {
@@ -625,6 +638,57 @@ export class CanvasStore {
     catch (cause) { throw new CanvasError(cause instanceof Error ? cause.message : String(cause)); }
     return this.start(id, boardId, nodeId, "generate-video", { prompt: resolvedPrompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references, ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}) }, revision, undefined, reuse);
   }
+  /**
+   * Runs a node again, then each node after it that makes something, in
+   * order. Those after it keep their output when what they read didn't
+   * change. The first failure stops the rest; one that can't start is
+   * recorded as a failed run on its node. Starting from a node that makes
+   * nothing, such as a Library image, runs only what comes after it.
+   */
+  async regenerateFrom(id: string, boardId: string, nodeId: string): Promise<{ nodes: string[]; job: ToolJob & { reused?: CanvasGenerationReuse } }> {
+    const { board } = await this.board(id, boardId);
+    const start = board.nodes.find((node) => node.id === nodeId);
+    if (!start) throw new CanvasError("Node not found", 404);
+    const plan = [start, ...canvasDownstream(board.nodes, nodeId)].filter((node) => Object.hasOwn(NODE_TOOLS, node.type) && !(node.type === "image" && node.data.sourceInput));
+    if (!plan.length) throw new CanvasError("Nothing here or after it makes anything");
+    // The first node that makes something always runs again; the rest reuse what nothing upstream changed.
+    const first = await this.generateNode(id, boardId, plan[0]!.id, false);
+    const rest = async () => {
+      let job: ToolJob = first;
+      for (const node of plan.slice(1)) {
+        if ((await this.#settled(id, job.id))?.status !== "succeeded" || this.#closed) return;
+        try { job = await this.generateNode(id, boardId, node.id, true); }
+        catch (cause) { await this.#failed(id, boardId, node, cause instanceof Error ? cause.message : String(cause)); return; }
+      }
+    };
+    this.#track(id, rest());
+    return { nodes: plan.map((node) => node.id), job: first };
+  }
+  /** A job once it has finished, or nothing if it is gone or the store closes first. */
+  async #settled(id: string, jobId: string): Promise<ToolJob | undefined> {
+    for (;;) {
+      const job = (await this.#loadJobs(id)).find((candidate) => candidate.id === jobId);
+      if (!job || job.status !== "running") return job;
+      if (this.#closed) return undefined;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  /** Records a run that couldn't start, so its node shows why. */
+  async #failed(id: string, boardId: string, node: AssetCanvasNode, error: string): Promise<void> {
+    await withCanvasLock(this.#project(id).workspacePath, async () => {
+      const jobs = await this.#loadJobs(id);
+      const job: StoredJob = { id: randomUUID(), toolId: NODE_TOOLS[node.type as keyof typeof NODE_TOOLS], createdAt: new Date().toISOString(), status: "failed", error, title: (node.title?.trim() || node.type).slice(0, 200), context: { projectId: id, boardId, nodeId: node.id } };
+      this.#jobs.set(id, [job, ...jobs.filter((candidate) => candidate.status === "running"), ...jobs.filter((candidate) => candidate.status !== "running").slice(0, 80)]);
+      await this.#saveJobs(id);
+    }).catch(() => undefined);
+  }
+  /** What each of a node's sources gives now, to tell later whether its output is out of date. */
+  async #upstream(id: string, board: CanvasBoard, node: AssetCanvasNode): Promise<Record<string, string>> {
+    const markdown = new Map<string, string>();
+    for (const source of board.nodes) if (source.type === "document" && canvasNodeSourceIds(node).includes(source.id) && !markdown.has(source.data.documentId))
+      markdown.set(source.data.documentId, (await this.read(id, source.data.documentId))?.document.markdown ?? "");
+    return canvasUpstreamKeys(board.nodes, node, (documentId) => markdown.get(documentId));
+  }
   /** What a plugin node's code gets, and what identifies it for reuse: asset ids and text, not paths. */
   async #pluginInputs(id: string, board: CanvasBoard, node: Extract<AssetCanvasNode, { type: "plugin" }>) {
     const project = this.#project(id), manifest = await readCanvasAssets(project.workspacePath);
@@ -652,16 +716,18 @@ export class CanvasStore {
   async #startPlugin(id: string, boardId: string, nodeId: string, reuse: boolean): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     if (!this.plugins) throw new CanvasError("Plugin nodes can't run here", 409);
     const project = this.#project(id), workspace = project.workspacePath;
-    const { board, revision: boardRevision } = await this.board(id, boardId);
+    const { board } = await this.board(id, boardId);
     const node = board.nodes.find((candidate) => candidate.id === nodeId);
     if (node?.type !== "plugin") throw new CanvasError("Generation node not found", 404);
+    const reads = nodeReads(board, nodeId);
     const { inputs, signature } = await this.#pluginInputs(id, board, node);
+    const upstream = await this.#upstream(id, board, node);
     const request: CanvasPluginRequest = { node: node.data.node, params: node.data.params, inputs };
     const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature });
     const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
-      if ((await this.board(id, boardId)).revision !== boardRevision) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
+      if (nodeReads((await this.board(id, boardId)).board, nodeId) !== reads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const jobs = await this.#loadJobs(id);
       const nodeJobs = jobs.filter((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId);
       const running = nodeJobs.find((job) => job.status === "running");
@@ -670,7 +736,7 @@ export class CanvasStore {
       const latest = nodeJobs.find((job) => job.status !== "cancelled");
       if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && output && latest.pluginOutput === output) return { reused: "output" as const, job: latest };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
-      const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId: "plugin-node", createdAt: new Date().toISOString(), status: "running", title: (node.title?.trim() || node.data.node).slice(0, 200), context: { projectId: id, boardId, nodeId } };
+      const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId: "plugin-node", createdAt: new Date().toISOString(), status: "running", title: (node.title?.trim() || node.data.node).slice(0, 200), context: { projectId: id, boardId, nodeId }, upstream };
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job };
     });
     if ("reused" in started) return { ...publicJob(started.job), reused: started.reused };

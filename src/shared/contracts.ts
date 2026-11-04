@@ -1345,6 +1345,8 @@ export interface ToolJob {
   context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
+  /** A canvas run: what each source node gave when it started, by node id (see `canvas-chains.ts`). */
+  upstream?: Record<string, string>;
 }
 
 export type ToolArtifact =

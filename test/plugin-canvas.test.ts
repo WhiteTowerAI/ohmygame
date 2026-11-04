@@ -8,7 +8,9 @@ import type { AssetCanvasNode, ProjectState, ToolJob } from "../src/shared/contr
 import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
 import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
+import { canvasBatchCopies, duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
+import { staleCanvasNodes } from "../src/shared/canvas-chains.js";
+import { canvasNodeLayout } from "../src/shared/canvas-node-layout.js";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
 afterEach(async () => {
@@ -120,7 +122,7 @@ async function setup() {
   };
   const plugin = (id: string, node: string, params: Record<string, string | number | boolean>, inputs: Record<string, Array<{ type: "node"; nodeId: string }>>): AssetCanvasNode =>
     ({ id, type: "plugin", position: { x: 300, y: 0 }, data: { node, params, inputs } });
-  return { app, project, run, plugin };
+  return { app, project, run, plugin, boardUrl, base, image };
 }
 
 describe("plugin canvas nodes", () => {
@@ -195,5 +197,92 @@ describe("plugin canvas nodes", () => {
     ["nothing", { nodes: [] }, "needs at least one node"],
   ])("refuses a preset with %s", (_name, value, message) => {
     expect(canvasPresetIssue(value)).toContain(message);
+  });
+
+  it("records what each run read, marks what changed upstream, and regenerates a chain in order", async () => {
+    const { app, plugin, boardUrl, base, image } = await setup();
+    const hero = { source: [{ type: "node" as const, nodeId: "hero" }] };
+    const copy = plugin("copy", "acme/frames:copy", {}, hero);
+    const describe = plugin("describe", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "copy" }] });
+    const saved = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
+    saved.board.nodes = [image, copy, describe];
+    saved.board.editorLayout.nodes = Object.fromEntries(saved.board.nodes.map((node) => [node.id, node.position]));
+    expect((await app.inject({ method: "PUT", url: boardUrl, payload: saved })).statusCode).toBe(200);
+    const jobs = async () => (await app.inject({ method: "GET", url: `${base}/jobs` })).json<ToolJob[]>();
+    const board = async () => (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
+    const latest = (all: ToolJob[]) => Object.fromEntries([...all].reverse().map((job) => [job.context!.nodeId, job.upstream]));
+    // A chain starts each node after the one before finishes, so wait for its last run.
+    const settle = (count: number) => expect.poll(async () => { const all = await jobs(); return all.length >= count && !all.some((job) => job.status === "running"); }, { timeout: 10_000 }).toBe(true);
+
+    // Start from the image: copy, then describe, each after what it reads.
+    const started = await app.inject({ method: "POST", url: `${boardUrl}/nodes/hero/regenerate` });
+    expect(started.statusCode, started.body).toBe(202);
+    expect(started.json<{ nodes: string[] }>().nodes).toEqual(["copy", "describe"]);
+    await settle(2);
+    let current = (await board()).board;
+    const copied = current.nodes.find((node) => node.id === "copy")!.data as { assetId?: string };
+    expect(latest(await jobs())).toMatchObject({ copy: { hero: `asset:${image.data.assetId}` }, describe: { copy: `asset:${copied.assetId}` } });
+    expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set());
+
+    // A new picture upstream leaves both out of date, until the chain runs again from the copy.
+    const other = await app.inject({ method: "POST", url: "/library/assets", payload: { name: "villain", purpose: "reference", image: { data: PNG, mediaType: "image/png" } } });
+    const detail = await board();
+    detail.board.nodes = detail.board.nodes.map((node) => node.id === "hero" ? { ...node, data: { ...node.data, assetId: other.json<{ id: string }>().id } } as AssetCanvasNode : node);
+    expect((await app.inject({ method: "PUT", url: boardUrl, payload: detail })).statusCode).toBe(200);
+    current = (await board()).board;
+    expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set(["copy", "describe"]));
+    expect((await app.inject({ method: "POST", url: `${boardUrl}/nodes/copy/regenerate` })).statusCode).toBe(202);
+    await settle(4);
+    current = (await board()).board;
+    expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set());
+
+    // From the image with nothing changed, the copy still runs again rather than handing back its output.
+    const again = (await app.inject({ method: "POST", url: `${boardUrl}/nodes/hero/regenerate` })).json<{ job: ToolJob & { reused?: string } }>().job;
+    expect(again).toMatchObject({ context: { nodeId: "copy" } });
+    expect(again.reused).toBeUndefined();
+    await settle(5);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const count = (await jobs()).length;
+
+    // A failure stops the chain before what reads it.
+    const broken = await board();
+    broken.board.nodes = broken.board.nodes.map((node) => node.id === "copy" ? { ...node, data: { ...node.data, params: { escape: true } } } as AssetCanvasNode : node);
+    expect((await app.inject({ method: "PUT", url: boardUrl, payload: broken })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `${boardUrl}/nodes/copy/regenerate` })).statusCode).toBe(202);
+    await settle(count + 1);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const after = await jobs();
+    expect(after[0]).toMatchObject({ status: "failed", context: { nodeId: "copy" } });
+    expect(after.length).toBe(count + 1);
+  });
+
+  it("copies a chain once per picked image, each in its own group, and runs every copy", async () => {
+    const { app, plugin, boardUrl, base, image } = await setup();
+    const copy = plugin("copy", "acme/frames:copy", {}, { source: [{ type: "node", nodeId: "hero" }] });
+    const describe = plugin("describe", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "copy" }] });
+    const pictures = await Promise.all(["villain", "squire"].map(async (name) => (await app.inject({ method: "POST", url: "/library/assets", payload: { name, purpose: "reference", image: { data: PNG, mediaType: "image/png" } } })).json<{ id: string; name: string }>()));
+    let id = 0;
+    const { nodes: copies, starts } = canvasBatchCopies([image, copy, describe], "hero", pictures.map((picture) => ({ assetId: picture.id, name: picture.name })), (name) => name, () => `b${++id}`);
+    expect(starts).toEqual(["b1", "b5"]);
+    const groups = copies.filter((node) => node.type === "group");
+    expect(groups.map((node) => node.data)).toEqual([{ name: "villain.png" }, { name: "squire.png" }]);
+    expect(groups[1]!.position.y).toBeGreaterThan(groups[0]!.position.y);
+    // b1–b3 are the first copy: its image, then copy and describe reading it, without the original's output.
+    expect(copies.find((node) => node.id === "b1")).toMatchObject({ type: "asset", parentId: "b4", data: { assetId: pictures[0]!.id, mediaType: "image" } });
+    expect(copies.find((node) => node.id === "b3")!.data).toMatchObject({ inputs: { source: [{ type: "node", nodeId: "b2" }] } });
+
+    const saved = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
+    saved.board.nodes = [image, copy, describe, ...copies];
+    saved.board.editorLayout.nodes = Object.fromEntries(saved.board.nodes.map((node) => [node.id, canvasNodeLayout(node)]));
+    const put = await app.inject({ method: "PUT", url: boardUrl, payload: saved });
+    expect(put.statusCode, put.body).toBe(200);
+    for (const start of starts) expect((await app.inject({ method: "POST", url: `${boardUrl}/nodes/${start}/regenerate` })).statusCode).toBe(202);
+    const jobs = async () => (await app.inject({ method: "GET", url: `${base}/jobs` })).json<ToolJob[]>();
+    await expect.poll(async () => (await jobs()).map((job) => `${job.context!.nodeId} ${job.status} ${job.error ?? ""}`.trim()).sort(), { timeout: 10_000 }).toEqual(["b2 succeeded", "b3 succeeded", "b6 succeeded", "b7 succeeded"]);
+    const board = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>().board;
+    const described = board.nodes.filter((node) => node.type === "plugin" && node.parentId && (node.data as { node: string }).node === "acme/frames:describe");
+    expect(described.map((node) => typeof (node.data as { text?: string }).text)).toEqual(["string", "string"]);
+    // The originals didn't run.
+    expect(board.nodes.find((node) => node.id === "describe")!.data).not.toHaveProperty("text");
   });
 });

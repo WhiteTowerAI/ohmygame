@@ -140,7 +140,9 @@ Library and sets `data.assetId`. A missing required input, a param that
 doesn't fit, or a plugin that is off fails the job with a message. Rerunning
 with the same params, inputs and output reuses the last result. A node whose
 plugin is off stays on the board with its links and last output, and says
-so; it runs again when the plugin is turned back on.
+so; it runs again when the plugin is turned back on. Plugin nodes take part in
+[out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
+like the app's own nodes.
 
 `contributes.canvasPresets` offers ready-made groups of nodes under
 **Presets** in the same menu: `{ id, title, description?, board }`, where

@@ -3148,6 +3148,12 @@ const zhCN: typeof en = {
       plugins: "插件",
       presets: "预设",
     },
+    stale: "需要更新",
+    staleHint: "它读取的内容在上次运行后变了。点击重新运行它和后面的节点。",
+    regenerateFrom: "从这里重新生成",
+    batchRun: "用多张图片运行…",
+    batchTitle: "选 2 到 10 张图片来运行这条链",
+    batchAction: "运行 {{count}} 份",
     plugin: {
       off: "这个节点的插件已关闭或已移除。在插件页打开后才能运行。",
       run: "运行",
@@ -3688,6 +3694,7 @@ const zhCN: typeof en = {
     noMatch: "没有符合搜索条件的素材",
     empty: "素材库中没有素材",
     projectCount: "{{count}} 个项目",
+    pickedCount: "已选 {{count}} / {{max}}",
     uploadTypes: "请上传 PNG、JPEG、WebP、MP4、MOV、WebM、MP3 或 WAV 文件。",
   },
   playtest: {

@@ -39,6 +39,7 @@ import {
   X,
   type IconComponent,
   Plug,
+  RefreshCw,
 } from "./icons.js";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -62,7 +63,7 @@ import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
-import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
+import { canvasBatchCopies, createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
@@ -134,6 +135,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
+import { canvasDownstream, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -311,6 +313,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }, [globalAssets, localAssets]);
   const assetPaths = useCanvasAssetSources();
   const [nodeDetails, setNodeDetails] = useState<{ id: string; title: string; description: string }>();
+  const [batchSourceId, setBatchSourceId] = useState<string>();
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -333,6 +336,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  // What each node's last finished run read, to tell which outputs are out of date.
+  const [jobUpstream, setJobUpstream] = useState<Record<string, Record<string, string> | undefined>>({});
   const canvasJobsRef = useRef(canvasJobs); canvasJobsRef.current = canvasJobs;
   const observedGroupJobs = useRef(new Map<string, ToolJob>());
   const groupJobWaiters = useRef(new Map<string, (job: ToolJob) => void>());
@@ -514,6 +519,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         // Keep unchanged jobs from re-rendering the canvas.
         const nextJobs = Object.fromEntries(latestJobs);
         setCanvasJobs((current) => JSON.stringify(current) === JSON.stringify(nextJobs) ? current : nextJobs);
+        const upstream: Record<string, Record<string, string> | undefined> = {};
+        for (const job of jobs) if (job.status === "succeeded" && job.context?.nodeId && !Object.hasOwn(upstream, job.context.nodeId)) upstream[job.context.nodeId] = job.upstream;
+        setJobUpstream((current) => JSON.stringify(current) === JSON.stringify(upstream) ? current : upstream);
         observedGroupJobs.current = new Map(jobs.map((job) => [job.id, job]));
         for (const job of jobs) if (job.status !== "running") groupJobWaiters.current.get(job.id)?.(job);
         const completedAssetIds: string[] = [];
@@ -1943,6 +1951,29 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }
 
+  /** Runs a node and the nodes after it in the daemon; their jobs show the progress. */
+  async function regenerateFrom(nodeId: string): Promise<void> {
+    setGenerationError(undefined);
+    try {
+      const targetStorage = storageRef.current;
+      await flush();
+      if (!targetStorage.regenerate) return;
+      const { job } = await targetStorage.regenerate(nodeId);
+      if (job.context?.nodeId) setCanvasJobs((current) => ({ ...current, [job.context!.nodeId]: job }));
+    } catch (error) { setGenerationError({ nodeId, message: errorMessage(error) }); setNotice({ kind: "action", message: errorMessage(error) }); }
+  }
+
+  /** Copies the chain after an image once per picked image, each in its own group, and runs every copy. */
+  function runWithImages(sourceId: string, images: readonly LibraryAsset[]): void {
+    const { nodes: copies, starts } = canvasBatchCopies(boardNodes, sourceId, images.map((asset) => ({ assetId: asset.id, name: asset.name })), (name) => name);
+    if (!copies.length) return;
+    if (nodesRef.current.length + copies.length > MAX_ASSET_CANVAS_NODES) { setTransferError(t("assetCanvas.nodeLimit")); return; }
+    commitPendingHistory();
+    setTransferError(undefined);
+    flushSync(() => setNodes((current) => orderedCanvasNodes([...current.map((node) => node.selected ? { ...node, selected: false } : node), ...copies.map((node) => toFlowNode(node, imageModels, videoModels))])));
+    for (const start of starts) void regenerateFrom(start);
+  }
+
   async function cancelCanvasJob(nodeId: string): Promise<void> {
     const job = canvasJobs[nodeId];
     if (!job) return;
@@ -1986,6 +2017,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const boardNodes = useMemo(() => nodes.map((node) => toAssetCanvasNode(node, model3DModels)), [nodes, model3DModels]);
+  const staleIds = useMemo(() => staleCanvasNodes(boardNodes, jobUpstream, (id) => documents.documents.find((doc) => doc.id === id)?.markdown), [boardNodes, jobUpstream, documents.documents]);
   const pixelStyleGroupIds = new Set(nodes.filter((node) => node.type === "group" && node.data.pixelStyle).map((node) => node.id));
   const linkedSources = new Set(referenceTargetId ? assetEdges.filter((edge) => edge.target === referenceTargetId).map((edge) => edge.source) : []);
   const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
@@ -2012,6 +2045,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: nodeLabel, description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: localizedTemplateText(original.type === "group" ? original.data.name ?? "" : original.title ?? ""), description: localizedTemplateText(original.description ?? "") }),
+      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted ? {} : { regenerate: () => void regenerateFrom(original.id) }) } } : {}),
     } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
@@ -2443,6 +2477,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
+            onRegenerate={contextMenuNode && canRegenerateFrom(boardNodes, contextMenuNode.id) && !nodeBusy(contextMenuNode.id) ? () => void regenerateFrom(contextMenuNode.id) : undefined}
+            onBatch={contextMenuNode && canRunWithImages(boardNodes, contextMenuNode.id) ? () => setBatchSourceId(contextMenuNode.id) : undefined}
             onDetails={contextMenuNode ? () => setNodeDetails({ id: contextMenuNode.id, title: contextMenuNode.type === "group" ? contextMenuNode.data.name ?? "" : contextMenuNode.title ?? "", description: contextMenuNode.description ?? "" }) : undefined}
             onUngroup={ungroupSelection}
             onUndo={undoEditorChange}
@@ -2489,6 +2525,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         onSubmit={(options, orderedIds) => void executeMediaTool(mediaToolDialog.operation, orderedIds, options)}
       /> : null}
       {folderPrompt ? createPortal(<FolderImportDialog folders={folderPrompt.folders} onAnswer={folderPrompt.answer} />, window.document.body) : null}
+      {batchSourceId ? <LibraryAssetPicker title={t("assetCanvas.batchTitle")} projectId={project.id} project={project}
+        assets={libraryAssets.filter((asset) => asset.mediaType === "image" && BATCH_IMAGE_TYPES.has(asset.contentType ?? ""))}
+        multiple={{ min: 2, max: 10, action: (count) => t("assetCanvas.batchAction", { count }), onSubmit: (picked) => { const source = batchSourceId; setBatchSourceId(undefined); runWithImages(source, picked); } }}
+        onClose={() => setBatchSourceId(undefined)} /> : null}
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
         <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
@@ -3038,6 +3078,8 @@ function AssetCanvasContextMenu({
   onUngroup,
   onDelete,
   onDetails,
+  onRegenerate,
+  onBatch,
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
@@ -3068,6 +3110,8 @@ function AssetCanvasContextMenu({
   onUngroup: () => void;
   onDelete: () => void;
   onDetails?: () => void;
+  onRegenerate?: () => void;
+  onBatch?: () => void;
 }) {
   const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -3111,6 +3155,8 @@ function AssetCanvasContextMenu({
     <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("assetCanvas.nodeActions")} onClose={onClose}>
       {canUngroup ? <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
       {onDetails ? <button type="button" role="menuitem" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null}
+      {onRegenerate ? <button type="button" role="menuitem" onClick={() => run(onRegenerate)}><RefreshCw size={15} /><span>{t("assetCanvas.regenerateFrom")}</span></button> : null}
+      {onBatch ? <button type="button" role="menuitem" onClick={() => run(onBatch)}><Layers3 size={15} /><span>{t("assetCanvas.batchRun")}</span></button> : null}
       {onUseInDocument ? <button type="button" role="menuitem" onClick={() => run(onUseInDocument)}><FileText size={15} /><span>{t("assetCanvas.addToDocument")}</span></button> : null}
       {menu.kind === "pane" ? <>
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
@@ -3801,6 +3847,24 @@ function pluginSourceMedia(node: AssetCanvasFlowNode, libraryAssets: LibraryAsse
   if (node.type === "asset") return node.data.mediaType ?? (libraryAssets.find((asset) => asset.id === node.data.assetId)?.contentType?.startsWith("image/") ? "image" : undefined);
   if (node.type === "plugin") return pluginNodes.find((candidate) => candidate.id === node.data.node)?.output;
   return undefined;
+}
+
+/** Whether the daemon runs this node, or anything after it. */
+const canvasNodeRuns = (node: AssetCanvasNode) => ["video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene", "plugin"].includes(node.type) || (node.type === "image" && !node.data.sourceInput);
+
+function canRegenerateFrom(nodes: readonly AssetCanvasNode[], id: string): boolean {
+  const node = nodes.find((candidate) => candidate.id === id);
+  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)));
+}
+
+/** Images the batch run takes; the ones every image node and plugin reads. */
+const BATCH_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+/** An image with something after it that runs can be swapped for several images. */
+function canRunWithImages(nodes: readonly AssetCanvasNode[], id: string): boolean {
+  const node = nodes.find((candidate) => candidate.id === id);
+  const image = node?.type === "image" || (node?.type === "asset" && node.data.mediaType === "image");
+  return Boolean(image && node?.data && "assetId" in node.data && node.data.assetId && canvasDownstream(nodes, id).some(canvasNodeRuns));
 }
 
 function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {

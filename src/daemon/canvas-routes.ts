@@ -101,6 +101,10 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.post<{ Params: { projectId: string; boardId: string; nodeId: string } }>(`${boardRoute}/nodes/:nodeId/generate`, async (request, reply) => {
     try { return reply.code(202).send(await store.generateNode(request.params.projectId, request.params.boardId, request.params.nodeId)); } catch (cause) { return failure(cause, reply); }
   });
+  // Runs the node and what comes after it; the jobs show the progress.
+  app.post<{ Params: { projectId: string; boardId: string; nodeId: string } }>(`${boardRoute}/nodes/:nodeId/regenerate`, async (request, reply) => {
+    try { return reply.code(202).send(await store.regenerateFrom(request.params.projectId, request.params.boardId, request.params.nodeId)); } catch (cause) { return failure(cause, reply); }
+  });
   app.get<{ Params: { projectId: string } }>(base, async (request, reply) => {
     try { return await store.read(request.params.projectId, documentId(request.query)) ?? null; } catch (cause) { return failure(cause, reply); }
   });

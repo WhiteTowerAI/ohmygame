@@ -123,6 +123,28 @@
 .canvas-node-details:hover {
   background: var(--surface-hover);
 }
+/* An output made from inputs that have changed since; the chip runs it again. */
+.canvas-node-stale {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.canvas-node-stale:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warning) 26%, transparent);
+}
+.canvas-node-stale:disabled {
+  cursor: default;
+}
 .canvas-node-id {
   display: block;
   overflow-wrap: anywhere;
