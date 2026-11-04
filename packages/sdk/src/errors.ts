@@ -21,6 +21,14 @@ export type OhMyGameErrorCode =
   | "room_limit"
   /** The service rejected a request, such as an expired invitation. */
   | "request_failed"
+  /** The service could not be reached, as when the player is offline. */
+  | "offline"
+  /** The player keeps as much as the service allows, such as their number of saves or a save's size. */
+  | "quota_exceeded"
+  /** The player sent too many requests, such as scores; retry in a minute. */
+  | "rate_limited"
+  /** The data changed since it was read, or a leaderboard ranks in the other order. */
+  | "conflict"
   /** The service answered with something the SDK does not understand. */
   | "invalid_response"
   /** The room closed or the service ended the connection. */

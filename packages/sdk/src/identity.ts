@@ -1,4 +1,4 @@
-import { OhMyGameError } from "./errors.js";
+import { OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 import { isRecord } from "./multiplayer-protocol.js";
 
 /**
@@ -43,7 +43,12 @@ export class GuestIdentity implements IdentityProvider {
     } catch {
       /* Request a fresh guest identity. */
     }
-    const response = await serviceRequest(this.options.endpoint ?? this.options.serverUrl, "/v1/guests", { method: "POST" });
+    // Sending the old token, even an expired one, keeps the same guest and their saves.
+    const previous = this.saved();
+    const response = await serviceRequest(this.options.endpoint ?? this.options.serverUrl, "/v1/guests", {
+      method: "POST",
+      ...(previous ? { headers: { Authorization: `Bearer ${previous}` } } : {}),
+    });
     const value: unknown = await response.json();
     if (!isRecord(value) || typeof value.token !== "string" || typeof value.expiresAt !== "number")
       throw new OhMyGameError("invalid_response", "Invalid guest session.");
@@ -54,28 +59,44 @@ export class GuestIdentity implements IdentityProvider {
     }
     return value.token;
   }
+
+  private saved(): string | undefined {
+    try {
+      const value: unknown = JSON.parse(this.storage?.getItem(this.key) ?? "null");
+      return isRecord(value) && typeof value.token === "string" ? value.token : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 }
 
-/** @internal A request to the game service with its error body turned into an OhMyGameError. */
-export async function serviceRequest(serverUrl: string, path: string, options?: RequestInit): Promise<Response> {
+/** Codes the service may send with an error; others become request_failed. */
+const SERVICE_CODES = new Set<OhMyGameErrorCode>(["quota_exceeded", "rate_limited", "conflict"]);
+
+/**
+ * @internal A request to the game service with its error body turned into an OhMyGameError.
+ * Statuses in accept come back as responses, such as 404 for a save that does not exist.
+ */
+export async function serviceRequest(serverUrl: string, path: string, options?: RequestInit, accept: readonly number[] = []): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(new URL(path, serverUrl), { ...options, signal: AbortSignal.timeout(10_000) });
   } catch (cause) {
     const timedOut = isRecord(cause) && cause.name === "TimeoutError";
     throw new OhMyGameError(
-      timedOut ? "timeout" : "request_failed",
-      timedOut ? "The multiplayer service did not answer in time." : "The multiplayer service could not be reached.",
+      timedOut ? "timeout" : "offline",
+      timedOut ? "The game service did not answer in time." : "The game service could not be reached.",
       { cause },
     );
   }
-  if (!response.ok) {
+  if (!response.ok && !accept.includes(response.status)) {
     const value: unknown = await response.json().catch(() => undefined);
+    const code = isRecord(value) && SERVICE_CODES.has(value.code as OhMyGameErrorCode) ? (value.code as OhMyGameErrorCode) : "request_failed";
     throw new OhMyGameError(
-      "request_failed",
+      code,
       isRecord(value) && typeof value.error === "string"
         ? value.error.slice(0, 300)
-        : `The multiplayer request failed (${response.status}).`,
+        : `The game service request failed (${response.status}).`,
     );
   }
   return response;
