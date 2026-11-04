@@ -1842,6 +1842,11 @@ export async function listProjectPluginCommands(projectId: string): Promise<impo
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }
 
+/** Turns on a gamepad map in the person's pages of the project's game; null turns it off. */
+export async function setPreviewInputMap(projectId: string, map: import("../shared/preview-input.js").GamepadKeyMap | null): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/preview/input-map`, { method: "PUT", body: JSON.stringify({ map }) });
+}
+
 /** What a project's plugins add to its preview, such as devices. */
 export async function getProjectPluginPreview(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginPreview> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-preview?locale=${encodeURIComponent(language)}`);

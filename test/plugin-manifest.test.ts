@@ -7,6 +7,7 @@ import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
 import { colorMatrixValues, isPreviewColorFilter } from "../src/shared/preview-filter.js";
+import { compileInputMap, isGamepadKeyMap } from "../src/shared/preview-input.js";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
@@ -325,6 +326,20 @@ describe("plugin manifest", () => {
     expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(true);
     expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0]] })).toBe(false);
     expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(false);
+  });
+
+  it("maps a standard gamepad's buttons and sticks to keyboard codes", () => {
+    const maps = (map: object) => messages({ ...minimal, contributes: { inputMaps: [{ id: "pad", title: "Pad", ...map }] } });
+    expect(maps({ buttons: { a: "Space", up: "ArrowUp" }, sticks: { right: { down: "KeyS" } }, deadZone: 0.3 })).toEqual([]);
+    expect(maps({})).toEqual(["/contributes/inputMaps/0 presses no keys"]);
+    expect(maps({ buttons: { a: "Meta" } })).not.toEqual([]);
+    expect(maps({ buttons: { paddle: "Space" } })).not.toEqual([]);
+    expect(maps({ buttons: { a: "Space" }, deadZone: 0 })).not.toEqual([]);
+    const compiled = compileInputMap({ buttons: { home: "Escape" }, sticks: { right: { up: "KeyW" } } });
+    expect(compiled).toEqual({ buttons: [[16, "Escape"]], axes: [[3, -1, "KeyW"]], deadZone: 0.5 });
+    expect(isGamepadKeyMap(compiled)).toBe(true);
+    expect(isGamepadKeyMap({ ...compiled, axes: [[4, 1, "KeyW"]] })).toBe(false);
+    expect(isGamepadKeyMap({ ...compiled, buttons: [[0, "KeyW"], [1]] })).toBe(false);
   });
 
   it("asks the person before native code plays the game", () => {

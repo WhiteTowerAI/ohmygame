@@ -336,6 +336,11 @@ describe("daemon", () => {
       payload: { startupDirectory: "apps/game", startupScript: "dev", previewPath: "/", previewViewport: "Not a device", ...(type === "general" ? { webPreviewEnabled: true } : {}) },
     });
     expect(unknownDevice.statusCode).toBe(400);
+    // A gamepad map is checked before it reaches the game's pages.
+    const inputMap = (map: unknown) => app.inject({ method: "PUT", url: `/projects/${project.id}/preview/input-map`, payload: { map } });
+    expect((await inputMap({ buttons: [[0, "Space"]], axes: [[0, -1, "ArrowLeft"]], deadZone: 0.5 })).statusCode).toBe(204);
+    expect((await inputMap(null)).statusCode).toBe(204);
+    expect((await inputMap({ buttons: [[0, "Meta"]], axes: [], deadZone: 0.5 })).statusCode).toBe(400);
 
     const invalid = await app.inject({
       method: "PUT",

@@ -1330,6 +1330,160 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "inputMaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "buttons": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "b": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "x": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "y": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "back": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "start": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "up": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "down": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "left": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "right": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "home": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "sticks": {
+                "type": "object",
+                "properties": {
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "deadZone": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 0.9
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
         }
       },
       "additionalProperties": false

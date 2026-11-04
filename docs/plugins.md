@@ -123,7 +123,7 @@ ignores it.
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
-| Preview devices and filters | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts` |
+| Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -448,6 +448,20 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   in the desktop app the game's host page draws it in Preview and Play, and it
   is off while the person records; no cover is taken while one is on; the
   agent's playtests and screenshots are never filtered.
+- **Gamepad maps** (`contributes.inputMaps`, API 2.3.0) press keys for a game
+  that only reads the keyboard. A map names a standard gamepad's `buttons`
+  (`a`, `b`, `x`, `y`, `leftBumper`, `rightBumper`, `leftTrigger`,
+  `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `up`, `down`,
+  `left`, `right`, `home`) and the `left` and `right` `sticks`' directions,
+  each as a `KeyboardEvent.code`, and a stick's `deadZone` (0.1 to 0.9, 0.5 by
+  default). Maps are off until the person picks one from the preview's device
+  menu; the choice is kept per project on that device and sent with `PUT
+  /projects/:id/preview/input-map`. The preview's bridge in each of the
+  person's pages of the game (never an AI test's) polls the pad while the page
+  has focus and sends key presses and releases there. It lets every key go on
+  blur, on disconnect and when the map changes. A game that reads the gamepad
+  itself stops the map, so the same input doesn't arrive twice. The events
+  aren't trusted ones, so a game that checks `isTrusted` ignores them.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app

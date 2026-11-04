@@ -1418,6 +1418,8 @@ const en = {
     viewportLabel: "Preview viewport",
     filterLabel: "Filter",
     noFilter: "No filter",
+    gamepadLabel: "Gamepad",
+    noGamepad: "Off",
     viewport: {
       tablet: "Tablet · 768px",
       mobile: "Mobile · 375px",

@@ -45,13 +45,13 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import type { ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
+import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { useNearViewport } from "./asset-gallery.js";
@@ -68,7 +68,7 @@ import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { panelTitle } from "./workspace-layout.js";
-import { useRuntimeConnection } from "./runtime-connection.js";
+import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
@@ -119,6 +119,8 @@ interface CodingWorkspaceProps {
   previewDevices?: readonly ProjectPreviewDevice[];
   /** The colour filters the project's plugins add. */
   previewFilters?: readonly ProjectPreviewFilter[];
+  /** The gamepad maps the project's plugins add. */
+  inputMaps?: readonly ProjectInputMap[];
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -164,6 +166,7 @@ export function CodingWorkspace({
   onPickingChange,
   previewDevices = NO_DEVICES,
   previewFilters = NO_FILTERS,
+  inputMaps = NO_INPUT_MAPS,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -255,6 +258,21 @@ export function CodingWorkspace({
   }, [project?.id, project?.previewViewport]);
 
   useEffect(() => setFilterId(undefined), [project?.id]);
+  // Off until the person picks one; remembered per project on this device.
+  const [inputMapId, setInputMapId] = useState(() => savedInputMap(project?.id));
+  useEffect(() => setInputMapId(savedInputMap(project?.id)), [project?.id]);
+  const inputMap = inputMaps.find((item) => item.id === inputMapId);
+  const runtimeGeneration = useReadyRuntimeGeneration();
+  useEffect(() => {
+    if (!project?.id || !inputMap) return;
+    const projectId = project.id;
+    void setPreviewInputMap(projectId, inputMap.map).catch(() => {});
+    return () => { void setPreviewInputMap(projectId, null).catch(() => {}); };
+  }, [project?.id, inputMap, runtimeGeneration]);
+  const chooseInputMap = (id: string | undefined) => {
+    setInputMapId(id);
+    if (project?.id) saveInputMap(project.id, id);
+  };
   // The desktop game draws its own filter, in Preview and Play alike.
   const setNativeFilter = typeof window !== "undefined" ? window.ohMyGameDesktop?.webGamePlayer?.setFilter : undefined;
   useEffect(() => {
@@ -430,6 +448,9 @@ export function CodingWorkspace({
           filters={previewFilters}
           filter={filter?.id}
           onFilterChange={setFilterId}
+          inputMaps={inputMaps}
+          inputMap={inputMap?.id}
+          onInputMapChange={chooseInputMap}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
@@ -577,6 +598,9 @@ function PreviewControls({
   filters,
   filter,
   onFilterChange,
+  inputMaps,
+  inputMap,
+  onInputMapChange,
   agentPlaytestWatch,
   agentPlaytestWatchPending,
   picking,
@@ -602,6 +626,9 @@ function PreviewControls({
   filters: readonly ProjectPreviewFilter[];
   filter?: string;
   onFilterChange: (filter: string | undefined) => void;
+  inputMaps: readonly ProjectInputMap[];
+  inputMap?: string;
+  onInputMapChange: (map: string | undefined) => void;
   agentPlaytestWatch?: PlaytestWatchState;
   agentPlaytestWatchPending: boolean;
   picking: boolean;
@@ -621,7 +648,7 @@ function PreviewControls({
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} />
+      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
       {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
@@ -773,9 +800,10 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange }: {
+function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: {
   value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void;
   filters: readonly ProjectPreviewFilter[]; filter?: string; onFilterChange: (filter: string | undefined) => void;
+  inputMaps: readonly ProjectInputMap[]; inputMap?: string; onInputMapChange: (map: string | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -861,6 +889,28 @@ function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChang
               </button>
             ))}
           </div> : null}
+          {/* The plugins' gamepad maps, which press keys in the person's game. */}
+          {inputMaps.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.gamepadLabel")}>
+            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.gamepadLabel")}</span>
+            {[undefined, ...inputMaps].map((item) => (
+              <button
+                className="viewport-option"
+                type="button"
+                role="menuitemradio"
+                aria-checked={item?.id === inputMap}
+                key={item?.id ?? "none"}
+                onClick={() => {
+                  onInputMapChange(item?.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <Gamepad2 size={14} />
+                <span>{item?.title ?? t("workspace.noGamepad")}</span>
+                {item?.id === inputMap ? <Check size={13} /> : null}
+              </button>
+            ))}
+          </div> : null}
         </div>
       ) : null}
     </div>
@@ -887,6 +937,21 @@ function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPrevi
 
 const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
 const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
+const NO_INPUT_MAPS: readonly ProjectInputMap[] = [];
+const inputMapKey = (projectId: string) => `ohmygame:input-map:${projectId}`;
+
+/** The gamepad map the person picked for a project on this device; storage may be unavailable. */
+export function savedInputMap(projectId: string | undefined): string | undefined {
+  if (!projectId) return undefined;
+  try { return localStorage.getItem(inputMapKey(projectId)) ?? undefined; } catch { return undefined; }
+}
+
+function saveInputMap(projectId: string, id: string | undefined): void {
+  try {
+    if (id) localStorage.setItem(inputMapKey(projectId), id);
+    else localStorage.removeItem(inputMapKey(projectId));
+  } catch { /* Kept for this visit only. */ }
+}
 
 /** Just what draws a filter, for the desktop game host. */
 const gameFilter = ({ colorSpace, matrix, offset }: PreviewColorFilter): PreviewColorFilter => ({ colorSpace, matrix, ...(offset ? { offset } : {}) });
@@ -986,6 +1051,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           key={`${url}:${reload}`} className="preview-frame" src={url}
           title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
           sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+          allow="gamepad"
           style={filter ? { filter: `url(#${filterId})` } : undefined}
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}

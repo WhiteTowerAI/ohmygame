@@ -3,6 +3,7 @@ import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
 import type { PreviewColorFilter } from "./preview-filter.js";
+import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -334,10 +335,20 @@ export interface ProjectPreviewFilter extends PreviewColorFilter {
   source: string;
 }
 
+/** A gamepad input map a project's plugin adds, ready for the preview's bridge. */
+export interface ProjectInputMap {
+  /** `publisher/name:map`. */
+  id: string;
+  plugin: string;
+  title: string;
+  map: GamepadKeyMap;
+}
+
 /** What a project's plugins add to its preview. */
 export interface ProjectPluginPreview {
   devices: ProjectPreviewDevice[];
   filters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

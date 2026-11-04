@@ -191,6 +191,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
     ...(contributes.panels ?? []).map((panel) => panel.title),
     ...(contributes.previewDevices ?? []).map((device) => device.title),
     ...(contributes.previewFilters ?? []).flatMap((filter) => [filter.title, filter.source]),
+    ...(contributes.inputMaps ?? []).map((map) => map.title),
   ];
   const keys = new Set<string>();
   for (const text of texts) {

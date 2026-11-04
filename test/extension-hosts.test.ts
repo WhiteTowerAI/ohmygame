@@ -1603,6 +1603,7 @@ describe("plugin settings and commands", () => {
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
           ],
           previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
+          inputMaps: [{ id: "pad", title: "Pad", buttons: { a: "Space", start: "Enter" }, sticks: { left: { left: "ArrowLeft", right: "ArrowRight" } } }],
           previewFilters: [{ id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
         },
       }),
@@ -1649,6 +1650,8 @@ describe("plugin settings and commands", () => {
       expect(await services.preview(folder)).toEqual({
         devices: [{ id: "acme/keys:handheld", plugin: "acme/keys", title: "Handheld", width: 800, height: 480 }],
         filters: [{ id: "acme/keys:grey", plugin: "acme/keys", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
+        // Ready for the preview's bridge: button indexes and axis directions.
+        inputMaps: [{ id: "acme/keys:pad", plugin: "acme/keys", title: "Pad", map: { buttons: [[0, "Space"], [9, "Enter"]], axes: [[0, -1, "ArrowLeft"], [0, 1, "ArrowRight"]], deadZone: 0.5 } }],
       });
     } finally {
       await services.close();

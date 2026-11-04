@@ -1,4 +1,5 @@
 import type { GameTuningScalar } from "../shared/game-tuning.js";
+import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PreviewPick } from "../shared/contracts.js";
 import {
   PREVIEW_CLIENT_QUERY,
@@ -34,6 +35,8 @@ export interface PreviewProxy {
   setPicking(client: string, active: boolean): void;
   /** The values the person's pages of the game should use; AI tests keep what is saved. */
   setTuning(values: Record<string, GameTuningScalar>): void;
+  /** The gamepad map the person's pages press keys with; AI tests get none. */
+  setInputMap(map: GamepadKeyMap | undefined): void;
 }
 
 /** A separate loopback origin preserves asset paths and HMR without changing project files. */
@@ -87,6 +90,7 @@ export async function createPreviewProxy(
   /** Clients whose page is picking. */
   const picking = new Set<string>();
   let tuning: Record<string, GameTuningScalar> = {};
+  let inputMap: GamepadKeyMap | null = null;
   /** Documents whose game listens for tuned values. */
   const tuningDocuments = new Set<number>();
   const tuningDocumentGone = (document: number) => {
@@ -200,7 +204,7 @@ export async function createPreviewProxy(
             connection: "keep-alive",
           });
           outgoing.write(
-            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.playtest ? {} : { tuning }) })}\n\n`,
+            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.playtest ? {} : { tuning, inputMap }) })}\n\n`,
           );
           reloadStreams.set(document, outgoing);
           outgoing.once("close", () => {
@@ -542,6 +546,14 @@ export async function createPreviewProxy(
         if (!documents.get(document)?.playtest)
           stream.write(`data: ${JSON.stringify({ reload: reloadRevision, tuning })}\n\n`);
     },
+    setInputMap: (map) => {
+      const next = map ?? null;
+      if (JSON.stringify(next) === JSON.stringify(inputMap)) return;
+      inputMap = next;
+      for (const [document, stream] of reloadStreams)
+        if (!documents.get(document)?.playtest)
+          stream.write(`data: ${JSON.stringify({ reload: reloadRevision, inputMap })}\n\n`);
+    },
     reload: () => {
       reloadRevision += 1;
       for (const stream of reloadStreams.values())
@@ -854,6 +866,64 @@ const wantTuning = (values) => {
   applyTuning();
   if (!tuningTimer && tuningWanted.size) tuningTimer = setInterval(applyTuning, 500);
 };
+// A plugin's gamepad map presses keys for a game that only reads the
+// keyboard: only while the page has focus, and every key goes on blur, on
+// disconnect and when the map changes. A game that reads the pad itself gets
+// it as it is, and the map stops, so no input arrives twice.
+const readPads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : undefined;
+let padMap;
+let padFrame;
+let gameReadsPads = false;
+const heldKeys = new Set();
+const KEY_CODES = { Space: 32, Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17, AltLeft: 18, AltRight: 18 };
+const keyOf = (code) => {
+  if (code.startsWith('Key')) return [code.slice(3).toLowerCase(), code.charCodeAt(3)];
+  if (code.startsWith('Digit')) return [code.slice(5), code.charCodeAt(5)];
+  if (/^F[0-9]+$/.test(code)) return [code, 111 + Number(code.slice(1))];
+  if (code === 'Space') return [' ', 32];
+  const modifier = code.startsWith('Arrow') ? code : code.replace(/(Left|Right)$/, '');
+  return [modifier, KEY_CODES[code]];
+};
+const pressKey = (code, down) => {
+  const [key, keyCode] = keyOf(code);
+  const side = code.startsWith('Arrow') ? 0 : code.endsWith('Left') ? 1 : code.endsWith('Right') ? 2 : 0;
+  const event = new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, location: side, bubbles: true, cancelable: true, composed: true });
+  // Older games read keyCode, which the constructor can't set.
+  for (const name of ['keyCode', 'which']) Object.defineProperty(event, name, { get: () => keyCode });
+  (document.activeElement || document.body || document.documentElement).dispatchEvent(event);
+};
+const releaseKeys = () => {
+  for (const code of heldKeys) pressKey(code, false);
+  heldKeys.clear();
+};
+if (readPads) navigator.getGamepads = function () {
+  if (!gameReadsPads) {
+    gameReadsPads = true;
+    releaseKeys();
+    if (padMap) console.info('OhMyGame: this game reads the gamepad itself, so the input map is off.');
+  }
+  return readPads();
+};
+const pollPad = () => {
+  padFrame = undefined;
+  if (!padMap || gameReadsPads) return;
+  const pad = document.hasFocus() ? [...readPads()].find((item) => item && item.connected && item.mapping === 'standard') : undefined;
+  const wanted = new Set();
+  if (pad) {
+    for (const [index, code] of padMap.buttons) if (pad.buttons[index] && pad.buttons[index].pressed) wanted.add(code);
+    for (const [axis, direction, code] of padMap.axes) if ((pad.axes[axis] || 0) * direction > padMap.deadZone) wanted.add(code);
+  }
+  for (const code of [...heldKeys]) if (!wanted.has(code)) { heldKeys.delete(code); pressKey(code, false); }
+  for (const code of wanted) if (!heldKeys.has(code)) { heldKeys.add(code); pressKey(code, true); }
+  padFrame = requestAnimationFrame(pollPad);
+};
+const usePadMap = (map) => {
+  releaseKeys();
+  padMap = readPads && map ? map : undefined;
+  if (padMap && padFrame === undefined) padFrame = requestAnimationFrame(pollPad);
+};
+window.addEventListener('blur', releaseKeys);
+window.addEventListener('gamepaddisconnected', releaseKeys);
 let reloadEvents;
 const connectReload = () => {
   if (reloadEvents && reloadEvents.readyState !== EventSource.CLOSED) return;
@@ -866,6 +936,7 @@ const connectReload = () => {
     revision = state.reload;
     if (typeof state.pick === 'boolean') setPicking(state.pick);
     if (state.tuning) wantTuning(state.tuning);
+    if (state.inputMap !== undefined) usePadMap(state.inputMap);
   };
 };
 connectReload();

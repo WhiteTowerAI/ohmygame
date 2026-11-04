@@ -10,6 +10,7 @@ import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -432,7 +433,7 @@ export class PluginServices {
       index: this.index,
       grants: this.grants,
     }).catch(() => undefined);
-    const preview: ProjectPluginPreview = { devices: [], filters: [] };
+    const preview: ProjectPluginPreview = { devices: [], filters: [], inputMaps: [] };
     if (!resolved?.ok) return preview;
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
@@ -454,6 +455,13 @@ export class PluginServices {
           colorSpace: filter.colorSpace,
           matrix: filter.matrix,
           ...(filter.offset ? { offset: filter.offset } : {}),
+        });
+      for (const map of entry.manifest.contributes?.inputMaps ?? [])
+        preview.inputMaps.push({
+          id: `${entry.id}:${map.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, map.title, locale),
+          map: compileInputMap(map),
         });
     }
     return preview;

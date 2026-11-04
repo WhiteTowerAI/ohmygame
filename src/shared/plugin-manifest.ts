@@ -4,6 +4,7 @@ import { CUSTOM_MODEL_APIS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
+import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
 
@@ -472,6 +473,31 @@ const PreviewFilter = Type.Object(
   { additionalProperties: false },
 );
 
+const KeyCode = Type.String({ pattern: KEY_CODE_PATTERN });
+const keyRecord = (names: readonly string[]) =>
+  Type.Object(Object.fromEntries(names.map((name) => [name, Type.Optional(KeyCode)])), { additionalProperties: false });
+
+/**
+ * A standard gamepad's buttons and sticks pressed as keys (`KeyboardEvent.code`),
+ * for a game that only reads the keyboard. Off until the person picks it.
+ */
+const InputMap = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    buttons: Type.Optional(keyRecord(GAMEPAD_BUTTONS)),
+    sticks: Type.Optional(
+      Type.Object(
+        Object.fromEntries(GAMEPAD_STICKS.map((stick) => [stick, Type.Optional(keyRecord(STICK_DIRECTIONS))])),
+        { additionalProperties: false },
+      ),
+    ),
+    /** How far a stick goes before it presses its key, from 0.1 to 0.9; 0.5 by default. */
+    deadZone: Type.Optional(Type.Number({ minimum: 0.1, maximum: 0.9 })),
+  },
+  { additionalProperties: false },
+);
+
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
@@ -588,6 +614,7 @@ export const PluginManifestV2Schema = Type.Object(
           mcpServers: list(McpServer),
           previewDevices: list(PreviewDevice),
           previewFilters: list(PreviewFilter),
+          inputMaps: list(InputMap),
         },
         { additionalProperties: false },
       ),
@@ -699,6 +726,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "mcpServers",
     "previewDevices",
     "previewFilters",
+    "inputMaps",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -779,6 +807,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     }
   });
 
+  contributes.inputMaps?.forEach((map, index) => {
+    const keys = [...Object.values(map.buttons ?? {}), ...Object.values(map.sticks ?? {}).flatMap((stick) => Object.values(stick ?? {}))];
+    if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
+  });
   contributes.panels?.forEach((panel, index) => {
     const compiled = panel.when === undefined ? undefined : compileWhen(panel.when);
     if (compiled && !compiled.ok)

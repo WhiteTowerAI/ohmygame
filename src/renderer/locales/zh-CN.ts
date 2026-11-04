@@ -1400,6 +1400,8 @@ const zhCN: typeof en = {
     viewportLabel: "预览视口",
     filterLabel: "滤镜",
     noFilter: "无滤镜",
+    gamepadLabel: "手柄",
+    noGamepad: "关闭",
     viewport: {
       tablet: "平板 · 768px",
       mobile: "手机 · 375px",
