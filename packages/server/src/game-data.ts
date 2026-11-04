@@ -22,12 +22,12 @@ export interface ServerStore {
   deleteSave(gameId: string, playerId: string, key: string): Promise<boolean>;
   /**
    * Keeps the player's best score on a board. The board takes the order of its first
-   * score; a later score with another order throws ConflictError.
+   * score, "desc" when it names none; a later score naming another order throws ConflictError.
    */
   submitScore(
     gameId: string,
     board: string,
-    score: { playerId: string; name: string; value: number; public: boolean; order: LeaderboardOrder; now: number },
+    score: { playerId: string; name: string; value: number; public: boolean; order?: LeaderboardOrder; now: number },
   ): Promise<{ improved: boolean }>;
   /** Public entries from rank offset + 1, best first; ties go to the earlier score. */
   topScores(gameId: string, board: string, limit: number, offset: number): Promise<LeaderboardEntry[]>;
@@ -90,9 +90,9 @@ export class MemoryGameDataStore implements ServerStore {
   async deleteSave(gameId: string, playerId: string, key: string) {
     return this.saves.get(slot(gameId, playerId))?.delete(key) ?? false;
   }
-  async submitScore(gameId: string, board: string, score: { playerId: string; name: string; value: number; public: boolean; order: LeaderboardOrder; now: number }) {
-    const entry = this.boards.get(slot(gameId, board)) ?? { order: score.order, scores: new Map<string, MemoryScore>() };
-    if (entry.order !== score.order) throw orderConflict(entry.order);
+  async submitScore(gameId: string, board: string, score: { playerId: string; name: string; value: number; public: boolean; order?: LeaderboardOrder; now: number }) {
+    const entry = this.boards.get(slot(gameId, board)) ?? { order: score.order ?? "desc", scores: new Map<string, MemoryScore>() };
+    if (score.order && entry.order !== score.order) throw orderConflict(entry.order);
     this.boards.set(slot(gameId, board), entry);
     const previous = entry.scores.get(score.playerId);
     const improved = !previous || better(entry.order, score.value, previous.score);

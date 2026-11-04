@@ -20,7 +20,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
-import { installMultiplayerWorkspace } from "./multiplayer-workspace.js";
+import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
@@ -163,6 +163,19 @@ export function createAgentTools(
       return {
         content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
+      };
+    },
+  })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
+    name: "game_sdk_setup",
+    label: "Set up the OhMyGame SDK",
+    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Saves stay in the browser in local previews; publishing to OhMyGame adds cloud saves and leaderboards with no code change.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _input, signal) => {
+      signal?.throwIfAborted();
+      const result = await installGameSdk(project);
+      return {
+        content: [{ type: "text" as const, text: `Read ${result.guidePath} and import init from ${result.sdkPath}/client.js. ${result.manifestPath} must be copied into the build output so init() can load it.` }],
+        details: { sdk: result },
       };
     },
   })] : []), defineTool({

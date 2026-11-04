@@ -49,9 +49,10 @@ export interface GameLeaderboard {
   /** Whether the game has a game service; without one every call rejects with not_configured. */
   readonly available: boolean;
   /**
-   * Submits a score and resolves with the player's best on the board. The board keeps
-   * the order of its first score: "desc" (the default) ranks higher scores first, "asc"
-   * lower ones, as for a time. Rejects with rate_limited after 10 scores in a minute.
+   * Submits a score and resolves with the player's best on the board. A board keeps the
+   * order of its first score: "desc" (the default) ranks higher scores first, "asc" lower
+   * ones, as for a time. Later scores may leave order out; naming the other order rejects
+   * with conflict. Rejects with rate_limited after 10 scores in a minute.
    */
   submit(board: string, score: number, options?: { order?: LeaderboardOrder }): Promise<ScoreResult>;
   /** Public entries, best first: 10 by default, at most LEADERBOARD_PAGE_MAX. */

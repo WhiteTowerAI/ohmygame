@@ -13,6 +13,7 @@ import { ensureProjectDependencies } from "../project-dependencies.js";
 import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
+import { isCloudConfig, type CloudConfig } from "@ohmygame/sdk/cloud-protocol";
 import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
@@ -40,19 +41,46 @@ export interface ArtifactBuilderOptions {
    * it to manifest.json as "account". Local publishing never does: local builds play as guests.
    */
   account?: GameAccountConfig;
+  /**
+   * The game service that keeps published games' cloud saves and leaderboards, an HTTPS
+   * origin. Publishing writes it with the game's OhMyGame ID to manifest.json as "cloud";
+   * local publishing never does, so local builds keep saves in the browser.
+   */
+  gameServiceUrl?: string;
+}
+
+/** A built game waiting to be packaged; see ArtifactBuilder.prepare. */
+export interface PreparedArtifact {
+  /** The artifact. gameId is the game's OhMyGame ID, which a build with cloud saves names. */
+  package(gameId?: string): Promise<Buffer>;
+  dispose(): Promise<void>;
 }
 
 export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
   readonly #account?: GameAccountConfig;
+  readonly #gameServiceUrl?: string;
 
   constructor(options: ArtifactBuilderOptions = {}) {
     if (options.account && !isGameAccountConfig(options.account)) throw new Error("The account issuer must be an HTTPS URL.");
+    if (options.gameServiceUrl && !isCloudConfig({ serverUrl: options.gameServiceUrl, gameId: "check" }))
+      throw new Error("The game service must be an HTTPS origin.");
     this.#account = options.account;
+    this.#gameServiceUrl = options.gameServiceUrl;
   }
 
   async create(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
+  }
+
+  /**
+   * Builds and checks the game, then waits for its OhMyGame ID before packaging it, so a
+   * build with cloud saves can name the game. Publishing builds first, which rejects a
+   * game that cannot be published before the publish service hears of it, and creates the
+   * game record only then. Call dispose when done, packaged or not.
+   */
+  async prepare(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<PreparedArtifact> {
+    return this.#prepare(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
   }
 
   /** Only the authenticated local debug publisher may use a loopback backend. */
@@ -66,10 +94,23 @@ export class ArtifactBuilder {
   }
 
   async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<Buffer> {
-    let temporary: string | undefined;
+    const prepared = await this.#prepare(project, cover, maxBytes, multiplayer, localTesting);
+    try {
+      return await prepared.package();
+    } finally {
+      await prepared.dispose();
+    }
+  }
+
+  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<PreparedArtifact> {
+    const temporaries: string[] = [];
     const media = maxBytes !== undefined && project.type === "interactive-story"
       ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
       : undefined;
+    const dispose = async () => {
+      await Promise.all(temporaries.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+      await media?.close();
+    };
     try {
       if (project.type === "interactive-story" && multiplayer) throw new PublishError("Interactive Stories do not have a multiplayer adapter. Use a Web Game with a server adapter.");
       let source: string;
@@ -77,8 +118,8 @@ export class ArtifactBuilder {
       if (project.type === "interactive-story") {
         // A story from before web stories plays once the editor has upgraded it.
         if (!await isWebStory(project.workspacePath)) throw new PublishError(STORY_NEEDS_UPGRADE);
-        temporary = await prepareWebStory(project);
-        source = temporary;
+        source = await prepareWebStory(project);
+        temporaries.push(source);
       } else {
         const workspacePath = isWebRuntimeProjectType(project.type)
           ? await publishStartupDirectory(project)
@@ -89,29 +130,41 @@ export class ArtifactBuilder {
           throw new PublishError("This game uses PeerJS. OhMyGame multiplayer requires Colyseus and a registered server rules adapter. Migrate the game before publishing.");
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
+      const updates: Record<string, unknown> = {};
+      // Games that load the SDK have a manifest; sign-in and cloud saves come with publishing, never local builds.
+      let sdk = false;
       if (project.type !== "interactive-story") {
         await assertSupportedNetworking(source);
         const configured = await readMultiplayerConfig(source, multiplayer, declared, localTesting);
-        const updates: Record<string, unknown> = {};
         if (configured) {
           await checkMultiplayerDeployment(configured, localTesting);
           if (multiplayer) updates.multiplayer = configured;
         }
-        // Games that load the SDK have a manifest; sign-in comes with publishing, never local builds.
-        if (this.#account && !localTesting && await hasManifest(source)) updates.account = this.#account;
-        if (Object.keys(updates).length) {
-          temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
-          await cp(source, temporary, { recursive: true });
-          const manifest = await readOptionalManifest(source);
-          await writeFile(path.join(temporary, "manifest.json"), `${JSON.stringify({ ...manifest, ...updates }, null, 2)}\n`);
-          source = temporary;
-        }
+        sdk = !localTesting && await hasManifest(source);
+        if (sdk && this.#account) updates.account = this.#account;
       }
-      return await createZip(source, false, cover, maxBytes, false, media);
+      const built = source;
+      return {
+        package: async (gameId?: string) => {
+          const manifestUpdates = { ...updates };
+          if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
+          let packaged = built;
+          if (Object.keys(manifestUpdates).length) {
+            packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
+            temporaries.push(packaged);
+            await cp(built, packaged, { recursive: true });
+            const manifest = await readOptionalManifest(built);
+            await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify({ ...manifest, ...manifestUpdates }, null, 2)}\n`);
+          }
+          return createZip(packaged, false, cover, maxBytes, false, media);
+        },
+        dispose,
+      };
+    } catch (cause) {
+      await dispose();
+      throw cause;
     } finally {
       this.#running.delete(project.id);
-      if (temporary) await rm(temporary, { recursive: true, force: true });
-      await media?.close();
     }
   }
 

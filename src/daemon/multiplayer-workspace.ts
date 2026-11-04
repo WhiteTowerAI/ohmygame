@@ -61,9 +61,50 @@ export async function installMultiplayerWorkspace(
     `${JSON.stringify({ multiplayer: config }, null, 2)}\n`,
   );
   const guidePath = path.join(sdkPath, "README.md");
-  await writeFile(guidePath, MULTIPLAYER_WORKSPACE_GUIDE);
+  await writeFile(guidePath, `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
   return {
     manifest: config,
+    sdkPath: path.relative(root, sdkPath),
+    manifestPath: path.relative(root, manifestPath),
+    guidePath: path.relative(root, guidePath),
+  };
+}
+
+/**
+ * Writes the browser SDK and its guide into a Web Game for saves, leaderboards and sign-in,
+ * and makes sure the game has a manifest for init() to load. A game set up for multiplayer
+ * keeps its multiplayer deployment and guide.
+ */
+export async function installGameSdk(project: Pick<ProjectState, "workspacePath" | "startupDirectory">) {
+  const { absolutePath: root } = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+  let sdk: Record<string, string>;
+  try {
+    ({ sdk } = await multiplayerSdkResources());
+  } catch {
+    throw new Error("The OhMyGame SDK is missing. Run bun run build:host and restart the app.");
+  }
+  const manifestPath = path.join(root, "public", "manifest.json");
+  const existing = await readFile(manifestPath, "utf8").then(
+    (text) => JSON.parse(text) as unknown,
+    (cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return {};
+      throw cause;
+    },
+  );
+  if (!existing || typeof existing !== "object" || Array.isArray(existing) || (existing as Record<string, unknown>).runtime === "playable-nodes")
+    throw new Error("This project does not have a supported Web Game manifest.");
+  const sdkPath = path.join(root, "src", "ohmygame");
+  await mkdir(sdkPath, { recursive: true });
+  for (const [name, contents] of Object.entries(sdk)) {
+    if (!/^[a-z-]+\.(?:js|d\.ts)$/.test(name) || typeof contents !== "string") throw new Error("Invalid bundled SDK.");
+    await writeFile(path.join(sdkPath, name), contents);
+  }
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify({ version: 1, ...existing }, null, 2)}\n`);
+  const multiplayer = await readWorkspaceMultiplayer(project);
+  const guidePath = path.join(sdkPath, "README.md");
+  await writeFile(guidePath, multiplayer ? `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}` : `${SDK_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
+  return {
     sdkPath: path.relative(root, sdkPath),
     manifestPath: path.relative(root, manifestPath),
     guidePath: path.relative(root, guidePath),
@@ -194,4 +235,20 @@ A realtime game, such as multiplayer snake, runs on the service's tick: every ti
 In the page, const client = createMultiplayerClient<typeof rules>(game, callbacks) types client.sendInput to the rules' input and client.sendAction to the rules' action.
 
 Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Public publishing requires a separately hosted backend, an immutable registered deployment and its matching server rules. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
+`;
+
+const SDK_WORKSPACE_GUIDE = `# OhMyGame SDK
+
+Start with const game = await init() from ./client.js. It loads manifest.json beside the page (new URL("./manifest.json", document.baseURI)), so copy public/manifest.json into the build output; Vite does this for files in public/. Show init's error in the page if it fails. A page that never imports ./multiplayer.js carries no multiplayer code.
+
+Sign-in with an OhMyGame account comes with publishing to OhMyGame: there game.auth.available is true, game.auth.signIn() signs the player in, and game.auth.player is { id, name }. Local previews and local publishing always play as guests: game.auth.available is false and signIn() rejects with code unsupported, so hide sign-in when game.auth.available is false.
+
+Every SDK error is an OhMyGameError with a stable code, such as offline, quota_exceeded, rate_limited or not_configured. Show error.message to the player and branch on error.code, never on the message text.
+`;
+
+const CLOUD_SAVES_GUIDE = `## Saves and leaderboards
+
+game.storage keeps the player's progress. Await game.storage.set(key, value) with plain JSON (at most 64 KB a save, 32 keys a player; keys are letters, digits, dot, dash and underscore), game.storage.get(key), which resolves undefined when nothing is saved, game.storage.remove(key) and game.storage.keys(). Saves always land in this browser first. A game published to OhMyGame also keeps them on OhMyGame's game service (game.storage.cloud is true), so a signed-in player finds them on another device; a save made offline is sent when the browser is back online. In local previews and local publishing, saves stay in the browser and game.storage.cloud is false: the same code works in both, so never branch on it to decide whether to save. Save at natural points such as a finished level, not every frame. When a player who played as a guest signs in, a save the account does not have yet moves into it on the next get. Suggest signing in to keep progress across devices when game.auth.available is true and game.auth.player is undefined.
+
+game.leaderboard works in games published to OhMyGame (game.leaderboard.available is true); elsewhere every call rejects with code not_configured, so hide leaderboards when available is false. Submit once at the end of a run with await game.leaderboard.submit(board, score), which resolves with the player's best { score, rank, public, improved }; pass { order: "asc" } for boards where lower is better, such as times; a board keeps the order of its first score. Show await game.leaderboard.top(board, { limit }) as [{ rank, playerId, name, score }] and await game.leaderboard.me(board) for the player's own rank. Only signed-in players appear on the public board: a guest's score is kept for them, with public false and the rank it would have. A player may submit 10 scores a minute; more reject with rate_limited.
 `;

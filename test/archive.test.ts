@@ -97,6 +97,24 @@ describe("publish archives", () => {
     expect(JSON.parse(await zipFile(await builder.createLocal(projectAt(directory)), "manifest.json"))).toEqual({ title: "Board" });
   });
 
+  it("names the game's cloud saves service in published games, never in local builds", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-cloud-publish-"));
+    await writeFile(path.join(directory, "index.html"), "game");
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ title: "Puzzle" }));
+    expect(() => new ArtifactBuilder({ gameServiceUrl: "http://games.ohmygame.example/" })).toThrow("HTTPS");
+    const builder = new ArtifactBuilder({ gameServiceUrl: "https://games.ohmygame.example/" });
+    const prepared = await builder.prepare(projectAt(directory));
+    const packaged = await prepared.package("game-1");
+    await prepared.dispose();
+    expect(JSON.parse(await zipFile(packaged, "manifest.json"))).toEqual({
+      title: "Puzzle",
+      cloud: { serverUrl: "https://games.ohmygame.example/", gameId: "game-1" },
+    });
+    // Without the game's ID, or in a local build, saves stay in the browser.
+    expect(JSON.parse(await zipFile(await builder.create(projectAt(directory)), "manifest.json"))).toEqual({ title: "Puzzle" });
+    expect(JSON.parse(await zipFile(await builder.createLocal(projectAt(directory)), "manifest.json"))).toEqual({ title: "Puzzle" });
+  });
+
   it("builds with project binaries instead of the app's esbuild override", async () => {
     vi.stubEnv("ESBUILD_BINARY_PATH", "/app/esbuild");
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-env-"));

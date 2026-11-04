@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { build } from "esbuild";
-import { installMultiplayerWorkspace, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "../src/daemon/multiplayer-workspace.js";
+import { installGameSdk, installMultiplayerWorkspace, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "../src/daemon/multiplayer-workspace.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 describe("multiplayer workspace integration", () => {
@@ -67,7 +67,7 @@ describe("multiplayer workspace integration", () => {
       );
       expect(declaration).not.toContain("@colyseus/sdk");
       // The public API report: a change to what games can call shows up in review.
-      const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "define-game", "multiplayer-client", "multiplayer-protocol"];
+      const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "multiplayer-client", "multiplayer-protocol"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
       await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");
@@ -106,6 +106,40 @@ describe("multiplayer workspace integration", () => {
           await readFile(path.join(directory, "public/manifest.json"), "utf8"),
         ),
       ).toEqual({ version: 1, title: "Board", multiplayer: moved });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("sets up the SDK for saves and leaderboards in a single-player game, and keeps a multiplayer setup", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-game-sdk-"));
+    try {
+      const project = { workspacePath: directory };
+      const result = await installGameSdk(project);
+      expect(result).toEqual({ sdkPath: "src/ohmygame", manifestPath: "public/manifest.json", guidePath: "src/ohmygame/README.md" });
+      expect(JSON.parse(await readFile(path.join(directory, "public/manifest.json"), "utf8"))).toEqual({ version: 1 });
+      const guide = await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8");
+      expect(guide).toContain("game.storage");
+      expect(guide).toContain("game.leaderboard");
+      expect(guide).not.toContain("Colyseus");
+      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ title: "Puzzle" }));
+      await installGameSdk(project);
+      expect(JSON.parse(await readFile(path.join(directory, "public/manifest.json"), "utf8"))).toEqual({ version: 1, title: "Puzzle" });
+
+      // A game that already plays multiplayer keeps its deployment and its guide.
+      const config: MultiplayerManifestConfig = {
+        enabled: true, mode: "turn-based", adapterId: "stones", gameId: "puzzle", deploymentId: "local-v1", protocolVersion: 1,
+        serverUrl: "http://127.0.0.1:43130", authPolicy: "anonymous", roomPolicy: "invite-or-public", maxClients: 2, reconnectSeconds: 120,
+      };
+      await installMultiplayerWorkspace(project, config);
+      await installGameSdk(project);
+      expect(JSON.parse(await readFile(path.join(directory, "public/manifest.json"), "utf8")).multiplayer).toEqual(config);
+      const both = await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8");
+      expect(both).toContain("Colyseus");
+      expect(both).toContain("game.storage");
+
+      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ runtime: "playable-nodes" }));
+      await expect(installGameSdk(project)).rejects.toThrow("supported Web Game manifest");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -67,6 +67,7 @@ import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
+import { isCloudConfig } from "@ohmygame/sdk/cloud-protocol";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
@@ -570,6 +571,7 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder({
     account: publishedGameAccount(process.env.OHMYGAME_ACCOUNT_ISSUER ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL),
+    gameServiceUrl: publishedGameService(process.env.OHMYGAME_GAME_SERVICE_URL ?? process.env.MULTIPLAYER_PUBLISH_SERVER_URL),
   });
   const localMultiplayer = new LocalMultiplayerRuntime();
   /**
@@ -3190,14 +3192,16 @@ export function createApp(options: AppOptions = {}) {
       try {
         const localDebug = localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN;
         if (localDebug) await restoreLocalMultiplayer(project);
+        const cover = await projectCover(project.id);
+        // The game is built and checked first, then packaged once its record exists, so a
+        // published build can name the game for cloud saves.
+        const prepared = localDebug ? undefined : await artifacts.prepare(project, cover, request.body.multiplayer);
         const result = await publisher.publish(
           project,
-          await (localDebug
-            ? artifacts.createLocal(project, await projectCover(project.id), request.body.multiplayer)
-            : artifacts.create(project, await projectCover(project.id), request.body.multiplayer)),
+          prepared ? (gameId) => prepared.package(gameId) : await artifacts.createLocal(project, cover, request.body.multiplayer),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
-        );
+        ).finally(() => prepared?.dispose());
         await projects.setPublication(project.id, {
           gameId: result.game.id,
           deploymentId: result.game.deploymentId,
@@ -3326,6 +3330,13 @@ export function createApp(options: AppOptions = {}) {
 function publishedGameAccount(issuer: string | undefined): GameAccountConfig | undefined {
   const account = issuer ? { issuer: issuer.replace(/\/+$/, "") } : undefined;
   return isGameAccountConfig(account) ? account : undefined;
+}
+
+/** The game service published games keep cloud saves on; only an HTTPS origin qualifies. */
+function publishedGameService(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const origin = url.replace(/\/+$/, "") + "/";
+  return isCloudConfig({ serverUrl: origin, gameId: "check" }) ? origin : undefined;
 }
 
 function isExternalAgentClientId(value: string): value is ExternalAgentClientId {

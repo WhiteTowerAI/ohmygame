@@ -172,6 +172,126 @@ export declare function isGameAccountConfig(value: unknown, options?: {
 }): value is GameAccountConfig;
 export declare function isOhMyGamePlayer(value: unknown): value is OhMyGamePlayer;
 
+// cloud.d.ts
+import { type LeaderboardEntry, type LeaderboardOrder, type PlayerScore, type ScoreResult } from "./cloud-protocol.js";
+/**
+ * Saves that follow the player. Every write lands in the browser first and then on the
+ * game service when the game has one ("cloud" in manifest.json): a save made offline is
+ * sent when the service can be reached again. Without a service, or in a local build,
+ * saves stay in this browser.
+ */
+export interface GameStorage {
+    /** Whether saves reach the game service; false when they stay in this browser. */
+    readonly cloud: boolean;
+    /**
+     * The save under key, or undefined. Reads the service's copy when it can be reached,
+     * else this browser's. A save this browser has not sent yet wins over the service's.
+     */
+    get<T = unknown>(key: string): Promise<T | undefined>;
+    /**
+     * Keeps value, plain JSON of at most SAVE_MAX_BYTES, under key. Resolves once it is
+     * kept in this browser and, when it can be reached, on the service; offline it is sent
+     * later. Rejects with quota_exceeded when the player keeps too many saves or it is too large.
+     */
+    set(key: string, value: unknown): Promise<void>;
+    remove(key: string): Promise<void>;
+    /** The keys the player keeps. */
+    keys(): Promise<string[]>;
+    /** Sends saves made while the service could not be reached. The SDK also does this when the browser comes back online. */
+    sync(): Promise<void>;
+}
+/**
+ * Leaderboards on the game service. Only signed-in players appear publicly; a guest's
+ * score is kept for them, and me() tells them where it would place.
+ */
+export interface GameLeaderboard {
+    /** Whether the game has a game service; without one every call rejects with not_configured. */
+    readonly available: boolean;
+    /**
+     * Submits a score and resolves with the player's best on the board. A board keeps the
+     * order of its first score: "desc" (the default) ranks higher scores first, "asc" lower
+     * ones, as for a time. Later scores may leave order out; naming the other order rejects
+     * with conflict. Rejects with rate_limited after 10 scores in a minute.
+     */
+    submit(board: string, score: number, options?: {
+        order?: LeaderboardOrder;
+    }): Promise<ScoreResult>;
+    /** Public entries, best first: 10 by default, at most LEADERBOARD_PAGE_MAX. */
+    top(board: string, options?: {
+        limit?: number;
+        offset?: number;
+    }): Promise<LeaderboardEntry[]>;
+    /** The player's best and rank, or undefined before their first score. */
+    me(board: string): Promise<PlayerScore | undefined>;
+}
+
+// cloud-protocol.d.ts
+/**
+ * Cloud saves and leaderboards: what a game's page and the game service agree on.
+ * docs/cloud-saves.md describes the routes; free of dependencies so the service can
+ * import it.
+ */
+/** Where a game keeps cloud saves and leaderboards: manifest.json's "cloud". */
+export interface CloudConfig {
+    /** The game service's HTTPS base URL. */
+    serverUrl: string;
+    /** The game's ID on that service; for a game published to OhMyGame, its OhMyGame game ID. */
+    gameId: string;
+}
+/** A save key or leaderboard name: letters, digits, dot, dash and underscore. */
+export declare const CLOUD_NAME_PATTERN: RegExp;
+/** The most save keys one player may keep in one game. */
+export declare const SAVE_MAX_KEYS = 32;
+/** The largest save, in bytes of its JSON. */
+export declare const SAVE_MAX_BYTES: number;
+/** Scores one player may submit to one game in a minute. */
+export declare const SCORE_SUBMITS_PER_MINUTE = 10;
+/** The most leaderboard entries one request returns. */
+export declare const LEADERBOARD_PAGE_MAX = 100;
+/** "desc": a higher score ranks first, as in points. "asc": lower ranks first, as in a time. */
+export type LeaderboardOrder = "desc" | "asc";
+export interface SaveRecord {
+    key: string;
+    value: unknown;
+    /** Increases with every write; send it back as ifVersion to refuse a write over a newer one. */
+    version: number;
+    /** Milliseconds since the epoch, by the service's clock. */
+    updatedAt: number;
+}
+/** A save without its value, as the key list returns it. */
+export type SaveSummary = Omit<SaveRecord, "value"> & {
+    bytes: number;
+};
+export interface LeaderboardEntry {
+    rank: number;
+    /** The player's OhMyGame account ID. Only signed-in players appear on a public board. */
+    playerId: string;
+    name: string;
+    score: number;
+    /** When the player set this score, in milliseconds since the epoch. */
+    at: number;
+}
+/**
+ * The player's own best on a board. A guest's score is kept for them only: public is
+ * false and rank is where the score would place among signed-in players.
+ */
+export interface PlayerScore {
+    score: number;
+    at: number;
+    rank: number;
+    public: boolean;
+}
+/** The answer to a submitted score. */
+export interface ScoreResult extends PlayerScore {
+    /** Whether this score replaced the player's previous best. */
+    improved: boolean;
+}
+/** Codes the service sends with an error, beside its message. */
+export type CloudErrorCode = "quota_exceeded" | "rate_limited" | "conflict" | "not_found" | "invalid_request" | "not_authorized";
+export declare function isCloudConfig(value: unknown, options?: {
+    allowLocalhost?: boolean;
+}): value is CloudConfig;
+
 // define-game.d.ts
 /**
  * Game rules as plain functions: turn-based rules with defineGame, realtime rules with

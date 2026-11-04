@@ -174,7 +174,9 @@ describe("leaderboards in the browser SDK", () => {
     expect(await guest.leaderboard.me("points")).toMatchObject({ score: 250, rank: 2, public: false });
 
     expect(await ada.leaderboard.submit("time", 42.5, { order: "asc" })).toMatchObject({ score: 42.5 });
-    await expect(ada.leaderboard.submit("time", 40)).rejects.toMatchObject({ code: "conflict" });
+    // Later scores take the board's order; naming the other one is refused.
+    expect(await ada.leaderboard.submit("time", 40)).toMatchObject({ score: 40, improved: true });
+    await expect(ada.leaderboard.submit("time", 30, { order: "desc" })).rejects.toMatchObject({ code: "conflict" });
     await expect(ada.leaderboard.submit("time", Number.NaN)).rejects.toMatchObject({ code: "invalid_option" });
     await expect(ada.leaderboard.top("time", { limit: 1000 })).rejects.toMatchObject({ code: "invalid_option" });
 

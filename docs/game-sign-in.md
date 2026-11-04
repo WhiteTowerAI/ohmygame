@@ -10,7 +10,8 @@ This document is the contract between three parties:
 - the browser SDK in a game (`packages/sdk/src/account.ts`, `game.auth`);
 - the OhMyGame account service, part of the cloud (`ohmygame-cloud`), which signs players
   in and issues tokens;
-- game services that verify tokens (`packages/server/src/auth.ts`).
+- game services that verify tokens (`packages/server/src/auth.ts`), for rooms and for
+  [cloud saves and leaderboards](cloud-saves.md).
 
 The account service side is not implemented yet. Until it is, `game.auth.signIn()` in a
 published game fails when the sign-in page cannot be reached, and players stay guests.

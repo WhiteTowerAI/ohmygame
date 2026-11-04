@@ -111,16 +111,16 @@ export class PostgresGameDataStore implements ServerStore {
     const result = await this.query("DELETE FROM ohmygame_saves WHERE game_id = $1 AND player_id = $2 AND key = $3", [gameId, playerId, key]);
     return (result.rowCount ?? 0) > 0;
   }
-  async submitScore(gameId: string, board: string, score: { playerId: string; name: string; value: number; public: boolean; order: LeaderboardOrder; now: number }) {
+  async submitScore(gameId: string, board: string, score: { playerId: string; name: string; value: number; public: boolean; order?: LeaderboardOrder; now: number }) {
     await this.migrate();
     return this.transaction(async (client) => {
-      await client.query("INSERT INTO ohmygame_boards VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [gameId, board, score.order]);
+      await client.query("INSERT INTO ohmygame_boards VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [gameId, board, score.order ?? "desc"]);
       const { rows } = await client.query<{ rank_order: LeaderboardOrder }>(
         "SELECT rank_order FROM ohmygame_boards WHERE game_id = $1 AND board = $2",
         [gameId, board],
       );
       const order = rows[0]!.rank_order;
-      if (order !== score.order) throw orderConflict(order);
+      if (score.order && order !== score.order) throw orderConflict(order);
       const better = order === "desc" ? "EXCLUDED.score > s.score" : "EXCLUDED.score < s.score";
       // The best score and its time stay unless this one beats it; the name and visibility follow the player.
       const result = await client.query<{ improved: boolean }>(

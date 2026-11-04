@@ -172,8 +172,8 @@ export function mountGameData(app: Application, options: GameDataOptions, auth: 
     const score = body.score;
     if (typeof score !== "number" || !Number.isFinite(score) || Math.abs(score) > Number.MAX_SAFE_INTEGER)
       throw new RouteError(400, "invalid_request", "A score is a finite number.");
-    const order = (body.order ?? "desc") as LeaderboardOrder;
-    if (order !== "desc" && order !== "asc") throw new RouteError(400, "invalid_request", 'order is "desc" or "asc".');
+    const order = body.order as LeaderboardOrder | undefined;
+    if (order !== undefined && order !== "desc" && order !== "asc") throw new RouteError(400, "invalid_request", 'order is "desc" or "asc".');
     if (!rate.take(`score:${gameId}:${identity.userId}`, SCORE_SUBMITS_PER_MINUTE))
       throw new RouteError(429, "rate_limited", `A player submits at most ${SCORE_SUBMITS_PER_MINUTE} scores a minute.`);
     // Only signed-in players appear on a public board; a guest's score is theirs to see.
@@ -182,7 +182,7 @@ export function mountGameData(app: Application, options: GameDataOptions, auth: 
       name: identity.name ?? "Player",
       value: score,
       public: identity.kind === "account",
-      order,
+      ...(order ? { order } : {}),
       now: Date.now(),
     });
     response.json({ ...(await store.playerScore(gameId, board, identity.userId))!, improved });

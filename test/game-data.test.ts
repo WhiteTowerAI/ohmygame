@@ -65,6 +65,8 @@ describe.each(stores)("%s game data store", (_name, open) => {
     expect(await submit("account:a", 40, 4)).toEqual({ improved: false });
     expect(await submit("guest:g", 70, 5)).toEqual({ improved: true });
     await expect(submit("account:a", 1, 6, "asc")).rejects.toThrow("This leaderboard ranks higher scores first.");
+    // A score that names no order takes the board's.
+    expect(await store.submitScore("g1", "points", { playerId: "account:a", name: "A", value: 45, public: true, now: 6 })).toEqual({ improved: false });
     // Ties go to the earlier score; the guest is not on the board.
     expect(await store.topScores("g1", "points", 10, 0)).toEqual([
       { rank: 1, playerId: "b", name: "B", score: 80, at: 2 },
@@ -78,7 +80,7 @@ describe.each(stores)("%s game data store", (_name, open) => {
     expect(await store.topScores("g1", "missing", 10, 0)).toEqual([]);
 
     await store.submitScore("g1", "time", { playerId: "account:a", name: "A", value: 30.5, public: true, order: "asc", now: 7 });
-    expect((await store.submitScore("g1", "time", { playerId: "account:a", name: "A", value: 29.25, public: true, order: "asc", now: 8 })).improved).toBe(true);
+    expect((await store.submitScore("g1", "time", { playerId: "account:a", name: "A", value: 29.25, public: true, now: 8 })).improved).toBe(true);
     expect(await store.playerScore("g1", "time", "account:a")).toMatchObject({ score: 29.25, at: 8, rank: 1 });
   });
 
