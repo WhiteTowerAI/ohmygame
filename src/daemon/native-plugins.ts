@@ -4,6 +4,7 @@ import type {
   PluginConfigurationValues,
   ProjectTypeHook,
 } from "../shared/extension-host-protocol.js";
+import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import {
   ExtensionHostError,
@@ -67,9 +68,13 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     dataFolder,
     entry: manifest.entrypoints!.native!,
     tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
-    commands: (manifest.contributes?.commands ?? []).flatMap((command) =>
-      "native" in command.run ? [command.run.native] : [],
-    ),
+    // A canvas node's code is a command handler too.
+    commands: [...new Set([
+      ...(manifest.contributes?.commands ?? []).flatMap((command) =>
+        "native" in command.run ? [command.run.native] : [],
+      ),
+      ...(manifest.contributes?.canvasNodes ?? []).map((node) => node.run.native),
+    ])],
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
     ),
@@ -140,6 +145,32 @@ export class NativePlugins {
       ...(await this.#call(key, entry, { ...options, timeoutMs: options.timeoutMs ?? seconds(run.timeoutSeconds) })),
       command: run.native,
     });
+  }
+
+  /**
+   * Runs a canvas node, `publisher/name:node`, in the version the project
+   * uses: `prepare` checks the call against the node's definition there and
+   * returns what its code gets.
+   */
+  async runCanvasNode<T>(
+    node: string,
+    options: Omit<PluginCallOptions, "input"> & {
+      prepare: (definition: CanvasNodeDefinition, entry: PluginIndexEntry) => Promise<unknown>;
+      result: (value: unknown, definition: CanvasNodeDefinition) => Promise<T>;
+    },
+  ): Promise<T> {
+    const [id, nodeId] = qualified(node);
+    const { key, entry } = await this.#ready(options.folder, id);
+    const definition = entry.manifest.contributes?.canvasNodes?.find(
+      (item) => item.id === nodeId,
+    );
+    if (!definition) throw unavailable(`${id} ${entry.version} has no canvas node ${nodeId}`);
+    const input = await options.prepare(definition, entry);
+    const value = await this.#hosts.invoke({
+      ...(await this.#call(key, entry, { ...options, input, timeoutMs: options.timeoutMs ?? seconds(definition.run.timeoutSeconds) })),
+      command: definition.run.native,
+    });
+    return options.result(value, definition);
   }
 
   /** Runs a hook of a project type, `publisher/name:type`, that the project's plugin contributes. */

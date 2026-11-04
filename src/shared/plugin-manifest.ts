@@ -13,7 +13,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -260,6 +260,82 @@ const Command = Type.Object(
         { minItems: 1, maxItems: 10 },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/** What a canvas node's input accepts or its output makes. */
+export const CANVAS_NODE_MEDIA = ["image", "text", "audio", "video", "model"] as const;
+export const CANVAS_NODE_MAX_INPUTS = 8;
+export const CANVAS_NODE_MAX_PARAMS = 16;
+const CanvasNodeParam = Type.Object(
+  {
+    type: Literals(["text", "number", "boolean", "select"]),
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    default: Type.Optional(
+      Type.Union([Type.String({ maxLength: 4000 }), Type.Number(), Type.Boolean()]),
+    ),
+    options: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        minItems: 1,
+        maxItems: 50,
+        uniqueItems: true,
+      }),
+    ),
+    minimum: Type.Optional(Type.Number()),
+    maximum: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A node a plugin adds to Asset Canvas: what it takes, the settings it
+ * shows, and what its native code makes from them.
+ */
+const CanvasNode = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    inputs: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            id: CamelId,
+            title: Text(),
+            accepts: Literals(CANVAS_NODE_MEDIA),
+            multiple: Type.Optional(Type.Boolean()),
+            optional: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        { maxItems: CANVAS_NODE_MAX_INPUTS },
+      ),
+    ),
+    params: Type.Optional(
+      Type.Record(
+        Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
+        CanvasNodeParam,
+        { additionalProperties: false },
+      ),
+    ),
+    output: Literals(CANVAS_NODE_MEDIA),
+    run: Type.Object(
+      { native: CamelId, timeoutSeconds: Type.Optional(TimeoutSeconds) },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** A group of canvas nodes, in a JSON file of the package, to add to a board. */
+const CanvasPreset = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    board: RelativePath("\\.json"),
   },
   { additionalProperties: false },
 );
@@ -518,6 +594,8 @@ export const PluginManifestV2Schema = Type.Object(
           providers: list(Provider),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          canvasNodes: list(CanvasNode),
+          canvasPresets: list(CanvasPreset),
         },
         { additionalProperties: false },
       ),
@@ -625,6 +703,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "providers",
     "panels",
     "mcpServers",
+    "canvasNodes",
+    "canvasPresets",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -685,6 +765,37 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       if (slashes.has(command.slash))
         issue(`${path}/slash`, `duplicate slash command ${command.slash}`);
       slashes.add(command.slash);
+    }
+  });
+
+  contributes.canvasNodes?.forEach((node, index) => {
+    const path = `/contributes/canvasNodes/${index}`;
+    if (!native) issue(`${path}/run/native`, "needs a native entrypoint");
+    const inputs = new Set<string>();
+    node.inputs?.forEach((input, inputIndex) => {
+      if (inputs.has(input.id))
+        issue(`${path}/inputs/${inputIndex}/id`, `duplicate input ${input.id}`);
+      inputs.add(input.id);
+    });
+    const params = Object.entries(node.params ?? {});
+    if (params.length > CANVAS_NODE_MAX_PARAMS)
+      issue(`${path}/params`, `at most ${CANVAS_NODE_MAX_PARAMS} settings`);
+    for (const [key, param] of params) {
+      const at = `${path}/params/${key}`;
+      if (param.type === "select") {
+        if (!param.options) issue(`${at}/options`, "a select needs options");
+        else if (param.default !== undefined && !param.options.includes(String(param.default)))
+          issue(`${at}/default`, "must be one of the options");
+      } else if (param.options) issue(`${at}/options`, "only a select has options");
+      if ((param.minimum !== undefined || param.maximum !== undefined) && param.type !== "number")
+        issue(at, "only a number has a minimum or maximum");
+      if (param.minimum !== undefined && param.maximum !== undefined && param.minimum > param.maximum)
+        issue(`${at}/minimum`, "must not be more than the maximum");
+      const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
+      if (param.default !== undefined && typeof param.default !== expected)
+        issue(`${at}/default`, `must be a ${expected}`);
+      else if (typeof param.default === "number" && ((param.minimum !== undefined && param.default < param.minimum) || (param.maximum !== undefined && param.default > param.maximum)))
+        issue(`${at}/default`, "must be within the minimum and maximum");
     }
   });
 

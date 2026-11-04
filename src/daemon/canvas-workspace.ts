@@ -8,7 +8,7 @@ import { resolveVideoMentions } from "../shared/video-references.js";
 import { lstat, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { convertToPng } from "@earendil-works/pi-coding-agent";
-import type { AssetCanvasNode, PromptImage, RunToolRequest, ToolJob, ToolId } from "../shared/contracts.js";
+import type { AssetCanvasNode, ProjectState, PromptImage, RunToolRequest, ToolJob, ToolId } from "../shared/contracts.js";
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
 import { combineAssetCanvasPrompt, createAssetCanvasDocument, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
@@ -54,6 +54,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
 - Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeIds for generation; it uses the node settings and shared generation history.
+- A plugin node (type "plugin") runs a project plugin's code: data.node names it as publisher/name:node, data.params holds its settings, data.inputs maps each input ID to node or Library references, and its output is data.assetId or data.text. Keep data.node as it is, and generate it with generate_canvas_media like other generation nodes.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
 - An editor-context block identifies the current board and selected nodes. Read the referenced files before editing, and preserve other user changes.
 `;
@@ -287,6 +288,7 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
         if ("images" in data) data.images = data.images.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
         if ("references" in data && data.references) data.references = data.references.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
         if ("source" in data && data.source && (data.source.type === "library" ? ids.has(data.source.assetId) : removed.has(data.source.nodeId))) delete data.source;
+        if (node.type === "plugin") (data as typeof node.data).inputs = Object.fromEntries(Object.entries(node.data.inputs).map(([key, references]) => [key, references.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId))]));
         return { ...node, data } as AssetCanvasNode;
       });
       detail.board.edges = detail.board.edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target));
@@ -299,7 +301,23 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
     }
   });
 }
-type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; inputRevision?: string };
+type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; inputRevision?: string; pluginOutput?: string };
+
+/** A plugin canvas node's input, as its code gets it. */
+export type CanvasPluginInput =
+  | { type: "image" | "audio" | "video" | "model"; path: string; contentType: string }
+  | { type: "text"; text: string };
+export interface CanvasPluginRequest {
+  /** `publisher/name:node`. */
+  node: string;
+  params: Record<string, string | number | boolean>;
+  inputs: Record<string, CanvasPluginInput[]>;
+}
+/** Runs plugins' canvas nodes; the output is a Library asset or text. */
+export interface CanvasPluginRunner {
+  run(project: ProjectState, request: CanvasPluginRequest, signal: AbortSignal): Promise<{ assetId: string } | { text: string }>;
+}
+const publicJob = ({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
 export type CanvasGenerationReuse = "running" | "output";
 export class CanvasStore {
@@ -312,7 +330,7 @@ export class CanvasStore {
   readonly #jobs = new Map<string, StoredJob[]>();
   readonly #controllers = new Map<string, AbortController>();
   #closed = false;
-  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner) {}
+  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner) {}
   #project(id: string) {
     const project = this.projects.get(id);
     if (!project) throw new CanvasError("Project not found", 404);
@@ -465,7 +483,7 @@ export class CanvasStore {
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
-  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, ...job }) => structuredClone(job))); }
+  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(publicJob)); }
   async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedRevision?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
     const started = await withCanvasLock(workspace, async () => {
@@ -493,23 +511,17 @@ export class CanvasStore {
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job, prepared };
     });
-    if ("reused" in started) { const { input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, ...existing } = started.job; return { ...structuredClone(existing), reused: started.reused }; }
+    if ("reused" in started) return { ...publicJob(started.job), reused: started.reused };
     const { job, prepared } = started;
     const controller = new AbortController(); this.#controllers.set(job.id, controller);
-    const execution = this.#execute(id, job, prepared, controller);
-    let executions = this.#executions.get(id);
-    if (!executions) { executions = new Set(); this.#executions.set(id, executions); }
-    executions.add(execution);
-    void execution.finally(() => {
-      executions.delete(execution);
-      if (!executions.size) this.#executions.delete(id);
-    });
-    const { input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, ...publicJob } = job; return structuredClone(publicJob);
+    this.#track(id, this.#execute(id, job, prepared, controller));
+    return publicJob(job);
   }
   /** With `reuse`, an agent request follows a run already in progress, or returns the node's current output when it came from identical settings, instead of paying for another generation. */
   async generateNode(id: string, boardId: string, nodeId: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const project = this.#project(id), { board, revision } = await this.board(id, boardId);
     const node = board.nodes.find((node) => node.id === nodeId);
+    if (node?.type === "plugin") return this.#startPlugin(id, boardId, nodeId, reuse);
     if (!node || !["image", "video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene"].includes(node.type)) throw new CanvasError("Choose a media generation node");
     const manifest = await readCanvasAssets(project.workspacePath);
     const assetId = (reference: Parameters<typeof resolveAssetCanvasAssetId>[1]): string => {
@@ -613,9 +625,97 @@ export class CanvasStore {
     catch (cause) { throw new CanvasError(cause instanceof Error ? cause.message : String(cause)); }
     return this.start(id, boardId, nodeId, "generate-video", { prompt: resolvedPrompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references, ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}) }, revision, undefined, reuse);
   }
+  /** What a plugin node's code gets, and what identifies it for reuse: asset ids and text, not paths. */
+  async #pluginInputs(id: string, board: CanvasBoard, node: Extract<AssetCanvasNode, { type: "plugin" }>) {
+    const project = this.#project(id), manifest = await readCanvasAssets(project.workspacePath);
+    const inputs: Record<string, CanvasPluginInput[]> = {}, signature: Record<string, string[]> = {};
+    for (const [key, references] of Object.entries(node.data.inputs)) {
+      inputs[key] = []; signature[key] = [];
+      for (const reference of references) {
+        const source = reference.type === "node" ? board.nodes.find((candidate) => candidate.id === reference.nodeId) : undefined;
+        const text = source?.type === "text" ? source.data.text
+          : source?.type === "document" ? (await this.read(id, source.data.documentId))?.document.markdown ?? ""
+            : source?.type === "plugin" && source.data.text !== undefined ? source.data.text : undefined;
+        if (text !== undefined) {
+          inputs[key].push({ type: "text", text }); signature[key].push(`text:${revision(text)}`);
+          continue;
+        }
+        const assetId = resolveAssetCanvasAssetId(board.nodes, reference);
+        const asset = assetId ? manifest.assets[assetId] : undefined;
+        if (!assetId || !asset) throw new CanvasError("A referenced node has no saved output. Generate it first.");
+        const media = await getWorkspaceMedia(project.workspacePath, asset.path);
+        inputs[key].push({ type: media.mediaType, path: media.absolutePath, contentType: media.contentType }); signature[key].push(`asset:${assetId}`);
+      }
+    }
+    return { inputs, signature };
+  }
+  async #startPlugin(id: string, boardId: string, nodeId: string, reuse: boolean): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
+    if (!this.plugins) throw new CanvasError("Plugin nodes can't run here", 409);
+    const project = this.#project(id), workspace = project.workspacePath;
+    const { board, revision: boardRevision } = await this.board(id, boardId);
+    const node = board.nodes.find((candidate) => candidate.id === nodeId);
+    if (node?.type !== "plugin") throw new CanvasError("Generation node not found", 404);
+    const { inputs, signature } = await this.#pluginInputs(id, board, node);
+    const request: CanvasPluginRequest = { node: node.data.node, params: node.data.params, inputs };
+    const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature });
+    const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
+    const started = await withCanvasLock(workspace, async () => {
+      if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
+      if ((await this.board(id, boardId)).revision !== boardRevision) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
+      const jobs = await this.#loadJobs(id);
+      const nodeJobs = jobs.filter((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId);
+      const running = nodeJobs.find((job) => job.status === "running");
+      if (running && reuse) return { reused: "running" as const, job: running };
+      if (running) throw new CanvasError("This node is already generating", 409);
+      const latest = nodeJobs.find((job) => job.status !== "cancelled");
+      if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && output && latest.pluginOutput === output) return { reused: "output" as const, job: latest };
+      if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
+      const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId: "plugin-node", createdAt: new Date().toISOString(), status: "running", title: (node.title?.trim() || node.data.node).slice(0, 200), context: { projectId: id, boardId, nodeId } };
+      this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job };
+    });
+    if ("reused" in started) return { ...publicJob(started.job), reused: started.reused };
+    const { job } = started;
+    const controller = new AbortController(); this.#controllers.set(job.id, controller);
+    this.#track(id, this.#executePlugin(id, job, request, controller));
+    return publicJob(job);
+  }
+  async #executePlugin(id: string, job: StoredJob, request: CanvasPluginRequest, controller: AbortController) {
+    try {
+      const output = await this.plugins!.run(this.#project(id), request, controller.signal); controller.signal.throwIfAborted();
+      await withCanvasLock(this.#project(id).workspacePath, async () => {
+        if (controller.signal.aborted) return;
+        const project = this.#project(id), workspace = project.workspacePath, boardId = job.context!.boardId!;
+        if ("assetId" in output) await ensureCanvasAssets(project, this.projects, this.library, [output.assetId]);
+        if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
+          const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
+          if (detail && node?.type === "plugin" && node.data.node === request.node) {
+            if ("assetId" in output) { node.data.assetId = output.assetId; delete node.data.text; }
+            else { node.data.text = output.text; delete node.data.assetId; }
+            await writeCanvasBoard(workspace, detail.board);
+          }
+        }
+        job.pluginOutput = "assetId" in output ? `asset:${output.assetId}` : `text:${revision(output.text)}`;
+        job.status = "succeeded"; await this.#saveJobs(id);
+      });
+    } catch (cause) {
+      job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause);
+      try { await withCanvasLock(this.#project(id).workspacePath, () => this.#saveJobs(id)); } catch { /* Removed projects have no history to update. */ }
+    } finally { this.#controllers.delete(job.id); }
+  }
+  #track(id: string, execution: Promise<void>) {
+    let executions = this.#executions.get(id);
+    if (!executions) { executions = new Set(); this.#executions.set(id, executions); }
+    executions.add(execution);
+    void execution.finally(() => {
+      executions.delete(execution);
+      if (!executions.size) this.#executions.delete(id);
+    });
+  }
   async #execute(id: string, job: StoredJob, prepared: RunToolRequest, controller: AbortController) {
     try {
-      const run = await this.tools.runPrepared(job.toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
+      const toolId = job.toolId;
+      if (toolId === "plugin-node") throw new CanvasError("Plugin nodes run with their own execution");
+      const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
       await withCanvasLock(this.#project(id).workspacePath, async () => {
@@ -624,7 +724,7 @@ export class CanvasStore {
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!]);
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
-          const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music", "generate-audio": "audio-scene" } as Partial<Record<ToolId, string>>)[job.toolId];
+          const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music", "generate-audio": "audio-scene" } as Partial<Record<ToolId, string>>)[toolId];
           if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
         }
         job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
@@ -640,12 +740,14 @@ export class CanvasStore {
       const job = (await this.#loadJobs(id)).find((job) => job.id === jobId);
       if (!job) throw new CanvasError("Generation job not found", 404);
       if (job.status === "running") { job.status = "cancelled"; job.error = job.toolId === "image-to-3d" || job.toolId === "animate-3d" ? "Stopped waiting locally. Retry to resume; the provider task may still be running." : "Generation cancelled"; this.#controllers.get(job.id)?.abort(); await this.#saveJobs(id); }
-      const { input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, ...result } = job; return structuredClone(result);
+      return publicJob(job);
     });
   }
   async retry(id: string, jobId: string): Promise<ToolJob> {
     const job = await withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).find((job) => job.id === jobId));
-    if (!job || !job.input || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
+    // A plugin node runs again from its current settings and inputs.
+    if (job?.toolId === "plugin-node" && ["failed", "cancelled"].includes(job.status)) return this.#startPlugin(id, job.context!.boardId!, job.context!.nodeId, false);
+    if (!job || !job.input || job.toolId === "plugin-node" || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
     return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }

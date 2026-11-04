@@ -3211,6 +3211,26 @@ const en = {
     group: {
       assets: "Assets",
       documents: "Documents",
+      plugins: "Plugins",
+    },
+    plugin: {
+      off: "This node's plugin is off or removed. Turn it on in Plugins to run it.",
+      run: "Run",
+      runAgain: "Run again",
+      cancel: "Stop",
+      running: "Running…",
+      noOutput: "No output yet",
+      optional: "optional",
+      connect: "Connect {{media}}",
+      removeInput: "Disconnect {{name}}",
+      settings: "Settings",
+      media: {
+        image: "image",
+        text: "text",
+        audio: "audio",
+        video: "video",
+        model: "3D model",
+      },
     },
     node: {
       text: "Text",

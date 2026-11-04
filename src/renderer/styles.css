@@ -5595,6 +5595,172 @@ button {
   opacity: 0.4;
 }
 
+/* A plugin's node: one row and port per input, then its output. */
+.story-plugin-node {
+  width: 320px;
+  overflow: visible;
+}
+
+.story-plugin-inputs {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.story-plugin-input {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+.story-plugin-input-title {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.story-plugin-input-title small {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.story-plugin-source {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+
+.story-plugin-source > span {
+  overflow: hidden;
+  max-width: 160px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-plugin-source button {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.story-plugin-source button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.story-plugin-empty {
+  color: var(--text-faint);
+}
+
+.story-plugin-output {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  padding: 10px;
+}
+
+.story-plugin-output img,
+.story-plugin-output video {
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 6px;
+}
+
+.story-plugin-output audio {
+  width: 100%;
+}
+
+.story-plugin-text {
+  overflow: auto;
+  max-height: 220px;
+  margin: 0;
+  justify-self: stretch;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.story-plugin-off,
+.story-plugin-error {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.story-plugin-off {
+  color: var(--text-faint);
+}
+
+.story-plugin-error {
+  color: var(--danger);
+}
+
+.story-node > .story-plugin-output-handle {
+  top: 50%;
+}
+
+.story-plugin-description {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.story-plugin-params {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.story-plugin-param {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.story-plugin-param > span {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-plugin-param input:not([type="checkbox"]),
+.story-plugin-param select {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--story-editor-surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.story-plugin-param.is-boolean input {
+  justify-self: start;
+}
+
+.story-plugin-composer .story-media-controls {
+  justify-content: flex-end;
+}
+
 .story-media-empty {
   display: flex;
   align-items: center;

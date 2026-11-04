@@ -9,7 +9,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition } from "../shared/plugins.js";
+import type { McpServerDefinition, ProjectPluginCanvas } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -422,6 +422,40 @@ export class PluginServices {
         });
     }
     return commands;
+  }
+
+  /** What a project's active plugins add to Asset Canvas, in `locale`. */
+  async canvas(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginCanvas> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const canvas: ProjectPluginCanvas = { nodes: [] };
+    if (!resolved?.ok) return canvas;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      const pluginName = text(entry.manifest.displayName);
+      for (const node of entry.manifest.contributes?.canvasNodes ?? [])
+        canvas.nodes.push({
+          id: `${entry.id}:${node.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(node.title),
+          ...(node.description ? { description: text(node.description) } : {}),
+          inputs: (node.inputs ?? []).map((input) => ({ ...input, title: text(input.title) })),
+          params: Object.entries(node.params ?? {}).map(([key, param]) => ({
+            key,
+            ...param,
+            title: text(param.title),
+            ...(param.description ? { description: text(param.description) } : {}),
+          })),
+          output: node.output,
+        });
+    }
+    return canvas;
   }
 
   /** The panels of a project's active plugins, with what their pages may ask the host for. */

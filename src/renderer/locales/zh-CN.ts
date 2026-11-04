@@ -3145,6 +3145,26 @@ const zhCN: typeof en = {
     group: {
       assets: "素材",
       documents: "文档",
+      plugins: "插件",
+    },
+    plugin: {
+      off: "这个节点的插件已关闭或已移除。在插件页打开后才能运行。",
+      run: "运行",
+      runAgain: "再次运行",
+      cancel: "停止",
+      running: "正在运行…",
+      noOutput: "还没有输出",
+      optional: "可选",
+      connect: "连接{{media}}",
+      removeInput: "断开 {{name}}",
+      settings: "设置",
+      media: {
+        image: "图片",
+        text: "文本",
+        audio: "音频",
+        video: "视频",
+        model: "3D 模型",
+      },
     },
     node: {
       text: "文本",

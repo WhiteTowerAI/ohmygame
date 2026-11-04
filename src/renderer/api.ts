@@ -1796,6 +1796,11 @@ export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN")
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
 }
 
+/** The canvas nodes of the project's active plugins, in the app's language. */
+export async function getProjectPluginCanvas(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCanvas> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-canvas?locale=${encodeURIComponent(language)}`);
+}
+
 export async function getPluginPageValue(projectId: string, plugin: string, key: string): Promise<unknown> {
   return (await request<{ value: unknown }>(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`)).value;
 }

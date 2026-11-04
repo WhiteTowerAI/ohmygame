@@ -313,6 +313,35 @@ export interface ProjectPluginCommand {
     | { native: string };
 }
 
+/** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */
+export interface ProjectCanvasNode {
+  /** `publisher/name:node`. */
+  id: string;
+  plugin: string;
+  /** The plugin's name, in the asked language. */
+  pluginName: string;
+  title: string;
+  description?: string;
+  inputs: Array<{ id: string; title: string; accepts: CanvasNodeMedia; multiple?: boolean; optional?: boolean }>;
+  params: Array<{
+    key: string;
+    type: "text" | "number" | "boolean" | "select";
+    title: string;
+    description?: string;
+    default?: string | number | boolean;
+    options?: string[];
+    minimum?: number;
+    maximum?: number;
+  }>;
+  output: CanvasNodeMedia;
+}
+export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
+
+/** What a project's plugins add to Asset Canvas. */
+export interface ProjectPluginCanvas {
+  nodes: ProjectCanvasNode[];
+}
+
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
 export interface ProjectPluginChange {
   id: string;

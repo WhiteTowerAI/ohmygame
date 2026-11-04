@@ -26,6 +26,7 @@ function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>
   const reference = (value: AssetCanvasReference): AssetCanvasReference[] => value.type === "library" ? [value] : ids.has(value.nodeId) ? [{ ...value, nodeId: ids.get(value.nodeId)! }] : [];
   if ("audioReferences" in node.data) node.data.audioReferences = node.data.audioReferences?.flatMap((item) => reference(item.source).map((source) => ({ ...item, source })));
   if (node.type === "image" || node.type === "model-3d") node.data.images = node.data.images.flatMap(reference);
+  if (node.type === "plugin") node.data.inputs = Object.fromEntries(Object.entries(node.data.inputs).map(([key, references]) => [key, references.flatMap(reference)]));
   if ((node.type === "text" || node.type === "document") && node.data.references) {
     node.data.references = node.data.references.flatMap((value) => ids.has(value.nodeId) ? [{ type: "node" as const, nodeId: ids.get(value.nodeId)! }] : []);
   }

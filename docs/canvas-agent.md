@@ -357,7 +357,8 @@ node's left and right edges, independently of the outside port icons. Drag from
 either an input or an output to connect compatible nodes. Click a port, or focus
 it and press Enter or Space, to add a compatible context or continuation node.
 Creating that node also establishes its reference as one undo step; it does not
-start model generation.
+start model generation. A plugin's node ([Canvas nodes](plugins.md#canvas-nodes))
+has one input port per input it declares.
 
 Choose **Pick from canvas** in a node's instruction editor, or in its input port
 menu, to select sources on the current board. Compatible nodes stay readable and
