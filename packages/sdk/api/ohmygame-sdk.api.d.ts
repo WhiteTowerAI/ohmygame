@@ -464,6 +464,89 @@ export type ClientMoves<Game> = Game extends {
 } : Record<string, (args?: Record<string, unknown>) => string>;
 export {};
 
+// host.d.ts
+/**
+ * Rules a player's browser runs for the room: the game's own rules from defineGame or
+ * defineRealtimeGame, which the game service never runs. The service keeps the room —
+ * seats, phase, sequence, reconnection and the saved state — and asks the hosting player
+ * to apply the rules; it accepts only the game's part of the answer. docs/multiplayer.md
+ * describes the exchange.
+ */
+import { type MultiplayerGameState, type RealtimeAction, type RealtimeInput, type TurnCommand } from "./multiplayer-protocol.js";
+import { type GameAdapter } from "./rules.js";
+/** The adapterId of deployments whose rules run on a player's browser. */
+export declare const HOST_ADAPTER_ID = "host";
+/** The largest message a hosting player may send, in bytes of its JSON. */
+export declare const HOST_MESSAGE_MAX_BYTES: number;
+/** How long the service waits for the hosting player before another player hosts. */
+export declare const HOST_REPLY_MS = 5000;
+/** What the service asks the hosting player to apply to state. */
+export type HostRequest = {
+    requestId: string;
+    /** The room's state, unfiltered. */
+    state: MultiplayerGameState;
+    now: number;
+} & ({
+    kind: "command";
+    playerId: string;
+    command: TurnCommand;
+} | {
+    kind: "join" | "leave";
+    playerId: string;
+}
+/** A round starts; finished is the round before, when there is one. */
+ | {
+    kind: "round";
+    finished?: MultiplayerGameState;
+} | {
+    kind: "timeout";
+});
+/** Views per seat for rules with playerView, keyed by player ID; "" is a spectator's. */
+export type HostViews = Record<string, Record<string, unknown>>;
+export interface HostReply {
+    requestId: string;
+    state?: MultiplayerGameState;
+    views?: HostViews;
+    /** Why the rules refused a command. */
+    error?: string;
+}
+/** Whether rules from defineGame or defineRealtimeGame show players different things. */
+export declare function hasPlayerView(rules: unknown): boolean;
+/** What each seat, and a spectator, may see of state. */
+export declare function hostViews(adapter: GameAdapter, state: MultiplayerGameState): HostViews;
+/** Applies one request with the rules, as the service would if it ran them. */
+export declare function runHostRequest(adapter: GameAdapter, request: HostRequest, playerView: boolean): HostReply;
+/**
+ * The room state after a hosting player's answer. The service keeps what it owns: seats and
+ * their connections, the owner, and any phase it set itself while the player worked, such as
+ * closing the room. From the player it takes the game, positions, whose turn it is, the
+ * deadline and winners among the seats. base is the state the request carried; a realtime
+ * tick has none, and changes the phase only while a round is playing.
+ */
+export declare function mergeHostState(host: MultiplayerGameState, room: MultiplayerGameState, base?: MultiplayerGameState): MultiplayerGameState;
+/**
+ * The realtime loop a hosting player's browser runs: every tick it steps the rules with the
+ * players' latest inputs and the actions since the last tick, and sends the new state.
+ */
+export declare class HostLoop {
+    private readonly adapter;
+    private readonly tickMs;
+    private readonly playerView;
+    private readonly send;
+    private state?;
+    private readonly inputs;
+    private actions;
+    private timer?;
+    constructor(adapter: GameAdapter, tickMs: number, playerView: boolean, send: (state: MultiplayerGameState, views?: HostViews) => void);
+    start(state: MultiplayerGameState): void;
+    /** The room changed without this player's rules, for example a seat was taken. */
+    sync(state: MultiplayerGameState): void;
+    input(playerId: string, input: RealtimeInput): void;
+    action(playerId: string, action: RealtimeAction): void;
+    stop(): void;
+    private tick;
+}
+
 // multiplayer-client.d.ts
 import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
 import { OhMyGameError } from "./errors.js";
@@ -486,6 +569,12 @@ export interface MultiplayerClientOptions {
     identityStorage?: Storage;
     /** Opt in only for loopback development, never for a published deployment. */
     allowLocalhost?: boolean;
+    /**
+     * The game's rules from defineGame or defineRealtimeGame, usually the default export of
+     * server/rules.ts. Required when the deployment runs its rules on a player's browser
+     * (adapterId "host"): the service asks one player at a time to run them for the room.
+     */
+    rules?: unknown;
     connectionTimeoutMs?: number;
     /** Waits before each quick play retry when the service is at its room limit. */
     roomLimitRetryMs?: number[];
@@ -502,6 +591,8 @@ export interface MultiplayerClientCallbacks {
     onCommandResult?: (result: TurnCommandResult) => void;
     onSnapshot?: (snapshot: MultiplayerSnapshot) => void;
     onError?: (error: OhMyGameError) => void;
+    /** This player's browser starts or stops running the game's rules for the room. */
+    onHost?: (hosting: boolean) => void;
 }
 /**
  * Colyseus owns transient reconnects; this wrapper adds refresh and restart recovery.
@@ -538,12 +629,18 @@ export declare class MultiplayerClient<Game = unknown> {
     private aloneSince?;
     private merging;
     private connectionStatus;
+    /** The compiled rules, for a deployment whose rules run on a player's browser. */
+    private readonly hostRules?;
+    private hostLoop?;
+    private hostingRoom;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     get status(): MultiplayerConnectionStatus;
     get roomId(): string | undefined;
     get playerId(): string | undefined;
     get roomCode(): string | undefined;
     get snapshot(): MultiplayerSnapshot | undefined;
+    /** Whether this player's browser runs the game's rules for the room now. */
+    get hosting(): boolean;
     createRoom(options?: {
         displayName?: string;
     }): Promise<void>;
@@ -599,6 +696,10 @@ export declare class MultiplayerClient<Game = unknown> {
     private leaveRoom;
     dispose(): void;
     private connect;
+    /** Takes or gives up running the rules for the room, when the service asks. */
+    private setHosting;
+    private stopHosting;
+    private bindHost;
     private bind;
     private receiveSnapshot;
     private joinOptions;
@@ -616,7 +717,9 @@ export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "id
  * type of the rules from defineGame, which types client.moves. Throws not_configured when
  * the game has no multiplayer deployment.
  */
-export declare function createMultiplayerClient<Game = unknown>(game: OhMyGame, callbacks?: MultiplayerClientCallbacks, options?: MultiplayerOptions): MultiplayerClient<Game>;
+export declare function createMultiplayerClient<Game = unknown>(game: OhMyGame, callbacks?: MultiplayerClientCallbacks, options?: MultiplayerOptions & {
+    rules?: Game;
+}): MultiplayerClient<Game>;
 
 // multiplayer-protocol.d.ts
 export type MultiplayerMode = "turn-based" | "realtime";
@@ -767,6 +870,8 @@ export interface MultiplayerGameState {
     winnerPlayerIds?: string[];
     turnDeadline: number;
     players: MultiplayerPlayer[];
+    /** The player whose browser runs the rules, in a deployment whose rules run there (adapterId "host"). */
+    hostPlayerId?: string;
     /** Serializable data owned and validated by the deployment's rules adapter. */
     game?: Record<string, unknown>;
 }
@@ -808,6 +913,11 @@ export interface MultiplayerGameAdapter<State, Command> {
      * service runs itself may set it, since their results cannot be forged.
      */
     matchBoard?: string;
+    /**
+     * The room asks a player's browser to run the rules, as for adapterId "host": the
+     * adapter keeps only the room's own commands. Set by the service, not by rules.
+     */
+    hosted?: boolean;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
     validateInput?(input: RealtimeInput, playerId: string): void;
     /**
@@ -879,3 +989,42 @@ export declare function isTurnCommandResult(value: unknown): value is TurnComman
 export declare function isMultiplayerSnapshot(value: unknown): value is MultiplayerSnapshot;
 export declare function normalizeDisplayName(value: unknown): string;
 export declare function isRecord(value: unknown): value is Record<string, unknown>;
+
+// rules.d.ts
+/**
+ * Runs rules from defineGame and defineRealtimeGame: the room's own commands, and the
+ * compiler that turns rules into the adapter a room calls. The game service uses it, and so
+ * does the browser of a player who hosts a game whose rules run there. Free of Node APIs.
+ */
+import { type GameDefinition, type MoveDefinition, type RealtimeGameDefinition } from "./define-game.js";
+import { type MultiplayerGameAdapter, type MultiplayerGameState, type MultiplayerMode, type TurnCommand } from "./multiplayer-protocol.js";
+/** Rules as a room calls them. */
+export type GameAdapter = MultiplayerGameAdapter<MultiplayerGameState, TurnCommand>;
+export declare const TURN_SECONDS = 60;
+/** A realtime adapter's tick in milliseconds: its own, or the default. */
+export declare function tickMsOf(adapter: {
+    tickMs?: number;
+}): number;
+/** Throws unless the tick is a whole number of milliseconds the service can run. */
+export declare function checkTickMs(tickMs: number): void;
+export declare function nextTurn(state: MultiplayerGameState, now?: any): void;
+/** Ends the match with these winners: one, several for a team, or none for a draw. */
+export declare function finishMatch(state: MultiplayerGameState, winners: readonly string[]): void;
+/**
+ * The room's own commands: the owner starts, restarts once a match has finished, closes and
+ * removes players. The room sets up each round through onRoundStart. Rules build on it
+ * and handle their game's commands themselves; any other command is rejected. A match left
+ * with fewer than players.min seats after a removal ends without a winner.
+ */
+export declare function createRoomAdapter(mode: MultiplayerMode, players?: {
+    min: number;
+    max: number;
+}): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand>;
+/**
+ * Turns rules from defineGame or defineRealtimeGame into the adapter rooms run. The room
+ * keeps its own lobby, start, restart, close and kick commands; for turn-based rules every other
+ * command is a move named by payload.action, and realtime rules read each player's input.
+ */
+export declare function compileGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(definition: GameDefinition<G, Moves>): GameAdapter;
+export declare function compileGame<G extends object, Input extends object, Action extends object>(definition: RealtimeGameDefinition<G, Input, Action>): GameAdapter;
+export declare function compileGame(definition: GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object, object>): GameAdapter;

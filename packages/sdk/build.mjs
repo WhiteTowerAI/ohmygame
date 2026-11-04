@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
-const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "multiplayer-client", "multiplayer-protocol"];
+const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "rules"];
 
 /** The modules client.js carries; multiplayer.js imports them from it instead of bundling a copy. */
 const SHARED = new Set(["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "multiplayer-protocol"]);
@@ -36,7 +36,7 @@ export async function buildBrowserSdk() {
     name: "ohmygame-shared-modules",
     setup(build) {
       build.onResolve({ filter: /^\.\/[a-z-]+\.js$/ }, ({ path, importer }) =>
-        importer.endsWith("multiplayer-client.ts") && SHARED.has(path.slice(2, -3))
+        !SHARED.has(importer.split(/[\\/]/).pop().slice(0, -3)) && SHARED.has(path.slice(2, -3))
           ? { path: "./client.js", external: true }
           : undefined,
       );

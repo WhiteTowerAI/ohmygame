@@ -1,5 +1,6 @@
-import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
-import { checkTickMs, tickMsOf, type GameAdapter } from "@ohmygame/sdk/rules";
+import { MULTIPLAYER_MAX_CLIENTS, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
+import { checkTickMs, createRoomAdapter, tickMsOf, type GameAdapter } from "@ohmygame/sdk/rules";
 export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS, type GameAdapter } from "@ohmygame/sdk/rules";
 
 /** "exactly 2" or "2 to 8", for player count errors. */
@@ -9,13 +10,16 @@ export function describePlayerRange({ min, max }: GameAdapter["players"]): strin
 
 /**
  * The rules registered for a deployment's adapterId. Only the service operator registers
- * adapters; clients never upload executable rules.
+ * adapters; clients never upload executable rules. adapterId "host" needs none: a player's
+ * browser runs the game's rules, and the service keeps only the room.
  */
 export function resolveGameAdapter(
   config: MultiplayerManifestConfig,
   adapters: Record<string, GameAdapter> = {},
 ): GameAdapter {
   const id = config.adapterId;
+  if (id === HOST_ADAPTER_ID && !Object.hasOwn(adapters, id))
+    return { ...createRoomAdapter(config.mode, { min: 1, max: MULTIPLAYER_MAX_CLIENTS }), hosted: true };
   if (!Object.hasOwn(adapters, id)) throw new Error(`No server rules adapter registered for ${id}.`);
   const adapter = adapters[id]!;
   if (adapter.mode !== config.mode)

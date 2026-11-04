@@ -8,6 +8,7 @@ import {
   MULTIPLAYER_ROOM_LIMIT_CODE,
   normalizeDisplayName,
   REALTIME_ACTIONS_PER_TICK,
+  TICK_MS_RANGE,
   type JoinRoomOptions,
   type MultiplayerErrorCode,
   type MultiplayerEventType,
@@ -24,6 +25,44 @@ import { nextTurn, tickMsOf } from "./game.js";
 import { describePlayerRange, type GameAdapter } from "./adapters.js";
 import type { RoomStore, StoredRoom } from "./store.js";
 import type { ServerStore } from "./game-data.js";
+import {
+  HOST_MESSAGE_MAX_BYTES,
+  HOST_REPLY_MS,
+  mergeHostState,
+  type HostReply,
+  type HostRequest,
+  type HostViews,
+} from "@ohmygame/sdk/host";
+
+/** A request for the hosting player, before the room adds its ID, state and clock. */
+type HostAsk = HostRequest extends infer Request ? (Request extends HostRequest ? Omit<Request, "requestId" | "state" | "now"> : never) : never;
+
+/** A small plain object, as a hosting player's message must be. */
+function hostMessage(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  try {
+    return JSON.stringify(value).length <= HOST_MESSAGE_MAX_BYTES ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+/** The parts of a hosting player's state the room reads, checked before it merges them. */
+function isHostState(value: unknown): value is MultiplayerGameState {
+  return (
+    isRecord(value) &&
+    typeof value.phase === "string" &&
+    typeof value.currentPlayerId === "string" &&
+    typeof value.winnerPlayerId === "string" &&
+    typeof value.turnDeadline === "number" &&
+    Array.isArray(value.players) &&
+    value.players.every((player) => isRecord(player) && typeof player.playerId === "string") &&
+    (value.winnerPlayerIds === undefined || (Array.isArray(value.winnerPlayerIds) && value.winnerPlayerIds.every((id) => typeof id === "string"))) &&
+    (value.game === undefined || isRecord(value.game))
+  );
+}
+function isHostViews(value: unknown): value is HostViews {
+  return isRecord(value) && Object.values(value).every(isRecord);
+}
 
 export interface RoomServices {
   config: MultiplayerManifestConfig;
@@ -70,7 +109,19 @@ export class GameRoom extends Room {
   private lastInputId = new Map<string, number>();
   private inviteCode = "";
   private finishedAt = 0;
+  /** The connection whose browser runs the rules, in a hosted room. */
+  private hostSession?: string;
+  private readonly hostWaits = new Map<string, (reply: HostReply | undefined) => void>();
+  /** Hosted rooms apply one change of the rules at a time, in order. */
+  private hostQueue: Promise<void> = Promise.resolve();
+  private hostTimeoutPending = false;
+  private hostRoundPending = false;
   protected services!: RoomServices;
+
+  /** A player's browser runs the rules; the room keeps seats, phase, order and the saved state. */
+  private get hosted(): boolean {
+    return this.services.adapter.hosted === true;
+  }
 
   /** Players drop into a running round; the room starts and restarts it, so nobody owns it. */
   private get dropIn(): boolean {
@@ -124,8 +175,11 @@ export class GameRoom extends Room {
         { code: MULTIPLAYER_ROOM_LIMIT_CODE },
       );
     this.maxClients = config.maxClients;
+    // A hosted room does not know its rules' tick, so it allows the fastest one.
     this.maxMessagesPerSecond =
-      config.mode === "realtime" ? realtimeMessageLimit(this.tickMs) : TURN_MAX_MESSAGES_PER_SECOND;
+      config.mode === "realtime"
+        ? realtimeMessageLimit(this.hosted ? TICK_MS_RANGE.min : this.tickMs)
+        : TURN_MAX_MESSAGES_PER_SECOND;
     this.autoDispose = false;
     await this.setPrivate(
       config.roomPolicy === "invite-only" ||
@@ -148,6 +202,20 @@ export class GameRoom extends Room {
             : undefined,
       });
       client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
+      if (!this.hosted) return;
+      // A host that reconnected stopped running the rules when it dropped; it resumes here.
+      if (client.sessionId === this.hostSession)
+        client.send("host", { active: true, state: this.record.snapshot.state, tickMs: this.services.adapter.tickMs });
+      this.assignHost();
+    });
+    this.onMessage("host.reply", (client, value: unknown) => this.hostReply(client, value));
+    this.onMessage("host.state", (client, value: unknown) => this.hostState(client, value));
+    this.onMessage("host.inputError", (client, value: unknown) => {
+      const message = hostMessage(value);
+      if (client.sessionId !== this.hostSession || typeof message?.playerId !== "string" || typeof message.message !== "string") return;
+      for (const connection of this.clients)
+        if (this.controls.get(connection.sessionId) === message.playerId)
+          connection.send("input.error", { code: "invalid_command", message: message.message.slice(0, 300) });
     });
     this.onMessage("command", (client, value: unknown) =>
       this.command(client, value),
@@ -159,7 +227,8 @@ export class GameRoom extends Room {
       this.action(client, value),
     );
     this.clock.setInterval(() => this.maintenance(), 1000);
-    if (config.mode === "realtime")
+    // A hosted realtime room runs no tick: the hosting player's browser does.
+    if (config.mode === "realtime" && !this.hosted)
       this.setTimestep(() => this.tick(), this.tickMs);
   }
 
@@ -213,14 +282,18 @@ export class GameRoom extends Room {
       state.players.push(player);
       if (!known) members.push({ playerId, userId: identity.userId });
       if (!state.ownerId && !this.dropIn) state.ownerId = playerId;
-      if (this.services.adapter.onPlayerJoin)
+      if (this.hosted) {
+        if (state.phase === "playing") this.hostTask({ kind: "join", playerId });
+      } else if (this.services.adapter.onPlayerJoin)
         state = this.services.adapter.onPlayerJoin(state, playerId, Date.now());
     } else player.connected = true;
     const playerId = player.playerId;
     this.controls.set(client.sessionId, playerId);
     this.lastInputId.delete(playerId);
-    if (this.dropIn && state.phase === "lobby" && this.enoughPlayers(state))
-      state = this.startRound(state);
+    if (this.dropIn && state.phase === "lobby" && this.enoughPlayers(state)) {
+      if (this.hosted) this.hostStartRound();
+      else state = this.startRound(state);
+    }
     this.commit(
       state,
       "member.joined",
@@ -237,6 +310,8 @@ export class GameRoom extends Room {
       inviteCode: ownerCreating || this.dropIn ? this.inviteCode : undefined,
     });
     client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
+    // The new connection is not among the room's clients until onJoin returns.
+    if (this.hosted) this.clock.setTimeout(() => this.assignHost(), 0);
   }
 
   async onDrop(client: Client, code?: number): Promise<void> {
@@ -282,13 +357,16 @@ export class GameRoom extends Room {
         state.ownerId = state.players[0]?.playerId ?? "";
       if (!state.players.length) state.phase = "closed";
       else {
-        if (this.services.adapter.onPlayerLeave) next = this.services.adapter.onPlayerLeave(state, id, Date.now());
+        if (this.hosted) {
+          if (state.phase === "playing") this.hostTask({ kind: "leave", playerId: id });
+        } else if (this.services.adapter.onPlayerLeave) next = this.services.adapter.onPlayerLeave(state, id, Date.now());
         if (this.dropIn && next.phase === "playing" && !this.enoughPlayers(next))
           next = { ...next, phase: "lobby" };
       }
     }
     this.commit(next, "member.left", { playerId: id });
     if (next.phase === "closed") void this.disconnect();
+    else if (this.hosted) this.assignHost();
   }
   onBeforeShutdown(): void {
     this.shuttingDown = true;
@@ -308,6 +386,11 @@ export class GameRoom extends Room {
   /** What one seat may see; without a seat, what a spectator may see. */
   snapshotFor(playerId: string | undefined): MultiplayerSnapshot {
     const snapshot = structuredClone(this.record.snapshot);
+    const views = this.record.views;
+    if (this.hosted && views && snapshot.state.game !== undefined) {
+      const game = views[playerId ?? ""] ?? views[""];
+      return { ...snapshot, state: { ...snapshot.state, game: structuredClone(game) ?? {} } };
+    }
     const { viewFor } = this.services.adapter;
     return viewFor ? { ...snapshot, state: viewFor(snapshot.state, playerId) } : snapshot;
   }
@@ -355,6 +438,7 @@ export class GameRoom extends Room {
       playerId: id,
       reconnected: connected,
     });
+    if (this.hosted) this.assignHost();
   }
   private command(client: Client, value: unknown): void {
     const id = this.controls.get(client.sessionId);
@@ -392,6 +476,27 @@ export class GameRoom extends Room {
       client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
       return;
     }
+    // Only closing the room needs no rules; the hosting player applies every other command.
+    if (this.hosted && value.type !== "close") {
+      const base = this.record.snapshot.state;
+      this.hostQueue = this.hostQueue.then(async () => {
+        try {
+          if (this.record.snapshot.sequence !== value.expectedSequence) {
+            reject("sequence_conflict", "The room state changed. Try again.");
+            return;
+          }
+          const reply = await this.askHost({ kind: "command", playerId: id, command: value });
+          if (reply.error !== undefined || !reply.state) throw new Error(reply.error ?? "The rules refused the command.");
+          this.accepted(client, id, value, commandId, mergeHostState(reply.state, this.record.snapshot.state, base), reply.views);
+        } catch (cause) {
+          reject(
+            this.record.snapshot.state.currentPlayerId !== id && value.type === "action" ? "not_your_turn" : "invalid_command",
+            cause instanceof Error ? cause.message : "The command failed.",
+          );
+        }
+      });
+      return;
+    }
     try {
       const adapter = this.services.adapter;
       if (value.type === "start" || value.type === "restart") {
@@ -407,6 +512,31 @@ export class GameRoom extends Room {
           Date.now(),
           value.type === "restart" ? this.record.snapshot.state : undefined,
         );
+      this.accepted(client, id, value, commandId, state);
+    } catch (cause) {
+      reject(
+        this.record.snapshot.state.currentPlayerId !== id &&
+          value.type === "action"
+          ? "not_your_turn"
+          : "invalid_command",
+        cause instanceof Error ? cause.message : "The command failed.",
+      );
+    }
+  }
+  /** Commits an accepted command's state and carries out what the room owes it, such as removing a kicked player. */
+  private accepted(
+    client: Client,
+    id: string,
+    value: TurnCommand,
+    commandId: string,
+    state: MultiplayerGameState,
+    views?: HostViews,
+  ): void {
+    if (value.type === "start" || value.type === "restart") {
+      this.playerInputs.clear();
+      this.actions = [];
+    }
+    {
       const members = this.record.members.map((member) => ({ ...member }));
       if (value.type === "kick") {
         const member = members.find(
@@ -435,6 +565,7 @@ export class GameRoom extends Room {
         true,
         true,
         members,
+        views ? { views } : {},
       );
       if (state.phase !== "lobby" && !this.dropIn) void this.setPrivate(true);
       client.send("command.result", result);
@@ -445,14 +576,6 @@ export class GameRoom extends Room {
           )
             connection.leave(4003, "Removed by the room owner.");
       if (state.phase === "closed") void this.disconnect();
-    } catch (cause) {
-      reject(
-        this.record.snapshot.state.currentPlayerId !== id &&
-          value.type === "action"
-          ? "not_your_turn"
-          : "invalid_command",
-        cause instanceof Error ? cause.message : "The command failed.",
-      );
     }
   }
   /** The room's tick, from its rules. */
@@ -476,6 +599,12 @@ export class GameRoom extends Room {
       return reject("The input is invalid.");
     const { inputId, ...input } = value;
     if (inputId <= (this.lastInputId.get(id) ?? -1)) return;
+    if (this.hosted) {
+      // The hosting player's rules read and check it.
+      this.lastInputId.set(id, inputId);
+      this.hostConnection()?.send("host.input", { playerId: id, input });
+      return;
+    }
     try {
       this.services.adapter.validateInput?.(input, id);
     } catch (cause) {
@@ -492,6 +621,11 @@ export class GameRoom extends Room {
     const { validateAction } = this.services.adapter;
     if (!id || !isRealtimeAction(value) || this.services.config.mode !== "realtime")
       return reject("The action is invalid.");
+    if (this.hosted) {
+      if (this.record.snapshot.state.phase !== "playing") return reject("The round is not running.");
+      this.hostConnection()?.send("host.action", { playerId: id, action: value });
+      return;
+    }
     if (!validateAction) return reject("This game takes no actions.");
     if (this.record.snapshot.state.phase !== "playing")
       return reject("The round is not running.");
@@ -570,6 +704,10 @@ export class GameRoom extends Room {
       now - this.finishedAt >= this.services.roundRestartMs
     ) {
       const state = structuredClone(this.record.snapshot.state);
+      if (this.hosted && this.enoughPlayers(state)) {
+        this.hostStartRound(this.record.snapshot.state);
+        return;
+      }
       this.commit(
         this.enoughPlayers(state) ? this.startRound(state, now, this.record.snapshot.state) : { ...state, phase: "lobby" },
         "state.updated",
@@ -587,6 +725,14 @@ export class GameRoom extends Room {
       this.record.snapshot.state.phase === "playing" &&
       now >= this.record.snapshot.state.turnDeadline
     ) {
+      if (this.hosted) {
+        if (this.hostTimeoutPending) return;
+        this.hostTimeoutPending = true;
+        this.hostTask({ kind: "timeout" }, "turn.changed", () => {
+          this.hostTimeoutPending = false;
+        });
+        return;
+      }
       let state = structuredClone(this.record.snapshot.state);
       if (this.services.adapter.onTurnTimeout) state = this.services.adapter.onTurnTimeout(state, now);
       else nextTurn(state, now);
@@ -640,6 +786,7 @@ export class GameRoom extends Room {
     persist = true,
     active = true,
     members = this.record.members,
+    host: { views?: HostViews; fromHost?: boolean } = {},
   ): void {
     const now = Date.now();
     if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished") {
@@ -656,6 +803,7 @@ export class GameRoom extends Room {
         serverTime: new Date(now).toISOString(),
       },
       updatedAt: active ? now : this.record.updatedAt,
+      ...(host.views ? { views: host.views } : {}),
     };
     if (persist) this.services.store.save(record, command);
     this.record = record;
@@ -670,6 +818,139 @@ export class GameRoom extends Room {
       sequence: record.snapshot.sequence,
       serverTime: record.snapshot.serverTime,
       payload,
+    });
+    // A hosting player's realtime loop learns of changes it did not make, such as a seat taken.
+    if (this.hosted && this.services.config.mode === "realtime" && !host.fromHost)
+      this.hostConnection()?.send("host.sync", { state: record.snapshot.state });
+  }
+
+  /** The hosting player's connection, if they are still connected. */
+  private hostConnection(): Client | undefined {
+    return this.hostSession ? this.clients.find((client) => client.sessionId === this.hostSession) : undefined;
+  }
+  /**
+   * Chooses who runs the rules: the owner while connected, else the first connected seat.
+   * A new host gets the room's full state; the old one is told to stop.
+   */
+  private assignHost(unresponsive?: string): void {
+    if (this.shuttingDown || this.record.snapshot.state.phase === "closed") return;
+    const state = this.record.snapshot.state;
+    const connection = (playerId: string) =>
+      this.clients.find((client) => this.controls.get(client.sessionId) === playerId && client.sessionId !== unresponsive);
+    // A dropped connection stays among the clients while its seat waits for it, so ask the seat.
+    const current = this.hostConnection();
+    const currentPlayer = current && state.players.find((player) => player.playerId === this.controls.get(current.sessionId));
+    const next =
+      current && currentPlayer?.connected && current.sessionId !== unresponsive
+        ? current
+        : (state.ownerId ? connection(state.ownerId) : undefined) ??
+          state.players.filter((player) => player.connected).map((player) => connection(player.playerId)).find((client) => client);
+    if (next?.sessionId === this.hostSession) return;
+    current?.send("host", { active: false });
+    this.hostSession = next?.sessionId;
+    // A request the old host never answered goes to the new one.
+    for (const [, resolve] of this.hostWaits) resolve(undefined);
+    next?.send("host", { active: true, state: this.record.snapshot.state, tickMs: this.services.adapter.tickMs });
+    const hostPlayerId = next ? this.controls.get(next.sessionId) : undefined;
+    if (hostPlayerId !== state.hostPlayerId) {
+      const updated = { ...structuredClone(state) };
+      if (hostPlayerId) updated.hostPlayerId = hostPlayerId;
+      else delete updated.hostPlayerId;
+      this.commit(updated, "state.updated", { hostPlayerId: hostPlayerId ?? "" }, undefined, true, false);
+    }
+  }
+  /**
+   * Asks the hosting player to apply a request. One who does not answer in time loses the
+   * role to the next connected player, who is asked instead.
+   */
+  private async askHost(ask: HostAsk, state?: MultiplayerGameState): Promise<HostReply> {
+    for (let attempt = 0; attempt <= this.services.config.maxClients; attempt++) {
+      const host = this.hostConnection() ?? (this.assignHost(), this.hostConnection());
+      if (!host) throw new Error("No connected player can run the game's rules right now.");
+      const requestId = randomUUID();
+      const reply = await new Promise<HostReply | undefined>((resolve) => {
+        const timer = this.clock.setTimeout(() => resolve(undefined), HOST_REPLY_MS);
+        this.hostWaits.set(requestId, (value) => {
+          timer.clear();
+          this.hostWaits.delete(requestId);
+          resolve(value);
+        });
+        host.send("host.request", { ...ask, requestId, state: state ?? this.record.snapshot.state, now: Date.now() } as HostRequest);
+      });
+      this.hostWaits.delete(requestId);
+      if (reply) return reply;
+      if (this.hostSession === host.sessionId) this.assignHost(host.sessionId);
+    }
+    throw new Error("No connected player could run the game's rules.");
+  }
+  private hostReply(client: Client, value: unknown): void {
+    const reply = hostMessage(value);
+    if (client.sessionId !== this.hostSession || typeof reply?.requestId !== "string") return;
+    const valid =
+      (reply.error === undefined || typeof reply.error === "string") &&
+      (reply.state === undefined || isHostState(reply.state)) &&
+      (reply.views === undefined || isHostViews(reply.views));
+    this.hostWaits.get(reply.requestId)?.(valid ? (reply as unknown as HostReply) : { requestId: reply.requestId, error: "The host sent an invalid answer." });
+  }
+  /** Runs a request that changes the game through the hosting player's rules, after any before it. */
+  private hostTask(ask: HostAsk, type: MultiplayerEventType = "state.updated", done?: () => void): void {
+    this.hostQueue = this.hostQueue.then(async () => {
+      try {
+        const base = this.record.snapshot.state;
+        const reply = await this.askHost(ask);
+        if (!reply.state || this.record.snapshot.state.phase === "closed") return;
+        const state = mergeHostState(reply.state, this.record.snapshot.state, base);
+        this.commit(state, state.phase === "finished" ? "room.finished" : type, { reason: ask.kind }, undefined, true, ask.kind !== "timeout", this.record.members, reply.views ? { views: reply.views } : {});
+      } catch (cause) {
+        console.error(`The hosting player could not apply ${ask.kind}`, cause);
+      } finally {
+        done?.();
+      }
+    });
+  }
+  /** A drop-in room starts a round once; the hosting player's rules set it up. */
+  private hostStartRound(finished?: MultiplayerGameState): void {
+    if (this.hostRoundPending) return;
+    this.hostRoundPending = true;
+    this.hostQueue = this.hostQueue.then(async () => {
+      try {
+        const state = this.record.snapshot.state;
+        if (state.phase === "playing" || state.phase === "closed" || !this.enoughPlayers(state)) return;
+        this.playerInputs.clear();
+        this.actions = [];
+        const base: MultiplayerGameState = { ...structuredClone(state), phase: "playing", winnerPlayerId: "", currentPlayerId: "" };
+        delete base.winnerPlayerIds;
+        const reply = await this.askHost({ kind: "round", ...(finished ? { finished } : {}) }, base);
+        if (!reply.state) return;
+        const current = this.record.snapshot.state;
+        if (current.phase !== state.phase) return;
+        // The room decided the round starts; the rules set up its game.
+        const next = mergeHostState({ ...reply.state, phase: "playing" }, { ...current, phase: "playing" }, { ...current, phase: "playing" });
+        this.commit(next, "state.updated", { reason: "round_start" }, undefined, true, true, this.record.members, reply.views ? { views: reply.views } : {});
+      } catch (cause) {
+        console.error("The hosting player could not start a round", cause);
+      } finally {
+        this.hostRoundPending = false;
+      }
+    });
+  }
+  /** A realtime tick from the hosting player's loop. */
+  private hostState(client: Client, value: unknown): void {
+    const message = hostMessage(value);
+    if (
+      client.sessionId !== this.hostSession ||
+      this.services.config.mode !== "realtime" ||
+      this.record.snapshot.state.phase !== "playing" ||
+      !isHostState(message?.state) ||
+      (message.views !== undefined && !isHostViews(message.views))
+    )
+      return;
+    const state = mergeHostState(message.state, this.record.snapshot.state);
+    if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state)) return;
+    // Like the service's own tick, only the end of a round needs a disk write.
+    this.commit(state, state.phase === "finished" ? "room.finished" : "state.updated", {}, undefined, state.phase === "finished", true, this.record.members, {
+      ...(message.views ? { views: message.views as HostViews } : {}),
+      fromHost: true,
     });
   }
 }

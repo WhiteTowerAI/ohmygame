@@ -4,8 +4,13 @@ import type { createMultiplayerServer, GameAdapter } from "@ohmygame/server";
 import { sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { describePlayerRange } from "@ohmygame/server/adapters";
 import { BUILT_IN_ADAPTER_IDS, createBuiltInAdapters, type BuiltInAdapterId } from "@ohmygame/games";
+import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
 
-/** custom: the game's own turn-based rules in server/rules.ts, written with defineGame. */
+/**
+ * custom: the game's own rules in server/rules.ts, from defineGame or defineRealtimeGame.
+ * They run on a player's browser, as once the game is published: the deployment's
+ * adapterId is "host", and the service keeps only the room.
+ */
 export type LocalGameAdapterId = BuiltInAdapterId | "custom";
 export interface LocalMultiplayerOptions {
   maxClients?: number;
@@ -19,7 +24,7 @@ export const LOCAL_MULTIPLAYER_MAX_CLIENTS = 8;
 const LOCAL_MULTIPLAYER_DEFAULT_CLIENTS = 4;
 /** A fixed address keeps the URL written into a game valid after OhMyGame restarts. */
 export const LOCAL_MULTIPLAYER_PORT = 43139;
-const LOCAL_ADAPTER_IDS: readonly string[] = [...BUILT_IN_ADAPTER_IDS, "custom"] satisfies LocalGameAdapterId[];
+const LOCAL_ADAPTER_IDS: readonly string[] = [...BUILT_IN_ADAPTER_IDS, HOST_ADAPTER_ID];
 /** The built-in rules the local service registers; custom rules come with each deployment. */
 const BUILT_IN_ADAPTERS = createBuiltInAdapters();
 
@@ -48,7 +53,7 @@ export class LocalMultiplayerRuntime {
 
   constructor(private readonly preferredPort = LOCAL_MULTIPLAYER_PORT) {}
 
-  /** rulesFile is the game's server/rules.ts, which custom needs and loads afresh each time. */
+  /** rulesFile is the game's server/rules.ts, which custom needs: it is loaded to check it and to read its mode and seats. */
   async configure(
     gameId: string,
     adapterId: LocalGameAdapterId,
@@ -104,7 +109,7 @@ export class LocalMultiplayerRuntime {
       gameId,
       // Deployments are immutable, so each room size and policy is its own deployment.
       // Custom rules may switch between turn-based and realtime, which needs another deployment.
-      deploymentId: `local-${adapterId}${adapterId === "custom" && mode === "realtime" ? "-realtime" : ""}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
+      deploymentId: `local-${adapterId === "custom" ? `host-${mode}` : adapterId}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
       protocolVersion: 1,
       serverUrl: `http://127.0.0.1:${this.service!.port}`,
       authPolicy: "anonymous",
@@ -112,9 +117,10 @@ export class LocalMultiplayerRuntime {
       maxClients,
       // A wandering player who closed the tab need not hold a seat for long; turn-based seats wait.
       reconnectSeconds: dropIn ? 15 : 120,
-      adapterId,
+      // The game's own rules run on a player's browser; the service never loads them.
+      adapterId: adapterId === "custom" ? HOST_ADAPTER_ID : adapterId,
     };
-    this.service!.registerLocalDeployment(config, rules);
+    this.service!.registerLocalDeployment(config);
     return config;
   }
 
@@ -125,7 +131,8 @@ export class LocalMultiplayerRuntime {
    */
   async restore(gameId: string, config: MultiplayerManifestConfig, rulesFile?: string): Promise<MultiplayerManifestConfig | undefined> {
     if (config.gameId !== gameId || !config.deploymentId.startsWith("local-") || !LOCAL_ADAPTER_IDS.includes(config.adapterId ?? "")) return undefined;
-    const restored = await this.configure(gameId, config.adapterId as LocalGameAdapterId, {
+    const adapterId = config.adapterId === HOST_ADAPTER_ID ? "custom" : (config.adapterId as LocalGameAdapterId);
+    const restored = await this.configure(gameId, adapterId, {
       maxClients: config.maxClients,
       dropIn: config.roomPolicy === "drop-in",
     }, rulesFile);

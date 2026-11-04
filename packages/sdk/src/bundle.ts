@@ -4,3 +4,5 @@ export * from "./index.js";
 export * from "./multiplayer-protocol.js";
 /** @internal Shared with multiplayer.js, so both files use one copy; not part of the API. */
 export { browserStorage, serviceRequest } from "./identity.js";
+/** @internal Read by the rules runtime in multiplayer.js; not part of the API. */
+export { isRealtimeGameDefinition } from "./define-game.js";

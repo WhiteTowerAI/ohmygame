@@ -54,7 +54,7 @@ function isRules(value: unknown): value is AnyRules {
 }
 
 /** Imports one build of the rules; a fresh file each time, since Node caches modules by URL. */
-async function importRules(code: string): Promise<GameAdapter> {
+async function importRules(code: string): Promise<AnyRules> {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-rules-"));
   try {
     const file = path.join(directory, "rules.mjs");
@@ -65,7 +65,7 @@ async function importRules(code: string): Promise<GameAdapter> {
       throw new Error(
         "The rules file must export default defineGame({ players, setup, moves }) for a turn-based game, or defineRealtimeGame({ players, setup, input, tick }) for a realtime one.",
       );
-    return compileGame(rules);
+    return rules;
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -86,6 +86,11 @@ async function bundleOptions(file: string) {
 
 /** Bundles a game's rules file with whatever it imports and compiles it for the service. */
 export async function loadGameRules(file: string): Promise<GameAdapter> {
+  return compileGame(await loadRulesDefinition(file));
+}
+
+/** The rules a game's rules file exports, as defineGame or defineRealtimeGame returned them. */
+export async function loadRulesDefinition(file: string): Promise<AnyRules> {
   const { build } = await import("esbuild");
   const result = await build(await bundleOptions(file));
   return importRules(result.outputFiles![0]!.text);
@@ -175,7 +180,7 @@ export async function startDevServer(options: DevServerOptions) {
               try {
                 if (result.errors.length)
                   throw new Error(result.errors.map((error) => error.text).join("\n"));
-                await serve(await importRules(result.outputFiles![0]!.text));
+                await serve(compileGame(await importRules(result.outputFiles![0]!.text)));
                 if (!wasFirst) log(`Rules reloaded from ${path.relative(options.workspace, rulesFile)}. Rooms restarted.`);
                 ready();
               } catch (cause) {

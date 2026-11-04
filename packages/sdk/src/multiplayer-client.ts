@@ -24,6 +24,14 @@ import {
 import { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 import { browserStorage, GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
 import type { ClientAction, ClientInput, ClientMoves } from "./define-game.js";
+import { compileGame, tickMsOf, type GameAdapter } from "./rules.js";
+import {
+  hasPlayerView,
+  HOST_ADAPTER_ID,
+  HostLoop,
+  runHostRequest,
+  type HostRequest,
+} from "./host.js";
 import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
@@ -45,6 +53,12 @@ export interface MultiplayerClientOptions {
   transport?: RoomTransport;
   /** Opt in only for loopback development, never for a published deployment. */
   allowLocalhost?: boolean;
+  /**
+   * The game's rules from defineGame or defineRealtimeGame, usually the default export of
+   * server/rules.ts. Required when the deployment runs its rules on a player's browser
+   * (adapterId "host"): the service asks one player at a time to run them for the room.
+   */
+  rules?: unknown;
   connectionTimeoutMs?: number;
   /** Waits before each quick play retry when the service is at its room limit. */
   roomLimitRetryMs?: number[];
@@ -61,6 +75,8 @@ export interface MultiplayerClientCallbacks {
   onCommandResult?: (result: TurnCommandResult) => void;
   onSnapshot?: (snapshot: MultiplayerSnapshot) => void;
   onError?: (error: OhMyGameError) => void;
+  /** This player's browser starts or stops running the game's rules for the room. */
+  onHost?: (hosting: boolean) => void;
 }
 /**
  * @internal What the client needs from a room service connection. Colyseus provides it
@@ -122,6 +138,10 @@ export class MultiplayerClient<Game = unknown> {
   private aloneSince?: number;
   private merging = false;
   private connectionStatus: MultiplayerConnectionStatus = "idle";
+  /** The compiled rules, for a deployment whose rules run on a player's browser. */
+  private readonly hostRules?: { adapter: GameAdapter; playerView: boolean };
+  private hostLoop?: HostLoop;
+  private hostingRoom = false;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -142,6 +162,22 @@ export class MultiplayerClient<Game = unknown> {
         options.connectionTimeoutMs <= 0)
     )
       throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
+    if (options.manifest.adapterId === HOST_ADAPTER_ID) {
+      if (options.rules === undefined)
+        throw new OhMyGameError(
+          "not_configured",
+          "This game runs its rules on the players' browsers. Pass { rules } from server/rules.ts to createMultiplayerClient.",
+        );
+      let adapter: GameAdapter;
+      try {
+        adapter = compileGame(options.rules as Parameters<typeof compileGame>[0]);
+      } catch (cause) {
+        throw new OhMyGameError("invalid_option", `The game's rules are invalid: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+      }
+      if (adapter.mode !== options.manifest.mode)
+        throw new OhMyGameError("invalid_option", `The game's rules are ${adapter.mode}, but the deployment is ${options.manifest.mode}. Run multiplayer_setup again.`);
+      this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
+    }
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
     this.storage = options.storage ?? browserStorage();
@@ -188,6 +224,10 @@ export class MultiplayerClient<Game = unknown> {
   }
   get snapshot(): MultiplayerSnapshot | undefined {
     return this.current;
+  }
+  /** Whether this player's browser runs the game's rules for the room now. */
+  get hosting(): boolean {
+    return this.hostingRoom;
   }
 
   async createRoom(options: { displayName?: string } = {}): Promise<void> {
@@ -415,6 +455,7 @@ export class MultiplayerClient<Game = unknown> {
   }
   /** Leaves without reporting a closed connection, for moving to another room. */
   private async leaveRoom(): Promise<void> {
+    this.stopHosting();
     this.stopInput();
     this.stopMerge();
     this.generation++;
@@ -430,6 +471,7 @@ export class MultiplayerClient<Game = unknown> {
     }
   }
   dispose(): void {
+    this.stopHosting();
     this.stopInput();
     this.stopMerge();
     this.disposed = true;
@@ -512,8 +554,69 @@ export class MultiplayerClient<Game = unknown> {
       this.busy = false;
     }
   }
+  /** Takes or gives up running the rules for the room, when the service asks. */
+  private setHosting(room: Room, value: unknown): void {
+    const rules = this.hostRules;
+    if (!rules || !isRecord(value)) return;
+    const active = value.active === true;
+    this.hostLoop?.stop();
+    this.hostLoop = undefined;
+    if (active && rules.adapter.mode === "realtime" && isRecord(value.state)) {
+      this.hostLoop = new HostLoop(rules.adapter, tickMsOf(rules.adapter), rules.playerView, (state, views) => {
+        if (this.room === room) room.send("host.state", { state, ...(views ? { views } : {}) });
+      });
+      this.hostLoop.start(value.state as unknown as MultiplayerSnapshot["state"]);
+    }
+    if (active !== this.hostingRoom) {
+      this.hostingRoom = active;
+      this.callbacks.onHost?.(active);
+    }
+  }
+  private stopHosting(): void {
+    this.hostLoop?.stop();
+    this.hostLoop = undefined;
+    if (this.hostingRoom) {
+      this.hostingRoom = false;
+      this.callbacks.onHost?.(false);
+    }
+  }
+  private bindHost(room: Room): void {
+    const rules = this.hostRules;
+    if (!rules) return;
+    room.onMessage("host", (value: unknown) => this.setHosting(room, value));
+    room.onMessage("host.request", (value: unknown) => {
+      if (!this.hostingRoom || !isRecord(value) || typeof value.requestId !== "string" || !isRecord(value.state)) return;
+      const reply = runHostRequest(rules.adapter, value as unknown as HostRequest, rules.playerView);
+      // The realtime loop carries on from what the rules just decided.
+      if (reply.state) this.hostLoop?.start(reply.state);
+      room.send("host.reply", reply);
+    });
+    room.onMessage("host.sync", (value: unknown) => {
+      if (isRecord(value) && isRecord(value.state)) this.hostLoop?.sync(value.state as unknown as MultiplayerSnapshot["state"]);
+    });
+    room.onMessage("host.input", (value: unknown) => {
+      if (!this.hostLoop || !isRecord(value) || typeof value.playerId !== "string" || !isRecord(value.input)) return;
+      try {
+        rules.adapter.validateInput?.(value.input, value.playerId);
+        this.hostLoop.input(value.playerId, value.input);
+      } catch (cause) {
+        room.send("host.inputError", { playerId: value.playerId, message: cause instanceof Error ? cause.message : "The input is invalid." });
+      }
+    });
+    room.onMessage("host.action", (value: unknown) => {
+      if (!this.hostLoop || !isRecord(value) || typeof value.playerId !== "string" || !isRecord(value.action)) return;
+      try {
+        if (!rules.adapter.validateAction) throw new Error("This game takes no actions.");
+        rules.adapter.validateAction(value.action, value.playerId);
+        this.hostLoop.action(value.playerId, value.action);
+      } catch (cause) {
+        room.send("host.inputError", { playerId: value.playerId, message: cause instanceof Error ? cause.message : "The action is invalid." });
+      }
+    });
+  }
   private bind(room: Room): void {
     room.reconnection.minUptime = 0;
+    this.bindHost(room);
     // Each player gets their own snapshot, so rules can keep a hand or a role private.
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
     room.onMessage("ready", (value: unknown) => {
@@ -556,6 +659,7 @@ export class MultiplayerClient<Game = unknown> {
         this.error(new OhMyGameError("request_failed", value.message));
     });
     room.onDrop(() => {
+      this.stopHosting();
       this.stopInput();
       this.aloneSince = undefined;
       this.current = undefined;
@@ -580,6 +684,7 @@ export class MultiplayerClient<Game = unknown> {
     );
     room.onLeave((code, reason) => {
       if (this.room !== room) return;
+      this.stopHosting();
       this.stopInput();
       this.stopMerge();
       this.room = undefined;
@@ -701,7 +806,7 @@ export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "id
 export function createMultiplayerClient<Game = unknown>(
   game: OhMyGame,
   callbacks?: MultiplayerClientCallbacks,
-  options: MultiplayerOptions = {},
+  options: MultiplayerOptions & { rules?: Game } = {},
 ): MultiplayerClient<Game> {
   if (!game.multiplayer)
     throw new OhMyGameError("not_configured", "This game has no multiplayer deployment in manifest.json.");

@@ -213,6 +213,8 @@ export interface MultiplayerGameState {
   winnerPlayerIds?: string[];
   turnDeadline: number;
   players: MultiplayerPlayer[];
+  /** The player whose browser runs the rules, in a deployment whose rules run there (adapterId "host"). */
+  hostPlayerId?: string;
   /** Serializable data owned and validated by the deployment's rules adapter. */
   game?: Record<string, unknown>;
 }
@@ -251,6 +253,11 @@ export interface MultiplayerGameAdapter<State, Command> {
    * service runs itself may set it, since their results cannot be forged.
    */
   matchBoard?: string;
+  /**
+   * The room asks a player's browser to run the rules, as for adapterId "host": the
+   * adapter keeps only the room's own commands. Set by the service, not by rules.
+   */
+  hosted?: boolean;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
   validateInput?(input: RealtimeInput, playerId: string): void;
   /**

@@ -13,11 +13,13 @@ The game agent calls `multiplayer_setup` with `adapterId: "gomoku"`, `"stones"`,
 or realtime rules from [`defineRealtimeGame`](#realtime-rules-with-definerealtimegame),
 which also decide the room's mode;
 the agent writes that file first, and calls setup again after changing it to
-check that it loads. Local rooms hold 2 to 8 players, narrowed to the seats the
+check that it loads. These rules run on a player's browser, locally and once
+published: the deployment's `adapterId` is `"host"`; see
+[rules on a player's browser](#rules-on-a-players-browser). Local rooms hold 2 to 8 players, narrowed to the seats the
 rules support: gomoku is always 2, and the others default to 4. The realtime rules also accept `dropIn`, which roam
 turns on by default; see [Drop-in rooms](#drop-in-rooms). Each room size and
-policy is its own deployment, such as `local-arena-8p-v1` or
-`local-roam-4p-dropin-v1`. The daemon starts one shared Colyseus service on
+policy is its own deployment, such as `local-arena-8p-v1`,
+`local-roam-4p-dropin-v1` or `local-host-realtime-4p-dropin-v1`. The daemon starts one shared Colyseus service on
 loopback port 43139, or on a free port when another process holds it, and
 registers the project's local deployment. This needs no cloud account, public
 backend, signaling server, STUN, or TURN.
@@ -314,6 +316,49 @@ In the page, `createMultiplayerClient<typeof rules>(game)` types `client.sendInp
 to what `input` returns and `client.sendAction` to what `action` returns. In a room
 with an owner, a finished round waits for the owner's `restart`; drop-in rooms
 start the next round on their own.
+
+## Rules on a player's browser
+
+The game service never runs code a game publishes. A deployment with
+`adapterId: "host"` instead asks one player's browser, the room's host, to run
+the game's rules from `defineGame` or `defineRealtimeGame`. Every page passes
+them: `createMultiplayerClient(game, callbacks, { rules })`; without them the
+client throws `not_configured`. Rules run in browsers, so they use neither Node
+APIs nor the DOM.
+
+- The service keeps the room: seats, connections, the owner, the phase, the
+  sequence, command deduplication, turn deadlines, drop-in rounds, reconnection
+  and the saved state. Only closing the room needs no rules.
+- The host is the owner while connected, otherwise the first connected seat;
+  `snapshot.state.hostPlayerId` names it, and `client.hosting` and `onHost(active)`
+  tell the page. A host that drops, leaves or does not answer within five seconds
+  (`HOST_REPLY_MS`) hands over to the next connected player, who receives the
+  room's state and continues; a request the old host never answered goes to the
+  new one.
+- Turn-based rooms send the host each change as a request (`host.request`: a
+  command, a join or leave during a round, a round start, a turn timeout) with the
+  room's state; the host answers with the new state (`host.reply`). Commands are
+  applied one at a time, in the order they arrived.
+- Realtime rooms run no tick on the service. The host's browser steps the rules at
+  their `tickMs`, with the inputs and actions the service forwards to it
+  (`host.input`, `host.action`), and sends each changed state (`host.state`). It
+  hears of changes it did not make, such as a seat taken, through `host.sync`.
+  Rejected inputs and actions reach their player through the host as `onError`.
+  A host's background tab throttles its timers and slows the game.
+- From each answer the service takes the game, positions, whose turn it is, the
+  deadline, the phase and winners among the seats (`mergeHostState`). It keeps its
+  own seats, names, connections and owner, never lets the host close the room, and
+  keeps any phase it set itself meanwhile. Messages from the host hold at most
+  128 KB (`HOST_MESSAGE_MAX_BYTES`).
+- With `playerView`, the host sends each seat's view, and the service sends every
+  player only theirs. The host itself sees everything.
+
+The host can cheat and sees hidden information, so these rules suit casual
+play. Their results never reach a match leaderboard; built-in rules, which the
+service runs, rank players on `match.wins` (see
+[cloud saves and leaderboards](cloud-saves.md)). A self-hosted service may still
+register a game's rules as a server adapter, as `ohmygame-server dev` does; then
+the service runs them and players need not pass them.
 
 ## Drop-in rooms
 

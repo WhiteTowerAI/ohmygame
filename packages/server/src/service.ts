@@ -14,6 +14,7 @@ import { RoomStore, type StoredRoom } from "./store.js";
 import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
+import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
 
 export interface MultiplayerServerOptions {
   deployments: MultiplayerManifestConfig[];
@@ -79,7 +80,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
   const rate = new RateLimit();
   const activeRooms = new Set<string>();
   const transport = new WebSocketTransport({
-    maxPayload: 16 * 1024,
+    // A hosting player's answers carry the room's state, and its views for each seat.
+    maxPayload: HOST_MESSAGE_MAX_BYTES + 16 * 1024,
     pingInterval: 10_000,
     pingMaxRetries: 3,
     beforeUpgrade: (_request, context) =>

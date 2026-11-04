@@ -40,6 +40,11 @@
       "ohmygame-source": "./src/rules.ts",
       "types": "./dist/rules.d.ts",
       "default": "./dist/rules.js"
+    },
+    "./host": {
+      "ohmygame-source": "./src/host.ts",
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
     }
   },
   "files": [

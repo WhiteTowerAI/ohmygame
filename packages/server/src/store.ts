@@ -18,6 +18,8 @@ export interface StoredRoom {
   inviteCodeHash: string;
   creationKeyHash: string;
   updatedAt: number;
+  /** What each seat may see of the game, from the hosting player's rules; "" for a spectator. */
+  views?: Record<string, Record<string, unknown>>;
 }
 
 /** Snapshot and command result commit together; retries survive process restarts. */

@@ -7,6 +7,7 @@ import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, MemoryGameDataStore, startDevServer } from "@ohmygame/server";
 import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
+import { loadRulesDefinition } from "../packages/server/src/dev.js";
 import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "@ohmygame/games/gomoku";
@@ -1060,7 +1061,7 @@ export default defineGame({
     }
   });
 
-  it("loads a game's own rules for local playtests and reloads them on restore", async () => {
+  it("runs a game's own rules on the owner's browser for local playtests", async () => {
     await service.stop();
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-custom-rules-"));
     const rulesFile = path.join(workspace, "server", "rules.ts");
@@ -1075,8 +1076,10 @@ export default defineGame({
     const runtime = new LocalMultiplayerRuntime(0);
     const clients: MultiplayerClient[] = [];
     const play = async (manifest: MultiplayerManifestConfig) => {
+      // The page imports the rules file; every player passes it, and the hosting one runs it.
+      const rules = await loadRulesDefinition(rulesFile);
       const [owner, guest] = [0, 1].map(() => {
-        const client = new MultiplayerClient({ manifest, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+        const client = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
         clients.push(client);
         return client;
       }) as [MultiplayerClient, MultiplayerClient];
@@ -1093,14 +1096,22 @@ export default defineGame({
       // The rules may be written before setup copies the SDK into the game.
       await writeFile(rulesFile, rules(1));
       const config = await runtime.configure("cards", "custom", {}, rulesFile);
-      expect(config).toMatchObject({ mode: "turn-based", adapterId: "custom", maxClients: 3, deploymentId: "local-custom-3p-v1" });
+      expect(config).toMatchObject({ mode: "turn-based", adapterId: "host", maxClients: 3, deploymentId: "local-host-turn-based-3p-v1" });
+      expect(() => new MultiplayerClient({ manifest: config, allowLocalhost: true })).toThrow(expect.objectContaining({ code: "not_configured" }));
       await expect(runtime.configure("cards", "custom", { maxClients: 4 }, rulesFile)).rejects.toThrow("2 to 3 players");
       const [owner, guest] = await play(config);
       expect(guest.snapshot!.state.game).toEqual({ count: 1, seats: 2 });
+      expect(owner.hosting).toBe(true);
+      expect(guest.hosting).toBe(false);
+      expect(guest.snapshot!.state.hostPlayerId).toBe(owner.playerId);
       owner.moves.add({ by: 4 });
       await wait(() => expect(guest.snapshot!.state.game).toEqual({ count: 5, seats: 2 }));
 
-      // Edited rules reach rooms opened after the next restore; the open room keeps its rules.
+      // The guest's move is applied by the owner's rules.
+      guest.moves.add({ by: 2 });
+      await wait(() => expect(owner.snapshot!.state.game).toEqual({ count: 7, seats: 2 }));
+
+      // Edited rules reach the rooms of pages that load them again.
       await writeFile(rulesFile, rules(50));
       expect(await runtime.restore("cards", config, rulesFile)).toEqual(config);
       const [next] = await play(config);
@@ -1159,11 +1170,12 @@ export default defineRealtimeGame({
     const clients: MultiplayerClient[] = [];
     try {
       const config = await runtime.configure("snake", "custom", { dropIn: true }, rulesFile);
-      expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", deploymentId: "local-custom-realtime-4p-dropin-v1" });
+      expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", adapterId: "host", deploymentId: "local-host-realtime-4p-dropin-v1" });
+      const rules = await loadRulesDefinition(rulesFile);
       const errors: string[] = [];
       const join = () => {
         const client = new MultiplayerClient(
-          { manifest: config, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
+          { manifest: config, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
           { onError: (error) => errors.push(error.message) },
         );
         clients.push(client);
@@ -1205,7 +1217,7 @@ export default defineRealtimeGame({
       // In a room with an owner, the owner restarts a finished round, and setup keeps the wins.
       const owned = await runtime.configure("snake", "custom", { dropIn: false }, rulesFile);
       const owner = new MultiplayerClient(
-        { manifest: owned, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
+        { manifest: owned, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
         { onError: (error) => errors.push(error.message) },
       );
       clients.push(owner);
@@ -1228,6 +1240,129 @@ export default defineRealtimeGame({
       for (const client of clients) client.dispose();
       await runtime.close();
       await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  /** A service whose rooms run their rules on a player's browser. */
+  async function hostedService(settings: Partial<MultiplayerManifestConfig>) {
+    await service.stop();
+    const deployment: MultiplayerManifestConfig = { ...config, gameId: "hosted", adapterId: "host", reconnectSeconds: 1, ...settings };
+    service = createMultiplayerServer({
+      deployments: [],
+      auth: { guestSecret: "a".repeat(32) },
+      databasePath: path.join(directory, `hosted-${deployment.deploymentId}.sqlite`),
+      host: "127.0.0.1",
+      port: 0,
+      allowLocalhost: true,
+      logger: false,
+      roundRestartMs: 50,
+    });
+    await service.start();
+    const manifest = { ...deployment, serverUrl: `http://127.0.0.1:${service.port}` };
+    service.registerLocalDeployment(manifest);
+    return manifest;
+  }
+
+  it("runs turn-based rules on the owner's browser, hides hands from others and moves hosting when the host leaves", async () => {
+    const rules = defineGame({
+      players: { min: 2, max: 3 },
+      setup: (ctx) => ({ hands: Object.fromEntries(ctx.players.map((id) => [id, `secret-${id}`])) as Record<string, string>, turns: 0 }),
+      moves: { pass(G) { G.turns++; } },
+      playerView: (G, _ctx, playerId) => ({ hands: playerId ? { [playerId]: G.hands[playerId] } : {}, turns: G.turns }),
+    });
+    const manifest = await hostedService({ deploymentId: "turns" });
+    const seen: string[] = [];
+    const hosting: boolean[] = [];
+    const results: TurnCommandResult[] = [];
+    const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+      onHost: (active) => hosting.push(active),
+      onCommandResult: (result) => results.push(result),
+    });
+    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+      onSnapshot: (snapshot) => seen.push(JSON.stringify(snapshot)),
+    });
+    try {
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+      await wait(() => expect(owner.hosting).toBe(true));
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+      // Each player sees only their own hand; the host runs the rules but others never get its view.
+      expect(guest.snapshot!.state.game).toEqual({ hands: { [guest.playerId!]: `secret-${guest.playerId}` }, turns: 0 });
+      expect(owner.snapshot!.state.game).toEqual({ hands: { [owner.playerId!]: `secret-${owner.playerId}` }, turns: 0 });
+      owner.moves.pass();
+      await wait(() => expect(guest.snapshot?.state.currentPlayerId).toBe(guest.playerId));
+      // Out of turn: the host's rules refuse it, with their reason.
+      const refused = await new Promise<TurnCommandResult>((resolve) => {
+        const id = owner.moves.pass();
+        const check = setInterval(() => {
+          const result = results.find((entry) => entry.commandId === id);
+          if (result) {
+            clearInterval(check);
+            resolve(result);
+          }
+        }, 10);
+      });
+      expect(refused).toMatchObject({ accepted: false, error: { code: "not_your_turn", message: "It is another player's turn." } });
+
+      // The host leaves mid-match: the guest takes over the rules and play goes on.
+      await owner.leave();
+      await wait(() => expect(guest.hosting).toBe(true));
+      await wait(() => expect(guest.snapshot!.state.hostPlayerId).toBe(guest.playerId));
+      guest.moves.pass();
+      await wait(() => expect(guest.snapshot!.state.game).toMatchObject({ turns: 2 }));
+      expect(seen.join("")).not.toContain(`secret-${owner.playerId}`);
+      expect(hosting).toEqual([true, false]);
+    } finally {
+      owner.dispose();
+      guest.dispose();
+    }
+  });
+
+  it("runs realtime rules on a player's browser and keeps the round going when that player leaves", async () => {
+    const rules = defineRealtimeGame({
+      players: { min: 1, max: 4 },
+      tickMs: 40,
+      setup: () => ({ ticks: 0, boosts: 0 }),
+      input: (value) => ({ go: value.go === true }),
+      action: (value) => {
+        if (value.boost !== true) throw new Error("Send { boost: true }.");
+        return { boost: true };
+      },
+      tick(G, _ctx, _inputs, _dt, actions) {
+        G.ticks++;
+        G.boosts += actions.length;
+      },
+    });
+    const manifest = await hostedService({ deploymentId: "ticks", mode: "realtime", roomPolicy: "drop-in", maxClients: 4 });
+    const errors: string[] = [];
+    const [first, second] = [0, 1].map(() =>
+      new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, { onError: (error) => errors.push(error.message) }),
+    ) as [MultiplayerClient<typeof rules>, MultiplayerClient<typeof rules>];
+    const ticks = (client: MultiplayerClient<typeof rules>) => (client.snapshot?.state.game as { ticks: number } | undefined)?.ticks ?? 0;
+    try {
+      await first.quickPlay();
+      await wait(() => expect(ticks(first)).toBeGreaterThan(2));
+      expect(first.hosting).toBe(true);
+      await second.quickPlay();
+      expect(second.roomId).toBe(first.roomId);
+      await wait(() => expect(ticks(second)).toBeGreaterThan(ticks(first) - 5));
+      // The guest's action reaches the host's rules once, and a bad one comes back as an error.
+      second.sendAction({ boost: true });
+      await wait(() => expect((first.snapshot!.state.game as { boosts: number }).boosts).toBe(1));
+      second.sendAction({ boost: false } as never);
+      await wait(() => expect(errors).toContain("Send { boost: true }."));
+
+      await first.leave();
+      await wait(() => expect(second.hosting).toBe(true));
+      const before = ticks(second);
+      await wait(() => expect(ticks(second)).toBeGreaterThan(before + 3));
+      expect((second.snapshot!.state.game as { boosts: number }).boosts).toBe(1);
+    } finally {
+      first.dispose();
+      second.dispose();
     }
   });
 

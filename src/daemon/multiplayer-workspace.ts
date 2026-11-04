@@ -167,7 +167,9 @@ manifest.maxClients is the room size chosen at setup: 2 to 8 players, always 2 f
 
 ## Custom rules (adapterId custom)
 
-A game that none of the built-in rules fits defines its own rules in server/rules.ts, beside multiplayer.json: defineGame for a turn-based game such as a card game, chess or a board game with hidden hands, defineRealtimeGame (below) for a realtime game such as multiplayer snake. Write the file before calling multiplayer_setup with adapterId custom, and call multiplayer_setup again after changing it: it loads the rules and reports any error. OhMyGame also reloads the file before each preview, playtest and local publish.
+A game that none of the built-in rules fits defines its own rules in server/rules.ts, beside multiplayer.json: defineGame for a turn-based game such as a card game, chess or a board game with hidden hands, defineRealtimeGame (below) for a realtime game such as multiplayer snake. Write the file before calling multiplayer_setup with adapterId custom, and call multiplayer_setup again after changing it: it loads the rules and reports any error, and sets the deployment's mode from them.
+
+The rules run on one player's browser, the room's host, both locally and once the game is published; the manifest's adapterId is "host". The service keeps the room: seats, phase, turn order, reconnection and the saved state, and sends each player only what playerView lets them see. The host is the room owner while connected, otherwise the first connected player; when the host leaves or stops answering, another player takes over and play continues. So the page must import the rules and pass them: import rules from "../server/rules"; const client = createMultiplayerClient(game, callbacks, { rules }). Every player passes them, since any of them may host. Rules run in the browser, so server/rules.ts must not use Node APIs or the DOM, and must not depend on the page's own state. The host could cheat and sees all hidden information, such as every hand: custom rules suit casual play between friends. Never submit their match results to game.leaderboard; only built-in rules rank multiplayer players. client.hosting and the onHost(active) callback tell the page when it hosts, and snapshot.state.hostPlayerId names the host. A realtime host's browser runs the ticks: a host in a background tab slows the game, so suggest that players keep the game in front.
 
     import { defineGame } from "../src/ohmygame/define-game.js";
     export default defineGame({
@@ -190,9 +192,9 @@ A game that none of the built-in rules fits defines its own rules in server/rule
 - endIf returns { winners: [playerIds] }, several for a team, or { winners: [], draw: true }. snapshot.state.winnerPlayerIds lists them.
 - playerView hides what a player may not see, such as other players' hands; return counts instead. playerId is undefined for a spectator.
 - A turn not taken within turnSeconds (default 60) passes to the next seat. To make running out of time cost something, add timeout(G, ctx): it runs with ctx.playerId the player who ran out of time, and endIf runs after it, so setting a flag in G that endIf reads makes them lose.
-- server/rules.ts may import the game's own modules for shared logic such as card comparison, but nothing that touches the DOM.
+- server/rules.ts may import the game's own modules for shared logic such as card comparison, but nothing that touches the DOM or Node.
 
-In the page, type the moves from the rules: import type rules from "../server/rules"; const client = createMultiplayerClient<typeof rules>(game, callbacks); then client.moves.play({ cards }) sends the move and returns its command ID for onCommandResult. Render snapshot.state.game, which is playerView's result for this player.
+In the page, pass the rules, which also types the moves: import rules from "../server/rules"; const client = createMultiplayerClient(game, callbacks, { rules }); then client.moves.play({ cards }) sends the move and returns its command ID for onCommandResult. Render snapshot.state.game, which is playerView's result for this player.
 
 ### Realtime rules (defineRealtimeGame)
 
@@ -232,7 +234,7 @@ A realtime game, such as multiplayer snake, runs on the service's tick: every ti
 - tickMs is 20 to 1000 (default 50). Grid games like snake usually use 80 to 150. The whole state goes to every player each tick, so keep G small: positions and scores, not rendering data. Interpolate between snapshots in the page for smooth motion.
 - Use ctx.random(), ctx.shuffle(items) and ctx.now() as in turn-based rules.
 
-In the page, const client = createMultiplayerClient<typeof rules>(game, callbacks) types client.sendInput to the rules' input and client.sendAction to the rules' action.
+In the page, const client = createMultiplayerClient(game, callbacks, { rules }) runs the rules when this player hosts, and types client.sendInput to the rules' input and client.sendAction to the rules' action.
 
 Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Public publishing requires a separately hosted backend, an immutable registered deployment and its matching server rules. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
 `;
