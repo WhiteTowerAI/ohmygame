@@ -15,7 +15,7 @@ function storePlugin(name: string, displayName: string, overrides: Partial<Store
     capabilities: [],
     grants: { enabled: true, allowed: [] },
     bundled: true,
-    appWide: true,
+    everyProject: true,
     examples: [],
     settings: [],
     skills: [],
@@ -34,7 +34,7 @@ let market: PluginMarketListing;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   market = { status: "off", plugins: [], blocked: [] };
-  const off = { grants: { enabled: false, allowed: [] } };
+  const off = { everyProject: false };
   store = [
     storePlugin("new-tool", "New tool", {
       appliesTo: ["web-game"],
@@ -54,7 +54,7 @@ beforeEach(() => {
     storePlugin("img2threejs", "Image to Three.js", { bundled: false, preinstalled: true, categories: ["art"] }),
     storePlugin("aseprite", "Aseprite", { ...off, categories: ["art"] }),
     storePlugin("tiled", "Tiled", { ...off, categories: ["art"] }),
-    storePlugin("unreal-engine", "Unreal Engine", { ...off, appWide: false, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], tools: 0, skills: 0 } }),
+    storePlugin("unreal-engine", "Unreal Engine", { ...off, grants: { enabled: false, allowed: [] }, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], tools: 0, skills: 0 } }),
   ];
   vi.stubGlobal(
     "fetch",
@@ -70,6 +70,11 @@ beforeEach(() => {
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/enabled")) {
         const id = route.slice("/plugin-store/".length, -"/enabled".length);
         store.find((plugin) => plugin.id === id)!.grants = { enabled: JSON.parse(String(init.body)).enabled, allowed: [] };
+        return new Response(null, { status: 204 });
+      }
+      if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
+        const id = route.slice("/plugin-store/".length, -"/every-project".length);
+        store.find((plugin) => plugin.id === id)!.everyProject = JSON.parse(String(init.body)).on;
         return new Response(null, { status: 204 });
       }
       if (init.method === "POST" && route === "/plugin-sources/inspect")
@@ -149,14 +154,14 @@ describe("plugin catalog browsing", () => {
     expect(cards(sections[3])).toEqual(["New tool"]);
     expect(cards(sections[4])).toEqual(["Alpha", "Zebra"]);
     expect(sections[4].textContent).toContain("Create a plugin with AI");
-    // Each says how it applies. One a project turns on has no switch here, as
-    // projects turn it on; it says when it is off everywhere.
-    expect(sections[0].textContent).toContain("Every project");
+    // Each says where it is on, and switches that for every project. One
+    // stopped everywhere from its page says so and has no switch.
+    expect(sections[0].textContent).toContain("On in every project");
     const unreal = [...sections[1].querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("Unreal Engine"))!;
-    expect(unreal.textContent).toContain("Per project");
+    expect(unreal.textContent).toContain("On in chosen projects");
     expect(unreal.textContent).toContain("Disabled");
     expect(unreal.querySelector('[role="switch"]')).toBeNull();
-    expect(sections[1].querySelector('[aria-label="Enable Unity"]')).not.toBeNull();
+    expect(sections[1].querySelector('[aria-label="Turn Unity on in every project"]')?.getAttribute("aria-checked")).toBe("false");
   });
 
   it("expands and collapses an individual group", async () => {
@@ -171,16 +176,16 @@ describe("plugin catalog browsing", () => {
     expect(cards()).toContain("Tiled");
   });
 
-  it("keeps enabled and disabled cards in place when toggled", async () => {
+  it("keeps cards in place when switched for every project", async () => {
     await renderCatalog();
     const before = cards();
-    await click("Disable Blender");
+    const blender = () => container.querySelector('[aria-label="Turn Blender on in every project"]');
+    await click("Turn Blender on in every project");
     expect(cards()).toEqual(before);
-    expect(
-      container.querySelector('[aria-label="Enable Blender"]'),
-    ).not.toBeNull();
-    await click("Enable Blender");
+    expect(blender()?.getAttribute("aria-checked")).toBe("false");
+    await click("Turn Blender on in every project");
     expect(cards()).toEqual(before);
+    expect(blender()?.getAttribute("aria-checked")).toBe("true");
   });
 
   it("searches every plugin without group expansion", async () => {

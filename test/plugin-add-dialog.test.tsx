@@ -122,7 +122,7 @@ describe("PluginAddDialog", () => {
     await submit();
     expect(requests[0]!.body).toEqual({ source: { type: "github", url: "https://github.com/acme/maker" } });
     const text = dialog().textContent!;
-    expect(text).toContain("as soon as you add it");
+    expect(text).toContain("on in every project it suits once you add it");
     expect(text).toContain("Version 1.0.0 is already installed, with these same contents");
     expect(text).toContain("This replaces version 0.9.0");
   });

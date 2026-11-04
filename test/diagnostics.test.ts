@@ -115,7 +115,7 @@ describe("diagnostics export", () => {
     expect(JSON.parse(files["system.json"]!).logs).toBe("not recorded");
   });
 
-  it("reports a plugin that applies by itself as on when nothing was decided about it", async () => {
+  it("reports whether each plugin is on in every project when nothing was decided about it", async () => {
     const app = createApp({
       dataDirectory: await directory("ohmygame-diagnostics-plugin-data-"),
       logDirectory: await directory("ohmygame-diagnostics-plugin-logs-"),
@@ -126,8 +126,9 @@ describe("diagnostics export", () => {
     try {
       const response = await app.inject({ method: "POST", url: "/diagnostics/export" });
       const { plugins } = JSON.parse((await unzip(response.rawPayload))["system.json"]!);
-      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/blender", enabled: true }));
-      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/godot", enabled: false }));
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/blender", enabled: true, everyProject: true }));
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/godot", enabled: true, everyProject: false }));
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/unity", enabled: true, everyProject: false }));
     } finally {
       decided.mockRestore();
     }

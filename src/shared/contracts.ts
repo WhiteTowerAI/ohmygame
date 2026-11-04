@@ -1041,6 +1041,12 @@ export interface ConversationCapabilities {
     icon?: import("./plugins.js").PluginIcon;
     iconRevision?: string;
     projectTypes?: ProjectType[];
+    /** The project types it works in (`appliesTo`); absent means every type. */
+    appliesTo?: string[];
+    /** Off in this project (on Home: not on in every project); mentioning it turns it on. */
+    off?: true;
+    /** What turning it on needs the person to allow first. */
+    asks?: string[];
   }>;
   skills: Array<{
     name: string;
