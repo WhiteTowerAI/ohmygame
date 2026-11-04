@@ -3,9 +3,10 @@ const updater = vi.hoisted(() => ({
   listeners: new Map<string, (...args: any[]) => void>(), appListeners: new Map<string, () => void>(),
   quitAndInstall: vi.fn(), quit: vi.fn(),
 }));
-vi.mock("electron", () => ({ app: {
-  isPackaged: true, once: (name: string, listener: () => void) => updater.appListeners.set(name, listener), quit: updater.quit,
-} }));
+vi.mock("electron", () => ({
+  app: { isPackaged: true, once: (name: string, listener: () => void) => updater.appListeners.set(name, listener), quit: updater.quit },
+  autoUpdater: { on: vi.fn() },
+}));
 vi.mock("electron-updater", () => ({ default: { autoUpdater: { on: (name: string, fn: (...args: any[]) => void) => updater.listeners.set(name, fn), quitAndInstall: updater.quitAndInstall } } }));
 import { DesktopUpdater } from "../src/desktop/updater.js";
 
