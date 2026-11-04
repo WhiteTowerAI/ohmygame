@@ -458,6 +458,9 @@ are not promised to match.
   folder is removed whatever happens. Native code is trusted, so these checks
   catch mistakes, not a plugin set on harm.
 
+Plugins with the `game` capability play the same game from their native code
+(`context.game`, see [native code](plugins.md#native-code)).
+
 ### Optional game bridge
 
 Games with random, timed, or deeply nested states may expose a serializable,

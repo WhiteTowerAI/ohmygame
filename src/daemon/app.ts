@@ -42,7 +42,7 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
-import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
+import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
@@ -120,13 +120,14 @@ import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { appliesByItself, capabilityGrants, missingGrants, resolveProjectPlugins } from "./project-plugins.js";
+import { appliesByItself, capabilityGrants, missingGrants, projectFolderKey, resolveProjectPlugins } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
+import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
 import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
@@ -911,6 +912,24 @@ export function createApp(options: AppOptions = {}) {
       maxFrame: plugin?.spec.maxFrame,
     };
   };
+  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
+  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+    const keys = await Promise.all(projects.list().map(async (project) => ({
+      project,
+      key: await projectFolderKey(project.workspacePath).catch(() => project.workspacePath),
+    })));
+    const project = keys.find((item) => item.key === folder)?.project;
+    if (!project) return undefined;
+    const plugin = await pluginGameRuntime(project);
+    if (plugin) return {
+      runtime: plugin,
+      provider: plugin.provider,
+      target: async () => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath }),
+    };
+    const web = options.playtestDriver;
+    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
+  });
+  pluginServices.native.serveGame(pluginGamesForPlugins);
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -4041,6 +4060,7 @@ export function createApp(options: AppOptions = {}) {
     await agents.close();
     await agentRuntimes.close();
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
+    await pluginGamesForPlugins.close();
     for (const projectId of [...pluginGames.keys()]) closePluginGame(projectId);
     options.playtestDriver?.close();
     await conversationImages.flush();

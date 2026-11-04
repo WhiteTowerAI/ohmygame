@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
   ExtensionHostPlugin,
   PluginConfigurationValues,
@@ -74,6 +75,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
     ),
+    game: manifest.capabilities?.game === true,
   };
 }
 
@@ -210,6 +212,25 @@ export class NativePlugins {
   /** Keeps the project's running host from stopping while idle; see `ExtensionHosts.hold`. */
   async holdHost(folder: string): Promise<(() => void) | undefined> {
     return this.#hosts.hold(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /**
+   * Answers project plugins' `context.game`: only a plugin on in the project
+   * that asks for `game`, checked on every request.
+   */
+  serveGame(bridge: Pick<PluginGameBridge, "handle" | "release">): void {
+    this.#hosts.serveGame({
+      handle: async ({ scope, project, generation, plugin }, request, signal) => {
+        if (scope === "app" || !project) throw unavailable("Only a project's plugins can play its game");
+        const entry = await this.#active(scope, plugin);
+        if (entry.manifest.capabilities?.game !== true)
+          throw unavailable(`${plugin} doesn't ask to play the game`);
+        return bridge.handle({ folder: scope, plugin, generation }, request, signal);
+      },
+      release: ({ scope, generation, plugin }) => {
+        if (scope !== "app") bridge.release({ folder: scope, generation, ...(plugin ? { plugin } : {}) });
+      },
+    });
   }
 
   /** Stops a project's host, as when the project is closed. */

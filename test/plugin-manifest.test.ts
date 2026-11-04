@@ -2,7 +2,7 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
-import { createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
+import { capabilityGrants, createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
@@ -294,6 +294,11 @@ describe("plugin manifest", () => {
       ...minimal,
       contributes: { projectTypes: [{ id: "t", title: "T", preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } }] },
     })).toContainEqual(expect.stringContaining("native entrypoint"));
+  });
+
+  it("asks the person before native code plays the game", () => {
+    expect(capabilityGrants({ capabilities: { native: true, game: true } })).toEqual(["game", "native"]);
+    expect(messages({ ...minimal, capabilities: { game: true } })).toEqual(["/capabilities/game only native code plays the game"]);
   });
 
   it("only accepts canonical project-relative paths for recognition", () => {

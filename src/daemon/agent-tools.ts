@@ -849,13 +849,20 @@ export function createAgentTools(
         details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
       };
     },
-  })] : []), ...(playtest?.driver.available && (
-    // A plugin's runtime is only made for a project whose type declares it.
-    playtest.driver.capabilities.runtime === "plugin"
-    || (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
-  )
+  })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
     : [])];
+}
+
+/**
+ * Whether the project's game can be played through this runtime: a plugin's,
+ * which is only made for a type that declares it, or the web runtime for a
+ * project with a web game.
+ */
+export function offersGameUse(project: ProjectState, driver: GameRuntimeAdapter): boolean {
+  if (driver.capabilities.runtime === "plugin") return true;
+  return (driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project))
+    && (project.type !== "general" || supportsWebPreview(project));
 }
 
 /** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */

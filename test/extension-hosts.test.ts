@@ -135,6 +135,23 @@ const SOURCES: Record<string, string> = {
   broken: `
     export function activate() { throw new Error("cannot start"); }
   `,
+  player: `
+    export function activate(context) {
+      context.registerTool("play", async () => {
+        if (!context.game) return "no game";
+        const session = await context.game.open({ viewport: { width: 320, height: 240 } });
+        const shot = await session.capture();
+        await session.close();
+        return { id: session.id, operations: session.capabilities.operations, shot };
+      });
+      context.registerTool("giveUp", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("enough")), 50);
+        return context.game.open({ signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("refused", () => context.game.open({ viewport: { width: 1, height: 1 } }).then(() => "opened", (error) => error.message));
+    }
+  `,
 };
 
 const TOOLS: Record<string, string[]> = {
@@ -157,6 +174,7 @@ const TOOLS: Record<string, string[]> = {
   slowstart: ["pid"],
   other: ["pid"],
   broken: ["anything"],
+  player: ["play", "giveUp", "refused"],
 };
 
 let root: string;
@@ -169,6 +187,7 @@ const plugin = (name: string, version = "1.0.0"): ExtensionHostPlugin => ({
   tools: TOOLS[name] ?? [],
   commands: name === "tools" ? ["greet"] : [],
   projectTypes: [],
+  game: false,
 });
 
 /** Two versions of one plugin, in their own folders. */
@@ -662,6 +681,51 @@ describe("extension hosts", () => {
         )
       ).message,
     ).toContain("shut down");
+  });
+
+  it("answers a plugin's context.game through the app, and ends its sessions with the plugin or host", async () => {
+    const extensionHosts = hosts();
+    const requests: { caller: { scope: string; plugin: string; generation: number }; request: unknown }[] = [];
+    const released: unknown[] = [];
+    let cancelled = false;
+    extensionHosts.serveGame({
+      handle: async (caller, request, signal) => {
+        requests.push({ caller, request });
+        if (request.operation === "open" && !request.viewport)
+          return new Promise((_resolve, reject) => signal.addEventListener("abort", () => { cancelled = true; reject(new Error("gave up")); }));
+        if (request.operation === "open" && request.viewport!.width < 240) throw new Error("viewport too small");
+        if (request.operation === "open") return { sessionId: "s1", runtime: "web", capabilities: { operations: ["open", "capture", "close"] } };
+        if (request.operation === "capture") return { sessionId: "s1", width: 320 };
+        return null;
+      },
+      release: (what) => { released.push(what); },
+    });
+    const project = path.join(root, "player");
+    const player = { ...plugin("player"), game: true };
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "play" })).toEqual({
+      id: "s1",
+      operations: ["open", "capture", "close"],
+      shot: { sessionId: "s1", width: 320 },
+    });
+    expect(requests.map(({ request }) => request)).toEqual([
+      { operation: "open", viewport: { width: 320, height: 240 } },
+      { operation: "capture", session: "s1" },
+      { operation: "close", session: "s1" },
+    ]);
+    const generation = requests[0]!.caller.generation;
+    expect(requests[0]!.caller).toMatchObject({ scope: project, plugin: "test/player" });
+    // Giving up reaches the app; an error comes back as the plugin's.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "giveUp" })).toBe("enough");
+    await vi.waitFor(() => expect(cancelled).toBe(true));
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "refused" })).toBe("viewport too small");
+    // A plugin that doesn't ask for it has no context.game.
+    const other = path.join(root, "other");
+    expect(await extensionHosts.invoke({ scope: other, project: other, plugin: plugin("player"), tool: "play" })).toBe("no game");
+
+    await extensionHosts.deactivate(project, "test/player");
+    expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
+    await extensionHosts.stop(project);
+    expect(released).toContainEqual({ scope: project, generation });
   });
 
   it("stops an idle host", async () => {

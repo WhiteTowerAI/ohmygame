@@ -1,5 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
+import { Check } from "typebox/value";
 import {
   GAME_USE_OPERATIONS,
   MAX_CAPTURE_FRAME,
@@ -269,6 +270,14 @@ export function previewUrl(baseValue: string, relativeValue?: string): string {
 function withOpenPath(target: GameUseOpenTarget, path: string): GameUseOpenTarget {
   if (target.runtime !== "web") throw new Error("path is only supported by the web game runtime");
   return { ...target, url: previewUrl(target.url, path) };
+}
+
+const actionsSchema = Type.Array(actionSchema, { minItems: 1, maxItems: 20 });
+
+/** Actions from outside the tool, such as a plugin's: checked like the agent's, and against what the runtime takes. */
+export function checkedActions(driver: GameRuntimeAdapter, actions: unknown): PlaytestAction[] {
+  if (!Check(actionsSchema, actions)) throw new Error("act takes 1 to 20 actions of the kinds game_use takes");
+  return supportedActions(driver, actions as PlaytestAction[]);
 }
 
 function supportedActions(driver: GameRuntimeAdapter, actions: PlaytestAction[]): PlaytestAction[] {

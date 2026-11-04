@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OwnedPlaytestDriver } from "../src/daemon/owned-playtest.js";
 import { PluginGameRuntime, type PluginGameHooks } from "../src/daemon/plugin-game-runtime.js";
 import type { GameUseHookInput } from "../src/shared/extension-host-protocol.js";
-import type { PlaytestRequest, PluginGameUseSpec } from "../src/shared/playtest.js";
+import { PluginGameBridge } from "../src/daemon/plugin-game-bridge.js";
+import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type PlaytestRequest, type PluginGameUseSpec } from "../src/shared/playtest.js";
 
 const PROVIDER = "ohmygame/maker:maker";
 const TARGET = { runtime: "plugin", provider: PROVIDER, projectPath: "/game" } as const;
@@ -269,5 +270,67 @@ describe("plugin game runtime", () => {
     await expect(mine.request({ operation: "captureFrame", sessionId, frame: 1 })).rejects.toThrow("restarted");
     expect(await mine.request({ operation: "close", sessionId })).toEqual({ operation: "close" });
     await expect(mine.request({ operation: "close", sessionId })).rejects.toThrow("does not belong");
+  });
+});
+
+describe("plugin game bridge", () => {
+  /** The project's web game, recording what it is asked. */
+  function webGame() {
+    const requests: PlaytestRequest[] = [];
+    let opened = 0;
+    const runtime: GameRuntimeAdapter = {
+      available: true,
+      capabilities: { ...WEB_GAME_USE_CAPABILITIES, input: ["pointer"] },
+      close: () => {},
+      request: async (request) => {
+        requests.push(request);
+        if (request.operation === "open") return { operation: "open", snapshot: { sessionId: `web-${++opened}`, runtime: "web", capabilities: WEB_GAME_USE_CAPABILITIES } };
+        if (request.operation === "recordStart") return { operation: "recordStart", sessionId: request.sessionId, maxSeconds: 60 };
+        if (request.operation === "close" || request.operation === "closeAll") return { operation: request.operation };
+        throw new Error(`unexpected ${request.operation}`);
+      },
+    };
+    return { requests, runtime };
+  }
+  const caller = (plugin = "acme/tester", generation = 1) => ({ folder: "/game", plugin, generation });
+  const signal = () => new AbortController().signal;
+
+  it("plays the project's game for a plugin, within what the runtime takes", async () => {
+    const { requests, runtime } = webGame();
+    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const snapshot = await bridge.handle(caller(), { operation: "open" }, signal()) as { sessionId: string };
+    expect(requests[0]).toEqual({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 1280, height: 720 } });
+    // Recordings say which plugin made them.
+    expect(await bridge.handle(caller(), { operation: "recordStart", session: snapshot.sessionId }, signal())).toEqual({ maxSeconds: 60 });
+    expect(requests[1]).toEqual({ operation: "recordStart", sessionId: snapshot.sessionId, title: "acme/tester playtest" });
+    await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [{ type: "press", key: "Space" }] }, signal())).rejects.toThrow("keyboard");
+    await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [] }, signal())).rejects.toThrow("1 to 20 actions");
+    await expect(bridge.handle(caller(), { operation: "captureFrame", session: snapshot.sessionId, frame: 1 }, signal())).rejects.toThrow("can't captureFrame");
+    expect(requests).toHaveLength(2);
+  });
+
+  it("keeps each plugin, and each start of its host, to the sessions it opened", async () => {
+    const { requests, runtime } = webGame();
+    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const { sessionId } = await bridge.handle(caller(), { operation: "open" }, signal()) as { sessionId: string };
+    await expect(bridge.handle(caller("acme/other"), { operation: "close", session: sessionId }, signal())).rejects.toThrow("does not belong");
+    await expect(bridge.handle(caller("acme/tester", 2), { operation: "close", session: sessionId }, signal())).rejects.toThrow("does not belong");
+    // Another plugin unloading leaves it open; its own host stopping closes it.
+    bridge.release({ folder: "/game", generation: 1, plugin: "acme/other" });
+    bridge.release({ folder: "/game", generation: 1 });
+    await vi.waitFor(() => expect(requests.at(-1)).toEqual({ operation: "close", sessionId }));
+    await expect(bridge.handle(caller(), { operation: "close", session: sessionId }, signal())).rejects.toThrow("does not belong");
+  });
+
+  it("won't let a plugin play the game it runs itself", async () => {
+    const { runtime } = plugin();
+    const bridge = new PluginGameBridge(async () => ({ runtime, provider: PROVIDER, target: async () => TARGET }));
+    await expect(bridge.handle(caller("ohmygame/maker"), { operation: "open" }, signal())).rejects.toThrow("runs this project's game itself");
+    expect(await bridge.handle(caller("acme/tester"), { operation: "open" }, signal())).toMatchObject({ runtime: "plugin" });
+  });
+
+  it("says when the project has no game to play", async () => {
+    const bridge = new PluginGameBridge(async () => undefined);
+    await expect(bridge.handle(caller(), { operation: "open" }, signal())).rejects.toThrow("no game");
   });
 });

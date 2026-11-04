@@ -3,12 +3,14 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   EXTENSION_HOST_PROTOCOL_VERSION,
+  HOST_MESSAGE_MAX_CHARS,
   isHostMessage,
   type ExtensionHostPlugin,
   type HostMessage,
   type HostRequest,
   type HostStats,
   type PluginConfigurationValues,
+  type PluginGameRequest,
 } from "../shared/extension-host-protocol.js";
 import {
   registerProjectProcess,
@@ -91,6 +93,22 @@ export type InvokeOptions = {
   | { projectType: string; tool?: never; command?: never }
 );
 
+/** Who a host's `game` request comes from. */
+export interface HostGameCaller {
+  scope: string;
+  /** The folder the host serves. */
+  project: string | undefined;
+  generation: number;
+  plugin: string;
+}
+
+/** What answers plugins' `context.game`; see `ExtensionHosts.serveGame`. */
+export interface HostGameService {
+  handle(caller: HostGameCaller, request: PluginGameRequest, signal: AbortSignal): Promise<unknown>;
+  /** A host stopped, or unloaded `plugin`: the sessions they opened end. */
+  release(released: { scope: string; generation: number; plugin?: string }): void;
+}
+
 export interface ActivePlugin {
   version: string;
   tools: string[];
@@ -125,6 +143,7 @@ const REPLIES: Record<HostRequest["type"], HostMessage["type"] | undefined> = {
   stats: "stats",
   cancel: undefined,
   shutdown: undefined,
+  "game-reply": undefined,
 };
 
 interface Pending {
@@ -201,6 +220,8 @@ class ExtensionHost {
   #idle: ReturnType<typeof setTimeout> | undefined;
   /** Holds that keep the host from stopping while idle, such as an open game session. */
   #holds = 0;
+  /** The host's `game` requests the daemon is answering, by the host's id. */
+  readonly #gameCalls = new Map<number, AbortController>();
   /** Last lines of stdout and stderr, for diagnostics. */
   readonly log: string[] = [];
 
@@ -212,6 +233,7 @@ class ExtensionHost {
     entry: string,
     private readonly options: typeof DEFAULTS,
     private readonly onExit: (host: ExtensionHost, plugins: string[]) => void,
+    private readonly game: () => HostGameService | undefined = () => undefined,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     this.#ready = new Promise<void>((resolve, reject) => {
@@ -475,11 +497,48 @@ class ExtensionHost {
 
   async #unload(plugin: string): Promise<void> {
     if (!this.#loaded.delete(plugin) || !this.alive) return;
-    await this.#request(
-      { type: "deactivate", plugin },
-      plugin,
-      this.options.activationTimeoutMs,
-    );
+    try {
+      await this.#request(
+        { type: "deactivate", plugin },
+        plugin,
+        this.options.activationTimeoutMs,
+      );
+    } finally {
+      this.#release(plugin);
+    }
+  }
+
+  /** The game sessions the plugin, or every plugin, opened end. */
+  #release(plugin?: string) {
+    try {
+      this.game()?.release({ scope: this.scope, generation: this.generation, ...(plugin ? { plugin } : {}) });
+    } catch {
+      // Cleanup failing doesn't stop the host's.
+    }
+  }
+
+  /** Answers a plugin's `context.game` request; a plugin not loaded here gets nothing. */
+  #serveGame(id: number, plugin: string, request: PluginGameRequest) {
+    const service = this.game();
+    const reply = (answer: { value?: unknown; error?: string }) => {
+      this.#gameCalls.delete(id);
+      if (this.alive) this.#send({ type: "game-reply", id, ...answer });
+    };
+    if (!service || !this.#loaded.has(plugin)) {
+      reply({ error: `${plugin} can't play the game here` });
+      return;
+    }
+    const controller = new AbortController();
+    this.#gameCalls.set(id, controller);
+    void Promise.resolve()
+      .then(() => service.handle({ scope: this.scope, project: this.project, generation: this.generation, plugin }, request, controller.signal))
+      .then(
+        (value) => reply({ value: value ?? null }),
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          reply({ error: message.slice(0, HOST_MESSAGE_MAX_CHARS) });
+        },
+      );
   }
 
   async #drained(plugin: string): Promise<void> {
@@ -505,6 +564,9 @@ class ExtensionHost {
     this.#pending.clear();
     this.#loaded.clear();
     this.#activations.clear();
+    for (const controller of this.#gameCalls.values()) controller.abort(error);
+    this.#gameCalls.clear();
+    this.#release();
     // Whatever the plugins started outlives the host unless it is stopped too.
     void terminateProjectProcess(this.#child).catch(() => {});
     // A crash can't be traced to one call, so every plugin with a call in
@@ -639,6 +701,14 @@ class ExtensionHost {
       );
       return;
     }
+    if (message.type === "game") {
+      this.#serveGame(message.id, message.plugin, message.request);
+      return;
+    }
+    if (message.type === "game-cancel") {
+      this.#gameCalls.get(message.id)?.abort(new Error("The plugin gave up on its game request"));
+      return;
+    }
     const pending = this.#pending.get(message.id);
     if (!pending) return;
     if (message.type === "progress") {
@@ -684,6 +754,7 @@ export class ExtensionHosts {
   /** Plugins that reached the crash limit; they stay off until released. */
   readonly #quarantined = new Set<string>();
   #generation = 0;
+  #game: HostGameService | undefined;
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
   #disposed = false;
@@ -737,6 +808,11 @@ export class ExtensionHosts {
   /** Turns a plugin off in one scope's host, as when it is disabled there. */
   async deactivate(scope: string, plugin: string): Promise<void> {
     await this.#hosts.get(scope)?.deactivate(plugin);
+  }
+
+  /** What answers plugins' `context.game`, in every host. */
+  serveGame(service: HostGameService): void {
+    this.#game = service;
   }
 
   /** Which start of the scope's running host this is, or undefined when none runs. */
@@ -819,6 +895,7 @@ export class ExtensionHosts {
             this.#quarantined.add(plugin);
         }
       },
+      () => this.#game,
     );
   }
 }

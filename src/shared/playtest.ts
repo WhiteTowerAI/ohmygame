@@ -184,7 +184,8 @@ export type PlaytestRequest =
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
   | { operation: "capture"; sessionId: string }
   | { operation: "captureFrame"; sessionId: string; frame: number }
-  | { operation: "recordStart"; sessionId: string }
+  /** `title` names the recording in the Library; the agent's are "Agent playtest". */
+  | { operation: "recordStart"; sessionId: string; title?: string }
   | { operation: "recordStop"; sessionId: string }
   | { operation: "close"; sessionId: string }
   | { operation: "closeAll" };

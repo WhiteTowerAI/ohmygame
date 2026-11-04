@@ -90,6 +90,20 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+With `capabilities.game` (API 2.3.0), a project's context has `game`: the
+project's game as the agent's [`game_use`](runtime.md#agent-game-use) plays
+it, through the same runtime and so within the same session limits.
+`game.open()` returns a session whose methods (`inspect`, `act`, `capture`,
+`captureFrame`, `recordStart`, `recordStop`, `close`) each take a `signal`.
+The host asks the daemon (`game` and `game-reply` messages,
+`src/daemon/plugin-game-bridge.ts`), which checks on every request that the
+plugin is on in the project and asks for `game`. Its sessions are its own and
+end when it is unloaded or its host stops. A recording goes to the Library
+named for the plugin, for at most 60 seconds. The plugin that runs a native
+type's game can't play it this way. Like every capability, `game` is the
+person's say for code they trust; it doesn't contain native code that
+ignores it.
+
 ## Modules
 
 | Area | Code | Tests |

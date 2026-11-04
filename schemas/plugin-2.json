@@ -181,6 +181,9 @@
         "agent": {
           "type": "boolean"
         },
+        "game": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {

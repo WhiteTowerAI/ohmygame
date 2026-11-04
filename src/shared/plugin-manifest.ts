@@ -127,6 +127,12 @@ const Capabilities = Type.Object(
     "project.files": Type.Optional(Literals(["read", "write"])),
     composer: Type.Optional(Type.Boolean()),
     agent: Type.Optional(Type.Boolean()),
+    /**
+     * Native code may play the project's game as the agent's game_use does
+     * (API 2.3.0). Native code is trusted; this asks the person, it doesn't
+     * contain a plugin that ignores it.
+     */
+    game: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),
@@ -619,6 +625,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         ? "a native entrypoint needs the native capability"
         : "the native capability needs a native entrypoint",
     );
+  if (capabilities.game && !native)
+    issue("/capabilities/game", "only native code plays the game");
 
   for (const [id, field] of Object.entries(manifest.configuration ?? {})) {
     const path = `/configuration/${id}`;

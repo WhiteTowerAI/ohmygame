@@ -2,7 +2,18 @@
 // plugin's native entry sees. Everything crossing the boundary is plain,
 // serializable data: no daemon objects, no Node handles.
 
-export const EXTENSION_HOST_PROTOCOL_VERSION = 1;
+import type { GameRecordingSaved } from "./game-recording.js";
+import type {
+  GameUseCapabilities,
+  GameUseSnapshot,
+  PlaytestAction,
+  PlaytestCapture,
+  PlaytestSnapshot,
+  PlaytestViewport,
+} from "./playtest.js";
+
+/** 2: hosts ask the daemon for `context.game`. */
+export const EXTENSION_HOST_PROTOCOL_VERSION = 2;
 
 /** Results larger than this, serialized, fail instead of being sent. */
 export const HOST_RESULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -25,6 +36,8 @@ export interface ExtensionHostPlugin {
   commands: string[];
   /** Project types the manifest contributes, whose hooks the entry may register. */
   projectTypes: string[];
+  /** Whether the manifest asks for `game`; only then has a project's context `game`. */
+  game: boolean;
 }
 
 export type HostCallKind = "tool" | "command" | "projectType";
@@ -67,6 +80,16 @@ export interface GameUseHookResults {
   close: unknown;
 }
 
+/**
+ * What `context.game` asks the daemon, for the game of the project the host
+ * serves. `session` is one its `open` returned.
+ */
+export type PluginGameRequest =
+  | { operation: "open"; viewport?: PlaytestViewport }
+  | { operation: "inspect" | "capture" | "recordStart" | "recordStop" | "close"; session: string }
+  | { operation: "act"; session: string; actions: PlaytestAction[] }
+  | { operation: "captureFrame"; session: string; frame: number };
+
 export type HostRequest =
   | { type: "activate"; id: number; plugin: ExtensionHostPlugin }
   | {
@@ -83,7 +106,9 @@ export type HostRequest =
   | { type: "deactivate"; id: number; plugin: string }
   | { type: "stats"; id: number }
   /** Deactivate everything, then exit. */
-  | { type: "shutdown"; id: number };
+  | { type: "shutdown"; id: number }
+  /** The answer to the host's `game` message with this `id`. */
+  | { type: "game-reply"; id: number; value?: unknown; error?: string };
 
 export interface HostStats {
   rss: number;
@@ -104,7 +129,14 @@ export type HostMessage =
       commands: string[];
       ms: number;
     }
-  | { type: "stats"; id: number; stats: HostStats };
+  | { type: "stats"; id: number; stats: HostStats }
+  /**
+   * A plugin's `context.game` asking the daemon; `id` is the host's own,
+   * which the daemon's `game-reply` answers.
+   */
+  | { type: "game"; id: number; plugin: string; request: PluginGameRequest }
+  /** The plugin gave up on its `game` request with this `id`. */
+  | { type: "game-cancel"; id: number };
 
 // What a plugin's native entry exports:
 //
@@ -166,6 +198,43 @@ export interface PluginContext {
   ): Disposable;
   /** Run when the plugin is deactivated or its host stops. */
   onDispose(dispose: () => void | Promise<void>): void;
+  /**
+   * The project's game, as the agent's `game_use` plays it, when the
+   * manifest asks for the `game` capability; undefined in the app host.
+   */
+  game?: PluginGame;
+}
+
+export interface PluginGameCallOptions {
+  /** Aborting gives up on the request; an `open` given up on is closed. */
+  signal?: AbortSignal;
+}
+
+/**
+ * The project's game for a plugin: the web game in a window of its own, or a
+ * native type's game through its plugin. Sessions a plugin opens are its
+ * own, end when it is deactivated or its host stops, and count towards the
+ * same limits as the agent's. A plugin can't play the game it runs itself.
+ */
+export interface PluginGame {
+  open(options?: PluginGameCallOptions & { viewport?: PlaytestViewport }): Promise<PluginGameSession>;
+}
+
+/** One game session; its requests run one at a time. */
+export interface PluginGameSession {
+  readonly id: string;
+  /** What the game's runtime can do, as `game_use` describes it. */
+  readonly capabilities: GameUseCapabilities;
+  /** The state `open` returned. */
+  readonly snapshot: GameUseSnapshot | PlaytestSnapshot;
+  inspect(options?: PluginGameCallOptions): Promise<GameUseSnapshot | PlaytestSnapshot>;
+  act(actions: PlaytestAction[], options?: PluginGameCallOptions): Promise<GameUseSnapshot | PlaytestSnapshot>;
+  capture(options?: PluginGameCallOptions): Promise<PlaytestCapture>;
+  captureFrame(frame: number, options?: PluginGameCallOptions): Promise<PlaytestCapture>;
+  /** Records at most 60 seconds into the Library, named for the plugin. */
+  recordStart(options?: PluginGameCallOptions): Promise<{ maxSeconds: number }>;
+  recordStop(options?: PluginGameCallOptions): Promise<GameRecordingSaved>;
+  close(options?: PluginGameCallOptions): Promise<void>;
 }
 
 /** Whether a progress update's link is one the app may offer to open: https, of a bounded length. */
@@ -200,6 +269,12 @@ export function isHostMessage(value: unknown): value is HostMessage {
         isStrings(message.commands) &&
         typeof message.ms === "number"
       );
+    case "game": {
+      const request = message.request as Record<string, unknown> | null;
+      return typeof message.plugin === "string" && typeof request === "object" && request !== null && typeof request.operation === "string";
+    }
+    case "game-cancel":
+      return true;
     case "stats": {
       const stats = message.stats as Record<string, unknown> | null;
       return (
