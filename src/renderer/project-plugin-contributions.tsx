@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
-import type { ProjectPluginChange, ProjectPluginCommand, ProjectPreviewDevice } from "../shared/plugins.js";
+import type { ProjectPluginChange, ProjectPluginCommand, ProjectPluginPreview, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
 import { LoaderCircle, MoreHorizontal } from "./icons.js";
@@ -10,7 +10,7 @@ import { Alert, Button, DropdownMenu, Empty, IconButton, Sheet, Skeleton } from 
 import type { PanelId } from "./workspace-layout.js";
 
 // What a project's plugins add to its workspace: panels beside the
-// built-in ones, commands in the slots their manifests name, and preview devices. The project
+// built-in ones, commands in the slots their manifests name, and preview devices and filters. The project
 // shell reads them again whenever its plugins may have changed.
 
 export const pluginPanelId = (panel: Pick<PluginPanel, "plugin" | "id">): PanelId => `plugin:${panel.plugin}:${panel.id}`;
@@ -61,10 +61,11 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
   panels: PluginPanel[];
   commands: ProjectPluginCommand[];
   previewDevices: ProjectPreviewDevice[];
+  previewFilters: ProjectPreviewFilter[];
   when: WhenContext;
 } {
   const generation = useReadyRuntimeGeneration();
-  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; previewDevices: ProjectPreviewDevice[]; active: string[] }>();
+  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; preview: ProjectPluginPreview; active: string[] }>();
   const projectId = project?.id;
   useEffect(() => {
     if (!projectId) return;
@@ -73,23 +74,24 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     void Promise.all([
       getPluginPanels(projectId, language).catch((): PluginPanel[] => []),
       listProjectPluginCommands(projectId).catch((): ProjectPluginCommand[] => []),
-      getProjectPluginPreview(projectId).then((preview) => preview.devices, (): ProjectPreviewDevice[] => []),
+      getProjectPluginPreview(projectId).catch((): ProjectPluginPreview => ({ devices: [], filters: [] })),
       // `project.plugin('<id>')` asks about every active plugin, with or without panels.
       getProjectPlugins(projectId)
         .then((view) => view.plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []))
         .catch((): string[] => []),
-    ]).then(([panels, commands, previewDevices, active]) => {
-      if (!disposed) setLoaded({ projectId, panels, commands, previewDevices, active });
+    ]).then(([panels, commands, preview, active]) => {
+      if (!disposed) setLoaded({ projectId, panels, commands, preview, active });
     });
     return () => { disposed = true; };
   }, [projectId, revision, generation]);
-  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], when: { values: {}, plugins: new Set() } };
+  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], previewFilters: [], when: { values: {}, plugins: new Set() } };
   const when = projectWhenContext(project, [...loaded.active, ...[...loaded.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
     // A page needs its address; one without it can't be shown.
     panels: loaded.panels.filter((panel) => panel.url && matchesWhen(panel.when, when)),
     commands: loaded.commands,
-    previewDevices: loaded.previewDevices,
+    previewDevices: loaded.preview.devices,
+    previewFilters: loaded.preview.filters,
     when,
   };
 }

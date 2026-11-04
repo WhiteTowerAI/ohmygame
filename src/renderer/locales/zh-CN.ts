@@ -1398,6 +1398,8 @@ const zhCN: typeof en = {
     previewPages: "预览页面",
     findPage: "查找页面或输入路径",
     viewportLabel: "预览视口",
+    filterLabel: "滤镜",
+    noFilter: "无滤镜",
     viewport: {
       tablet: "平板 · 768px",
       mobile: "手机 · 375px",

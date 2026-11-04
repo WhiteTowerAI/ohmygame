@@ -1416,6 +1416,8 @@ const en = {
     previewPages: "Preview pages",
     findPage: "Find page or enter path",
     viewportLabel: "Preview viewport",
+    filterLabel: "Filter",
+    noFilter: "No filter",
     viewport: {
       tablet: "Tablet · 768px",
       mobile: "Mobile · 375px",

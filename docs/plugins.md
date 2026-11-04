@@ -123,7 +123,7 @@ ignores it.
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
-| Preview devices | `src/daemon/plugin-services.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts` |
+| Preview devices and filters | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -438,6 +438,16 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   same limits as `game_use`. It sets the game's viewport only and doesn't
   emulate the device. A project saves it as `publisher/name:device`; while its
   plugin is off or gone, the preview shows Fit.
+- **Preview filters** (`contributes.previewFilters`, API 2.3.0) are colour
+  matrices the person can turn on from the same menu, for that visit only,
+  such as a colour-vision simulation. A filter gives a 3 × 3 `matrix` over
+  red, green and blue, an optional `offset`, the `colorSpace` its coefficients
+  are for (`linearRGB` or `sRGB`), and its `source` (where the coefficients
+  come from, such as the paper, deficiency and severity), shown as the item's
+  tooltip. Alpha is always kept. A filter only changes what the person sees:
+  in the desktop app the game's host page draws it in Preview and Play, and it
+  is off while the person records; no cover is taken while one is on; the
+  agent's playtests and screenshots are never filtered.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app

@@ -46,6 +46,11 @@ describe("coding workspace", () => {
     const stage = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: handheld.id, device: handheld }));
     expect(stage).toContain("viewer-stage-device");
     expect(stage).toContain("--preview-device-ratio:800 / 480");
+    // In a browser, a plugin's filter is drawn over the preview's frame.
+    const filtered = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: "fit", filter: { colorSpace: "sRGB", matrix: [[0.3, 0.6, 0.1], [0.3, 0.6, 0.1], [0.3, 0.6, 0.1]] } }));
+    expect(filtered).toMatch(/style="filter:url\(#[^)]+\)"/);
+    expect(filtered).toContain('color-interpolation-filters="sRGB"');
+    expect(filtered).toContain('values="0.3 0.6 0.1 0 0 0.3 0.6 0.1 0 0 0.3 0.6 0.1 0 0 0 0 0 1 0"');
   });
 
   it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {

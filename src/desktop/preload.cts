@@ -5,6 +5,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { GameRecordingState } from "../shared/game-recording.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
+import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -122,6 +123,7 @@ if (process.isMainFrame) {
       state: (projectId: string) => ipcRenderer.invoke("ohmygame:web-game-player-state", projectId) as Promise<WebGamePlayerState>,
       close: (projectId: string) => ipcRenderer.invoke("ohmygame:close-web-game-player", projectId) as Promise<void>,
       refresh: (projectId: string, reload = false) => ipcRenderer.invoke("ohmygame:refresh-web-game-player", projectId, reload) as Promise<void>,
+      setFilter: (projectId: string, filter: PreviewColorFilter | null) => ipcRenderer.invoke("ohmygame:filter-web-game-player", projectId, filter) as Promise<void>,
       onState: (listener: (state: WebGamePlayerState) => void) => {
         const callback = (_event: Electron.IpcRendererEvent, state: WebGamePlayerState) => listener(state);
         ipcRenderer.on("ohmygame:web-game-player-state", callback);

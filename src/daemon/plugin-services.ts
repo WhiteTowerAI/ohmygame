@@ -432,7 +432,7 @@ export class PluginServices {
       index: this.index,
       grants: this.grants,
     }).catch(() => undefined);
-    const preview: ProjectPluginPreview = { devices: [] };
+    const preview: ProjectPluginPreview = { devices: [], filters: [] };
     if (!resolved?.ok) return preview;
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
@@ -444,6 +444,16 @@ export class PluginServices {
           title: localizePluginString(entry, device.title, locale),
           width: device.width,
           height: device.height,
+        });
+      for (const filter of entry.manifest.contributes?.previewFilters ?? [])
+        preview.filters.push({
+          id: `${entry.id}:${filter.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, filter.title, locale),
+          source: localizePluginString(entry, filter.source, locale),
+          colorSpace: filter.colorSpace,
+          matrix: filter.matrix,
+          ...(filter.offset ? { offset: filter.offset } : {}),
         });
     }
     return preview;

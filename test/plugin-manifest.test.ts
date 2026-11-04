@@ -6,6 +6,7 @@ import { capabilityGrants, createProjectPlugins, resolveProjectPlugins } from ".
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
+import { colorMatrixValues, isPreviewColorFilter } from "../src/shared/preview-filter.js";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
@@ -306,6 +307,24 @@ describe("plugin manifest", () => {
       { id: "handheld", title: "A", width: 800, height: 480 },
       { id: "handheld", title: "B", width: 480, height: 800 },
     ])).toEqual(["/contributes/previewDevices/1/id duplicate id handheld"]);
+  });
+
+  it("adds colour filters that name their colour space and source, keep alpha, and stay in range", () => {
+    const grey = { id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] };
+    const filters = (filter: object) => messages({ ...minimal, contributes: { previewFilters: [filter] } });
+    expect(filters(grey)).toEqual([]);
+    expect(filters({ ...grey, offset: [0.1, 0, 0] })).toEqual([]);
+    const { source: _source, ...unsourced } = grey;
+    expect(filters(unsourced)).not.toEqual([]);
+    expect(filters({ ...grey, colorSpace: "display-p3" })).not.toEqual([]);
+    // Four columns would reach alpha.
+    expect(filters({ ...grey, matrix: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]] })).not.toEqual([]);
+    expect(filters({ ...grey, matrix: [[9, 0, 0], [0, 1, 0], [0, 0, 1]] })).not.toEqual([]);
+    expect(colorMatrixValues({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], offset: [0.1, 0.2, 0.3] }))
+      .toBe("1 0 0 0 0.1 0 1 0 0 0.2 0 0 1 0 0.3 0 0 0 1 0");
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(true);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0]] })).toBe(false);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(false);
   });
 
   it("asks the person before native code plays the game", () => {

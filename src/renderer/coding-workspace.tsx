@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Palette,
   Smartphone,
   Tablet,
   Trash2,
@@ -44,7 +45,8 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import type { ProjectPreviewDevice } from "../shared/plugins.js";
+import type { ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
+import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
@@ -115,6 +117,8 @@ interface CodingWorkspaceProps {
   onPickingChange?: (client: string | undefined) => void;
   /** The preview devices the project's plugins add. */
   previewDevices?: readonly ProjectPreviewDevice[];
+  /** The colour filters the project's plugins add. */
+  previewFilters?: readonly ProjectPreviewFilter[];
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -159,6 +163,7 @@ export function CodingWorkspace({
   pickingClient,
   onPickingChange,
   previewDevices = NO_DEVICES,
+  previewFilters = NO_FILTERS,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -190,6 +195,9 @@ export function CodingWorkspace({
   }, [documentsOpened, onDesignSaveReady, saveDesign]);
   const [chosenViewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
   const { viewport, device } = shownViewport(chosenViewport, previewDevices);
+  // For this visit only; a filter whose plugin is gone is off.
+  const [filterId, setFilterId] = useState<string>();
+  const filter = previewFilters.find((item) => item.id === filterId);
   const [tuningOpen, setTuningOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [previewClient] = useState(() => crypto.randomUUID());
@@ -245,6 +253,16 @@ export function CodingWorkspace({
   useEffect(() => {
     setViewport(project?.previewViewport ?? "fit");
   }, [project?.id, project?.previewViewport]);
+
+  useEffect(() => setFilterId(undefined), [project?.id]);
+  // The desktop game draws its own filter, in Preview and Play alike.
+  const setNativeFilter = typeof window !== "undefined" ? window.ohMyGameDesktop?.webGamePlayer?.setFilter : undefined;
+  useEffect(() => {
+    if (!setNativeFilter || !project?.id || !filter) return;
+    const projectId = project.id;
+    void setNativeFilter(projectId, gameFilter(filter)).catch(() => {});
+    return () => { void setNativeFilter(projectId, null).catch(() => {}); };
+  }, [setNativeFilter, project?.id, filter]);
 
   useEffect(() => {
     setKnownPaths(["/"]);
@@ -409,6 +427,9 @@ export function CodingWorkspace({
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
           devices={previewDevices}
+          filters={previewFilters}
+          filter={filter?.id}
+          onFilterChange={setFilterId}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
@@ -431,7 +452,7 @@ export function CodingWorkspace({
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
             <PreviewView
-              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device}
+              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device} filter={filter}
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
@@ -553,6 +574,9 @@ function PreviewControls({
   refreshLabel,
   viewport,
   devices,
+  filters,
+  filter,
+  onFilterChange,
   agentPlaytestWatch,
   agentPlaytestWatchPending,
   picking,
@@ -575,6 +599,9 @@ function PreviewControls({
   refreshLabel: string;
   viewport: PreviewViewport;
   devices: readonly ProjectPreviewDevice[];
+  filters: readonly ProjectPreviewFilter[];
+  filter?: string;
+  onFilterChange: (filter: string | undefined) => void;
   agentPlaytestWatch?: PlaytestWatchState;
   agentPlaytestWatchPending: boolean;
   picking: boolean;
@@ -594,7 +621,7 @@ function PreviewControls({
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} />
+      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
       {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
@@ -746,7 +773,10 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, devices, onChange }: { value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void }) {
+function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange }: {
+  value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void;
+  filters: readonly ProjectPreviewFilter[]; filter?: string; onFilterChange: (filter: string | undefined) => void;
+}) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -808,6 +838,29 @@ function ViewportMenu({ value, devices, onChange }: { value: PreviewViewport; de
               {viewport === value ? <Check size={13} /> : null}
             </button>
           ))}
+          {/* The plugins' colour filters, for what the person sees only. */}
+          {filters.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.filterLabel")}>
+            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.filterLabel")}</span>
+            {[undefined, ...filters].map((item) => (
+              <button
+                className="viewport-option"
+                type="button"
+                role="menuitemradio"
+                aria-checked={item?.id === filter}
+                key={item?.id ?? "none"}
+                title={item?.source}
+                onClick={() => {
+                  onFilterChange(item?.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <Palette size={14} />
+                <span>{item?.title ?? t("workspace.noFilter")}</span>
+                {item?.id === filter ? <Check size={13} /> : null}
+              </button>
+            ))}
+          </div> : null}
         </div>
       ) : null}
     </div>
@@ -833,6 +886,10 @@ function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPrevi
 }
 
 const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
+const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
+
+/** Just what draws a filter, for the desktop game host. */
+const gameFilter = ({ colorSpace, matrix, offset }: PreviewColorFilter): PreviewColorFilter => ({ colorSpace, matrix, ...(offset ? { offset } : {}) });
 
 /**
  * The viewport the preview shows, and the plugin device it is. A device whose
@@ -852,11 +909,13 @@ export function playerViewport(viewport: PreviewViewport, device?: Pick<ProjectP
   return { width: 1280, height: 720 };
 }
 
-export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, device, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
+export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, device, filter, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
   client?: string; onAskAgent?: (text: string) => void; onOpenFile?: (path: string) => void; onLogs?: () => void;
   project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport;
   /** The plugin device `viewport` names, when it names one. */
   device?: Pick<ProjectPreviewDevice, "width" | "height">;
+  /** A colour filter over the game; a cover isn't taken meanwhile, so it stays as the game looks. */
+  filter?: PreviewColorFilter;
   active?: boolean; playerOpen?: boolean; suspended?: boolean; pending?: boolean; error?: string; onPlay?: () => void;
   pausedAfterRecovery?: boolean;
   stageRef?: React.Ref<HTMLDivElement>;
@@ -873,7 +932,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
     ? preview.diagnostics.find((item) => native ? item.client === client : playerOpen ? item.source === "player" : item.client === client)
     : preview?.diagnostic;
   const captureBlocked = useRef(false);
-  captureBlocked.current = !!diagnostic || runtime.status !== "ready";
+  captureBlocked.current = !!diagnostic || runtime.status !== "ready" || !!filter;
+  const filterId = useId().replaceAll(":", "");
 
   useEffect(() => {
     if (diagnostic || runtime.status !== "ready") clearTimeout(captureTimer.current);
@@ -926,8 +986,14 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           key={`${url}:${reload}`} className="preview-frame" src={url}
           title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
           sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+          style={filter ? { filter: `url(#${filterId})` } : undefined}
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}
+        {filter && !native ? <svg className="preview-filter-definition" aria-hidden="true">
+          <filter id={filterId} colorInterpolationFilters={filter.colorSpace}>
+            <feColorMatrix type="matrix" values={colorMatrixValues(filter)} />
+          </filter>
+        </svg> : null}
       </div> : null}
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}

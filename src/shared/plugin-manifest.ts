@@ -3,6 +3,7 @@ import { Errors } from "typebox/value";
 import { CUSTOM_MODEL_APIS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
 
@@ -450,6 +451,27 @@ const PreviewDevice = Type.Object(
   { additionalProperties: false },
 );
 
+const FilterRow = (limit: number) =>
+  Type.Array(Type.Number({ minimum: -limit, maximum: limit }), { minItems: 3, maxItems: 3 });
+
+/**
+ * A colour matrix over the game as the person sees it. It changes red, green
+ * and blue only, keeps alpha, and names the colour space its coefficients are
+ * for and where they come from.
+ */
+const PreviewFilter = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    /** Where the coefficients come from, such as a paper, deficiency and severity. */
+    source: Text(300),
+    colorSpace: Literals(PREVIEW_FILTER_COLOR_SPACES),
+    matrix: Type.Array(FilterRow(PREVIEW_FILTER_MAX_COEFFICIENT), { minItems: 3, maxItems: 3 }),
+    offset: Type.Optional(FilterRow(1)),
+  },
+  { additionalProperties: false },
+);
+
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
@@ -565,6 +587,7 @@ export const PluginManifestV2Schema = Type.Object(
           panels: list(Panel),
           mcpServers: list(McpServer),
           previewDevices: list(PreviewDevice),
+          previewFilters: list(PreviewFilter),
         },
         { additionalProperties: false },
       ),
@@ -675,6 +698,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "panels",
     "mcpServers",
     "previewDevices",
+    "previewFilters",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {

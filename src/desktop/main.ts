@@ -40,6 +40,7 @@ import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/p
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
+import { isPreviewColorFilter } from "../shared/preview-filter.js";
 
 ignoreBrokenStdio();
 
@@ -464,6 +465,11 @@ handle("ohmygame:detach-web-game-preview", (event, projectId: unknown, attachmen
 handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.capture(projectId);
+});
+handle("ohmygame:filter-web-game-player", (event, projectId: unknown, filter: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (filter !== null && !isPreviewColorFilter(filter)) throw new Error("Invalid game filter");
+  webGamePlayers.setFilter(projectId, filter ?? undefined);
 });
 handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unknown) => {
   requirePlayerSource(event.sender, projectId);

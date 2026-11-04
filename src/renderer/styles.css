@@ -11378,6 +11378,27 @@ summary.work-summary:hover {
   color: var(--text);
 }
 
+.viewport-menu-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.viewport-menu-heading {
+  padding: 4px 8px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Holds a plugin filter's definition; draws nothing itself. */
+.preview-filter-definition {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
 /* The preview's address, like a browser's: its state, the page, and reload. */
 .preview-location {
   position: relative;

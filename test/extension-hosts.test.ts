@@ -1603,6 +1603,7 @@ describe("plugin settings and commands", () => {
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
           ],
           previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
+          previewFilters: [{ id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
         },
       }),
     );
@@ -1647,6 +1648,7 @@ describe("plugin settings and commands", () => {
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
       expect(await services.preview(folder)).toEqual({
         devices: [{ id: "acme/keys:handheld", plugin: "acme/keys", title: "Handheld", width: 800, height: 480 }],
+        filters: [{ id: "acme/keys:grey", plugin: "acme/keys", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
       });
     } finally {
       await services.close();

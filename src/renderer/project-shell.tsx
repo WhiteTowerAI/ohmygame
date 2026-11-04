@@ -1585,6 +1585,7 @@ export function ProjectShell({
           pickingClient={pickingClient}
           onPickingChange={setPickingClient}
           previewDevices={plugins.previewDevices}
+          previewFilters={plugins.previewFilters}
           panels={{
             nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
             visible: codingVisible,

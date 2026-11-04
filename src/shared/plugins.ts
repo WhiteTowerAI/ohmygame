@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -323,9 +324,20 @@ export interface ProjectPreviewDevice {
   height: number;
 }
 
+/** A preview filter a project's plugin adds. */
+export interface ProjectPreviewFilter extends PreviewColorFilter {
+  /** `publisher/name:filter`. */
+  id: string;
+  plugin: string;
+  title: string;
+  /** Where its coefficients come from. */
+  source: string;
+}
+
 /** What a project's plugins add to its preview. */
 export interface ProjectPluginPreview {
   devices: ProjectPreviewDevice[];
+  filters: ProjectPreviewFilter[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
