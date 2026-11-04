@@ -251,6 +251,14 @@ body {
   left: var(--sidebar-width, 232px);
 }
 
+/* Collapsed, back and forward move into the sheet's top inset, where they would
+   sit inside the drag strip. Keep the strip clear of them: a draggable area
+   swallows the buttons' clicks, and their own no-drag cannot carve it out from
+   outside the strip. */
+.desktop-window-frame .page-frame:has(.sidebar-history) .page-sheet .window-drag-region {
+  left: calc(var(--sidebar-width, 232px) + 60px);
+}
+
 .desktop-window-frame .onboarding .window-drag-region,
 .desktop-window-frame .onboarding-arrival .window-drag-region,
 .desktop-window-frame .route-loading .window-drag-region {
