@@ -85,10 +85,12 @@ export type InvokeOptions = {
    */
   check?: () => void | Promise<void>;
 } & (
-  | { tool: string; command?: never; projectType?: never }
-  | { command: string; tool?: never; projectType?: never }
+  | { tool: string; command?: never; projectType?: never; hook?: never }
+  | { command: string; tool?: never; projectType?: never; hook?: never }
   /** A project type hook, `<type>:<hook>`. */
-  | { projectType: string; tool?: never; command?: never }
+  | { projectType: string; tool?: never; command?: never; hook?: never }
+  /** An event hook from `contributes.hooks`. */
+  | { hook: string; tool?: never; command?: never; projectType?: never }
 );
 
 export interface ActivePlugin {
@@ -378,8 +380,10 @@ class ExtensionHost {
             ? "command"
             : options.projectType !== undefined
               ? "projectType"
-              : "tool",
-        name: (options.command ?? options.projectType ?? options.tool)!,
+              : options.hook !== undefined
+                ? "hook"
+                : "tool",
+        name: (options.command ?? options.projectType ?? options.hook ?? options.tool)!,
         input: options.input,
         ...(options.turn ? { turn: options.turn } : {}),
         ...(options.configuration ? { configuration: options.configuration } : {}),

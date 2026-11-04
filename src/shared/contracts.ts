@@ -1085,6 +1085,10 @@ export interface LibraryAsset {
   width?: number;
   height?: number;
   prompt?: string;
+  /** The prompt as it was asked for, when plugins changed it before the image was generated. */
+  requestedPrompt?: string;
+  /** Plugins that changed the request before the image was generated, in order. */
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
   /** Project copies remain available by ID without appearing in the saved collection. */
@@ -1245,6 +1249,9 @@ interface RunSizedImageToolRequest {
   aspectRatio?: never;
   outputs?: never;
   image?: never;
+  /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 interface RunConfiguredImageToolRequest {
@@ -1256,6 +1263,9 @@ interface RunConfiguredImageToolRequest {
   aspectRatio: ImageAspectRatio;
   outputs?: ImageOutputCount;
   images?: PromptImage[];
+  /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageToolRequest;
@@ -1312,6 +1322,10 @@ export interface ToolRun {
   toolId: ToolId;
   createdAt: string;
   files: ToolRunFile[];
+  /** An image's prompt as it was generated, after plugins changed it. */
+  prompt?: string;
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
@@ -1348,6 +1362,10 @@ export interface RuntimeEventData {
   "project.plugins.changed": Record<string, never>;
   /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
   "plugin.command.progress": { command: string; message: string; url?: string };
+  /** A plugin's hook has something to tell the person. */
+  "plugin.notice": { plugin: string; message: string; tone: "default" | "danger" };
+  /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
+  "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
@@ -1386,6 +1404,8 @@ export const RUNTIME_EVENT_TYPES = [
   "project.updated",
   "project.plugins.changed",
   "plugin.command.progress",
+  "plugin.notice",
+  "project.files.changed",
   "preview.updated",
   "preview.picked",
   "preview.tuning",

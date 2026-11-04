@@ -1,6 +1,7 @@
 // Messages between the daemon and an extension host process, and the API a
 // plugin's native entry sees. Everything crossing the boundary is plain,
 // serializable data: no daemon objects, no Node handles.
+import type { PluginHook } from "./plugin-hooks.js";
 
 export const EXTENSION_HOST_PROTOCOL_VERSION = 1;
 
@@ -25,9 +26,11 @@ export interface ExtensionHostPlugin {
   commands: string[];
   /** Project types the manifest contributes, whose hooks the entry may register. */
   projectTypes: string[];
+  /** Events the manifest's `contributes.hooks` lists, the only ones the entry may register. */
+  hooks: string[];
 }
 
-export type HostCallKind = "tool" | "command" | "projectType";
+export type HostCallKind = "tool" | "command" | "projectType" | "hook";
 
 /** What a project type's native hooks do. */
 export const PROJECT_TYPE_HOOKS = ["createProject", "buildWeb"] as const;
@@ -136,6 +139,11 @@ export interface PluginContext {
     id: string,
     hooks: Partial<Record<ProjectTypeHook, ToolHandler>>,
   ): Disposable;
+  /**
+   * Registers the handler for one of the events the manifest's
+   * `contributes.hooks` lists. See `PluginHookInputs` for what each receives.
+   */
+  registerHook(event: PluginHook, handler: ToolHandler): Disposable;
   /** Run when the plugin is deactivated or its host stops. */
   onDispose(dispose: () => void | Promise<void>): void;
 }

@@ -453,6 +453,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -522,6 +524,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -544,6 +548,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -626,6 +632,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };

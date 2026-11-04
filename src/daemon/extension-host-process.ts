@@ -24,6 +24,8 @@ interface LoadedPlugin {
   commands: Map<string, ToolHandler>;
   /** Project type hooks, keyed `<type>:<hook>`. */
   projectTypes: Map<string, ToolHandler>;
+  /** Event hooks, by event. */
+  hooks: Map<string, ToolHandler>;
   disposers: Array<() => void | Promise<void>>;
   deactivate?: () => void | Promise<void>;
 }
@@ -76,12 +78,13 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     tools: new Map(),
     commands: new Map(),
     projectTypes: new Map(),
+    hooks: new Map(),
     disposers: [],
   };
   // Only what the manifest declares can be registered, so the index, the
   // agent and the person see every tool before it runs.
   const register = (
-    kind: "tool" | "command" | "projectType",
+    kind: "tool" | "command" | "projectType" | "hook",
     declared: string[],
     handlers: Map<string, ToolHandler>,
     name: string,
@@ -128,6 +131,8 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
       });
       return { dispose: () => disposables.forEach((item) => item.dispose()) };
     },
+    registerHook: (event, handler) =>
+      register("hook", plugin.hooks, loaded.hooks, event, handler),
     onDispose(dispose) {
       loaded.disposers.push(dispose);
     },
@@ -160,6 +165,7 @@ async function disposeAll(loaded: LoadedPlugin) {
   loaded.tools.clear();
   loaded.commands.clear();
   loaded.projectTypes.clear();
+  loaded.hooks.clear();
   for (const dispose of loaded.disposers.splice(0).reverse())
     await Promise.resolve()
       .then(dispose)
@@ -186,7 +192,9 @@ async function invoke(
       ? loaded?.commands
       : request.kind === "projectType"
         ? loaded?.projectTypes
-        : loaded?.tools
+        : request.kind === "hook"
+          ? loaded?.hooks
+          : loaded?.tools
   )?.get(request.name);
   if (!handler)
     throw new Error(

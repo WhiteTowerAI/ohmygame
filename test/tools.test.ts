@@ -251,6 +251,33 @@ describe("tool runner", () => {
     expect(storedRun).not.toHaveProperty("requestId");
   });
 
+  it("records what a project's plugins changed before an image was generated", async () => {
+    const dataDirectory = await temporaryData();
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/webp" });
+    const runner = new ToolRunner(dataDirectory, { generate }, undefined, undefined, library);
+    const changes = [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt" as const] }];
+    runner.setImageHook(async (input, projectId) => projectId === "project-1"
+      ? { ...input, prompt: `${input.prompt}, pixel art`, requestedPrompt: input.prompt, pluginChanges: changes }
+      : input);
+    await runner.load();
+    // A request can't bring its own record of what plugins changed.
+    const forged = { requestedPrompt: "forged", pluginChanges: [{ plugin: "x/y", version: "9.9.9", fields: ["prompt"] }] };
+    const run = await runner.run("generate-image", { prompt: "A cat", size: "1024x1024", ...forged } as never, undefined, "project-1");
+    expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined);
+    expect(run).toMatchObject({ prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes });
+    const recorded = { prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes };
+    expect(library.get(run.files[0]!.assetId!)).toMatchObject(recorded);
+    const reloaded = new AssetLibrary(dataDirectory);
+    await reloaded.load();
+    expect(reloaded.get(run.files[0]!.assetId!)).toMatchObject(recorded);
+
+    const plain = await runner.run("generate-image", { prompt: "A dog", ...forged } as never);
+    expect(plain).not.toHaveProperty("pluginChanges");
+    expect(library.get(plain.files[0]!.assetId!)).not.toHaveProperty("requestedPrompt");
+  });
+
   it("generates multiple configured images", async () => {
     const dataDirectory = await temporaryData();
     let sequence = 0;

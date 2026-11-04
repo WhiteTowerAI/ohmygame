@@ -393,6 +393,24 @@ describe("plugin pages", () => {
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();
+    // Text, files or both go in the composer; the person sends them.
+    const fill = (params: unknown) => readPluginUiRequest({ id: 14, method: "composer.fill", params }).ok;
+    expect(fill({ text: "Fix the boss fight" })).toBe(true);
+    expect(fill({ attachments: [{ name: "feedback.md", data: "Too hard", type: "text/markdown" }] })).toBe(true);
+    expect(fill({ text: "See the shot", attachments: [{ name: "shot.png", data: new Blob(["png"], { type: "image/png" }) }] })).toBe(true);
+    expect(fill({})).toBe(false);
+    expect(fill({ text: "" })).toBe(false);
+    expect(fill({ attachments: [{ name: "../escape.md", data: "x" }] })).toBe(false);
+    expect(fill({ attachments: [{ name: "a.md", data: 5 }] })).toBe(false);
+    expect(fill({ attachments: [{ name: "a.md", data: "x", type: "not a type" }] })).toBe(false);
+    expect(fill({ attachments: Array.from({ length: 11 }, (_, index) => ({ name: `${index}.md`, data: "x" })) })).toBe(false);
+    // What a page reads about its project needs its own capability.
+    expect(pluginUiRefusal("history.list", {})).toContain("project.history capability");
+    expect(pluginUiRefusal("history.list", { "project.history": true })).toBeUndefined();
+    expect(pluginUiRefusal("usage.get", { "project.history": true })).toContain("project.usage capability");
+    expect(pluginUiRefusal("usage.get", { "project.usage": true })).toBeUndefined();
+    expect(readPluginUiRequest({ id: 15, method: "history.list", params: { limit: 100 } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 16, method: "history.list", params: { limit: 101 } }).ok).toBe(false);
     expect(pluginUiRefusal("project.info", {})).toBeUndefined();
     // A frame showing a plugin page stays within that plugin version's files.
     const ui = "http://127.0.0.1:9000";

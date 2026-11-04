@@ -6,6 +6,7 @@ import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { language, t } from "./i18n.js";
+import { hookLabel } from "./plugin-hook-labels.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
@@ -327,6 +328,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
     ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
     ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
     ...plugin.adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
+    ...(plugin.adds.hooks ?? []).map((hook) => ({ kind: t("pluginStore.addsHook"), title: hookLabel(hook) })),
     ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
     ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
   ];

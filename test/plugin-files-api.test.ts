@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import type { ProjectState } from "../src/shared/contracts.js";
+import type { CheckpointChangeItem, ProjectState } from "../src/shared/contracts.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
+import { projectHistory, projectUsage } from "../src/daemon/plugin-data.js";
+import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
 afterEach(async () => {
@@ -16,7 +19,7 @@ afterEach(async () => {
 });
 
 /** A project using a plugin with a panel that asks for `project.files` at `level`, if any. */
-async function setup(level?: "read" | "write", id = "acme/files") {
+async function setup(level?: "read" | "write", id = "acme/files", capabilities: Record<string, unknown> = {}) {
   const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-"));
   const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-files-source-"));
   const app = createApp({ dataDirectory });
@@ -28,7 +31,7 @@ async function setup(level?: "read" | "write", id = "acme/files") {
   await writeFile(path.join(source, "ui/icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
   await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify({
     id, version: "1.0.0", engines: { "ohmygame-api": "^2.2.0" }, displayName: "Files", description: "Uses files.", icon: "./ui/icon.svg",
-    ...(level ? { capabilities: { "project.files": level } } : {}),
+    ...(level || Object.keys(capabilities).length ? { capabilities: { ...(level ? { "project.files": level } : {}), ...capabilities } } : {}),
     contributes: { panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }] },
   }));
   const payload = { source: { type: "directory", path: source } };
@@ -256,6 +259,70 @@ describe("plugin page files API", () => {
 
     const none = await setup(undefined, "acme/plain");
     expect((await none.app.inject({ method: "GET", url: none.base })).statusCode).toBe(403);
+  });
+});
+
+describe("plugin page data API", () => {
+  it("lets a page read the project's history and usage only with each capability", async () => {
+    const history = await setup(undefined, "acme/history", { "project.history": true });
+    const historyBase = `/projects/${history.project.id}/plugin-data/acme/history`;
+    const turns = await history.app.inject({ method: "GET", url: `${historyBase}/history?limit=5` });
+    expect(turns.statusCode, turns.body).toBe(200);
+    expect(turns.json()).toEqual({ turns: [] });
+    expect((await history.app.inject({ method: "GET", url: `${historyBase}/history?limit=0` })).statusCode).toBe(400);
+    expect((await history.app.inject({ method: "GET", url: `${historyBase}/usage` })).statusCode).toBe(403);
+    // Another plugin in the app can't read through this one's route.
+    expect((await history.app.inject({ method: "GET", url: `/projects/${history.project.id}/plugin-data/acme/other/history` })).statusCode).toBe(403);
+
+    const usage = await setup(undefined, "acme/usage", { "project.usage": true });
+    const usageBase = `/projects/${usage.project.id}/plugin-data/acme/usage`;
+    const rows = await usage.app.inject({ method: "GET", url: `${usageBase}/usage` });
+    expect(rows.statusCode, rows.body).toBe(200);
+    expect(rows.json()).toEqual({ rows: [] });
+    expect((await usage.app.inject({ method: "GET", url: `${usageBase}/history` })).statusCode).toBe(403);
+  });
+
+  it("reads the turns that changed files, newest first, with what was asked", async () => {
+    const at = (minute: number) => new Date(Date.UTC(2026, 10, 4, 12, minute)).toISOString();
+    let parent: string | null = null;
+    const entry = (fields: Record<string, unknown>) => {
+      const made = { parentId: parent, ...fields } as unknown as SessionEntry;
+      parent = made.id;
+      return made;
+    };
+    const user = (id: string, text: string, minute: number) => entry({ type: "message", id, timestamp: at(minute), message: { role: "user", content: text, timestamp: Date.parse(at(minute)) } });
+    const assistant = (id: string, minute: number) => entry({ type: "message", id, timestamp: at(minute), message: { role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop", timestamp: Date.parse(at(minute)) } });
+    const checkpoint = (id: string, digit: string, minute: number) => entry({ type: "custom", id, timestamp: at(minute), customType: CHECKPOINT_ENTRY, data: { version: 1, commit: digit.repeat(40) } });
+    const end = (id: string, of: string, digit: string, minute: number, items: CheckpointChangeItem[]) => entry({ type: "custom", id, timestamp: at(minute), customType: TURN_END_ENTRY, data: { version: 1, checkpoint: of, commit: digit.repeat(40), files: items.length, items } });
+    const branch = [
+      checkpoint("c1", "a", 1), user("u1", "Add a boss fight", 1), assistant("a1", 2),
+      end("e1", "c1", "b", 2, [{ path: "src/boss.js", kind: "added", lines: { added: 40, removed: 0 } }]),
+      checkpoint("c2", "b", 3), user("u2", "What does the boss do?", 3), assistant("a2", 4), end("e2", "c2", "b", 4, []),
+      checkpoint("c3", "b", 5), user("u3", "x".repeat(3_000), 5), assistant("a3", 6),
+      end("e3", "c3", "c", 6, [{ path: "src/boss.js", kind: "modified" }]),
+    ];
+    const summary = { id: "conv-1", projectId: "p", title: "Boss", createdAt: at(1), updatedAt: at(6), messageCount: 3 };
+    const conversations = {
+      list: async () => [summary],
+      get: async () => ({ summary }) as never,
+      view: async () => ({ getBranch: () => branch }) as never,
+    };
+    const project = { id: "p" } as ProjectState;
+    const turns = await projectHistory(project, conversations, 10);
+    expect(turns.map((turn) => turn.message.slice(0, 16))).toEqual(["x".repeat(16), "Add a boss fight"]);
+    expect(turns[0]!.message).toHaveLength(2_000);
+    expect(turns[1]).toEqual({
+      conversation: { id: "conv-1", title: "Boss" },
+      at: at(1),
+      message: "Add a boss fight",
+      changes: [{ path: "src/boss.js", kind: "added", lines: { added: 40, removed: 0 } }],
+    });
+    expect(await projectHistory(project, conversations, 1)).toHaveLength(1);
+  });
+
+  it("keeps only the project's own usage rows, without its id", () => {
+    const row = { date: "2026-11-04", provider: "openai", model: "gpt", input: 1, output: 2, cacheRead: 0, cacheWrite: 0, turns: 1, durationMs: 5 };
+    expect(projectUsage([{ ...row, projectId: "a" }, { ...row, projectId: "b", turns: 9 }], "a")).toEqual([row]);
   });
 });
 

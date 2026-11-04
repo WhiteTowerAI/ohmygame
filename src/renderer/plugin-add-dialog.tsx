@@ -3,6 +3,7 @@ import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, typ
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
+import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
 import { Alert, Button, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
@@ -131,6 +132,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}><code>{ask}</code></li>)}</ul></section> : null}
     {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
     {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
+    {preview.hooks?.length ? <section><h3>{t("pluginHooks.heading")}</h3><ul>{preview.hooks.map((hook) => <li key={hook}>{hookLabel(hook)}</li>)}</ul></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
     {others.length ? <p>{t(preview.appWide ? "pluginAdd.replacesVersions" : "pluginAdd.keepsVersions", { versions: others.join(", ") })}</p> : null}

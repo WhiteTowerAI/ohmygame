@@ -101,6 +101,9 @@ export class ProjectManager {
   readonly #removedDirectory: string;
   #location?: string;
 
+  /** Told when a generated asset is saved in a project, or one from the Library is added to it. */
+  onAssetAdded?: (project: ProjectState, asset: { path: string; origin: "generated" | "imported"; prompt?: string }) => void;
+
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
     this.#locationFile = path.join(dataDirectory, "project-location.json");
@@ -598,6 +601,8 @@ export class ProjectManager {
     const relativePath = path.join("assets", "generated", fileName);
     const destination = path.join(generatedDirectory, fileName);
     const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
+    // The same asset saved again, as when an image is imported twice, is nothing new to hear about.
+    const unchanged = await readFile(destination).then((existing) => Buffer.from(contents).equals(existing), () => false);
     try {
       await writeFile(temporary, contents, { flag: "wx" });
       await rename(temporary, destination);
@@ -639,7 +644,16 @@ export class ProjectManager {
       ...(libraryAssetId ? { libraryAssetId } : {}),
     }));
     await this.touch(id);
-    return relativePath.split(path.sep).join("/");
+    if (!unchanged) this.#assetAdded(project, { path: assetPath, origin: "generated", ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}) });
+    return assetPath;
+  }
+
+  #assetAdded(project: ProjectState, asset: Parameters<NonNullable<ProjectManager["onAssetAdded"]>>[1]): void {
+    try {
+      this.onAssetAdded?.(project, asset);
+    } catch {
+      // Listeners only hear about it; the asset is saved either way.
+    }
   }
 
   async generatedAssetPrompt(id: string, assetPath: string): Promise<string | undefined> {
@@ -653,14 +667,14 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
     const { asset, absolutePath } = await this.assetLibrary.content(assetId);
-    return this.#writeAssetMetadata(id, async () => {
+    const added = await this.#writeAssetMetadata(id, async () => {
       const metadata = await readAssetMetadata(project.workspacePath);
       const stalePaths: string[] = [];
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;
         try {
           await getWorkspaceMedia(project.workspacePath, assetPath);
-          return { path: assetPath, assetId };
+          return { path: assetPath, assetId, existed: true };
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           stalePaths.push(assetPath);
@@ -670,8 +684,10 @@ export class ProjectManager {
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
-      return { path: assetPath, assetId };
+      return { path: assetPath, assetId, existed: false };
     });
+    if (!added.existed) this.#assetAdded(project, { path: added.path, origin: "imported", ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    return { path: added.path, assetId: added.assetId };
   }
 
   /**

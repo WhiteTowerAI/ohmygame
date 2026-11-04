@@ -1807,6 +1807,16 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
 const pluginFilesPath = (projectId: string, plugin: string) => `/projects/${encodeURIComponent(projectId)}/plugin-files/${plugin}`;
 
 /** A plugin page's listing of its project's files. */
+/** The project's latest turns that changed files, for a page with `project.history`. */
+export async function getPluginHistory(projectId: string, plugin: string, limit?: number): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/history${limit === undefined ? "" : `?limit=${limit}`}`);
+}
+
+/** What the project's conversations used, by day and model, for a page with `project.usage`. */
+export async function getPluginUsage(projectId: string, plugin: string): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/usage`);
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);

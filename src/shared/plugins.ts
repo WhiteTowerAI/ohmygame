@@ -66,6 +66,8 @@ export interface PluginAddPreview {
   asks: string[];
   skills: number;
   mcpServers: string[];
+  /** Events the plugin's code hears about, from `contributes.hooks`. */
+  hooks?: string[];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
@@ -286,7 +288,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number; hooks?: string[] };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */

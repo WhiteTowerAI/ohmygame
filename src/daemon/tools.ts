@@ -95,6 +95,16 @@ export class ToolRunner {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
 
+  /**
+   * Lets the project's plugins change an image's prompt and parameters
+   * before it is generated, and before its model is resolved.
+   */
+  #beforeImage?: (input: RunImageToolRequest, projectId: string) => Promise<RunImageToolRequest>;
+
+  setImageHook(hook: (input: RunImageToolRequest, projectId: string) => Promise<RunImageToolRequest>): void {
+    this.#beforeImage = hook;
+  }
+
   /** Where finished generations are logged; the daemon passes its logger. */
   setLogger(log: GenerationLogger): void {
     this.#log = log;
@@ -248,6 +258,11 @@ export class ToolRunner {
 
   async #prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
+    if (toolId === "generate-image") {
+      // Only the app records what plugins changed.
+      const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
+      input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;
+    }
     return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
   }
 
@@ -315,7 +330,7 @@ export class ToolRunner {
       return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
@@ -338,6 +353,9 @@ export class ToolRunner {
     if (!isImageOutputCount(outputs)) throw new ToolRunError("Unsupported image output count", 400);
     if (imageInput && (imageInput.length > IMAGE_MAX_REFERENCE_IMAGES || imageInput.some((image) => !isPromptImage(image, true)))) throw new ToolRunError(`Up to ${IMAGE_MAX_REFERENCE_IMAGES} PNG, JPEG, or WebP images are supported`, 400);
 
+    const changed = input.pluginChanges?.length && input.requestedPrompt !== undefined
+      ? { requestedPrompt: input.requestedPrompt, pluginChanges: input.pluginChanges }
+      : {};
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
@@ -361,6 +379,7 @@ export class ToolRunner {
           file.assetId = (await this.assetLibrary!.add(file.name, generated[index]!.bytes, {
             origin: "generated",
             prompt,
+            ...changed,
             sourceKey: `tool:${id}:${file.name}`,
           })).id;
           registeredAssetIds.push(file.assetId);
@@ -373,6 +392,8 @@ export class ToolRunner {
         ...(input.imageModel ? { model: input.imageModel } : {}),
         createdAt: new Date().toISOString(),
         files,
+        // The prompt is kept only when plugins changed it, so the agent hears what was generated.
+        ...("pluginChanges" in changed ? { prompt, ...changed } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await Promise.all(generated.map((image, index) => writeFile(path.join(temporary, files[index]!.name), image.bytes)));

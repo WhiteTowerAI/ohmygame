@@ -74,6 +74,8 @@ export const PLUGIN_UI_METHODS = [
   "files.createFolder",
   "files.move",
   "files.delete",
+  "history.list",
+  "usage.get",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -92,7 +94,8 @@ export type PluginUiReply =
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
   | { event: "visibility"; visible: boolean }
-  | { event: "files" }
+  /** Something may have changed the project's files; `paths` names them when the app knows, and `truncated` says there were more. */
+  | { event: "files"; paths?: string[]; truncated?: boolean }
   /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
   | { event: "progress"; command: string; message: string }
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
@@ -115,13 +118,33 @@ export interface PluginUiCapabilities {
   "project.selection"?: boolean;
   composer?: boolean;
   "project.files"?: "read" | "write";
+  "project.history"?: boolean;
+  "project.usage"?: boolean;
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
+  "history.list": "project.history",
+  "usage.get": "project.usage",
 };
+
+/** Most attachments one `composer.fill` adds. */
+export const PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX = 10;
+/** Most turns `history.list` returns. */
+export const PLUGIN_UI_HISTORY_MAX = 100;
+
+/** A file a page puts in the composer. */
+export interface PluginUiAttachment {
+  name: string;
+  data: string | Blob;
+  /** Its media type, such as `image/png`; read from `data` or the name when left out. */
+  type?: string;
+}
+
+/** A file name a page gave: a name, not a path. */
+const attachmentName = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.length <= 200 && !/[\\/\0]/.test(value);
 
 /** How much of `project.files` a method needs; writing covers reading. */
 const FILE_NEEDS: Partial<Record<PluginUiMethod, "read" | "write">> = {
@@ -172,8 +195,25 @@ export function readPluginUiRequest(
       if (typeof p.key !== "string" || !STORAGE_KEY.test(p.key)) return fail("storage keys are 1-100 letters, digits, dots, dashes or underscores");
       if (!("value" in p)) return fail("storage.set needs a value; null removes the key");
       break;
-    case "composer.fill":
-      if (typeof p.text !== "string" || p.text.length > 20_000) return fail("composer.fill needs text of at most 20,000 characters");
+    case "composer.fill": {
+      if (p.text !== undefined && (typeof p.text !== "string" || p.text.length > 20_000)) return fail("composer.fill's text is at most 20,000 characters");
+      const attachments = p.attachments;
+      if (attachments !== undefined) {
+        if (!Array.isArray(attachments) || attachments.length > PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX)
+          return fail(`composer.fill's attachments are a list of at most ${PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX} files`);
+        for (const item of attachments as unknown[]) {
+          const file = item as Record<string, unknown> | null;
+          if (!file || typeof file !== "object" || !attachmentName(file.name)) return fail("each attachment needs a file name, without slashes, of at most 200 characters");
+          if (typeof file.data !== "string" && !(typeof Blob !== "undefined" && file.data instanceof Blob)) return fail("each attachment's data is a string or a Blob");
+          if (file.type !== undefined && (typeof file.type !== "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(file.type))) return fail("an attachment's type is a media type, such as image/png");
+        }
+      }
+      if (!(typeof p.text === "string" && p.text.length) && !(Array.isArray(attachments) && attachments.length)) return fail("composer.fill needs text, attachments, or both");
+      break;
+    }
+    case "history.list":
+      if (p.limit !== undefined && (!Number.isInteger(p.limit) || (p.limit as number) < 1 || (p.limit as number) > PLUGIN_UI_HISTORY_MAX))
+        return fail(`history.list's limit is a whole number from 1 to ${PLUGIN_UI_HISTORY_MAX}`);
       break;
     case "command.run":
       if (typeof p.command !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(p.command)) return fail("command.run needs one of the plugin's command ids");

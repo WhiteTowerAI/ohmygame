@@ -4,6 +4,7 @@ import path from "node:path";
 import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
 import { readMediaDimensions } from "./media-dimensions.js";
+import { isImageHookRecords, type ImageHookRecord } from "../shared/plugin-hooks.js";
 
 interface StoredLibrary {
   version: 1;
@@ -14,6 +15,8 @@ interface StoredLibrary {
 interface AddAssetOptions {
   audio?: LibraryAsset["audio"];
   prompt?: string;
+  requestedPrompt?: string;
+  pluginChanges?: ImageHookRecord[];
   model3d?: LibraryAsset["model3d"];
   sourceKey?: string;
   duration?: number;
@@ -196,6 +199,9 @@ export class AssetLibrary {
       ...(options.model3d ? { model3d: options.model3d } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
+      ...(options.pluginChanges?.length && options.requestedPrompt !== undefined
+        ? { requestedPrompt: options.requestedPrompt, pluginChanges: options.pluginChanges }
+        : {}),
       ...(options.derivedFrom ? { derivedFrom: options.derivedFrom } : {}),
     });
     const state = {
@@ -288,6 +294,8 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.duration === undefined || typeof asset.duration === "number" && Number.isFinite(asset.duration) && asset.duration >= 0) &&
     [asset.width, asset.height].every((value) => value === undefined || Number.isInteger(value) && value > 0) &&
     (asset.prompt === undefined || typeof asset.prompt === "string") &&
+    (asset.requestedPrompt === undefined || typeof asset.requestedPrompt === "string") &&
+    (asset.pluginChanges === undefined || isImageHookRecords(asset.pluginChanges)) &&
     (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
     (asset.saved === undefined || typeof asset.saved === "boolean") &&

@@ -13,6 +13,7 @@ import {
   type PluginUiEvent,
   type PluginUiRequest,
   type PluginUiToastTone,
+  type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
 import "./plugin-frame.css";
 
@@ -35,8 +36,8 @@ export interface PluginPageContext {
   commands: readonly string[];
   project: () => { name: string; type: string };
   selection?: () => unknown;
-  /** Fills the composer with text; the page can never send it. */
-  fillComposer?: (text: string) => void;
+  /** Fills the composer with text and files; the page can never send it. */
+  fillComposer?: (text: string, files: File[]) => void;
   storage: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
@@ -51,6 +52,10 @@ export interface PluginPageContext {
     delete(path: string): Promise<void>;
   };
   runCommand(command: string, input?: unknown): Promise<unknown>;
+  /** The project's latest turns that changed files, with `project.history`. */
+  history(limit?: number): Promise<unknown>;
+  /** What the project's conversations used, with `project.usage`. */
+  usage(): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
   accent?: PluginAccent;
   /** Shows a toast the app draws, under the plugin's id. */
@@ -128,10 +133,19 @@ export async function handlePluginUiRequest(
       return null;
     case "selection.get":
       return context.selection?.() ?? null;
-    case "composer.fill":
+    case "composer.fill": {
       if (!context.fillComposer) throw new Error("There is no composer here");
-      context.fillComposer(params.text as string);
+      const attachments = (params.attachments ?? []) as PluginUiAttachment[];
+      context.fillComposer(
+        (params.text as string | undefined) ?? "",
+        attachments.map(({ name, data, type }) => new File([data], name, { type: type ?? (data instanceof Blob ? data.type : "") })),
+      );
       return null;
+    }
+    case "history.list":
+      return context.history(params.limit as number | undefined);
+    case "usage.get":
+      return context.usage();
     case "command.run":
       if (!context.commands.includes(params.command as string))
         throw new Error(`${context.plugin.id} has no command ${String(params.command)}`);
@@ -238,6 +252,7 @@ export function PluginFrame({
   visible = true,
   progress,
   filesRevision,
+  fileChange,
   onToolbarRun,
 }: {
   url: string;
@@ -248,6 +263,8 @@ export function PluginFrame({
   progress?: CommandProgress;
   /** Grows when the project's files may have changed; a page that can use them hears of it. */
   filesRevision?: number;
+  /** The latest files the app saw change in the project, a new object for each; a page that can use them hears which. */
+  fileChange?: { paths: string[]; truncated?: boolean };
   /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
 }) {
@@ -266,10 +283,12 @@ export function PluginFrame({
     get commands() { return latest.current.commands; },
     project: () => latest.current.project(),
     selection: () => latest.current.selection?.(),
-    fillComposer: (text) => {
+    fillComposer: (text, files) => {
       if (!latest.current.fillComposer) throw new Error("There is no composer here");
-      latest.current.fillComposer(text);
+      latest.current.fillComposer(text, files);
     },
+    history: (limit) => latest.current.history(limit),
+    usage: () => latest.current.usage(),
     storage: {
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
@@ -348,6 +367,13 @@ export function PluginFrame({
     heardFiles.current = filesRevision;
     if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files" });
   }, [filesRevision]);
+
+  const heardChange = useRef(fileChange);
+  useEffect(() => {
+    if (heardChange.current === fileChange || !fileChange) return;
+    heardChange.current = fileChange;
+    if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files", paths: fileChange.paths, ...(fileChange.truncated ? { truncated: true } : {}) });
+  }, [fileChange]);
 
   useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
     const prefix = `${latest.current.plugin.id}:`;
