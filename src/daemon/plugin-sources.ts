@@ -172,6 +172,9 @@ export class PluginSources {
       await this.#assertCanJoin(entry, fetched.origin);
       const present = this.services.index.get(entry.id, entry.version);
       if (present?.digest === entry.digest) return present;
+      // Settings and data kept at uninstall go back only to the source they came from.
+      if (!this.services.index.versions(entry.id).length && !(await this.#keptFor(entry.id, fetched.origin)))
+        await this.services.forgetKeptData(entry.id);
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
@@ -195,6 +198,12 @@ export class PluginSources {
         throw new PluginSourceError(`${entry.id} is already installed from ${sourceName(previous)}. Its approvals and settings stay with that source, so uninstall it first to add it from here.`);
     }
     if (present) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+  }
+
+  /** Whether every package this id came from before is the same source as `origin`. */
+  async #keptFor(id: string, origin: PluginOrigin | undefined): Promise<boolean> {
+    const before = Object.entries(await this.#loadOrigins()).filter(([key]) => key.startsWith(`${id}@`)).map(([, value]) => value);
+    return before.length > 0 && before.every((previous) => isSameSource(previous, origin));
   }
 
   #fetch(source: PluginAddSource): Promise<FetchedPackage> {

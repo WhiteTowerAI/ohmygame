@@ -180,7 +180,7 @@ export class PluginServices {
   /** Started in safe mode, so no plugin runs. */
   readonly safeMode: boolean;
   /** What each plugin printed and what of its failed, since the app started. */
-  readonly logs = new PluginLogs();
+  readonly logs = new PluginLogs((plugin) => this.values.secrets(plugin));
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
   #packageChanges: Promise<unknown> = Promise.resolve();
@@ -411,6 +411,8 @@ export class PluginServices {
    */
   async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
     await this.ready();
+    // Trying it starts the server's command, which safe mode doesn't run.
+    if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to test this.");
     const checked = await indexPluginPackage(root);
     if (!checked.ok) throw new Error("Prepare a valid draft before testing");
     const server = checked.entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
@@ -714,7 +716,7 @@ export class PluginServices {
 
   /** A plugin's log, its saved secrets and anything shaped like a credential redacted. */
   log(id: string): PluginLogView {
-    return { entries: this.logs.read(id, this.values.secrets(id)), quarantined: this.native.quarantined(id) };
+    return { entries: this.logs.read(id), quarantined: this.native.quarantined(id) };
   }
 
   /** What uninstalling a version, or every version, removes and leaves. */
@@ -762,6 +764,15 @@ export class PluginServices {
       await rm(this.dataFolder(id), { recursive: true, force: true });
       this.logs.forget(id);
     }
+  }
+
+  /** Drops what was kept when the last version was uninstalled, before a package from elsewhere takes the id. */
+  async forgetKeptData(id: string): Promise<void> {
+    await this.ready();
+    if (this.index.versions(id).length) return;
+    await this.values.forget(id);
+    await rm(this.dataFolder(id), { recursive: true, force: true });
+    this.logs.forget(id);
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */

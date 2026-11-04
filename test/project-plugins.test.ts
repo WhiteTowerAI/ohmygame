@@ -200,6 +200,8 @@ describe("project plugins", () => {
     const services = new PluginServices({ directory: await temporary(), safeMode: true });
     try {
       await expect(services.setEnabled("ohmygame/godot", true)).rejects.toThrow("Plugins stay off in safe mode");
+      // Nor does a Plugin Builder draft's MCP test start its server.
+      await expect(services.draftMcpServer(await temporary(), "server", { withSaved: false })).rejects.toThrow("Plugins stay off in safe mode");
     } finally {
       await services.close();
     }

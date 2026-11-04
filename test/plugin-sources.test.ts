@@ -488,10 +488,19 @@ describe("PluginSources", () => {
     await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "2.0.0")), "en")).rejects.toThrow(message);
     await expect(sources.inspect({ type: "directory", path: await folderPackage(directory, "2.0.0") }, "en")).rejects.toThrow(message);
 
-    // Uninstalling clears what it held, so the plugin can then come from anywhere.
-    await services.uninstall("acme/maker");
+    // What's kept at uninstall goes back to the same source only; a package from elsewhere that takes the id starts empty.
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    expect(await readFile(kept, "utf8")).toBe("s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
     const elsewhere = await sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en");
     expect(elsewhere.installedVersions).toEqual([]);
+    await sources.install(elsewhere.source!, elsewhere.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
     await close();
   });
 

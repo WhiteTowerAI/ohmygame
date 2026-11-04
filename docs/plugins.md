@@ -481,7 +481,10 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   folder that go with the last one, the projects that use the version, and
   the manifest's `projectFiles`, which stay. The last version always takes
   what the person allowed; `?keepData=true` on the `DELETE` keeps its
-  settings and data folder for a later install. A project's Plugins sheet
+  settings and data folder for a later install from the same npm scope or
+  GitHub repository. A package from anywhere else that takes the id, or one
+  from this computer, starts without them (`PluginServices.forgetKeptData`).
+  A project's Plugins sheet
   offers an installed version in place of an uninstalled one, and for an
   uninstalled plugin, finding it in Plugins or removing it from the project.
 - **Panels** of a project's active plugins sit beside its own, in the area

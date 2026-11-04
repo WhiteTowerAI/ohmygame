@@ -63,7 +63,8 @@ a plugin's last version forgets what was allowed.
   plugin or one the Plugin Builder made.
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
-  it first, which clears its approvals and settings.
+  it first, which clears its approvals and settings. Settings and data kept
+  at uninstall go back only to that same source.
 - Adding reads the source again and refuses a package whose digest isn't the
   one reviewed. Nothing in a package runs while it's read, so npm install
   scripts don't apply.

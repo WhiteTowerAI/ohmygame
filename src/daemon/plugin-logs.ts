@@ -11,16 +11,22 @@ export const PLUGIN_LOG_MAX_CHARS = 2_000;
 export class PluginLogs {
   readonly #entries = new Map<string, PluginLogEntry[]>();
 
+  /** `secrets` gives a plugin's saved secrets as they are now. */
+  constructor(private readonly secrets: (plugin: string) => readonly string[] = () => []) {}
+
   add(plugin: string, entry: Omit<PluginLogEntry, "at">): void {
-    const text = entry.text.length > PLUGIN_LOG_MAX_CHARS ? `${entry.text.slice(0, PLUGIN_LOG_MAX_CHARS - 1)}…` : entry.text;
+    // Redacted as it's kept, before it's cut, so a secret changed later, or cut in half, never shows.
+    const redacted = redactCredentials(entry.text, this.secrets(plugin));
+    const text = redacted.length > PLUGIN_LOG_MAX_CHARS ? `${redacted.slice(0, PLUGIN_LOG_MAX_CHARS - 1)}…` : redacted;
     const entries = this.#entries.get(plugin) ?? [];
     entries.push({ at: new Date().toISOString(), level: entry.level, source: entry.source, text });
     entries.splice(0, Math.max(0, entries.length - PLUGIN_LOG_MAX_ENTRIES));
     this.#entries.set(plugin, entries);
   }
 
-  /** The plugin's entries, oldest first, with `secrets` and anything shaped like a credential redacted. */
-  read(plugin: string, secrets: readonly string[] = []): PluginLogEntry[] {
+  /** The plugin's entries, oldest first, redacted again with its secrets now, in case one was saved after a line was kept. */
+  read(plugin: string): PluginLogEntry[] {
+    const secrets = this.secrets(plugin);
     return (this.#entries.get(plugin) ?? []).map((entry) => ({ ...entry, text: redactCredentials(entry.text, secrets) }));
   }
 

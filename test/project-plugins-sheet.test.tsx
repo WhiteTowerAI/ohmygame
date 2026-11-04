@@ -114,6 +114,16 @@ it("keeps a project on its version when a newer one is installed, and moves it e
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
 });
 
+it("turns on the version chosen once what it asks for is allowed", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: false, versions: ["2.1.0", "2.0.0"] };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!.click());
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "2.1.0 (newest)")!.click());
+  expect(api.setProjectPlugin).not.toHaveBeenCalled();
+  await act(async () => [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!.click());
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
+});
+
 it("allows the type's plugin in a copied project without turning it off", async () => {
   view.plugins[0] = { ...view.plugins[0]!, status: "needs-approval", capabilities: ["processes:godot"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));

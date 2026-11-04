@@ -22,7 +22,8 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   const [view, setView] = useState<ProjectPluginsView>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
-  const [consent, setConsent] = useState<ProjectPluginItem>();
+  // The version asked for comes along, so allowing it turns on that version.
+  const [consent, setConsent] = useState<{ plugin: ProjectPluginItem; version: string | undefined }>();
 
   const load = () => getProjectPlugins(projectId).then((next) => { setView(next); setError(undefined); });
   useEffect(() => {
@@ -33,7 +34,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
 
   async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented, version = on ? keptVersion(plugin) : undefined): Promise<void> {
     if (on && !consented) {
-      setConsent(plugin);
+      setConsent({ plugin, version });
       return;
     }
     setPending(plugin.id);
@@ -101,12 +102,12 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}
       </div>
-      {consent ? <PluginConsentDialog name={consent.displayName} capabilities={consent.capabilities}
+      {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.capabilities}
         onCancel={() => setConsent(undefined)}
         onAllow={() => {
-          const plugin = consent;
+          const { plugin, version } = consent;
           setConsent(undefined);
-          void change(plugin, true, true);
+          void change(plugin, true, true, version);
         }} /> : null}
     </Sheet>
   );
