@@ -105,6 +105,9 @@ const webGamePlayers = new WebGamePlayerWindows((state) => {
 const gameRecordings = new Map<string, GameRecordingState>();
 const gameRecordingStarts = new Set<string>();
 let quitting = false;
+// Startup opens the main window itself; until then a macOS `activate` (sent when
+// the app is relaunched, e.g. after an update) finds the service still starting.
+let startupComplete = false;
 let quitPending = false;
 let restartPending = false;
 let rendererClose: RendererCloseRequest | undefined;
@@ -157,7 +160,7 @@ const agentNotifications = new AgentNotifications({
     notificationTarget = target;
     if (!mainWindow || mainWindow.isDestroyed()) {
       // The new window takes the target once its page has loaded.
-      if (daemon && !quitting) openMainWindow().catch((error) => console.error(error));
+      if (daemon && startupComplete && !quitting) openMainWindow().catch((error) => console.error(error));
       return;
     }
     mainWindow.webContents.send("ohmygame:notification-target");
@@ -719,7 +722,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("activate", () => {
-  if (!daemon || mainWindow || quitting) return;
+  if (!daemon || !startupComplete || mainWindow || quitting) return;
   openMainWindow().catch((error) => {
     console.error(error);
     dialog.showErrorBox("OhMyGame could not open a window", error instanceof Error ? error.message : String(error));
@@ -838,6 +841,7 @@ try {
     updateFailure = failure;
   });
   await openMainWindow();
+  startupComplete = true;
   if (app.isPackaged) {
     updateChecks = new DesktopUpdateCheckScheduler(updater);
     updateChecks.start();
