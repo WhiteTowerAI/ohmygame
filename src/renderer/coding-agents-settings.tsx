@@ -9,15 +9,17 @@ import {
   Terminal,
 } from "./icons.js";
 import {
-  AGENT_PERMISSION_MODES,
-  FULL_ACCESS_PERMISSION_MODES,
+  agentPermissionModes,
+  fullAccessPermissionMode,
   isAccountRuntimeId,
+  isBuiltInAgentRuntimeId,
 } from "../shared/agent-runtimes.js";
 import type {
   AgentPermissionMode,
   AgentRuntimeDiagnostic,
   AgentRuntimeId,
   AgentRuntimeStatus,
+  BuiltInAgentRuntimeId,
 } from "../shared/agent-runtimes.js";
 import type { AgentModel } from "../shared/contracts.js";
 import {
@@ -35,6 +37,7 @@ import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
+import { pluginHash } from "./routes.js";
 
 type PermissionModeKey =
   | "claudeDefault"
@@ -44,11 +47,13 @@ type PermissionModeKey =
   | "codexWorkspace"
   | "codexFullAccess"
   | "openCodeRules"
-  | "openCodeAllow";
+  | "openCodeAllow"
+  | "pluginRules"
+  | "pluginAllow";
 
 /** Each agent's own permission modes, by the names their CLIs give them. */
 const PERMISSION_MODE_KEYS: Record<
-  AgentRuntimeId,
+  BuiltInAgentRuntimeId,
   Partial<Record<AgentPermissionMode, PermissionModeKey>>
 > = {
   "claude-code-cli": {
@@ -64,13 +69,22 @@ const PERMISSION_MODE_KEYS: Record<
   "opencode-cli": { default: "openCodeRules", allow: "openCodeAllow" },
 };
 
+/** Agents from plugins ask as their own rules say, or are allowed everything. */
+const PLUGIN_PERMISSION_MODE_KEYS: Partial<Record<AgentPermissionMode, PermissionModeKey>> = {
+  default: "pluginRules",
+  allow: "pluginAllow",
+};
+
 function permissionOptions(
-  runtime: AgentRuntimeId,
+  agent: AgentRuntimeStatus,
 ): { value: AgentPermissionMode; label: string; description: string }[] {
-  return AGENT_PERMISSION_MODES[runtime].map((value) => ({
+  const keys = isBuiltInAgentRuntimeId(agent.id)
+    ? PERMISSION_MODE_KEYS[agent.id]
+    : PLUGIN_PERMISSION_MODE_KEYS;
+  return agentPermissionModes(agent.id).map((value) => ({
     value,
-    label: t(`codingAgents.permissionMode.${PERMISSION_MODE_KEYS[runtime][value]!}`),
-    description: t(`codingAgents.permissionModeHint.${PERMISSION_MODE_KEYS[runtime][value]!}`),
+    label: t(`codingAgents.permissionMode.${keys[value]!}`),
+    description: t(`codingAgents.permissionModeHint.${keys[value]!}`, { name: agent.name }),
   }));
 }
 
@@ -341,6 +355,13 @@ export function CodingAgentDetail({
         {agent.installed && agent.id === "opencode-cli" ? (
           <SettingsRow title={t("codingAgents.account")} description={t("codingAgents.openCodeAccounts")} />
         ) : null}
+        {agent.plugin ? (
+          <SettingsRow title={t("codingAgents.plugin")} description={t("codingAgents.pluginHint", { name: agent.name })}>
+            <Button size="sm" onClick={() => { window.location.hash = pluginHash(agent.plugin); }}>
+              {t("providers.plugin.open")}
+            </Button>
+          </SettingsRow>
+        ) : null}
         {problems.length ? (
           <div className="settings-pad settings-form" aria-label={t("codingAgents.diagnostics")} role="group">
             {problems.map((diagnostic) => (
@@ -354,7 +375,7 @@ export function CodingAgentDetail({
         notifyAgentModelsChanged();
       }} disabled={busy !== undefined} /> : null}
       {login ? <LoginHint login={login} /> : null}
-      {agent.installed && agent.id !== "opencode-cli" ? (
+      {agent.installed && agent.id !== "opencode-cli" && !agent.plugin ? (
         // OpenCode bills each model provider; its account has no quota of its own.
         <SettingsGroup title={t("agentUsage.title")}>
           <div className="settings-pad">
@@ -373,15 +394,16 @@ export function CodingAgentDetail({
               label={t("codingAgents.permissions")}
               value={agent.permissionMode}
               onChange={(permissionMode) => void update({ permissionMode })}
-              options={permissionOptions(agent.id)}
+              options={permissionOptions(agent)}
             />
-            {agent.permissionMode === FULL_ACCESS_PERMISSION_MODES[agent.id] ? (
+            {agent.permissionMode === fullAccessPermissionMode(agent.id) ? (
               <SettingsNote role="status">{t("settings.agents.permissionFullNote")}</SettingsNote>
             ) : null}
             <p className="settings-muted">{t("codingAgents.permissionModesHint", { name: agent.name })}</p>
           </div>
         ) : null}
-        {agent.installed ? (
+        {agent.installed && !agent.plugin ? (
+          // Agents from plugins report no usage limits to wait for.
           <SettingsRow title={t("codingAgents.autoContinue")} description={t("codingAgents.autoContinueHint", { name: agent.name })}>
             <Switch label={t("codingAgents.autoContinue")} checked={agent.autoContinue} onChange={(autoContinue) => void update({ autoContinue })} />
           </SettingsRow>

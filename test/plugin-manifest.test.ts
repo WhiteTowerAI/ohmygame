@@ -181,6 +181,11 @@ describe("plugin manifest", () => {
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
     ]);
+    const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
+    expect(messages({ ...minimal, contributes: { agents: [agent] } })).toEqual([]);
+    expect(messages({ ...minimal, contributes: { agents: [agent, agent] } })).toEqual([
+      "/contributes/agents/1/id duplicate id gemini",
+    ]);
   });
 
   it("checks MCP servers against what the plugin may run and read", () => {

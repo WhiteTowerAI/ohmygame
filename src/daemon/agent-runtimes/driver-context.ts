@@ -48,6 +48,8 @@ export interface DriverContext {
 
 export interface HttpBridgeHandlers {
   signal: AbortSignal;
+  /** Lists every tool, for agents that read the list once per session; calls still follow the current mode. */
+  listAll?: boolean;
   active(): boolean;
   observe(
     call: { name: string; args: unknown; callId: string },

@@ -12,7 +12,27 @@ export const AGENT_RUNTIME_IDS = [
   "codex-cli",
   "opencode-cli",
 ] as const;
-export type AgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number];
+export type BuiltInAgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number];
+/**
+ * A coding agent a plugin adds (`contributes.agents`), spoken to over the
+ * Agent Client Protocol: `agent.<publisher>.<name>.<id>`.
+ */
+export type PluginAgentRuntimeId = `agent.${string}`;
+export type AgentRuntimeId = BuiltInAgentRuntimeId | PluginAgentRuntimeId;
+
+const PLUGIN_AGENT_ID = /^agent(?:\.[a-z0-9]+(?:-[a-z0-9]+)*){3}$/;
+
+export function pluginAgentRuntimeId(pluginId: string, agentId: string): PluginAgentRuntimeId {
+  return `agent.${pluginId.replace("/", ".")}.${agentId}`;
+}
+
+export function isPluginAgentRuntimeId(value: unknown): value is PluginAgentRuntimeId {
+  return typeof value === "string" && PLUGIN_AGENT_ID.test(value);
+}
+
+export function isBuiltInAgentRuntimeId(value: unknown): value is BuiltInAgentRuntimeId {
+  return typeof value === "string" && (AGENT_RUNTIME_IDS as readonly string[]).includes(value);
+}
 
 export const ACCOUNT_RUNTIME_IDS = ["claude-code-cli", "codex-cli"] as const;
 export type AccountRuntimeId = (typeof ACCOUNT_RUNTIME_IDS)[number];
@@ -28,10 +48,7 @@ export function isAccountProfileIds(value: unknown): value is AccountProfileIds 
 }
 
 export function isAgentRuntimeId(value: unknown): value is AgentRuntimeId {
-  return (
-    typeof value === "string" &&
-    (AGENT_RUNTIME_IDS as readonly string[]).includes(value)
-  );
+  return isBuiltInAgentRuntimeId(value) || isPluginAgentRuntimeId(value);
 }
 
 /**
@@ -86,24 +103,32 @@ export const AGENT_PERMISSION_MODES = {
   "claude-code-cli": ["default", "acceptEdits", "auto", "bypassPermissions"],
   "codex-cli": [":workspace", ":danger-full-access"],
   "opencode-cli": ["default", "allow"],
-} as const satisfies Record<AgentRuntimeId, readonly string[]>;
+} as const satisfies Record<BuiltInAgentRuntimeId, readonly string[]>;
+/** An agent a plugin adds asks as its own rules say (`default`), or is allowed everything. */
+export const PLUGIN_AGENT_PERMISSION_MODES = ["default", "allow"] as const;
 export type AgentPermissionMode =
-  (typeof AGENT_PERMISSION_MODES)[AgentRuntimeId][number];
+  (typeof AGENT_PERMISSION_MODES)[BuiltInAgentRuntimeId][number];
+
+export function agentPermissionModes(runtime: AgentRuntimeId): readonly AgentPermissionMode[] {
+  return isBuiltInAgentRuntimeId(runtime) ? AGENT_PERMISSION_MODES[runtime] : PLUGIN_AGENT_PERMISSION_MODES;
+}
 
 /** Each agent's mode that asks nothing, as OhMyGame's own agent does. */
 export const FULL_ACCESS_PERMISSION_MODES = {
   "claude-code-cli": "bypassPermissions",
   "codex-cli": ":danger-full-access",
   "opencode-cli": "allow",
-} as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
+} as const satisfies Record<BuiltInAgentRuntimeId, AgentPermissionMode>;
+
+export function fullAccessPermissionMode(runtime: AgentRuntimeId): AgentPermissionMode {
+  return isBuiltInAgentRuntimeId(runtime) ? FULL_ACCESS_PERMISSION_MODES[runtime] : "allow";
+}
 
 export function isAgentPermissionMode(
   runtime: AgentRuntimeId,
   value: unknown,
 ): value is AgentPermissionMode {
-  return (AGENT_PERMISSION_MODES[runtime] as readonly unknown[]).includes(
-    value,
-  );
+  return (agentPermissionModes(runtime) as readonly unknown[]).includes(value);
 }
 
 export type AgentRuntimeBinarySource =
@@ -146,6 +171,8 @@ export interface AgentRuntimeStatus {
   version?: string;
   /** Version used for real acceptance; it is not a compatibility floor. */
   testedVersion?: string;
+  /** The plugin that adds this agent, for agents that come from plugins. */
+  plugin?: string;
   auth: {
     status: AgentRuntimeAuthStatus;
     /** Account or plan text the CLI reports, such as an email address. */

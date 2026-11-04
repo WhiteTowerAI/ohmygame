@@ -19,7 +19,7 @@ import type {
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 import {
-  AGENT_RUNTIME_DEFINITIONS,
+  agentRuntimeDefinition,
   parseVersion,
   compareVersions,
 } from "./definitions.js";
@@ -30,6 +30,7 @@ import {
 } from "./environment.js";
 import { leaseAgentDirectory } from "./process-recovery.js";
 import { AgentProcess } from "./process.js";
+import { probeAcpModels } from "./acp.js";
 import {
   CodexAppServer,
   codexLimits,
@@ -42,6 +43,8 @@ import {
 import { OpenCodeDriver } from "./opencode.js";
 
 const PROBE_TIMEOUT_MS = 15_000;
+/** Starting an ACP session can start the agent's own MCP servers first. */
+const ACP_PROBE_TIMEOUT_MS = 45_000;
 
 export interface ResolvedBinary {
   path: string;
@@ -81,7 +84,7 @@ export async function resolveBinary(
   if (recheck)
     for (const key of versionCache.keys())
       if (key.startsWith(`${id}:`)) versionCache.delete(key);
-  const definition = AGENT_RUNTIME_DEFINITIONS[id];
+  const definition = agentRuntimeDefinition(id);
   const candidates = override
     ? [{ path: override, source: "manual" as const }]
     : [
@@ -284,7 +287,7 @@ export async function probeVersion(
 ): Promise<string | undefined> {
   const { stdout, stderr, code } = await runCli(
     binaryPath,
-    AGENT_RUNTIME_DEFINITIONS[id].versionArgs,
+    agentRuntimeDefinition(id).versionArgs,
     env,
   );
   return code === 0 ? parseVersion(`${stdout}\n${stderr}`) : undefined;
@@ -344,6 +347,9 @@ export async function probeAuth(
       return { status: "signed-in", billing: "api-key" };
     return { status: "unknown", billing: "unknown" };
   }
+  // A plugin agent says it needs signing in only when a session starts.
+  if (agentRuntimeDefinition(id).acp)
+    return { status: "unknown", billing: "unknown" };
   // OpenCode signs in per model provider; the model a conversation picks says who bills it.
   return { status: "unknown", billing: "provider" };
 }
@@ -358,8 +364,11 @@ export async function probeModels(
   models: AgentModel[];
   account?: string;
   limits?: AgentUsageLimit[];
+  /** The agent refused to start a session until it is signed in. */
+  signedOut?: true;
 }> {
-  const name = AGENT_RUNTIME_DEFINITIONS[id].name;
+  const definition = agentRuntimeDefinition(id);
+  const name = definition.name;
   const model = (
     modelId: string,
     label: string,
@@ -372,6 +381,21 @@ export async function probeModels(
     reasoningLevels: [],
     nativeReasoningLevels: [...new Set(levels)],
   });
+  if (definition.acp) {
+    const listed = await probeAcpModels(
+      binaryPath,
+      { name, args: definition.acp.args },
+      env,
+      privateDirectory,
+      ACP_PROBE_TIMEOUT_MS,
+    );
+    return {
+      models: listed.models.map((entry) =>
+        model(entry.id, entry.name, entry.levels),
+      ),
+      ...(listed.signedOut ? { signedOut: true as const } : {}),
+    };
+  }
   if (id === "claude-code-cli") {
     const listed = await claudeModels(binaryPath, env, privateDirectory);
     return {

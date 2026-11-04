@@ -19,7 +19,7 @@ function storePlugin(name: string, displayName: string, overrides: Partial<Store
     examples: [],
     settings: [],
     skills: [],
-    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], tools: 0, skills: 0 },
+    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
     ...overrides,
   };
 }
@@ -39,7 +39,7 @@ beforeEach(() => {
     storePlugin("new-tool", "New tool", {
       appliesTo: ["web-game"],
       skills: [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game" }],
-      adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Tool"], modelProviders: [], tools: 0, skills: 1 },
+      adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Tool"], modelProviders: [], agents: [], tools: 0, skills: 1 },
     }),
     personal("zebra", "Zebra", { skills: [{ id: "skills/stripes/SKILL.md", name: "stripes", description: "Stripes" }] }),
     personal("alpha", "Alpha", { grants: { enabled: false, allowed: [] }, skills: [{ id: "skills/publish/SKILL.md", name: "publish-wechat", description: "Publish" }] }),
@@ -54,7 +54,7 @@ beforeEach(() => {
     storePlugin("img2threejs", "Image to Three.js", { bundled: false, preinstalled: true, categories: ["art"] }),
     storePlugin("aseprite", "Aseprite", { ...off, categories: ["art"] }),
     storePlugin("tiled", "Tiled", { ...off, categories: ["art"] }),
-    storePlugin("unreal-engine", "Unreal Engine", { ...off, grants: { enabled: false, allowed: [] }, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], modelProviders: [], tools: 0, skills: 0 } }),
+    storePlugin("unreal-engine", "Unreal Engine", { ...off, grants: { enabled: false, allowed: [] }, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], modelProviders: [], agents: [], tools: 0, skills: 0 } }),
   ];
   vi.stubGlobal(
     "fetch",

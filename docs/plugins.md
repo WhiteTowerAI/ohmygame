@@ -304,6 +304,41 @@ switches don't apply. It follows installs, updates and setting changes.
   key is set, with a link to the plugin's page. It can be turned off there
   like any provider; signing in, removing it or adding models is refused.
 
+## Coding agents
+
+`contributes.agents` (plugin API 2.3.0) adds coding agents that speak the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP) to Settings →
+Agents, such as Gemini CLI (`gemini --acp`). The plugin says how to start the
+agent; OhMyGame starts it and drives it with one generic driver,
+`AcpDriver` (`src/daemon/agent-runtimes/acp.ts`). An agent is
+`agent.<publisher>.<name>.<id>` while its plugin is installed, runs in this
+app and isn't disabled everywhere; projects' plugin switches don't apply.
+`src/daemon/plugin-agents.ts` turns the manifest into the agent's definition.
+
+- `command` is the program, found on PATH and in the usual install folders as
+  the built-in agents are, and `args` start ACP on its stdio. Like a built-in
+  agent, it is off until the person turns it on in Settings → Agents; only its
+  `--version` runs before that. `installUrl` and `loginCommand` are shown when
+  it is missing or signed out.
+- Checking it runs `command --version`, then starts an ACP session in an empty
+  folder to read its models and reasoning levels from the session's config
+  options. An agent that answers `auth_required` shows as signed out. One
+  that offers no choice of model gets a single model named after it.
+- A conversation runs one process and one ACP session. OhMyGame offers no file
+  system or terminal of its own, so the agent uses its own tools. Its tools
+  reach the agent as an MCP server over HTTP when the agent supports one;
+  their token lasts as long as the process but answers only while a turn runs.
+  Its instructions go with the session's first prompt, with the Skills it can
+  read. A later process loads the session again (`session/load`, or
+  `session/resume`); an agent that can do neither starts a new session with a
+  summary of the conversation.
+- Its permission modes are **Its rules**, where what the agent asks becomes an
+  approval card, and **Allow all**. Planning turns switch to the agent's `plan`
+  or read-only mode when it has one and refuse whatever it asks.
+- Stop sends `session/cancel`. Tool calls show with Pi's names where the ACP
+  kind says which (`execute`, `read`, `edit`), and OhMyGame's own tools show
+  what they returned.
+
 ## Making a plugin
 
 The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill

@@ -67,7 +67,7 @@ export function registerAgentRuntimeRoutes(app: FastifyInstance, { agentRuntimes
   app.get<{ Querystring: { recheck?: string } }>("/agent-runtimes", async (request) => agentRuntimes.statuses(request.query.recheck === "1"));
 
   app.patch<{ Params: { runtimeId: string }; Body: UpdateAgentRuntimeRequest }>("/agent-runtimes/:runtimeId", { schema: updateAgentRuntimeSchema }, async (request, reply) => {
-    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    if (!isAgentRuntimeId(request.params.runtimeId) || !(await agentRuntimes.known(request.params.runtimeId))) return reply.code(404).send({ error: "Coding agent not found" });
     try {
       const status = await agentRuntimes.update(request.params.runtimeId, request.body);
       // Open conversations pick up how the agent runs with their next message.
@@ -79,12 +79,12 @@ export function registerAgentRuntimeRoutes(app: FastifyInstance, { agentRuntimes
   });
 
   app.post<{ Params: { runtimeId: string } }>("/agent-runtimes/:runtimeId/recheck", async (request, reply) => {
-    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    if (!isAgentRuntimeId(request.params.runtimeId) || !(await agentRuntimes.known(request.params.runtimeId))) return reply.code(404).send({ error: "Coding agent not found" });
     return agentRuntimes.status(request.params.runtimeId, true);
   });
 
   app.post<{ Params: { runtimeId: string }; Querystring: { profileId?: string } }>("/agent-runtimes/:runtimeId/login", async (request, reply) => {
-    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    if (!isAgentRuntimeId(request.params.runtimeId) || !(await agentRuntimes.known(request.params.runtimeId))) return reply.code(404).send({ error: "Coding agent not found" });
     try {
       return await agentRuntimes.login(request.params.runtimeId, request.query.profileId);
     } catch (cause) {

@@ -13,7 +13,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -339,6 +339,28 @@ const Provider = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * A coding agent the plugin adds, which speaks the Agent Client Protocol on
+ * its stdio. `command` is a program on the person's computer, found as the
+ * built-in agents are; it runs only once the person turns the agent on in
+ * Settings → Agents, as a built-in agent does.
+ */
+const Agent = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
+    /** What starts the protocol, such as `["--acp"]`. */
+    args: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { maxItems: 20 }),
+    ),
+    installUrl: Type.Optional(HttpsUrl),
+    /** What to run in a terminal to sign in. */
+    loginCommand: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
+  },
+  { additionalProperties: false },
+);
+
 /** A string that may name configuration values as `${config.field}`. */
 const Template = (maxLength = 2000) => Type.String({ maxLength });
 
@@ -516,6 +538,7 @@ export const PluginManifestV2Schema = Type.Object(
           settings: Type.Optional(Settings),
           themes: list(Theme),
           providers: list(Provider),
+          agents: list(Agent),
           panels: list(Panel),
           mcpServers: list(McpServer),
         },
@@ -623,6 +646,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "commands",
     "themes",
     "providers",
+    "agents",
     "panels",
     "mcpServers",
   ] as const) {

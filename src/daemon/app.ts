@@ -14,6 +14,8 @@ import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
+import { pluginAgentDefinitions } from "./plugin-agents.js";
+import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -659,7 +661,7 @@ export function createApp(options: AppOptions = {}) {
     return address && typeof address === "object" ? `http://127.0.0.1:${address.port}` : undefined;
   });
   /** Whether a model's provider is on: a Pi provider in Providers, or a coding agent turned on there. */
-  const modelProviderEnabled = (provider: string) => isAgentRuntimeId(provider) ? agentRuntimes.settings.get(provider).enabled : providerEnabled(provider);
+  const modelProviderEnabled = (provider: string) => isAgentRuntimeId(provider) ? agentRuntimes.has(provider) && agentRuntimes.settings.get(provider).enabled : providerEnabled(provider);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
@@ -1134,6 +1136,16 @@ export function createApp(options: AppOptions = {}) {
   pluginServices.onChange((folder) => {
     if (!folder && pluginModelProvidersReady) void syncPluginModelProviders().catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins' model providers"));
   });
+  // Coding agents from installed plugins join Settings → Agents the same way.
+  let pluginAgentsQueue: Promise<void> = Promise.resolve();
+  const syncPluginAgents = () =>
+    agentRuntimes.pluginAgentsChanging(pluginAgentsQueue = pluginAgentsQueue.then(async () => {
+      for (const id of setPluginAgentDefinitions(pluginAgentDefinitions(await pluginServices.installed())))
+        agentRuntimes.forget(id);
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins' coding agents")));
+  pluginServices.onChange((folder) => {
+    if (!folder) void syncPluginAgents();
+  });
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
   async function syncPluginType(project: ProjectState): Promise<void> {
@@ -1220,6 +1232,7 @@ export function createApp(options: AppOptions = {}) {
     await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
+    void syncPluginAgents();
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -1367,6 +1380,7 @@ export function createApp(options: AppOptions = {}) {
           commands: (contributes.commands ?? []).map((command) => text(command.title)),
           mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
           modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
+          agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
           tools: contributes.tools?.length ?? 0,
           skills: entry.skills.length,
         },
@@ -4082,6 +4096,7 @@ export function createApp(options: AppOptions = {}) {
     modelAuth.close();
     await agents.close();
     await agentRuntimes.close();
+    setPluginAgentDefinitions([]);
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
     options.playtestDriver?.close();
     await conversationImages.flush();

@@ -19,7 +19,7 @@ const official: StorePlugin = {
   examples: [],
   settings: [],
   skills: [],
-  adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], tools: 0, skills: 0 },
+  adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
 };
 const added: StorePlugin = { ...official, id: "acme/review", displayName: "Community Review", bundled: false };
 const made: StorePlugin = { ...official, id: "personal/notes", displayName: "My Notes", bundled: false };
