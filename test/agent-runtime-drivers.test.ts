@@ -1159,20 +1159,206 @@ describe("Claude Code adapter", () => {
 describe("Codex adapter", () => {
   const generatedPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 
+  it.each(["stop", "failed", "rejected", "exit", "exit-before-start", "stop-then-rejected", "forced"] as const)(
+    "continues the native thread after %s unless stopping had to be forced",
+    async (ending) => {
+      const stops = ending === "stop" || ending === "stop-then-rejected" || ending === "forced";
+      const unconfirmed = ending === "rejected" || ending === "exit-before-start";
+      const requests: Array<{ method: string; params: Record<string, any> }> = [];
+      let threads = 0;
+      let turns = 0;
+      const clis = fakeCli((message, cli) => {
+        if (typeof message.method !== "string" || message.id === undefined) return;
+        const params = message.params as Record<string, any>;
+        requests.push({ method: message.method, params });
+        const reply = (result: unknown) => cli.send({ id: message.id, result });
+        if (message.method === "thread/start" || message.method === "thread/resume") {
+          const id = message.method === "thread/start" ? `thread-${++threads}` : params.threadId;
+          return reply({ thread: { id }, activePermissionProfile: { id: params.permissions } });
+        }
+        if (message.method === "turn/interrupt") {
+          reply({});
+          if (ending !== "forced") cli.send({ method: "turn/completed", params: {
+            threadId: params.threadId, turn: { id: params.turnId, status: "interrupted" },
+          } });
+          return;
+        }
+        if (message.method !== "turn/start") return reply({});
+        const id = `turn-${++turns}`;
+        if ((turns === 1 && ending === "rejected") || (turns === 2 && ending === "stop-then-rejected"))
+          return cli.send({ id: message.id, error: { code: -32602, message: "Model temporarily unavailable" } });
+        if (turns === 1 && ending === "exit-before-start") return cli.exit(1);
+        reply({ turn: { id } });
+        if (turns === 1 && stops) return;
+        if (turns === 1 && ending === "exit") return cli.exit(1);
+        cli.send({ method: "turn/completed", params: {
+          threadId: params.threadId,
+          turn: turns === 1 ? { id, status: "failed", error: { message: "Rate limit exceeded" } }
+            : { id, status: "completed" },
+        } });
+      });
+      const ctx = await context();
+      const manager = SessionManager.inMemory(ctx.workspacePath);
+      const createSession = () => new NativeCodingSession({
+        runtime: "codex-cli", model: "gpt-test", sessionManager: manager, toolNames: [],
+        cancellationTimeoutMs: ending === "forced" ? 1 : undefined,
+        createDriver: (resume) => new CodexDriver({ ...ctx, resume }),
+        requestApproval: async () => "deny",
+      });
+      const session = createSession();
+      cleanup.push(() => session.dispose());
+      const first = session.prompt("Keep the original character and make the film", unconfirmed
+        ? { images: [{ type: "image", mimeType: "image/png", data: generatedPng }] }
+        : undefined);
+      if (stops) {
+        await vi.waitFor(() => expect(turns).toBe(1));
+        await session.abort();
+      }
+      await first;
+      if (ending === "stop-then-rejected") await session.prompt("Use the revised storyboard");
+      const state = latestNativeSession(manager.getBranch(), "codex-cli");
+      if (ending === "forced") expect(state).toBeUndefined();
+      else expect(state).toMatchObject({ sessionId: "thread-1", ...(stops ? { interrupted: true } : {}) });
+      // Reopening must preserve the marker as well as continuing in memory.
+      await session.dispose();
+      const reopened = createSession();
+      cleanup.push(() => reopened.dispose());
+      await reopened.prompt("Continue");
+      expect(latestNativeSession(manager.getBranch(), "codex-cli")?.pendingUserMessageId).toBeUndefined();
+      const input = requests.filter((request) => request.method === "turn/start").at(-1)!.params;
+      expect(input.threadId).toBe(ending === "forced" ? "thread-2" : "thread-1");
+      const wire = JSON.stringify(input.input);
+      expect(wire.includes("<conversation-handoff>")).toBe(ending === "forced");
+      expect(wire.includes("stopped the previous turn on purpose")).toBe(stops && ending !== "forced");
+      if (ending === "stop-then-rejected") expect(wire).toContain("Use the revised storyboard");
+      if (unconfirmed) {
+        expect(wire).toContain("Keep the original character and make the film");
+        expect(input.input).toContainEqual({ type: "image", url: `data:image/png;base64,${generatedPng}` });
+      }
+      expect(threads).toBe(ending === "forced" ? 2 : 1);
+      expect(clis.length).toBeGreaterThan(1);
+    },
+  );
+
+  it("isolates late notifications, tools and approvals while the next turn is starting", async () => {
+    let turn = 0;
+    let secondRpc: unknown;
+    const answers = new Map<unknown, Record<string, any>>();
+    const clis = fakeCli((message, cli) => {
+      if (message.method === undefined && message.id !== undefined) { answers.set(message.id, message); return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start" || message.method === "thread/resume")
+        return cli.send({ id: message.id, result: {
+          thread: { id: "thread-1" }, activePermissionProfile: { id: params.permissions },
+        } });
+      if (message.method === "turn/start") {
+        if (++turn === 2) { secondRpc = message.id; return; }
+        cli.send({ id: message.id, result: { turn: { id: "turn-1" } } });
+        cli.send({ method: "turn/completed", params: {
+          threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" },
+        } });
+        return;
+      }
+      cli.send({ id: message.id, result: {} });
+    });
+    const ctx = await context();
+    const call = vi.spyOn(ctx.bridge, "call");
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    expect(await driver.runTurn({ text: "first", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal))
+      .toEqual({ status: "aborted", resumable: true });
+    const recorded = recordingSink();
+    const next = driver.runTurn({ text: "continue", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(secondRpc).toBeDefined());
+    const cli = clis[0]!;
+    const notify = (method: string, params: Record<string, unknown>) => cli.send({ method, params });
+    // These arrive before the RPC response can identify the new turn.
+    for (const ids of [
+      { threadId: "thread-1", turnId: "turn-1" },
+      { threadId: "another-thread", turnId: "turn-2" },
+      { threadId: "thread-1", turnId: "unknown-old-turn" },
+    ]) {
+      notify("item/agentMessage/delta", { ...ids, itemId: "old", delta: "stale text" });
+      notify("item/completed", { ...ids, item: { id: "old", type: "commandExecution", aggregatedOutput: "stale output" } });
+      notify("thread/tokenUsage/updated", { ...ids, tokenUsage: { total: { inputTokens: 9000 }, last: { inputTokens: 9000 } } });
+      notify("error", { ...ids, error: { message: "stale error" } });
+      notify("turn/completed", { threadId: ids.threadId, turn: { id: ids.turnId, status: "failed" } });
+      cli.send({ id: `tool-${ids.threadId}-${ids.turnId}`, method: "item/tool/call", params: {
+        ...ids, callId: "old-tool", tool: "echo_tool", arguments: { value: "stale" },
+      } });
+      cli.send({ id: `approval-${ids.threadId}-${ids.turnId}`, method: "item/commandExecution/requestApproval", params: {
+        ...ids, itemId: "old-approval", command: "stale command",
+      } });
+    }
+    const ids = { threadId: "thread-1", turnId: "turn-2" };
+    notify("item/agentMessage/delta", { ...ids, itemId: "current", delta: "current text" });
+    cli.send({ id: secondRpc, result: { turn: { id: "turn-2" } } });
+    await vi.waitFor(() => expect(answers.size).toBe(6));
+    expect([...answers].filter(([id]) => String(id).startsWith("tool-")).every(([, answer]) => answer.error)).toBe(true);
+    expect(recorded.calls).toEqual(["text:current:current text"]);
+    expect(recorded.asked).toEqual([]);
+    expect(call).not.toHaveBeenCalled();
+    // An old terminal event after identification must not finish the new turn either.
+    notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } });
+    notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-2", status: "completed" } });
+    expect(await next).toEqual({ status: "completed" });
+  });
+
+  it("does not carry a late bridged tool result into the next turn", async () => {
+    let turn = 0;
+    let answer: Record<string, any> | undefined;
+    const clis = fakeCli((message, cli) => {
+      if (message.id === "late-tool") { answer = message; return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start" || message.method === "thread/resume"
+        ? { thread: { id: "thread-1" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: `turn-${++turn}` } } : {} });
+    });
+    const ctx = await context();
+    let finish!: (value: { result: NativeToolResult; isError: boolean }) => void;
+    const call = vi.spyOn(ctx.bridge, "call").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    const controller = new AbortController();
+    const first = driver.runTurn({ text: "first", images: [], readOnly: false }, recordingSink().sink, controller.signal);
+    await vi.waitFor(() => expect(turn).toBe(1));
+    const cli = clis[0]!;
+    cli.send({ id: "late-tool", method: "item/tool/call", params: {
+      threadId: "thread-1", turnId: "turn-1", callId: "shared-id", tool: "echo_tool", arguments: { value: "old" },
+    } });
+    await vi.waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+    controller.abort();
+    cli.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } } });
+    expect(await first).toEqual({ status: "aborted", resumable: true });
+    const recorded = recordingSink();
+    const second = driver.runTurn({ text: "next", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(turn).toBe(2));
+    finish({ result: { content: [{ type: "text", text: "stale tool output" }] }, isError: false });
+    await vi.waitFor(() => expect(answer?.error).toBeDefined());
+    cli.send({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-2", item: {
+      type: "dynamicToolCall", id: "shared-id", success: true, contentItems: [{ type: "inputText", text: "current tool output" }],
+    } } });
+    cli.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-2", status: "completed" } } });
+    expect(await second).toEqual({ status: "completed" });
+    expect(recorded.results.get("shared-id")?.result.content).toEqual([{ type: "text", text: "current tool output" }]);
+  });
+
   function imageCli(item: Record<string, unknown>, options: { started?: boolean; duplicate?: boolean } = {}) {
     return fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined) return;
       const params = message.params as Record<string, unknown>;
       cli.send({ id: message.id, result: message.method === "thread/start"
         ? { thread: { id: "image-thread" }, activePermissionProfile: { id: params.permissions } }
-        : {} });
+        : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {} });
       if (message.method !== "turn/start") return;
       setTimeout(() => {
-        if (options.started) cli.send({ method: "item/started", params: { item: { ...item, status: "inProgress", result: "" } } });
-        cli.send({ method: "item/completed", params: { item } });
-        if (options.duplicate) cli.send({ method: "item/completed", params: { item } });
-        cli.send({ method: "item/completed", params: { item: { type: "agentMessage", id: "final", text: "Here is your cat." } } });
-        cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } });
+        if (options.started) cli.send({ method: "item/started", params: { threadId: "image-thread", turnId: "turn-1", item: { ...item, status: "inProgress", result: "" } } });
+        cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item } });
+        if (options.duplicate) cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item } });
+        cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item: { type: "agentMessage", id: "final", text: "Here is your cat." } } });
+        cli.send({ method: "turn/completed", params: { threadId: "image-thread", turn: { id: "turn-1", status: "completed" } } });
       });
     });
   }
@@ -1211,10 +1397,10 @@ describe("Codex adapter", () => {
       const params = message.params as Record<string, unknown>;
       cli.send({ id: message.id, result: message.method === "thread/start"
         ? { thread: { id: "skill-thread" }, activePermissionProfile: { id: params.permissions } }
-        : {} });
+        : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {} });
       if (message.method !== "turn/start") return;
       input = params.input;
-      setTimeout(() => cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } }));
+      setTimeout(() => cli.send({ method: "turn/completed", params: { threadId: "skill-thread", turn: { id: "turn-1", status: "completed" } } }));
     });
     const ctx = await context({ skillDirectories: [skill] });
     const driver = new CodexDriver(ctx);
@@ -1257,7 +1443,7 @@ describe("Codex adapter", () => {
     expect(saveGeneratedImage).toHaveBeenCalledTimes(1);
     abort.abort();
     finish("assets/generated/cat.png");
-    expect(await run).toEqual({ status: "aborted" });
+    expect(await run).toEqual({ status: "aborted", resumable: true });
     expect(recorded.results.size).toBe(0);
   });
 
@@ -1395,6 +1581,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       if (message.method === "thread/start") threads.push(params);
       cli.send({
         id: message.id,
@@ -1405,13 +1592,13 @@ describe("Codex adapter", () => {
                 thread: { id: "thread-1" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() =>
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           }),
         );
     });
@@ -1435,11 +1622,12 @@ describe("Codex adapter", () => {
   });
 
   it("counts what a resumed Codex thread spends from the total it resumed with", async () => {
-    const usage = (total: number, last: number) => ({
+    const usage = (total: number, last: number, turnId = "previous-turn") => ({
       jsonrpc: "2.0",
       method: "thread/tokenUsage/updated",
       params: {
         threadId: "thread-1",
+        turnId,
         tokenUsage: {
           total: { inputTokens: total, cachedInputTokens: 0, outputTokens: total / 10 },
           last: { inputTokens: last, cachedInputTokens: 0, outputTokens: last / 10 },
@@ -1450,6 +1638,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       // Resuming reports the thread's total so far, before any turn runs.
       if (message.method === "thread/resume") cli.send(usage(1000, 300));
       cli.send({
@@ -1461,18 +1650,18 @@ describe("Codex adapter", () => {
                 thread: { id: "thread-1" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() => {
           // The first report repeats the resumed total, so nothing is spent yet.
-          cli.send(usage(1000, 300));
-          cli.send(usage(1200, 50));
+          cli.send(usage(1000, 300, routing.turnId));
+          cli.send(usage(1200, 50, routing.turnId));
           // A repeated report, as when a usage limit is hit, spends nothing more.
-          cli.send(usage(1200, 50));
+          cli.send(usage(1200, 50, routing.turnId));
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           });
         });
     });
@@ -1503,6 +1692,7 @@ describe("Codex adapter", () => {
         if (typeof message.method !== "string" || message.id === undefined)
           return;
         const params = message.params as Record<string, unknown>;
+        const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
         if (
           ["thread/start", "thread/resume", "turn/start"].includes(
             message.method,
@@ -1522,13 +1712,13 @@ describe("Codex adapter", () => {
                   thread: { id: "thread-1" },
                   activePermissionProfile: { id: params.permissions },
                 }
-              : {},
+              : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
         });
         if (message.method === "turn/start")
           setTimeout(() =>
             cli.send({
               method: "turn/completed",
-              params: { turn: { status: "completed" } },
+              params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
             }),
           );
       });
@@ -1556,6 +1746,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       if (message.method === "thread/start")
         config = params.config as Record<string, unknown>;
       cli.send({
@@ -1575,13 +1766,13 @@ describe("Codex adapter", () => {
                   thread: { id: "thread-1" },
                   activePermissionProfile: { id: params.permissions },
                 }
-              : {},
+              : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() =>
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           }),
         );
     });
@@ -1601,14 +1792,17 @@ describe("Codex adapter", () => {
     let threads = 0;
     const turns: string[] = [];
     let toolAnswer: unknown;
+    let delayStart = false;
+    let delayedRpc: unknown;
+    const interrupts: Record<string, unknown>[] = [];
     const clis = fakeCli((message, cli) => {
       if (message.id === 900 && "result" in message)
         toolAnswer = message.result;
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
-      if (message.method === "thread/start") {
-        const id = `thread-${++threads}`;
+      if (message.method === "thread/start" || message.method === "thread/resume") {
+        const id = message.method === "thread/start" ? `thread-${++threads}` : params.threadId;
         return cli.send({
           id: message.id,
           result: {
@@ -1619,11 +1813,13 @@ describe("Codex adapter", () => {
       }
       if (message.method === "turn/start") {
         turns.push(String(params.threadId));
+        if (delayStart) { delayedRpc = message.id; return; }
         return cli.send({
           id: message.id,
           result: { turn: { id: `turn-${String(params.threadId)}` } },
         });
       }
+      if (message.method === "turn/interrupt") interrupts.push(params);
       cli.send({ id: message.id, result: {} });
     });
     const directory = await mkdtemp(
@@ -1692,14 +1888,24 @@ describe("Codex adapter", () => {
       },
     });
     expect(await firstTurn).toEqual({ status: "completed" });
-    await second.dispose();
-    expect(cli.exited).toBeFalsy();
+    // A shared server may acknowledge a turn after its conversation was closed.
+    delayStart = true;
+    const controller = new AbortController();
+    const lateTurn = first.runTurn({ text: "stop before acknowledgement", images: [], readOnly: false }, one.sink, controller.signal);
+    await vi.waitFor(() => expect(delayedRpc).toBeDefined());
+    controller.abort();
     await first.dispose();
+    expect(await lateTurn).toEqual({ status: "aborted" });
+    expect(cli.exited).toBeFalsy();
+    cli.send({ id: delayedRpc, result: { turn: { id: "late-turn" } } });
+    await vi.waitFor(() => expect(interrupts).toContainEqual({ threadId: firstThread, turnId: "late-turn" }));
+    await second.dispose();
     expect(cli.exited).toBe(true);
     await expect(stat(directory)).rejects.toThrow();
   });
 
   it("projects quota windows from initial limits and live updates", async () => {
+    const routing = { threadId: "thread-1", turnId: "turn-1" };
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
@@ -1723,7 +1929,7 @@ describe("Codex adapter", () => {
                   },
                 },
               }
-            : {};
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {};
       cli.send({ id: message.id, result });
       if (message.method === "turn/start")
         setTimeout(() => {
@@ -1737,7 +1943,7 @@ describe("Codex adapter", () => {
           });
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           });
         }, 0);
     });
@@ -1757,16 +1963,19 @@ describe("Codex adapter", () => {
     );
   });
 
-  it("reports expired resume to the shared session without silently creating an empty thread", async () => {
+  it.each(["thread/resume", "turn/start"])("reports expired %s without silently creating an empty thread", async (expiredMethod) => {
     const methods: string[] = [];
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       methods.push(message.method);
+      const params = message.params as Record<string, unknown>;
       cli.send(
-        message.method === "thread/resume"
+        message.method === expiredMethod
           ? { id: message.id, error: { message: "thread not found" } }
-          : { id: message.id, result: {} },
+          : { id: message.id, result: message.method === "thread/resume"
+            ? { thread: { id: "expired" }, activePermissionProfile: { id: params.permissions } }
+            : {} },
       );
     });
     const driver = new CodexDriver(await context({ resume: "expired" }));
@@ -1800,12 +2009,12 @@ describe("Codex adapter", () => {
           cli.send({
             id: "grant-reference",
             method: "item/permissions/requestApproval",
-            params: { permissions: reference, reason: "Read reference files" },
+            params: { threadId: "thread-1", turnId: "turn-1", permissions: reference, reason: "Read reference files" },
           });
         else
           cli.send({
             method: "turn/completed",
-            params: { turn: { id: "turn-1", status: "completed" } },
+            params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
           });
         return;
       }
@@ -1831,6 +2040,7 @@ describe("Codex adapter", () => {
               id: "grant-secrets",
               method: "item/permissions/requestApproval",
               params: {
+                threadId: "thread-1", turnId: "turn-1",
                 permissions: {
                   fileSystem: { read: ["/tmp/secrets/auth.json"], write: null },
                 },
@@ -1875,7 +2085,7 @@ describe("Codex adapter", () => {
         answer = message.result;
         cli.send({
           method: "turn/completed",
-          params: { turn: { status: "completed" } },
+          params: { threadId: "plan-thread", turn: { id: "turn-1", status: "completed" } },
         });
         return;
       }
@@ -1890,7 +2100,7 @@ describe("Codex adapter", () => {
                 thread: { id: "plan-thread" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {},
       });
       if (message.method === "turn/start") {
         expect(params.permissions).toBe(":read-only");
@@ -1900,6 +2110,7 @@ describe("Codex adapter", () => {
               id: "plan-write",
               method: "item/permissions/requestApproval",
               params: {
+                threadId: "plan-thread", turnId: "turn-1",
                 permissions: { fileSystem: { write: ["/tmp/workspace/a"] } },
               },
             }),
