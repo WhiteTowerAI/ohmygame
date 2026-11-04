@@ -123,12 +123,12 @@ export class WebGamePlayerWindows {
    * The Play window has no toolbar, so its title says that it is recording.
    * A recording is of the game as it is, so its filter is off meanwhile.
    */
-  setRecording(projectId: string, recording: boolean): void {
+  async setRecording(projectId: string, recording: boolean): Promise<void> {
     const game = this.#games.get(projectId);
     if (!game) return;
     game.recording = recording;
     this.#titlePlayWindow(game);
-    void this.#applyFilter(projectId, game);
+    await this.#applyFilter(projectId, game);
   }
 
   /** The colour filter over the person's game, in Preview and Play; none clears it. */

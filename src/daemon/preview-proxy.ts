@@ -887,7 +887,8 @@ const keyOf = (code) => {
 const pressKey = (code, down) => {
   const [key, keyCode] = keyOf(code);
   const side = code.startsWith('Arrow') ? 0 : code.endsWith('Left') ? 1 : code.endsWith('Right') ? 2 : 0;
-  const event = new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, location: side, bubbles: true, cancelable: true, composed: true });
+  const held = (name) => [...heldKeys].some((item) => item.startsWith(name));
+  const event = new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, location: side, shiftKey: held('Shift'), ctrlKey: held('Control'), altKey: held('Alt'), bubbles: true, cancelable: true, composed: true });
   // Older games read keyCode, which the constructor can't set.
   for (const name of ['keyCode', 'which']) Object.defineProperty(event, name, { get: () => keyCode });
   (document.activeElement || document.body || document.documentElement).dispatchEvent(event);
@@ -914,7 +915,9 @@ const pollPad = () => {
     for (const [axis, direction, code] of padMap.axes) if ((pad.axes[axis] || 0) * direction > padMap.deadZone) wanted.add(code);
   }
   for (const code of [...heldKeys]) if (!wanted.has(code)) { heldKeys.delete(code); pressKey(code, false); }
-  for (const code of wanted) if (!heldKeys.has(code)) { heldKeys.add(code); pressKey(code, true); }
+  // Modifiers go down first, so the keys pressed with them carry them.
+  const modifier = (code) => /^(Shift|Control|Alt)/.test(code) ? 0 : 1;
+  for (const code of [...wanted].sort((a, b) => modifier(a) - modifier(b))) if (!heldKeys.has(code)) { heldKeys.add(code); pressKey(code, true); }
   padFrame = requestAnimationFrame(pollPad);
 };
 const usePadMap = (map) => {

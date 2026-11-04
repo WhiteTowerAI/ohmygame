@@ -155,6 +155,23 @@ describe("the preview bridge's gamepad map", () => {
     stop();
   });
 
+  it("holds a mapped modifier on the keys pressed with it", async () => {
+    const { events, frame, stop } = await playing();
+    const shifted: boolean[] = [];
+    const listen = (event: KeyboardEvent) => { if (event.code === "KeyW") shifted.push(event.shiftKey); };
+    window.addEventListener("keydown", listen);
+    events.deliver({ reload: 0, inputMap: { buttons: [[1, "KeyW"], [0, "ShiftLeft"]], axes: [], deadZone: 0.5 } });
+    pad.buttons[0]!.pressed = true;
+    pad.buttons[1] = { pressed: true };
+    await frame();
+    expect(shifted).toEqual([true]);
+    pad.buttons[0]!.pressed = false;
+    pad.buttons.length = 1;
+    events.deliver({ reload: 0, inputMap: null });
+    window.removeEventListener("keydown", listen);
+    stop();
+  });
+
   it("stops when the game reads the pad itself", async () => {
     const { events, keys, frame, stop } = await playing();
     events.deliver({ reload: 0, inputMap: map });

@@ -47,6 +47,7 @@ import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
+import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
@@ -261,26 +262,29 @@ export function CodingWorkspace({
   // Off until the person picks one; remembered per project on this device.
   const [inputMapId, setInputMapId] = useState(() => savedInputMap(project?.id));
   useEffect(() => setInputMapId(savedInputMap(project?.id)), [project?.id]);
+  // Reading the plugins again gives new objects; only a different map changes anything.
   const inputMap = inputMaps.find((item) => item.id === inputMapId);
+  const inputMapJson = inputMap && JSON.stringify(inputMap.map);
   const runtimeGeneration = useReadyRuntimeGeneration();
   useEffect(() => {
-    if (!project?.id || !inputMap) return;
+    if (!project?.id || !inputMapJson) return;
     const projectId = project.id;
-    void setPreviewInputMap(projectId, inputMap.map).catch(() => {});
-    return () => { void setPreviewInputMap(projectId, null).catch(() => {}); };
-  }, [project?.id, inputMap, runtimeGeneration]);
+    sendInputMap(projectId, JSON.parse(inputMapJson) as GamepadKeyMap);
+    return () => sendInputMap(projectId, null);
+  }, [project?.id, inputMapJson, runtimeGeneration]);
   const chooseInputMap = (id: string | undefined) => {
     setInputMapId(id);
     if (project?.id) saveInputMap(project.id, id);
   };
   // The desktop game draws its own filter, in Preview and Play alike.
   const setNativeFilter = typeof window !== "undefined" ? window.ohMyGameDesktop?.webGamePlayer?.setFilter : undefined;
+  const filterJson = filter && JSON.stringify(gameFilter(filter));
   useEffect(() => {
-    if (!setNativeFilter || !project?.id || !filter) return;
+    if (!setNativeFilter || !project?.id || !filterJson) return;
     const projectId = project.id;
-    void setNativeFilter(projectId, gameFilter(filter)).catch(() => {});
+    void setNativeFilter(projectId, JSON.parse(filterJson) as PreviewColorFilter).catch(() => {});
     return () => { void setNativeFilter(projectId, null).catch(() => {}); };
-  }, [setNativeFilter, project?.id, filter]);
+  }, [setNativeFilter, project?.id, filterJson]);
 
   useEffect(() => {
     setKnownPaths(["/"]);
@@ -939,6 +943,12 @@ const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
 const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
 const NO_INPUT_MAPS: readonly ProjectInputMap[] = [];
 const inputMapKey = (projectId: string) => `ohmygame:input-map:${projectId}`;
+
+// One at a time, so turning a map off and on again can't arrive the other way round.
+let inputMapRequests = Promise.resolve();
+function sendInputMap(projectId: string, map: GamepadKeyMap | null): void {
+  inputMapRequests = inputMapRequests.then(() => setPreviewInputMap(projectId, map)).catch(() => {});
+}
 
 /** The gamepad map the person picked for a project on this device; storage may be unavailable. */
 export function savedInputMap(projectId: string | undefined): string | undefined {

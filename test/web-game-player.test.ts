@@ -197,9 +197,11 @@ describe("shared desktop game", () => {
     const contents = electron.views[0]!.webContents;
     const filters = () => contents.executeJavaScript.mock.calls.flatMap(([script]) => script.startsWith("window.setFilter?.(") ? [JSON.parse(script.slice(19, -1))] : []);
     expect(filters()).toEqual([filter]);
-    games.setRecording("game", true);
-    games.setRecording("game", false);
-    await vi.waitFor(() => expect(filters()).toEqual([filter, null, filter]));
+    // The filter is off by the time recording may start capturing.
+    await games.setRecording("game", true);
+    expect(filters()).toEqual([filter, null]);
+    await games.setRecording("game", false);
+    expect(filters()).toEqual([filter, null, filter]);
     contents.emit("render-process-gone");
     await games.refresh("game", async () => target, true);
     expect(filters()).toEqual([filter, null, filter, filter]);

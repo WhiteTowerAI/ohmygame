@@ -516,8 +516,11 @@ async function startGameRecording(projectId: string): Promise<void> {
   let outcome: Promise<GameRecordingSaved>;
   try {
     const { contents, title } = await webGamePlayers.recordingTarget(projectId);
+    // The filter is off before the first frame is captured.
+    await webGamePlayers.setRecording(projectId, true);
     ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
   } catch (cause) {
+    void webGamePlayers.setRecording(projectId, false);
     if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
     throw cause;
   } finally {
@@ -526,11 +529,10 @@ async function startGameRecording(projectId: string): Promise<void> {
   if (gameRecordings.get(projectId)?.status !== "saving") {
     publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
   }
-  webGamePlayers.setRecording(projectId, true);
   void outcome.then(
     (saved) => publishGameRecording({ projectId, status: "idle", saved }),
     (cause: unknown) => publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) }),
-  ).finally(() => webGamePlayers.setRecording(projectId, false));
+  ).finally(() => void webGamePlayers.setRecording(projectId, false));
 }
 
 function publishGameRecording(state: GameRecordingState): void {
