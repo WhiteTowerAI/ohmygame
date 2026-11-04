@@ -3,13 +3,10 @@ import { cloudGameOwnerCheck, createMultiplayerServer, publishedGameCheck } from
 import { PostgresGameDataStore } from "@ohmygame/server/postgres";
 import { createBuiltInAdapters } from "./index.js";
 
-// OhMyGame's hosted service: the operator's deployment registry, played with the built-in rules.
+// OhMyGame's hosted service, played with the built-in rules. Publishers register their games'
+// deployments themselves; an operator may still list deployments in a file.
 const deploymentsFile = process.env.MULTIPLAYER_DEPLOYMENTS_FILE;
-if (!deploymentsFile)
-  throw new Error(
-    "Set MULTIPLAYER_DEPLOYMENTS_FILE to a trusted deployment registry JSON file.",
-  );
-const deployments = JSON.parse(await readFile(deploymentsFile, "utf8"));
+const deployments = deploymentsFile ? JSON.parse(await readFile(deploymentsFile, "utf8")) : [];
 if (!Array.isArray(deployments))
   throw new Error("The deployment registry must be an array.");
 // Cloud saves and leaderboards, for games published to OhMyGame, when a database is configured.

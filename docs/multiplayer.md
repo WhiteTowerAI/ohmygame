@@ -441,6 +441,24 @@ in the publish request must instead already be registered and match exactly.
 See [the multiplayer service guide](google-playground-multiplayer.md) for public
 backend operation; public deployment is independent of local testing.
 
+### Running OhMyGame's game service
+
+`bun run start:multiplayer` (`packages/games/src/server.ts`) runs the hosted
+service with the built-in rules. Its settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `MULTIPLAYER_GUEST_SECRET` | Signs guest tokens; at least 32 random bytes. Required. |
+| `MULTIPLAYER_DATABASE_PATH` | The SQLite file for rooms and registered deployments. Keep it on a persistent volume, or turn-based rooms and registrations are lost on redeploy. |
+| `PORT` or `MULTIPLAYER_PORT`, `MULTIPLAYER_HOST`, `MULTIPLAYER_MAX_ROOMS`, `MULTIPLAYER_PUBLIC_ADDRESS` | Where it listens, its room limit, and Colyseus's public address. |
+| `MULTIPLAYER_CLIENT_IP_HEADER` or `MULTIPLAYER_TRUST_PROXY_HOPS` | The real client behind the ingress; see [client addresses](#client-addresses). |
+| `OHMYGAME_ACCOUNT_ISSUER` | The account service whose game tokens sign players in; must equal the cloud's `GAME_SIGN_IN_ISSUER` and the issuer OhMyGame writes into published games. Guests only without it. |
+| `OHMYGAME_CLOUD_API_URL` | The cloud API, for which games are published and who owns them. |
+| `GAME_SERVICE_PUBLIC_URL` | This service's HTTPS origin; with `OHMYGAME_CLOUD_API_URL`, publishers may register deployments. OhMyGame's `OHMYGAME_GAME_SERVICE_URL` must name the same origin. |
+| `GAME_DATA_DATABASE_URL` | Postgres for cloud saves and leaderboards; requires `OHMYGAME_CLOUD_API_URL`. |
+| `GAME_DATA_ADMIN_TOKEN` | Enables the operator route that deletes an account's data. |
+| `MULTIPLAYER_DEPLOYMENTS_FILE` | Optional: deployments an operator lists by hand, as a JSON array. |
+
 Publishing rejects a missing build manifest when `multiplayer.json` declares
 multiplayer, mismatches between source/build/request configurations, and known
 PeerJS dependencies or public PeerJS/CDN markers in the build. These checks
