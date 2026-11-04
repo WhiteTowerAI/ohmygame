@@ -1,3 +1,5 @@
+import { notifyAgentModelsChanged } from "./model-settings-events.js";
+export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
@@ -244,20 +246,24 @@ export async function listProjects(): Promise<ProjectState[]> {
 
 /** Follows project activity, reconnecting after a service restart; each connection starts with the current snapshot. */
 export async function streamProjectActivity(signal: AbortSignal, onSnapshot: (snapshot: ProjectActivitySnapshot) => void): Promise<void> {
+  return streamSnapshots("/projects/activity/events", signal, onSnapshot);
+}
+
+export async function streamSnapshots<T>(path: string, signal: AbortSignal, onSnapshot: (value: T) => void): Promise<void> {
   while (!signal.aborted) {
     const connection = new AbortController();
     const unsubscribe = subscribeRuntimeConnection(() => connection.abort());
     const connectionSignal = AbortSignal.any([signal, connection.signal]);
     try {
       if (runtimeConnection().status !== "ready") throw new Error(t("api.serviceUnavailable"));
-      const response = await fetch(apiUrl("/projects/activity/events"), {
+      const response = await fetch(apiUrl(path), {
         headers: { accept: "text/event-stream", ...runtimeHeaders() },
         signal: connectionSignal,
       });
-      if (!response.ok || !response.body) throw new ApiError(`Activity stream failed with ${response.status}`, response.status);
+      if (!response.ok || !response.body) throw new ApiError(`Snapshot stream failed with ${response.status}`, response.status);
       await readEventBlocks(response.body, (block) => {
         const data = eventData(block);
-        if (data) onSnapshot(JSON.parse(data) as ProjectActivitySnapshot);
+        if (data) onSnapshot(JSON.parse(data) as T);
       }, connectionSignal);
     } catch {
       // Keep the last state during a temporary runtime disconnect.
@@ -437,16 +443,11 @@ export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Pr
   });
 }
 
-export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
 export async function syncCloudSession(session: { accessToken: string; userId: string } | null): Promise<void> {
   await request("/cloud/session", { method: "PUT", body: JSON.stringify(session) });
   notifyAgentModelsChanged();
 }
 export async function getCloudQuotas(): Promise<import("../shared/cloud-models.js").CloudQuotaSnapshot | null> { return request("/cloud/quotas"); }
-
-export function notifyAgentModelsChanged(): void {
-  window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
-}
 
 export async function listProviders(): Promise<ProviderSummary[]> {
   return request("/settings/providers");

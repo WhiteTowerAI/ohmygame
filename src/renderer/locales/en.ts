@@ -87,6 +87,7 @@ const en = {
     noCompatibleNodes: "No compatible node types",
   },
   common: {
+    showMore: "Show more",
     openName: "Open {{name}}",
     tryAgain: "Try again",
     copied: "Copied",
@@ -2186,6 +2187,7 @@ const en = {
     saveFailed: "Could not save the image",
   },
   timeline: {
+    earlierMessages: "Show earlier messages",
     waitingToSteer: "Waiting to steer",
     branchChat: "Branch in new chat",
     branchConfirm: "Create a new chat with all messages through this response?",

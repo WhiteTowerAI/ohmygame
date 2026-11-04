@@ -2,6 +2,10 @@
 
 Design and Asset Canvas share a project directory the agent edits with its ordinary file tools.
 The canvas renders those files and autosaves user edits into the same sources.
+A workspace or board GET accepts an optional `knownRevision` from its previous
+response. When disk contents match, the daemon returns HTTP 204. A changed
+resource returns its current contents and revision, including external edits.
+
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
@@ -231,6 +235,14 @@ Deleting a node keeps the resource registration and file for reuse and undo.
 An unused registration for a missing file does not block the editor. Remove
 such a registration only after checking other boards and document links.
 `canvas_check` still reports missing files as diagnostics.
+
+While a canvas is open, the daemon watches `canvas/` and `assets/` and batches
+file notifications for 75 ms. Connected editors re-read the affected workspace,
+board or generation history. Reconnecting and returning to a visible window
+both reconcile current versions. A visible editor also checks every 60 seconds
+to catch missed notifications and changes to referenced files outside these
+directories. Each refresh uses the same draft and conflict handling as a manual
+sync.
 
 Loading, background synchronization and saving have separate recovery actions.
 An initial load failure can reload the canvas. A failed background read keeps

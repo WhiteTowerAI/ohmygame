@@ -496,7 +496,9 @@ Project lists receive names from the project activity stream, even after a
 short turn finishes. `/projects/activity` returns `{ activity, names }`, and
 `/projects/activity/events` streams the same snapshot as an `activity` SSE event
 whenever it changes; `names` contains only each project's `id`, `name` and
-optional `nameSource`. Stopping the daemon ends this and the other SSE streams
+optional `nameSource`. New connections receive the current snapshot. Changes to
+agent activity or the project list prompt one shared snapshot for all listening
+windows, including when a turn starts cancelling. Stopping the daemon ends this and the other SSE streams
 first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
@@ -630,6 +632,9 @@ front. A project without a preview, such as Godot without a web build, has no
 Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
+
+Long conversations open at the most recent 40 turns. Scroll toward the top
+or choose **Show earlier messages** to read the preceding turns.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

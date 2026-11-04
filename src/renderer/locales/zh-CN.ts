@@ -88,6 +88,7 @@ const zhCN: typeof en = {
     noCompatibleNodes: "没有兼容的节点类型",
   },
   common: {
+    showMore: "显示更多",
     openName: "打开 {{name}}",
     tryAgain: "重试",
     copied: "已复制",
@@ -2154,6 +2155,7 @@ const zhCN: typeof en = {
     saveFailed: "无法保存图片",
   },
   timeline: {
+    earlierMessages: "显示更早的消息",
     waitingToSteer: "等待引导",
     branchChat: "在新聊天中创建分支",
     branchConfirm: "将截至此回复（包含此回复）的消息复制到新聊天？",

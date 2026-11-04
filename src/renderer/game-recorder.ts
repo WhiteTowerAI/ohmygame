@@ -74,9 +74,10 @@ async function startRecording(settings: GameRecorderSettings): Promise<GameRecor
     const finish = stop = async () => {
       if (stop !== finish) return;
       stop = undefined;
+      const duration = (performance.now() - startedAt) / 1000;
       try {
         await output.finalize();
-        host.finished((performance.now() - startedAt) / 1000);
+        host.finished(duration);
       } catch (cause) {
         host.failed(message(cause));
       } finally {

@@ -51,7 +51,7 @@ export interface GameRecorderStarted {
 
 /** What the hidden recorder page may tell the desktop. */
 export interface GameRecorderHostBridge {
-  chunk(bytes: Uint8Array): void;
+  chunk(bytes: Uint8Array): Promise<void>;
   /** Every chunk has been sent. */
   finished(duration: number): void;
   failed(message: string): void;

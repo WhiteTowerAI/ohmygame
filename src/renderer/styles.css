@@ -12223,23 +12223,6 @@ summary.work-summary:hover {
   font: inherit;
 }
 
-/* Line numbers, kept in view when the code scrolls sideways. */
-.workspace-code .line::before {
-  position: sticky;
-  left: 0;
-  display: inline-block;
-  box-sizing: border-box;
-  width: 66px;
-  padding-right: 26px;
-  background: var(--canvas);
-  color: var(--color-text-tertiary);
-  content: counter(line);
-  counter-increment: line;
-  text-align: right;
-  user-select: none;
-}
-
-/* Plain text: the same numbers, from one gutter beside the code. */
 .workspace-code-plain {
   display: grid;
   grid-template-columns: 66px max-content;
@@ -12257,16 +12240,23 @@ summary.work-summary:hover {
   user-select: none;
 }
 
-.workspace-code-highlighted {
-  overflow: auto;
-  white-space: pre;
+.workspace-code {
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-name: #d2a8ff;
+  --syntax-number: #79c0ff;
 }
-
-.workspace-code-highlighted pre {
-  margin: 0;
-  background: transparent !important;
-  font: inherit;
+:root[data-appearance="light"] .workspace-code {
+  --syntax-keyword: #cf222e;
+  --syntax-string: #0a3069;
+  --syntax-name: #6639ba;
+  --syntax-number: #0550ae;
 }
+.workspace-code .token:is(.comment, .prolog, .doctype) { color: var(--color-text-secondary); }
+.workspace-code .token:is(.keyword, .tag, .operator, .important) { color: var(--syntax-keyword); }
+.workspace-code .token:is(.string, .attr-value, .regex, .inserted) { color: var(--syntax-string); }
+.workspace-code .token:is(.function, .class-name, .selector) { color: var(--syntax-name); }
+.workspace-code .token:is(.number, .boolean, .property, .attr-name, .constant) { color: var(--syntax-number); }
 
 .file-content {
   display: flex;

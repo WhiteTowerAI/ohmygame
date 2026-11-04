@@ -7,6 +7,11 @@ The default language protocol also determines how the general model list is fetc
 Custom provider names must be unique, ignoring case and surrounding spaces.
 Existing duplicate names remain usable while you rename them.
 
+The provider list and cloud connection settings follow changes made in other app
+windows. While visible, these views also check every 30 seconds for changes made
+outside the app, such as a CLI login or a cloud quota update. They check again
+when a hidden window returns.
+
 Choose **Fetch** to load the complete model list, or **Add a model manually** to
 enter a model ID that the endpoint does not list. Model discovery is optional;
 services such as Meshy, Tripo and Hyper3D may require manual IDs. Their official connections

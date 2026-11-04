@@ -9,6 +9,7 @@ import type { CanvasMarkdownDocument } from "./canvas-document.js";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
 
+export type CanvasSyncScope = "workspace" | "board" | "jobs";
 export type CanvasBoard = AssetCanvasDocument & { id: string };
 export interface CanvasBoardDetail { board: CanvasBoard; revision: string }
 export interface CanvasWorkspaceIndex {
@@ -19,6 +20,7 @@ export interface CanvasWorkspaceIndex {
   tables?: Array<{ id: string; title: string }>;
 }
 export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents" | "tables"> {
+  revision?: string;
   documents: Array<CanvasMarkdownDocument & { revision: string; source: string; main: boolean }>;
   tables?: Array<CanvasTable & { revision: string; source: string }>;
   tableIssues?: Array<{ id: string; title: string; source: string; message: string }>;

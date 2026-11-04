@@ -1,3 +1,4 @@
+import { followCanvasChanges } from "./canvas-sync.js";
 import { CanvasImageCrop } from "./canvas-image-crop.js";
 import { MEDIA_TOOL_GROUPS, isMultiImageOperation, type CanvasMediaToolbarAction } from "../shared/media-tools.js";
 import { CanvasLayerEditor, CanvasVideoFrameEditor, type CanvasLayerSetting } from "./canvas-media-editors.js";
@@ -474,8 +475,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => {
     if (phase !== "ready" || closing) return;
     let stopped = false;
-    let timer: number | undefined;
-    const poll = async () => {
+    const stop = followCanvasChanges(projectId, "jobs", async () => {
       try {
         const jobs = await storageRef.current.jobs();
         if (stopped) return;
@@ -484,7 +484,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           const nodeId = job.context?.nodeId;
           if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
         }
-        // Most polls find nothing new; keep the same object so the canvas does not re-render.
+        // Keep unchanged jobs from re-rendering the canvas.
         const nextJobs = Object.fromEntries(latestJobs);
         setCanvasJobs((current) => JSON.stringify(current) === JSON.stringify(nextJobs) ? current : nextJobs);
         observedGroupJobs.current = new Map(jobs.map((job) => [job.id, job]));
@@ -515,11 +515,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           }
           if (!stopped) setLibraryAssets(assets);
         }
-      } catch { /* Job polling is best-effort; the node keeps its last state. */ }
-      if (!stopped) timer = window.setTimeout(poll, 1_500);
-    };
-    void poll();
-    return () => { stopped = true; window.clearTimeout(timer); };
+      } catch { /* Job refresh is best-effort. the node keeps its last state. */ }
+    });
+    return () => { stopped = true; stop(); };
   }, [phase, projectId, project.type, closing]);
 
   const document = useMemo(
@@ -632,6 +630,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   useEffect(() => {
     if (phase !== "ready" || !document) return;
+    if (historyGestureBase.current) return;
     const serialized = canvasHistoryKey(document);
     if (!historyObserved.current || historyObservedJson.current === undefined) {
       observeHistoryDocument(document);
@@ -639,10 +638,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       return;
     }
     if (serialized === historyObservedJson.current) return;
-    if (historyGestureBase.current) {
-      observeHistoryDocument(document);
-      return;
-    }
     if (!historyPendingBase.current) historyPendingBase.current = structuredClone(historyObserved.current);
     editorRedoHistory.current = [];
     observeHistoryDocument(document);
@@ -837,20 +832,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => { onSyncReady?.(sync); return () => onSyncReady?.(undefined); }, [onSyncReady, sync]);
   useEffect(() => {
     if (phase !== "ready" || conflicted || resolving || closing) return;
-    let pending = false;
-    // A hidden window shows nobody the external changes, so it syncs again on return instead.
-    const run = () => {
-      if (pending || window.document.hidden) return;
-      pending = true;
-      void sync().catch(() => {}).finally(() => { pending = false; });
-    };
-    const timer = window.setInterval(run, 2500);
-    window.document.addEventListener("visibilitychange", run);
-    return () => {
-      window.clearInterval(timer);
-      window.document.removeEventListener("visibilitychange", run);
-    };
-  }, [sync, phase, conflicted, resolving, closing]);
+    return followCanvasChanges(projectId, "board", sync);
+  }, [projectId, sync, phase, conflicted, resolving, closing]);
 
   useEffect(() => {
     if (phase !== "ready" || !document || resolving || closing) return;

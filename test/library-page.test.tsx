@@ -178,3 +178,27 @@ it("offers trimming for videos only, in its own dialog", async () => {
   await click(button("Cancel", dialog));
   expect(document.querySelector(".ui-sheet .ui-dialog-title")?.textContent).toBe("intro.mp4");
 });
+
+it("resumes automatic paging when refresh replaces the end of a list of the same size", async () => {
+  const { useListPage } = await import("../src/renderer/use-list-page.js");
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private readonly notify: IntersectionObserverCallback) {}
+    target?: Element;
+    observe(target: Element) {
+      this.target = target;
+      observed.set(target, () => this.notify([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+    }
+    disconnect() { if (this.target) observed.delete(this.target); }
+  });
+  function List({ loading }: { loading: boolean }) {
+    const page = useListPage(100);
+    return <>{page.limit}{loading ? null : page.next}</>;
+  }
+  for (const loading of [false, true, false]) {
+    await act(async () => root!.render(<List loading={loading} />));
+    expect(observed.size).toBe(loading ? 0 : 1);
+  }
+  await act(async () => { observed.values().next().value!(); });
+  expect(container?.textContent).toContain("96");
+});
