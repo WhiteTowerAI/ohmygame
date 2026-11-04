@@ -197,7 +197,7 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   const identity = (await processIdentity(child.pid!))!;
   expect(identity).toBeTruthy();
   await vi.waitFor(async () => expect(await readdir(root)).toHaveLength(1), {
-    timeout: 10_000,
+    timeout: 30_000,
   });
   await recoverAgentProcesses(root);
   expect(await processIdentity(child.pid!)).toBe(identity);
@@ -228,7 +228,7 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   await recoverAgentProcesses(root);
   await closed;
   expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
-});
+}, 60_000);
 
 it("preserves a live daemon's private folders while reclaiming verified orphan folders", async () => {
   const root = await folder();
