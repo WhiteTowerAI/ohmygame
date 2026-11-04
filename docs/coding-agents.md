@@ -338,7 +338,8 @@ the daemon and child's executable/birth identity before killing anything.
 Private folders carry the daemon's ownership identity as well: startup reclaims
 verified orphans while preserving another live daemon's folders. Identity queries
 run asynchronously, one at a time, and concurrent requests for the same PID share
-a query. Ownership records are written in the background so starting a CLI or
+a query. Queries allow up to 30 seconds on Windows for PowerShell cold starts,
+and 10 seconds on other platforms. Ownership records are written in the background so starting a CLI or
 image job does not wait for PowerShell. Startup recovery still waits for identity
 checks before reclaiming anything. A crash before records are written can leave
 unrecorded folders or processes that startup recovery preserves.
