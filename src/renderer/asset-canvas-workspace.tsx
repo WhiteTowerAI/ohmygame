@@ -967,7 +967,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels, audioModels, pluginNodes, connection.targetHandle);
     if (relation && !nodeBusy(target.id)) {
       commitPendingHistory();
-      setNodes((current) => connectCanvasNodes(current, source.id, target.id, relation));
+      setNodes((current) => connectCanvasNodes(current, source.id, target.id, relation, pluginInputIds(target, pluginNodes)));
     }
   }
 
@@ -1063,7 +1063,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         current.map((node) => ({ ...node.position, width: node.measured?.width ?? MEDIA_NODE_MAX_WIDTH, height: (node.measured?.height ?? 400) + 160 })),
       );
       commitPendingHistory();
-      setNodes(connectCanvasNodes([...current.map((node) => ({ ...node, selected: false })), { ...candidate, selected: true }], source.id, target.id, relation));
+      setNodes(connectCanvasNodes([...current.map((node) => ({ ...node, selected: false })), { ...candidate, selected: true }], source.id, target.id, relation, pluginInputIds(target, pluginNodes)));
       setMarqueeSelectedIds(new Set());
       canvasElement.current?.focus({ preventScroll: true });
       setPendingConnectionView([anchor.id, candidate.id]);
@@ -1634,9 +1634,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   // A template's reference slot shows an example until the user supplies one; generating from it uses the example.
   async function materializeExampleReferences(node: AssetCanvasFlowNode): Promise<void> {
-    const sources = (node.data.images ?? []).flatMap((reference) => {
-      if (reference.type !== "node") return [];
-      const source = nodesRef.current.find((candidate) => candidate.id === reference.nodeId);
+    const sources = canvasNodeSourceIds(toAssetCanvasNode(node, model3DModels)).flatMap((id) => {
+      const source = nodesRef.current.find((candidate) => candidate.id === id);
       return source && !source.data.assetId && pixelExampleImageUrl(source.data.exampleImage) ? [source] : [];
     });
     if (sources.length) await materializeExampleOutputs(sources, "reference");
@@ -3765,14 +3764,24 @@ function placeInOpenSpace(position: { x: number; y: number }, size: { width: num
   }
 }
 
-/** Apply the same semantic edit for a drag, canvas picker, or continuation node. */
-export function connectCanvasNodes(nodes: AssetCanvasFlowNode[], sourceId: string, targetId: string, relation: ConnectionRelation): AssetCanvasFlowNode[] {
+/** The inputs a plugin node's plugin declares now, when it is on. */
+function pluginInputIds(node: AssetCanvasFlowNode, pluginNodes: readonly ProjectCanvasNode[]): string[] | undefined {
+  return node.type === "plugin" ? pluginNodes.find((definition) => definition.id === node.data.node)?.inputs.map((input) => input.id) : undefined;
+}
+
+/**
+ * Apply the same semantic edit for a drag, canvas picker, or continuation
+ * node. `inputIds`, a plugin node's current inputs, drops the ones an update
+ * of its plugin took away.
+ */
+export function connectCanvasNodes(nodes: AssetCanvasFlowNode[], sourceId: string, targetId: string, relation: ConnectionRelation, inputIds?: readonly string[]): AssetCanvasFlowNode[] {
   return nodes.map((node) => {
     if (node.id !== targetId) return node;
     const ref = { type: "node" as const, nodeId: sourceId };
     if (relation.startsWith("plugin-input:")) {
       const input = relation.slice("plugin-input:".length);
-      return { ...node, data: { ...node.data, inputs: { ...node.data.inputs, [input]: [...(node.data.inputs?.[input] ?? []), ref] } } };
+      const kept = Object.entries(node.data.inputs ?? {}).filter(([id]) => !inputIds || inputIds.includes(id));
+      return { ...node, data: { ...node.data, inputs: { ...Object.fromEntries(kept), [input]: [...(node.data.inputs?.[input] ?? []), ref] } } };
     }
     if (relation === "image-reference") return { ...node, data: { ...node.data, images: [...(node.data.images ?? []), ref] } };
     if (relation === "model-reference") return { ...node, data: { ...node.data, ...(node.type === "animate-3d" ? { assetId: undefined, images: [ref] } : { model3DSource: ref }) } };

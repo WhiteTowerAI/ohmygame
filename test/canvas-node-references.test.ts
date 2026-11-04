@@ -130,4 +130,6 @@ it("connects plugin node inputs by port and media, and keeps them through save, 
   flow = connectCanvasNodes(flow, source.id, plugin.id, "plugin-input:note");
   expect(removeNodesAndReferences(flow, new Set([image.id])).find((node) => node.id === plugin.id)!.data.inputs).toEqual({ base: [], note: [ref(source.id)] });
   expect(disconnectCanvasReference(flow, plugin.id, source.id, "plugin-input:note")[2]!.data.inputs).toEqual({ base: [ref(image.id)], note: [] });
+  // After an update drops the note input, the next connection drops what the node kept for it.
+  expect(connectCanvasNodes(flow, image.id, plugin.id, "plugin-input:layers", ["base", "layers"])[2]!.data.inputs).toEqual({ base: [ref(image.id)], layers: [ref(image.id)] });
 });
