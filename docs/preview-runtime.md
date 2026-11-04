@@ -228,7 +228,9 @@ game drawn into one canvas only offers the `<canvas>` element.
 A plugin project type with `preview: "native"`, such as
 [TapTap Maker](plugins.md#taptap-maker), runs its game outside the app. These
 projects acquire no Web leases, create no Web player, and keep Web preview off;
-the plugin's own panel controls its preview.
+the plugin's own panel controls its preview. A type that declares `gameUse`
+lets `game_use` use its game through the plugin; see
+[plugin game runtimes](runtime.md#plugin-game-runtimes).
 
 ## Recording a game
 

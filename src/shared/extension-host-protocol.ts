@@ -30,7 +30,7 @@ export interface ExtensionHostPlugin {
 export type HostCallKind = "tool" | "command" | "projectType";
 
 /** What a project type's native hooks do. */
-export const PROJECT_TYPE_HOOKS = ["createProject", "buildWeb"] as const;
+export const PROJECT_TYPE_HOOKS = ["createProject", "buildWeb", "gameUse"] as const;
 export type ProjectTypeHook = (typeof PROJECT_TYPE_HOOKS)[number];
 
 /** What `buildWeb` returns: the built game, relative to the project folder. */
@@ -39,6 +39,32 @@ export interface WebBuild {
   folder: string;
   /** The page in it to open; `index.html` when omitted. */
   entry?: string;
+}
+
+/**
+ * What a type's `gameUse` hook receives: one `game_use` request for the
+ * game the plugin runs. `session` is the plugin's own id for a session its
+ * `open` returned. A capture writes a PNG or JPEG image to `output`, a file
+ * the app chose in a folder it made for this call, and returns its size.
+ */
+export type GameUseHookInput =
+  /** Left out, the game runs at its own size; report it in the result when known. */
+  | { operation: "open"; viewport?: { width: number; height: number } }
+  | { operation: "inspect" | "close"; session: string }
+  | { operation: "act"; session: string; actions: unknown[] }
+  | { operation: "capture"; session: string; output: string }
+  | { operation: "captureFrame"; session: string; output: string; frame: number };
+
+/** What a `gameUse` hook returns, by operation. */
+export interface GameUseHookResults {
+  /** `session` is the plugin's id for the session; the app gives the agent its own. */
+  open: { session: string; viewport?: { width: number; height: number }; gameState?: unknown };
+  inspect: { viewport?: { width: number; height: number }; gameState?: unknown };
+  act: { viewport?: { width: number; height: number }; gameState?: unknown };
+  /** `frame` is the frame captured, which may be later than asked when the game wasn't ready. */
+  capture: { frame?: number; notes?: string };
+  captureFrame: { frame?: number; notes?: string };
+  close: unknown;
 }
 
 export type HostRequest =
@@ -129,8 +155,10 @@ export interface PluginContext {
   registerCommand(name: string, handler: ToolHandler): Disposable;
   /**
    * Registers a contributed project type's hooks: `createProject` makes a
-   * new project when the type has no template (input `{ name }`), and
-   * `buildWeb` builds a `"web-build"` type's game and returns a `WebBuild`.
+   * new project when the type has no template (input `{ name }`),
+   * `buildWeb` builds a `"web-build"` type's game and returns a `WebBuild`,
+   * and `gameUse` runs a `"native"` type's game for `game_use`
+   * (`GameUseHookInput`), as the type's `gameUse` declares.
    */
   registerProjectType(
     id: string,

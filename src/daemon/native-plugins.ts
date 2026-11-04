@@ -202,6 +202,16 @@ export class NativePlugins {
     );
   }
 
+  /** Which start of the project's running host this is; undefined when none runs. */
+  async hostGeneration(folder: string): Promise<number | undefined> {
+    return this.#hosts.generation(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /** Keeps the project's running host from stopping while idle; see `ExtensionHosts.hold`. */
+  async holdHost(folder: string): Promise<(() => void) | undefined> {
+    return this.#hosts.hold(await projectFolderKey(folder).catch(() => folder));
+  }
+
   /** Stops a project's host, as when the project is closed. */
   async closeProject(folder: string): Promise<void> {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));

@@ -199,10 +199,14 @@ class ExtensionHost {
   /** The plugin whose call got its host killed, when one did. */
   #culprit: string | undefined;
   #idle: ReturnType<typeof setTimeout> | undefined;
+  /** Holds that keep the host from stopping while idle, such as an open game session. */
+  #holds = 0;
   /** Last lines of stdout and stderr, for diagnostics. */
   readonly log: string[] = [];
 
   constructor(
+    /** Which start of its scope's host this is; a new host gets a higher one. */
+    readonly generation: number,
     readonly scope: string,
     readonly project: string | undefined,
     entry: string,
@@ -647,12 +651,25 @@ class ExtensionHost {
     } else pending.settle(message);
   }
 
+  /** Keeps the host running while idle until the returned release is called. */
+  hold(): () => void {
+    this.#holds += 1;
+    clearTimeout(this.#idle);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#holds -= 1;
+      this.#scheduleIdle();
+    };
+  }
+
   #scheduleIdle() {
     clearTimeout(this.#idle);
     const busy = [...this.#pending.values()].some(
       (pending) => pending.activity,
     );
-    if (busy || !this.alive) return;
+    if (busy || this.#holds > 0 || !this.alive) return;
     this.#idle = setTimeout(
       () => void this.stop().catch(() => {}),
       this.options.idleMs,
@@ -666,6 +683,7 @@ export class ExtensionHosts {
   readonly #crashes = new Map<string, number[]>();
   /** Plugins that reached the crash limit; they stay off until released. */
   readonly #quarantined = new Set<string>();
+  #generation = 0;
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
   #disposed = false;
@@ -721,6 +739,22 @@ export class ExtensionHosts {
     await this.#hosts.get(scope)?.deactivate(plugin);
   }
 
+  /** Which start of the scope's running host this is, or undefined when none runs. */
+  generation(scope: string): number | undefined {
+    const host = this.#hosts.get(scope);
+    return host?.alive ? host.generation : undefined;
+  }
+
+  /**
+   * Keeps the scope's running host from stopping while idle, until the
+   * returned release is called. Undefined when no host runs. A host that
+   * crashes or is stopped still goes; the hold doesn't carry to the next one.
+   */
+  hold(scope: string): (() => void) | undefined {
+    const host = this.#hosts.get(scope);
+    return host?.alive ? host.hold() : undefined;
+  }
+
   /** The last lines a scope's host wrote, for diagnostics. */
   log(scope: string): string[] {
     return [...(this.#hosts.get(scope)?.log ?? [])];
@@ -763,7 +797,9 @@ export class ExtensionHosts {
   }
 
   #start(scope: string, project: string | undefined): ExtensionHost {
+    this.#generation += 1;
     return new ExtensionHost(
+      this.#generation,
       scope,
       project,
       this.#entry,

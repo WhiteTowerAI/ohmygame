@@ -125,7 +125,8 @@ import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js"
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
+import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
+import { PluginGameRuntime } from "./plugin-game-runtime.js";
 import { ConnectionService } from "./connections.js";
 import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
@@ -862,14 +863,57 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
     }
   };
-  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
-  const projectAgentTools = (project: ProjectState, conversation: StoredConversation) => {
-    const playtestKey = `${project.id}:${conversation.summary.id}`;
-    let playtest = agentPlaytests.get(playtestKey);
-    if (!playtest && options.playtestDriver) {
-      playtest = new OwnedPlaytestDriver(options.playtestDriver);
-      agentPlaytests.set(playtestKey, playtest);
+  /** Each project's plugin game runtime, while its type declares one; its conversations share it. */
+  const pluginGames = new Map<string, PluginGameRuntime>();
+  const closePluginGame = (projectId: string) => {
+    pluginGames.get(projectId)?.close();
+    pluginGames.delete(projectId);
+  };
+  /** The runtime of a `"native"` type's plugin for `game_use`, made again when the project's type changes what it declares. */
+  const pluginGameRuntime = async (project: ProjectState): Promise<PluginGameRuntime | undefined> => {
+    const found = project.pluginType?.preview === "native"
+      ? await projectGameUse(project.workspacePath, pluginServices).catch(() => undefined)
+      : undefined;
+    const existing = pluginGames.get(project.id);
+    if (existing && found && existing.provider === found.provider && isDeepStrictEqual(existing.spec, found.spec)) return existing;
+    closePluginGame(project.id);
+    if (!found) return undefined;
+    const runtime = new PluginGameRuntime({
+      ...found,
+      hooks: projectGameHooks(project.workspacePath, pluginServices, found.provider),
+    });
+    pluginGames.set(project.id, runtime);
+    return runtime;
+  };
+  /**
+   * A conversation's or outside session's own view of the project's game
+   * runtime: its type's plugin's when it declares one, else the app's.
+   */
+  const ownedPlaytest = async (project: ProjectState, key: string) => {
+    const plugin = await pluginGameRuntime(project);
+    const runtime = plugin ?? options.playtestDriver;
+    let owned = agentPlaytests.get(key);
+    if (owned && (!runtime || !owned.wraps(runtime))) {
+      agentPlaytests.delete(key);
+      await owned.cleanup();
+      owned = undefined;
     }
+    if (!runtime) return undefined;
+    if (!owned) {
+      owned = new OwnedPlaytestDriver(runtime);
+      agentPlaytests.set(key, owned);
+    }
+    return {
+      driver: owned,
+      resolveOpenTarget: plugin
+        ? async (): Promise<GameUseOpenTarget> => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath })
+        : (signal?: AbortSignal) => playtestTarget(project, signal),
+      maxFrame: plugin?.spec.maxFrame,
+    };
+  };
+  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
+  const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
+    const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
     return [...createAgentTools(
       project,
       tools,
@@ -881,7 +925,7 @@ export function createApp(options: AppOptions = {}) {
         invalidatePluginSessions();
         return installed;
       },
-      playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
+      playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
     )];
@@ -899,19 +943,11 @@ export function createApp(options: AppOptions = {}) {
   const externalMcp = new ExternalMcpService({
     dataDirectory,
     projects: () => projects.list(),
-    tools: (project, sessionId) => {
-      const playtestKey = `${project.id}:external:${sessionId}`;
-      let playtest = agentPlaytests.get(playtestKey);
-      if (!playtest && options.playtestDriver) {
-        playtest = new OwnedPlaytestDriver(options.playtestDriver);
-        agentPlaytests.set(playtestKey, playtest);
-      }
-      return createAgentTools(
-        project, tools, projects, undefined, undefined,
-        playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
-        undefined, canvasStore,
-      );
-    },
+    tools: async (project, sessionId) => createAgentTools(
+      project, tools, projects, undefined, undefined,
+      await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
+      undefined, canvasStore,
+    ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
       ...tool,
@@ -922,12 +958,12 @@ export function createApp(options: AppOptions = {}) {
       )).result,
     })),
     catalog: () => {
-      // Only the schemas are read. A story project has every project tool, and the
-      // full game_use input is listed; a story's own game_use accepts a subset.
+      // Only the schemas are read. A story project has every project tool, and
+      // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
         ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore),
-        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder)),
+        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
     release: async (projectId, sessionId) => {
@@ -979,7 +1015,7 @@ export function createApp(options: AppOptions = {}) {
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
-      tools: [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+      tools: [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
@@ -1057,7 +1093,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project,
         conversations.open(project, conversation),
-        [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+        [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
         model,
         piAgentDirectory,
@@ -2417,6 +2453,7 @@ export function createApp(options: AppOptions = {}) {
       await driver.cleanup();
       agentPlaytests.delete(key);
     }
+    closePluginGame(project.id);
     await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
     await canvasStore.waitForProject(project.id);
@@ -4004,6 +4041,7 @@ export function createApp(options: AppOptions = {}) {
     await agents.close();
     await agentRuntimes.close();
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
+    for (const projectId of [...pluginGames.keys()]) closePluginGame(projectId);
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();

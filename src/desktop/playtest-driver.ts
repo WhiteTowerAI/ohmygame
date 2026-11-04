@@ -17,6 +17,7 @@ import {
   type PlaytestWatchState,
 } from "../shared/playtest.js";
 import { AGENT_RECORDING_MAX_SECONDS, type GameRecordingSaved } from "../shared/game-recording.js";
+import { analyzeBitmap } from "../shared/capture-analysis.js";
 import type { GameRecorder } from "./game-recorder.js";
 
 interface PlaytestSession {
@@ -86,10 +87,11 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     signal?.throwIfAborted();
     switch (request.operation) {
-      case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport, signal) };
+      case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport ?? { width: 1280, height: 720 }, signal) };
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
+      case "captureFrame": throw new Error("The web game runtime captures the current frame; use capture");
       case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId));
       case "recordStop": return await this.#recordStop(this.#activeSession(request.sessionId));
       case "close":
@@ -440,38 +442,6 @@ export function validatedPlaytestUrl(value: string): URL {
   return url;
 }
 
-export function analyzeBitmap(bitmap: Uint8Array, width: number, height: number) {
-  const pixels = Math.min(width * height, Math.floor(bitmap.length / 4));
-  if (pixels < 1) return { sampledPixels: 0, opaqueRatio: 0, luminanceMean: 0, luminanceVariance: 0, likelyBlank: true };
-  const stride = Math.max(1, Math.floor(pixels / 10_000));
-  let sampledPixels = 0;
-  let opaquePixels = 0;
-  let luminanceSum = 0;
-  let squaredSum = 0;
-  for (let pixel = 0; pixel < pixels; pixel += stride) {
-    const offset = pixel * 4;
-    const blue = bitmap[offset] ?? 0;
-    const green = bitmap[offset + 1] ?? 0;
-    const red = bitmap[offset + 2] ?? 0;
-    const alpha = bitmap[offset + 3] ?? 0;
-    const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-    sampledPixels++;
-    if (alpha > 8) opaquePixels++;
-    luminanceSum += luminance;
-    squaredSum += luminance * luminance;
-  }
-  const luminanceMean = luminanceSum / sampledPixels;
-  const luminanceVariance = Math.max(0, squaredSum / sampledPixels - luminanceMean * luminanceMean);
-  const opaqueRatio = opaquePixels / sampledPixels;
-  return {
-    sampledPixels,
-    opaqueRatio: rounded(opaqueRatio),
-    luminanceMean: rounded(luminanceMean),
-    luminanceVariance: rounded(luminanceVariance),
-    likelyBlank: opaqueRatio < 0.01 || luminanceVariance < 1,
-  };
-}
-
 /**
  * Scale a high-DPI capture down to the page's CSS pixels, so screenshot pixels match input
  * coordinates. The image's own aspect ratio is kept.
@@ -481,6 +451,8 @@ function logicalSizeImage(image: NativeImage, contentWidth: number): NativeImage
   if (!(contentWidth > 0) || width <= contentWidth) return image;
   return image.resize({ width: contentWidth, height: Math.max(1, Math.round(height * contentWidth / width)), quality: "best" });
 }
+
+export { analyzeBitmap };
 
 function analyzeNativeImage(image: NativeImage): PlaytestCapture["analysis"] {
   const { width, height } = image.getSize();
@@ -537,10 +509,6 @@ async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promi
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}...`;
-}
-
-function rounded(value: number): number {
-  return Math.round(value * 1_000) / 1_000;
 }
 
 const TARGET_HELPERS = String.raw`

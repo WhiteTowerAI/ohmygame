@@ -1,6 +1,7 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { CUSTOM_MODEL_APIS } from "./contracts.js";
+import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
@@ -13,7 +14,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -170,6 +171,30 @@ const ProjectType = Type.Object(
     ),
     preview: Literals(["web", "web-build", "native"]),
     playtest: Type.Optional(Literals(["web"])),
+    gameUse: Type.Optional(
+      Type.Object(
+        {
+          operations: Type.Array(Literals<PluginGameUseOperation>(PLUGIN_GAME_USE_OPERATIONS), {
+            minItems: 1,
+            uniqueItems: true,
+          }),
+          input: Type.Optional(
+            Type.Array(Literals<PluginGameUseInput>(PLUGIN_GAME_USE_INPUT), {
+              minItems: 1,
+              uniqueItems: true,
+            }),
+          ),
+          maxFrame: Type.Optional(
+            Type.Integer({ minimum: 1, maximum: MAX_CAPTURE_FRAME }),
+          ),
+        },
+        {
+          additionalProperties: false,
+          description:
+            "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for",
+        },
+      ),
+    ),
     ready: Type.Optional(
       Type.Object(
         {
@@ -652,6 +677,23 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
   const commands = new Set(contributes.commands?.map((command) => command.id));
+  contributes.projectTypes?.forEach((type, index) => {
+    // Literal unions read as never in the inferred types, so the declaration is read as written.
+    const gameUse = type.gameUse as PluginGameUseSpec | undefined;
+    if (!gameUse) return;
+    const path = `/contributes/projectTypes/${index}/gameUse`;
+    if ((type.preview as string) !== "native")
+      issue(path, "only a \"native\" type runs its game through its plugin");
+    if (!native) issue(path, "needs a native entrypoint");
+    const acts = gameUse.operations.includes("act");
+    if (acts && !gameUse.input) issue(`${path}/input`, "act needs the input it takes");
+    if (!acts && gameUse.input) issue(`${path}/input`, "only act takes input");
+    const frames = gameUse.operations.includes("captureFrame");
+    if (frames && gameUse.maxFrame === undefined)
+      issue(`${path}/maxFrame`, "captureFrame needs the highest frame it can capture");
+    if (!frames && gameUse.maxFrame !== undefined)
+      issue(`${path}/maxFrame`, "only captureFrame takes a frame");
+  });
   contributes.projectTypes?.forEach((type, index) => {
     if (!type.ready) return;
     const path = `/contributes/projectTypes/${index}/ready`;

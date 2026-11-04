@@ -103,6 +103,7 @@ shows it in the call's progress.
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -168,6 +169,17 @@ shows it in the call's progress.
   new project's first message goes back into the composer. A `%key%` message
   comes from the plugin's locale files in the language the prompt request
   names (`?locale=`). A failed or missing check lets the prompt through.
+- A `native` type with a native entry may declare `gameUse` (API 2.3.0):
+  the game [`game_use`](runtime.md#plugin-game-runtimes) opens through the
+  type's native `gameUse` hook. `operations` lists what it does besides
+  `open` and `close`: `inspect`, `act` (with the `input` it takes:
+  `pointer`, `keyboard`, `touch`, `resize`), `capture` (the session's
+  current frame) and `captureFrame` (a fresh run from the start, captured at
+  a `frame` up to `maxFrame`). The hook gets `GameUseHookInput`
+  (`src/shared/extension-host-protocol.ts`), one request at a time per
+  session: `open` names the plugin's own session, and a capture writes a PNG
+  or JPEG to the `output` path the app chose and may return the `frame` it
+  kept and `notes` about it.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
@@ -752,7 +764,12 @@ the project has no web preview and isn't published to Community.
 - **Agent:** the `maker` MCP server starts from the same pinned install with
   `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` and offers Maker's tools; tools
   take the project's absolute `target_dir`. The `maker_preview` tool controls
-  the same preview as the panel. Local previews never submit remotely;
+  the same preview as the panel. `game_use` captures frames of fresh runs
+  (`preview validate --mode screenshot`), at the size the agent asked for or
+  the preview window's. Opening a session starts nothing. A capture refuses
+  while the preview runs, since only the person stops theirs, runs one at a
+  time per project, and passes on Maker's word when the frame was still
+  loading and Maker kept a later one. Local previews never submit remotely;
   `maker_build_current_directory` commits, pushes and builds the bound branch,
   leaving out the excluded files unless they are already tracked. The TapTap
   Release Skill uses the person's signed-in `taptap-cli` for the store page,
@@ -761,8 +778,8 @@ the project has no web preview and isn't published to Community.
 
 See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
-Skills. Authenticated Maker creation, preview, build and publication still
-need a Maker account to check by hand.
+Skills. Authenticated Maker creation, preview, `game_use` captures, build and
+publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 

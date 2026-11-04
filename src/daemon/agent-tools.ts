@@ -110,7 +110,12 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget> },
+  playtest?: {
+    driver: GameRuntimeAdapter;
+    resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>;
+    /** The highest frame a plugin's captureFrame takes. */
+    maxFrame?: number;
+  },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
 ): PiToolDefinition[] {
@@ -844,8 +849,12 @@ export function createAgentTools(
         details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
       };
     },
-  })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
+  })] : []), ...(playtest?.driver.available && (
+    // A plugin's runtime is only made for a project whose type declares it.
+    playtest.driver.capabilities.runtime === "plugin"
+    || (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
+  )
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
     : [])];
 }
 

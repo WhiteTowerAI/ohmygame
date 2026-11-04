@@ -10,6 +10,8 @@ import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { WebBuild } from "../shared/extension-host-protocol.js";
+import type { PluginGameUseSpec } from "../shared/playtest.js";
+import type { PluginGameHooks } from "./plugin-game-runtime.js";
 import {
   CORE_PROJECT_TYPES,
   PROJECT_FILE_NAME,
@@ -64,6 +66,11 @@ const CORE_TITLES: Record<
 
 /** Builds can take minutes; a build that takes longer is stopped. */
 const WEB_BUILD_TIMEOUT_MS = 10 * 60_000;
+/**
+ * A fresh run to frame N, which a plugin may repeat at later frames while
+ * the game loads, can take as long as a build.
+ */
+const CAPTURE_FRAME_TIMEOUT_MS = WEB_BUILD_TIMEOUT_MS;
 /** Recognizing a folder never reads more than these files' metadata. */
 const RECOGNIZE_FILES_MAX = 10;
 
@@ -359,6 +366,58 @@ export async function projectPreviewMode(
   return entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
     : undefined;
+}
+
+/**
+ * The game `game_use` opens through the project's type: a `"native"` type
+ * that declares `gameUse`, in the version the project pins, while its plugin
+ * is on and allowed there. `provider` is the type, `publisher/name:type`.
+ */
+export async function projectGameUse(
+  folder: string,
+  services: PluginServices,
+): Promise<{ provider: string; spec: PluginGameUseSpec } | undefined> {
+  await services.ready();
+  const resolved = await resolveProjectPlugins({
+    folder,
+    index: services.index,
+    grants: services.grants,
+  }).catch(() => undefined);
+  if (!resolved?.ok || !resolved.typeReady) return undefined;
+  const type = resolved.file.type;
+  const owner = projectTypePlugin(type);
+  const entry = resolved.plugins.find((plugin) => plugin.providesType)?.entry;
+  const contributed = owner && entry ? contribution(entry, type.slice(owner.length + 1)) : undefined;
+  if (contributed?.preview !== "native" || !contributed.gameUse) return undefined;
+  return { provider: type, spec: contributed.gameUse as PluginGameUseSpec };
+}
+
+/** What a `PluginGameRuntime` for the project's type asks of its extension host. */
+export function projectGameHooks(
+  folder: string,
+  services: PluginServices,
+  provider: string,
+): PluginGameHooks {
+  return {
+    call: (input, signal) =>
+      services.native.projectTypeHook(provider, "gameUse", {
+        folder,
+        input,
+        signal,
+        timeoutMs:
+          input.operation === "captureFrame"
+            ? CAPTURE_FRAME_TIMEOUT_MS
+            : undefined,
+      }),
+    generation: () => services.native.hostGeneration(folder),
+    hold: () => services.native.holdHost(folder),
+    current: async () => {
+      const now = await projectGameUse(folder, services).catch(
+        () => undefined,
+      );
+      return now?.provider === provider ? now.spec : undefined;
+    },
+  };
 }
 
 /**

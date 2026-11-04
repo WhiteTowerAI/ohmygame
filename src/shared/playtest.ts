@@ -6,11 +6,33 @@ export interface PlaytestViewport {
   height: number;
 }
 
-export type GameRuntime = "web" | "godot" | "unity";
+/** `plugin`: a game a plugin's native code runs, for a project type that declares `gameUse`. */
+export type GameRuntime = "web" | "godot" | "unity" | "plugin";
 export type GameProjectType = ProjectType;
 export type GameUseInputCapability = "pointer" | "keyboard" | "text" | "touch" | "resize";
 export type GameUseObservationCapability = "screenshot" | "video" | "dom" | "canvas" | "console" | "network";
 export type GameUseDeterminismCapability = "snapshot" | "reset" | "seed" | "step";
+/**
+ * What `game_use` can ask a runtime to do. `capture` is the current frame of the
+ * running session; `captureFrame` runs the game again from the start and
+ * captures frame N, so it shows that run, not what the session shows now.
+ */
+export const GAME_USE_OPERATIONS = ["open", "inspect", "act", "capture", "captureFrame", "recordStart", "recordStop", "close"] as const;
+export type GameUseOperation = (typeof GAME_USE_OPERATIONS)[number];
+/** Operations a plugin's project type may declare; `open` and `close` it always has. */
+export const PLUGIN_GAME_USE_OPERATIONS = ["inspect", "act", "capture", "captureFrame"] as const;
+export type PluginGameUseOperation = (typeof PLUGIN_GAME_USE_OPERATIONS)[number];
+/** Input a plugin's runtime may take. Text needs page elements, which a plugin's snapshot doesn't have. */
+export const PLUGIN_GAME_USE_INPUT = ["pointer", "keyboard", "touch", "resize"] as const;
+export type PluginGameUseInput = (typeof PLUGIN_GAME_USE_INPUT)[number];
+/** A plugin project type's `gameUse`, as its manifest declares it. */
+export interface PluginGameUseSpec {
+  operations: readonly PluginGameUseOperation[];
+  input?: readonly PluginGameUseInput[];
+  maxFrame?: number;
+}
+/** The highest frame `captureFrame` may ask for. */
+export const MAX_CAPTURE_FRAME = 100_000;
 
 export interface GameUseCapabilities {
   runtime: GameRuntime;
@@ -19,6 +41,21 @@ export interface GameUseCapabilities {
   observation: readonly GameUseObservationCapability[];
   deterministic: readonly GameUseDeterminismCapability[];
   watch: boolean;
+  /**
+   * The operations the runtime supports. Left out, it supports every
+   * operation but `captureFrame`, as the web runtime does; `recordStart` and
+   * `recordStop` also need `video`, and `capture` needs `screenshot`.
+   */
+  operations?: readonly GameUseOperation[];
+}
+
+/** Whether a runtime supports an operation, by its declared operations and observation. */
+export function supportsGameUseOperation(capabilities: GameUseCapabilities, operation: GameUseOperation): boolean {
+  if (capabilities.operations && !capabilities.operations.includes(operation)) return false;
+  if (!capabilities.operations && operation === "captureFrame") return false;
+  if (operation === "capture" || operation === "captureFrame") return capabilities.observation.includes("screenshot");
+  if (operation === "recordStart" || operation === "recordStop") return capabilities.observation.includes("video");
+  return true;
 }
 
 export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
@@ -32,7 +69,9 @@ export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
 
 export type GameUseOpenTarget =
   | { runtime: "web"; url: string }
-  | { runtime: "godot" | "unity"; projectPath: string };
+  | { runtime: "godot" | "unity"; projectPath: string }
+  /** `provider` is the project type, `publisher/name:type`, whose plugin runs the game. */
+  | { runtime: "plugin"; provider: string; projectPath: string };
 
 export type PlaytestTarget =
   | { selector: string }
@@ -88,7 +127,8 @@ export interface GameUseSnapshot {
   sessionId: string;
   runtime: GameRuntime;
   capabilities: GameUseCapabilities;
-  viewport: PlaytestViewport;
+  /** Left out when a plugin's runtime was opened at its own size and hasn't said it. */
+  viewport?: PlaytestViewport;
   gameState?: unknown;
   bridgeCapabilities?: string[];
 }
@@ -111,6 +151,18 @@ export interface PlaytestCapture {
   data: string;
   width: number;
   height: number;
+  /**
+   * `fresh-run` when the game was run again from the start for this capture
+   * (`captureFrame`), at `frame`. A fresh run is not promised to repeat
+   * exactly. Left out, it is the session's current frame.
+   */
+  source?: "fresh-run";
+  frame?: number;
+  /** The size the runtime captured, when the image was scaled down from it. */
+  sourceWidth?: number;
+  sourceHeight?: number;
+  /** What the runtime said about the capture, such as that the game was still loading. */
+  notes?: string;
   analysis: {
     sampledPixels: number;
     opaqueRatio: number;
@@ -126,10 +178,12 @@ export interface PlaytestWatchState {
 }
 
 export type PlaytestRequest =
-  | { operation: "open"; target: GameUseOpenTarget; viewport: PlaytestViewport }
+  /** Left out, a plugin's runtime uses the game's own size; the web runtime always gets one. */
+  | { operation: "open"; target: GameUseOpenTarget; viewport?: PlaytestViewport }
   | { operation: "inspect"; sessionId: string }
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
   | { operation: "capture"; sessionId: string }
+  | { operation: "captureFrame"; sessionId: string; frame: number }
   | { operation: "recordStart"; sessionId: string }
   | { operation: "recordStop"; sessionId: string }
   | { operation: "close"; sessionId: string }
@@ -140,6 +194,7 @@ export type PlaytestResult =
   | { operation: "inspect"; snapshot: GameUseSnapshot }
   | { operation: "act"; snapshot: GameUseSnapshot }
   | { operation: "capture"; capture: PlaytestCapture }
+  | { operation: "captureFrame"; capture: PlaytestCapture }
   | { operation: "recordStart"; sessionId: string; maxSeconds: number }
   | { operation: "recordStop"; sessionId: string; recording: GameRecordingSaved }
   | { operation: "close" | "closeAll" };

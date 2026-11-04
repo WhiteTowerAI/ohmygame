@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -25,10 +26,13 @@ import {
   availableProjectTypes,
   buildWebPreview,
   createTypedProject,
+  projectGameHooks,
+  projectGameUse,
   projectKind,
   projectKindAt,
   recognizeProjectTypes,
 } from "../src/daemon/project-types.js";
+import { PluginGameRuntime } from "../src/daemon/plugin-game-runtime.js";
 import {
   PluginGrants,
   projectFolderKey,
@@ -1327,6 +1331,65 @@ describe("project types", () => {
       expect((await listed()).pluginType.preview).toBe(previewAt(pinned));
     } finally {
       await app.close();
+      await rm(data, { recursive: true, force: true });
+    }
+  });
+
+  it("runs a native type's game for game_use through its project's host", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-types-game-"));
+    const dir = path.join(root, "packages/board-game");
+    await cp(await boardPackage("good"), dir, { recursive: true });
+    const manifestPath = path.join(dir, ".ohmygame-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.engines["ohmygame-api"] = "^2.3.0";
+    Object.assign(manifest.contributes.projectTypes[0], { preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } });
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const png = (await sharp({ create: { width: 320, height: 240, channels: 3, background: "#3070c0" } }).png().toBuffer()).toString("base64");
+    await writeFile(
+      path.join(dir, "index.mjs"),
+      `import { writeFile } from "node:fs/promises";
+      let opened = 0;
+      export function activate(context) {
+        context.registerProjectType("board", {
+          gameUse: async (input) => {
+            if (input.operation === "open") return { session: "board-" + ++opened, viewport: { width: 320, height: 240 } };
+            if (input.operation === "captureFrame") {
+              await writeFile(input.output, Buffer.from(${JSON.stringify(png)}, "base64"));
+              return { frame: input.frame };
+            }
+            return {};
+          },
+        });
+      }`,
+    );
+    const services = new PluginServices({ directory: data, hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200, idleMs: 100 } });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.consent("acme/board", ["native"]);
+      const folder = path.join(data, "game");
+      await createTypedProject({ folder, type: "acme/board:board", name: "Game", services });
+      const found = await projectGameUse(folder, services);
+      expect(found).toEqual({ provider: "acme/board:board", spec: { operations: ["captureFrame"], maxFrame: 600 } });
+      const runtime = new PluginGameRuntime({ ...found!, hooks: projectGameHooks(folder, services, found!.provider) });
+      const opened = await runtime.request({ operation: "open", target: { runtime: "plugin", provider: found!.provider, projectPath: folder } });
+      if (opened.operation !== "open") throw new Error("not opened");
+      expect(opened.snapshot.viewport).toEqual({ width: 320, height: 240 });
+      const generation = await services.native.hostGeneration(folder);
+      // The open session keeps the host running past its idle time.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(await services.native.hostGeneration(folder)).toBe(generation);
+      const captured = await runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 });
+      expect(captured).toMatchObject({ operation: "captureFrame", capture: { width: 320, height: 240, source: "fresh-run", frame: 30 } });
+      // A host that stopped took the session with it.
+      await services.native.closeProject(folder);
+      await expect(runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 })).rejects.toThrow("restarted");
+      runtime.close();
+      // The person turning the plugin off takes the game away from game_use.
+      await services.setEnabled("acme/board", false);
+      expect(await projectGameUse(folder, services)).toBeUndefined();
+    } finally {
+      await services.close();
       await rm(data, { recursive: true, force: true });
     }
   });

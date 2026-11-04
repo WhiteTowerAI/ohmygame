@@ -402,6 +402,71 @@
                   }
                 ]
               },
+              "gameUse": {
+                "type": "object",
+                "required": [
+                  "operations"
+                ],
+                "properties": {
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "inspect"
+                        },
+                        {
+                          "type": "string",
+                          "const": "act"
+                        },
+                        {
+                          "type": "string",
+                          "const": "capture"
+                        },
+                        {
+                          "type": "string",
+                          "const": "captureFrame"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "input": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "pointer"
+                        },
+                        {
+                          "type": "string",
+                          "const": "keyboard"
+                        },
+                        {
+                          "type": "string",
+                          "const": "touch"
+                        },
+                        {
+                          "type": "string",
+                          "const": "resize"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "maxFrame": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  }
+                },
+                "additionalProperties": false,
+                "description": "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for"
+              },
               "ready": {
                 "type": "object",
                 "required": [
