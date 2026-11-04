@@ -309,7 +309,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const projects = useRecentProjects(active);
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
-  const showWindowsHistory = hasWindowsWindowControls() && (history.back || history.forward);
+  // The Windows frame always shows them, disabled when there is nowhere to go,
+  // so the top row keeps its shape from the first launch on.
+  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
