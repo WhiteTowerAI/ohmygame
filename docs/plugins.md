@@ -99,6 +99,11 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+Native code isn't sandboxed: the [security model](plugin-security.md) says what
+that means and what the person approves. Wherever `native` is allowed (adding a
+plugin, turning it on, creating a project that turns it on) the app warns that
+its code runs with the person's own access (`NativeCodeWarning`).
+
 ## When a plugin misbehaves
 
 - **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's

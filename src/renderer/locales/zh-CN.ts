@@ -1230,6 +1230,8 @@ const zhCN: typeof en = {
     consentTitle: "允许 {{name}}？",
     consentHint: "这个插件请求以下权限：",
     consentEveryProject: "它会在所有适用的项目中运行，除非某个项目把它关掉。",
+    nativeWarning: "它会在这台电脑上运行自己的代码",
+    nativeWarningHint: "这些代码和你一样能访问文件、网络和其他应用，OhMyGame 无法限制它。只有信任作者时才允许。",
     allow: "允许并开启",
     status: {
       "not-installed": "未安装",

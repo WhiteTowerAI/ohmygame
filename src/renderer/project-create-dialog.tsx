@@ -17,6 +17,7 @@ import type {
 } from "../shared/contracts.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
+import { NativeCodeWarning } from "./plugin-consent-dialog.js";
 import "./project-create-dialog.css";
 
 /** What Home's prompt box hands over: it becomes the project's first message. */
@@ -283,6 +284,7 @@ export function ProjectCreateDialog({
             <ul className="project-plugins-capabilities">
               {typePluginConsent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
             </ul>
+            <NativeCodeWarning asks={typePluginConsent.capabilities} />
           </div>
         ) : null}
         {turnOnConsent.map((plugin) => (
@@ -291,6 +293,7 @@ export function ProjectCreateDialog({
             <ul className="project-plugins-capabilities">
               {plugin.asks!.map((capability) => <li key={capability}><code>{capability}</code></li>)}
             </ul>
+            <NativeCodeWarning asks={plugin.asks!} />
           </div>
         ))}
         {/* Only a folder shown by its path needs saying how it is used. */}

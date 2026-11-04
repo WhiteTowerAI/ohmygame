@@ -3,6 +3,7 @@ import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, typ
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
+import { NativeCodeWarning } from "./plugin-consent-dialog.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
 import { Alert, Badge, Button, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
@@ -142,6 +143,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     </li>)}</ul>
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
+    <NativeCodeWarning asks={preview.asks} />
     {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
     {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}

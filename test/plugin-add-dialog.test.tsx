@@ -109,6 +109,7 @@ describe("PluginAddDialog", () => {
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
     for (const shown of ["acme/maker 1.0.0", "@acme/maker", "network:api.example.com", "API", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
       expect(text, shown).toContain(shown);
+    expect(text).not.toContain("runs its own code");
     await submit();
     expect(requests[1]).toEqual({ route: "/plugin-sources/install", body: { source: preview.source, digest: preview.digest } });
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
@@ -185,16 +186,17 @@ describe("PluginAddDialog", () => {
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("50 MB");
   });
 
-  it("offers a folder on the desktop and reviews what it picks", async () => {
+  it("offers a folder on the desktop and reviews what it picks, warning about native code", async () => {
     const selectPluginDirectory = vi.fn(async () => "/plugins/maker");
     Object.assign(window, { ohMyGameDesktop: { selectPluginDirectory } });
     try {
-      answer = () => Response.json({ ...preview, source: { type: "directory", path: "/plugins/maker" }, origin: undefined });
+      answer = () => Response.json({ ...preview, asks: ["native"], source: { type: "directory", path: "/plugins/maker" }, origin: undefined });
       await open();
       await tab("This computer");
       await act(async () => button("Choose a folder…").click());
       expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker" } });
       expect(dialog().textContent).toContain("/plugins/maker");
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("It runs its own code on this computer");
     } finally {
       Object.assign(window, { ohMyGameDesktop: undefined });
     }

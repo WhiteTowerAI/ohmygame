@@ -1248,6 +1248,8 @@ const en = {
     consentTitle: "Allow {{name}}?",
     consentHint: "This plugin asks to be allowed:",
     consentEveryProject: "It will run in every project it works in, unless a project turns it off.",
+    nativeWarning: "It runs its own code on this computer",
+    nativeWarningHint: "That code has the same access you have to your files, the network and other apps, and OhMyGame can't limit it. Allow it only if you trust whoever made it.",
     allow: "Allow and turn on",
     status: {
       "not-installed": "Not installed",

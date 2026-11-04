@@ -37,7 +37,7 @@ beforeEach(() => {
     plugins: [
       { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true, everyProject: false, versions: ["1.0.0"] },
       { id: "ohmygame/game-studio", displayName: "Game Studio", description: "Plan games.", version: "1.2.0", used: "1.2.0", providesType: false, status: "active", capabilities: [], consented: true, everyProject: true, versions: ["1.2.0"] },
-      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["network:tiles.example.com"], consented: false, everyProject: false, versions: ["2.1.0"] },
+      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["native", "network:tiles.example.com"], consented: false, everyProject: false, versions: ["2.1.0"] },
     ],
   };
 });
@@ -63,11 +63,12 @@ it("switches each plugin here, locks the type's plugin, and asks before turning 
 
   await act(async () => toggle("Tiles").click());
   expect(document.body.textContent).toContain("network:tiles.example.com");
+  expect(document.querySelector('.ui-dialog [role="alert"]')?.textContent).toContain("OhMyGame can't limit it");
   expect(api.setProjectPlugin).toHaveBeenCalledTimes(1);
   expect(onChanged).toHaveBeenCalledTimes(1);
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
   await act(async () => allow.click());
-  expect(api.consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["network:tiles.example.com"]);
+  expect(api.consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["native", "network:tiles.example.com"]);
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, undefined);
   expect(toggle("Tiles").getAttribute("aria-checked")).toBe("true");
 
