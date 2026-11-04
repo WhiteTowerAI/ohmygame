@@ -269,6 +269,7 @@ const zhCN: typeof en = {
       languageLabel: "界面语言",
       palette: "配色",
       paletteHint: "界面底色的灰阶。",
+      pluginTheme: "来自 {{plugin}}",
       palettes: {
         neutral: "中性",
         neutralHint: "纯灰，不偏色",

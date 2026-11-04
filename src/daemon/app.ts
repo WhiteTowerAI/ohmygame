@@ -133,7 +133,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type PluginTheme, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -1305,6 +1305,22 @@ export function createApp(options: AppOptions = {}) {
     }
     return validated;
   };
+  // Themes of the plugins the person has on, each from its newest version; Settings › Appearance offers them.
+  app.get<{ Querystring: { locale?: string } }>("/plugin-themes", async (request): Promise<PluginTheme[]> => {
+    await pluginServices.ready();
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = pluginServices.index.get(id);
+      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false) return [];
+      return (entry.manifest.contributes?.themes ?? []).map((theme) => ({
+        id: `${id}:${theme.id}`,
+        plugin: id,
+        title: localizePluginString(entry, theme.title, locale),
+        ...(theme.dark ? { dark: theme.dark } : {}),
+        ...(theme.light ? { light: theme.light } : {}),
+      }));
+    });
+  });
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";

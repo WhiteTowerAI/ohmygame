@@ -269,6 +269,7 @@ const en = {
       languageLabel: "Interface language",
       palette: "Palette",
       paletteHint: "The greys behind the interface.",
+      pluginTheme: "From {{plugin}}",
       palettes: {
         neutral: "Neutral",
         neutralHint: "Plain greys",

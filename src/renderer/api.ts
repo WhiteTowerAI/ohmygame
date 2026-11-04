@@ -805,6 +805,11 @@ export async function consentToPlugin(id: string, allowed: string[]): Promise<vo
 }
 
 /** Installed plugins, one row per version. */
+/** Themes of the plugins the person has on, for Settings › Appearance. */
+export async function listPluginThemes(): Promise<import("../shared/plugins.js").PluginTheme[]> {
+  return request(`/plugin-themes?locale=${encodeURIComponent(language)}`);
+}
+
 export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }

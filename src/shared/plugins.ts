@@ -297,6 +297,16 @@ export type StorePluginConfiguration = Record<
 >;
 
 /** A plugin command a project offers (GET /projects/:id/plugin-commands). */
+/** A theme a plugin adds: values for the theme tokens, in dark, light or both. */
+export interface PluginTheme {
+  /** `publisher/name:theme`. */
+  id: string;
+  plugin: string;
+  title: string;
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+}
+
 export interface ProjectPluginCommand {
   /** `publisher/name:command`. */
   id: string;
