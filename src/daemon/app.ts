@@ -13,6 +13,7 @@ import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
+import { PluginModelProviders } from "./plugin-model-providers.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -113,7 +114,7 @@ import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -1115,6 +1116,24 @@ export function createApp(options: AppOptions = {}) {
   };
   // A session's plugin tools are fixed when it starts; a change to them starts fresh sessions.
   pluginServices.onChange(invalidatePluginSessions);
+  // Model providers from installed plugins join the model runtime and follow
+  // their plugins and keys; a project's file doesn't change them.
+  const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
+  const syncPluginModelProviders = async () => {
+    // Joins the queue now, so a list asked for after a change waits for it.
+    const changed = await pluginModelProviders.sync(getModelRuntime());
+    const runtime = await getModelRuntime();
+    for (const id of changed) {
+      catalogRefresh.invalidate(id);
+      void catalogRefresh.refresh(runtime, id, true).catch(() => {});
+    }
+    if (changed.length) invalidatePluginSessions();
+  };
+  const pluginModelProvidersReady = pluginServicesReady.then(syncPluginModelProviders)
+    .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
+  pluginServices.onChange((folder) => {
+    if (!folder) void syncPluginModelProviders().catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins' model providers"));
+  });
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
   async function syncPluginType(project: ProjectState): Promise<void> {
@@ -1345,6 +1364,7 @@ export function createApp(options: AppOptions = {}) {
           panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
           commands: (contributes.commands ?? []).map((command) => text(command.title)),
           mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
+          modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
           tools: contributes.tools?.length ?? 0,
           skills: entry.skills.length,
         },
@@ -2816,7 +2836,9 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  const providerSummaries = async () => {
+  const providerSummaries = async (locale: PluginLocale = "en") => {
+    await pluginModelProvidersReady;
+    await pluginModelProviders.settled();
     const [piProviders, customProviders] = await Promise.all([
       modelAuth.providers(),
       providerModelSettings.customProviderCatalog(),
@@ -2828,10 +2850,13 @@ export function createApp(options: AppOptions = {}) {
     const providers = piProviders
       .map((provider) => {
         const custom = customModels.get(provider.id);
+        const plugin = pluginModelProviders.info(provider.id, locale);
         const imageConfigured = provider.id === "openai" && (image.mode === "separate" ? image.configured : image.mode === "connection" && provider.configured && provider.credentialType !== "oauth");
         const configured = provider.configured || imageConfigured;
         return {
           ...provider,
+          // Set up on the plugin's page, not by signing in here.
+          ...(plugin ? { name: pluginModelProviders.title(provider.id, locale) ?? provider.name, methods: [], plugin } : {}),
           configured,
           ...(provider.id === "openai" ? { languageConfigured: provider.configured, imageConfigured } : {}),
           enabled: providerEnabled(provider.id),
@@ -2846,7 +2871,15 @@ export function createApp(options: AppOptions = {}) {
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name));
-    const directProviders = [...native3DProviders.map(([id, name, settings]) => ({
+    // A plugin's provider waiting for its key isn't in the model runtime yet.
+    const pluginProviders = pluginModelProviders.list()
+      .filter((item) => !piProviders.some((provider) => provider.id === item.id))
+      .map((item) => ({
+        id: item.id, name: pluginModelProviders.title(item.id, locale) ?? item.id, configured: false,
+        enabled: providerEnabled(item.id), custom: false, status: "not_configured" as const,
+        methods: [], capabilities: ["language"] as const, plugin: pluginModelProviders.info(item.id, locale)!,
+      }));
+    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
       status: settings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${name} API key` }],
@@ -2907,8 +2940,8 @@ export function createApp(options: AppOptions = {}) {
     const codex = codexImages.summarySnapshot(providerEnabled("codex-cli"));
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
-  app.get("/settings/providers", providerSummaries);
-  registerUsageRoutes(app, new UsageIndex(() => projects.list()), providerSummaries);
+  app.get<{ Querystring: { locale?: string } }>("/settings/providers", (request) => providerSummaries(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
+  registerUsageRoutes(app, new UsageIndex(() => projects.list()), () => providerSummaries());
   registerDiagnosticsRoutes(app, {
     logDirectory: options.logDirectory,
     summary: async () => {
@@ -3002,6 +3035,7 @@ export function createApp(options: AppOptions = {}) {
     providerEnabled,
     cloudModels,
     modelAuth,
+    pluginModelProviders,
   });
 
   app.get("/image-models", async () => providerImages.models());

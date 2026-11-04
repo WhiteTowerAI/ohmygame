@@ -16,7 +16,7 @@ const state: PluginSetupState = {
 };
 const stored = {
   id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", bundled: false, everyProject: true,
-  capabilities: [], examples: [], settings: [], skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
+  capabilities: [], examples: [], settings: [], skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], tools: 0, skills: 0 },
 };
 const draftPlugin = { id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", appWide: true, asks: [], skills: [], mcpServers: [], settings: false };
 const revision = "a".repeat(64);

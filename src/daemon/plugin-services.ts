@@ -289,6 +289,19 @@ export class PluginServices {
     });
   }
 
+  /**
+   * The newest version of each installed plugin that this app can run and
+   * that isn't disabled everywhere. What a plugin adds to the app itself,
+   * such as model providers, comes from these, whatever projects turn on.
+   */
+  async installed(): Promise<PluginIndexEntry[]> {
+    await this.ready();
+    return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = this.index.get(id);
+      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false ? [entry] : [];
+    });
+  }
+
   /** The Skills of `everyProject`, as a new project's agent would load them. */
   async everyProjectSkills(kind?: ProjectKind): Promise<PluginSkillRegistration[]> {
     return (await this.everyProject(kind)).flatMap((entry) => entry.skills.map((skill) => skillRegistration(entry, path.join(entry.root, skill.path))));

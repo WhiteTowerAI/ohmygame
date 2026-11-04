@@ -282,6 +282,28 @@ same path that checks a package with `indexPluginPackage` and copies it under
 removed, later releases included. Bundled plugins are indexed from `plugins/`
 and can't be uninstalled.
 
+## Model providers
+
+`contributes.providers` adds chat model providers to Settings → Providers.
+`PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
+the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
+installed, runs in this app and isn't disabled everywhere; projects' plugin
+switches don't apply. It follows installs, updates and setting changes.
+
+- `api` and `baseUrl` say how to reach it, as for a provider the person adds.
+- `apiKey` names a `secret` configuration field. The provider joins once the
+  person sets that field on the plugin's page, and leaves when it is cleared.
+  The app reads the key itself; the plugin's native code still gets secrets
+  only with `capabilities.secrets`. A provider without `apiKey` sends a
+  placeholder key, for services that need none.
+- `models` lists models; unless the app knows a model's id, it gets a 128K
+  context and 16K output. With `discoverModels`, refreshing the catalog also
+  reads the endpoint's model list, as adding a provider does, and skips models
+  that only make media.
+- Settings shows where the provider comes from, its base URL and whether the
+  key is set, with a link to the plugin's page. It can be turned off there
+  like any provider; signing in, removing it or adding models is refused.
+
 ## Making a plugin
 
 The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
