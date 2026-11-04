@@ -1,16 +1,6 @@
-import type {
-  MultiplayerGameAdapter,
-  MultiplayerGameState,
-  MultiplayerManifestConfig,
-  TurnCommand,
-} from "@ohmygame/sdk/protocol";
-import { checkTickMs, tickMsOf } from "./game.js";
-export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS } from "./game.js";
-
-export type GameAdapter = MultiplayerGameAdapter<
-  MultiplayerGameState,
-  TurnCommand
->;
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { checkTickMs, tickMsOf, type GameAdapter } from "@ohmygame/sdk/rules";
+export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS, type GameAdapter } from "@ohmygame/sdk/rules";
 
 /** "exactly 2" or "2 to 8", for player count errors. */
 export function describePlayerRange({ min, max }: GameAdapter["players"]): string {
