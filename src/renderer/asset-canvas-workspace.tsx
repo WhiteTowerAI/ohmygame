@@ -1003,7 +1003,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function pickReference(source: AssetCanvasFlowNode): void {
     if (!referenceTargetId || source.id === referenceTargetId || nodeBusy(referenceTargetId)) return;
-    const connected = assetEdges.filter((edge) => edge.source === source.id && edge.target === referenceTargetId);
+    // Picked for one input, the click toggles that input's link only.
+    const connected = assetEdges.filter((edge) => edge.source === source.id && edge.target === referenceTargetId && (!referenceHandle || edge.targetHandle === referenceHandle));
     if (connected.length) onEdgesChange(connected.map((edge) => ({ type: "remove", id: edge.id })));
     else onConnect({ source: source.id, target: referenceTargetId, sourceHandle: OUTPUT_HANDLE, targetHandle: referenceHandle ?? null });
   }
