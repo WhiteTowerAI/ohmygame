@@ -70,6 +70,7 @@ import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { gameServiceUrlFor } from "./publish/game-service.js";
 import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
 import { isCloudConfig } from "@ohmygame/sdk/cloud-protocol";
 import { promptContextBlock } from "./prompt-context.js";
@@ -629,7 +630,7 @@ export function createApp(options: AppOptions = {}) {
   const building = new Set<string>();
   const artifacts = new ArtifactBuilder({
     account: publishedGameAccount(process.env.OHMYGAME_ACCOUNT_ISSUER ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL),
-    gameServiceUrl: publishedGameService(process.env.OHMYGAME_GAME_SERVICE_URL ?? process.env.MULTIPLAYER_PUBLISH_SERVER_URL),
+    gameServiceUrl: publishedGameService(gameServiceUrlFor(process.env, options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)),
   });
   const localMultiplayer = new LocalMultiplayerRuntime();
   /**

@@ -9,6 +9,7 @@ import {
   ArtifactBuilder,
   createPluginArchive,
 } from "../src/daemon/publish/archive.js";
+import { gameServiceUrlFor, PRODUCTION_GAME_SERVICE_URL } from "../src/daemon/publish/game-service.js";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -48,6 +49,15 @@ describe("publish archives", () => {
     vi.stubGlobal("fetch", fetchDeployment);
     await expect(builder.createLocal(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
     expect(fetchDeployment).toHaveBeenCalledWith(new URL("http://127.0.0.1:43130/v1/games/gomoku/deployments/local-v1"), expect.objectContaining({ redirect: "error" }));
+  });
+
+  it("uses OhMyGame's production game service for the production cloud unless told otherwise", () => {
+    expect(gameServiceUrlFor({}, "https://cloud.ohmygame.ai/")).toBe(PRODUCTION_GAME_SERVICE_URL);
+    // A local or test cloud never reaches production's game service by default.
+    expect(gameServiceUrlFor({}, "http://127.0.0.1:43130")).toBeUndefined();
+    expect(gameServiceUrlFor({}, undefined)).toBeUndefined();
+    expect(gameServiceUrlFor({ OHMYGAME_GAME_SERVICE_URL: "https://games.test.example" }, "https://cloud.ohmygame.ai")).toBe("https://games.test.example");
+    expect(gameServiceUrlFor({ MULTIPLAYER_PUBLISH_SERVER_URL: "https://legacy.example" }, "http://127.0.0.1:43130")).toBe("https://legacy.example");
   });
 
   it("registers a game's local rooms with OhMyGame's game service as its publisher", async () => {
@@ -104,9 +114,8 @@ describe("publish archives", () => {
       id: "multiplayer-test", name: "Stones", type: "web-game" as const,
       updatedAt: new Date(0).toISOString(), workspacePath, preview: { status: "stopped" as const },
     };
-    const builder = new ArtifactBuilder();
-    await expect(builder.create(project, undefined, config)).rejects.toThrow(/configured game service URL/);
-    vi.stubEnv("MULTIPLAYER_PUBLISH_SERVER_URL", config.serverUrl);
+    await expect(new ArtifactBuilder().create(project, undefined, config)).rejects.toThrow(/configured game service URL/);
+    const builder = new ArtifactBuilder({ gameServiceUrl: `${config.serverUrl}/` });
     const checked = vi.fn(async () => Response.json({ ...config, deploymentId: "other" }));
     vi.stubGlobal("fetch", checked);
     await expect(builder.create(project, undefined, config)).rejects.toThrow(/does not match/);

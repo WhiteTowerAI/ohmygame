@@ -419,9 +419,10 @@ the service rewrites them on every upgrade to the address it trusts
 
 Local debug publishing permits loopback deployments, checks the live local
 registration, and creates a temporary local snapshot. It does not upload to a
-hosted service. Public publishing requires OhMyGame's game service, configured
-through `OHMYGAME_GAME_SERVICE_URL` (or `MULTIPLAYER_PUBLISH_SERVER_URL`), which
-packaged builds read from `desktop-config.json`.
+hosted service. Public publishing requires OhMyGame's game service: the production
+one, `https://games.ohmygame.ai`, for a desktop that publishes to the production
+cloud, or the one `OHMYGAME_GAME_SERVICE_URL` (or `MULTIPLAYER_PUBLISH_SERVER_URL`)
+names, which also overrides the default.
 
 A game set up with `multiplayer_setup` declares its local deployment. Public
 publishing registers the same rooms with the game service, as the game's

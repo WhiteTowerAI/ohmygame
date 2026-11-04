@@ -148,7 +148,7 @@ export class ArtifactBuilder {
           throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
         const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, localTesting);
         if (configured) {
-          await checkMultiplayerDeployment(configured, localTesting);
+          await checkMultiplayerDeployment(configured, localTesting, this.#gameServiceUrl);
           if (multiplayer) updates.multiplayer = configured;
         }
         sdk = !localTesting && await hasManifest(source);
@@ -280,8 +280,8 @@ async function registerDeployment(serverUrl: string, gameId: string, accessToken
 }
 
 /** A published deployment must already exist on the trusted game service. */
-async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, localTesting = false): Promise<void> {
-  const trustedServerUrl = (process.env.OHMYGAME_GAME_SERVICE_URL ?? process.env.MULTIPLAYER_PUBLISH_SERVER_URL)?.replace(/\/$/, "");
+async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, localTesting = false, gameServiceUrl?: string): Promise<void> {
+  const trustedServerUrl = gameServiceUrl?.replace(/\/$/, "");
   const local = localTesting && config.serverUrl.startsWith("http:") && isMultiplayerManifestConfig(config, { allowLocalhost: true });
   if (!local && (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl)) {
     throw new PublishError("Multiplayer publishing requires a configured game service URL.");
