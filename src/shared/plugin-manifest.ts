@@ -775,12 +775,15 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     node.inputs?.forEach((input, inputIndex) => {
       if (inputs.has(input.id))
         issue(`${path}/inputs/${inputIndex}/id`, `duplicate input ${input.id}`);
+      // A board keeps inputs and settings in plain objects, where these names are already taken.
+      if (input.id in Object.prototype) issue(`${path}/inputs/${inputIndex}/id`, `${input.id} is a reserved name`);
       inputs.add(input.id);
     });
     const params = Object.entries(node.params ?? {});
     if (params.length > CANVAS_NODE_MAX_PARAMS)
       issue(`${path}/params`, `at most ${CANVAS_NODE_MAX_PARAMS} settings`);
     for (const [key, param] of params) {
+      if (key in Object.prototype) issue(`${path}/params/${key}`, `${key} is a reserved name`);
       const at = `${path}/params/${key}`;
       if (param.type === "select") {
         if (!param.options) issue(`${at}/options`, "a select needs options");

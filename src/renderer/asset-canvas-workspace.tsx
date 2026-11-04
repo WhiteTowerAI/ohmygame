@@ -136,7 +136,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
-import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeRuns, staleCanvasNodes } from "../shared/canvas-chains.js";
+import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -1956,11 +1956,23 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }
 
+  /** Turns the examples the chain from a node reads into Library files, as a single run does. */
+  async function materializeChainExamples(nodeId: string): Promise<void> {
+    const current = nodesRef.current, board = current.map((node) => toAssetCanvasNode(node, model3DModels));
+    const read = new Set([nodeId, ...canvasDownstream(board, nodeId).map((node) => node.id)].flatMap((id) => {
+      const node = board.find((candidate) => candidate.id === id);
+      return node ? canvasNodeSourceIds(node) : [];
+    }));
+    const sources = current.filter((node) => read.has(node.id) && !node.data.assetId && pixelExampleImageUrl(node.data.exampleImage));
+    if (sources.length) await materializeExampleOutputs(sources, "reference");
+  }
+
   /** Runs a node and the nodes after it in the daemon; their jobs show the progress. */
-  async function regenerateFrom(nodeId: string): Promise<void> {
+  async function regenerateFrom(nodeId: string, prepared = false): Promise<void> {
     setGenerationError(undefined);
     try {
       const targetStorage = storageRef.current;
+      if (!prepared) await materializeChainExamples(nodeId);
       await flush();
       if (!targetStorage.regenerate) return;
       const { job } = await targetStorage.regenerate(nodeId);
@@ -1969,14 +1981,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   /** Copies the chain after an image once per picked image, each in its own group, and runs every copy. */
-  function runWithImages(sourceId: string, images: readonly LibraryAsset[]): void {
+  async function runWithImages(sourceId: string, images: readonly LibraryAsset[]): Promise<void> {
     const { nodes: copies, starts } = canvasBatchCopies(boardNodes, sourceId, images.map((asset) => ({ assetId: asset.id, name: asset.name })), (name) => name);
     if (!copies.length) return;
     if (nodesRef.current.length + copies.length > MAX_ASSET_CANVAS_NODES) { setTransferError(t("assetCanvas.nodeLimit")); return; }
     commitPendingHistory();
     setTransferError(undefined);
     flushSync(() => setNodes((current) => orderedCanvasNodes([...current.map((node) => node.selected ? { ...node, selected: false } : node), ...copies.map((node) => toFlowNode(node, imageModels, videoModels))])));
-    for (const start of starts) void regenerateFrom(start);
+    // The copies read the same examples as the original chain; prepare them once for all.
+    try { await materializeChainExamples(sourceId); }
+    catch (error) { setNotice({ kind: "action", message: errorMessage(error) }); return; }
+    for (const start of starts) void regenerateFrom(start, true);
   }
 
   async function cancelCanvasJob(nodeId: string): Promise<void> {
@@ -2532,7 +2547,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       {folderPrompt ? createPortal(<FolderImportDialog folders={folderPrompt.folders} onAnswer={folderPrompt.answer} />, window.document.body) : null}
       {batchSourceId ? <LibraryAssetPicker title={t("assetCanvas.batchTitle")} projectId={project.id} project={project}
         assets={libraryAssets.filter((asset) => asset.mediaType === "image" && BATCH_IMAGE_TYPES.has(asset.contentType ?? ""))}
-        multiple={{ min: 2, max: 10, action: (count) => t("assetCanvas.batchAction", { count }), onSubmit: (picked) => { const source = batchSourceId; setBatchSourceId(undefined); runWithImages(source, picked); } }}
+        multiple={{ min: 2, max: 10, action: (count) => t("assetCanvas.batchAction", { count }), onSubmit: (picked) => { const source = batchSourceId; setBatchSourceId(undefined); void runWithImages(source, picked); } }}
         onClose={() => setBatchSourceId(undefined)} /> : null}
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>

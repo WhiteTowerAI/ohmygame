@@ -6,6 +6,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
 import type { AssetCanvasNode, ProjectState, ToolJob } from "../src/shared/contracts.js";
 import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
+import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasBatchCopies, duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
@@ -162,6 +163,13 @@ describe("plugin canvas nodes", () => {
     expect(escaped.job.error).toContain("isn't a file it wrote in its output folder");
     expect(escaped.node.data.assetId).toBeUndefined();
     expect((await run([plugin("copy", "acme/missing:copy", {}, hero)], "copy")).job.status).toBe("failed");
+  });
+
+  it("refuses input and setting names a plain object already has", () => {
+    const [copy] = MANIFEST.contributes.canvasNodes;
+    const reserved = structuredClone({ ...MANIFEST, contributes: { canvasNodes: [{ ...copy!, inputs: [{ ...copy!.inputs[0]!, id: "constructor" }], params: { toString: { type: "text", title: "Name" } } }] } });
+    const result = validatePluginManifest(reserved);
+    expect(result.ok ? [] : result.issues.map((issue) => issue.message)).toEqual(expect.arrayContaining(["constructor is a reserved name", "toString is a reserved name"]));
   });
 
   it("offers presets, hands out their nodes, and adds them as one group with new ids", async () => {
