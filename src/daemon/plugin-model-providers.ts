@@ -158,9 +158,9 @@ export class PluginModelProviders {
       // and Google models it doesn't list as generating content.
       const usages = model.usages;
       if (provider.api === "google-generative-ai" ? !usages?.language : usages && !usages.language && Object.keys(usages).length) continue;
-      if (models.has(model.id)) continue;
+      // What the endpoint reports replaces a listed model's defaults; the plugin's title stays.
       models.set(model.id, {
-        id: model.id, name: model.name, api: provider.api,
+        id: model.id, name: models.get(model.id)?.name ?? model.name, api: provider.api,
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
         ...thinkingLevels(model.thinkingLevelMap ?? model.reasoningCapabilities?.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
