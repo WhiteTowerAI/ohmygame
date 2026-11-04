@@ -51,8 +51,11 @@ export interface ArtifactBuilderOptions {
 
 /** A built game waiting to be packaged; see ArtifactBuilder.prepare. */
 export interface PreparedArtifact {
-  /** The artifact. gameId is the game's OhMyGame ID, which a build with cloud saves names. */
-  package(gameId?: string): Promise<Buffer>;
+  /**
+   * The artifact. gameId is the game's OhMyGame ID, which a build with cloud saves names;
+   * a multiplayer game also needs the publisher's access token to register its deployment.
+   */
+  package(gameId?: string, publication?: { accessToken?: string }): Promise<Buffer>;
   dispose(): Promise<void>;
 }
 
@@ -133,9 +136,15 @@ export class ArtifactBuilder {
       const updates: Record<string, unknown> = {};
       // Games that load the SDK have a manifest; sign-in and cloud saves come with publishing, never local builds.
       let sdk = false;
+      // A game set up for multiplayer in OhMyGame declares its local deployment; publishing
+      // registers the same rooms with OhMyGame's game service once the game has its ID.
+      let register: MultiplayerManifestConfig | undefined;
       if (project.type !== "interactive-story") {
         await assertSupportedNetworking(source);
-        const configured = await readMultiplayerConfig(source, multiplayer, declared, localTesting);
+        register = !localTesting && !multiplayer ? await localDeployment(source, declared) : undefined;
+        if (register && !this.#gameServiceUrl)
+          throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
+        const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, localTesting);
         if (configured) {
           await checkMultiplayerDeployment(configured, localTesting);
           if (multiplayer) updates.multiplayer = configured;
@@ -145,8 +154,12 @@ export class ArtifactBuilder {
       }
       const built = source;
       return {
-        package: async (gameId?: string) => {
+        package: async (gameId?: string, publication: { accessToken?: string } = {}) => {
           const manifestUpdates = { ...updates };
+          if (register) {
+            if (!gameId || !publication.accessToken) throw new PublishError("Publishing a multiplayer game needs its OhMyGame game and the publisher's sign-in.");
+            manifestUpdates.multiplayer = await registerDeployment(this.#gameServiceUrl!, gameId, publication.accessToken, register);
+          }
           if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
           // The local service's test sign-in and in-memory saves never ship: published games
           // get OhMyGame's services above, or none.
@@ -219,6 +232,48 @@ async function readMultiplayerConfig(source: string, requested?: MultiplayerMani
       throw new PublishError("The source, build and requested multiplayer deployments do not match.");
   }
   if (manifest.runtime === "playable-nodes") throw new PublishError("Interactive Stories do not have a multiplayer adapter.");
+  return value;
+}
+
+/**
+ * The local deployment a game set up in OhMyGame declares, when its build carries the same
+ * one: what publishing turns into a deployment on OhMyGame's game service.
+ */
+async function localDeployment(source: string, declared: unknown): Promise<MultiplayerManifestConfig | undefined> {
+  const built = (await readOptionalManifest(source)).multiplayer;
+  if (declared !== undefined && built === undefined)
+    throw new PublishError("The build dropped the multiplayer manifest. Copy public/manifest.json into the published output.");
+  if (!isMultiplayerManifestConfig(built, { allowLocalhost: true }) || !pointsAtThisComputer({ serverUrl: built.serverUrl })) return undefined;
+  if (declared !== undefined && (!isMultiplayerManifestConfig(declared, { allowLocalhost: true }) || !sameMultiplayerConfig(built, declared)))
+    throw new PublishError("The source and build multiplayer deployments do not match. Run multiplayer_setup again, then rebuild.");
+  return built;
+}
+
+/**
+ * Registers the game's rooms with OhMyGame's game service, as the game's publisher, and
+ * returns the deployment the published manifest names. The same settings find the same
+ * deployment again.
+ */
+async function registerDeployment(serverUrl: string, gameId: string, accessToken: string, local: MultiplayerManifestConfig): Promise<MultiplayerManifestConfig> {
+  const { mode, adapterId, maxClients, roomPolicy, reconnectSeconds } = local;
+  let response: Response;
+  try {
+    response = await fetch(new URL(`/v1/games/${encodeURIComponent(gameId)}/deployments`, serverUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ mode, adapterId, maxClients, roomPolicy, reconnectSeconds }),
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (cause) {
+    throw new PublishError(`OhMyGame's game service could not be reached to register the game's rooms: ${cause instanceof Error ? cause.message : String(cause)}`, 502);
+  }
+  const value: unknown = await response.json().catch(() => undefined);
+  if (!response.ok)
+    throw new PublishError(`OhMyGame's game service refused the game's rooms: ${isRecord(value) && typeof value.error === "string" ? value.error : `HTTP ${response.status}`}`, 502);
+  if (!isMultiplayerManifestConfig(value) || value.gameId !== gameId || value.serverUrl.replace(/\/$/, "") !== serverUrl.replace(/\/$/, "") ||
+      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || value.roomPolicy !== roomPolicy)
+    throw new PublishError("OhMyGame's game service answered with a different deployment.", 502);
   return value;
 }
 

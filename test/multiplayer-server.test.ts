@@ -257,6 +257,50 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(second.snapshot!.state.winnerPlayerIds).toBeUndefined();
   });
 
+  it("lets a game's publisher register its deployment, which plays at once and outlives a restart", async () => {
+    await service.stop();
+    const owners = new Map([["owner-token", "game-1"]]);
+    const start = () => {
+      service = createMultiplayerServer({
+        deployments: [],
+        adapters: createBuiltInAdapters(),
+        auth: { guestSecret: "a".repeat(32) },
+        databasePath: path.join(directory, "registered.sqlite"),
+        host: "127.0.0.1",
+        port: 0,
+        logger: false,
+        registration: { publicUrl: "https://games.example.test", verifyOwner: async (gameId, token) => owners.get(token) === gameId, maxPerGame: 2 },
+      });
+      return service.start().then(() => { endpoint = `http://127.0.0.1:${service.port}`; });
+    };
+    await start();
+    const register = (gameId: string, token: string | undefined, body: Record<string, unknown>) =>
+      fetch(`${endpoint}/v1/games/${gameId}/deployments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(body),
+      });
+    const settings = { mode: "turn-based", adapterId: "stones", maxClients: 3, roomPolicy: "invite-or-public", reconnectSeconds: 120 };
+    expect((await register("game-1", "someone-else", settings)).status).toBe(403);
+    expect((await register("game-1", undefined, settings)).status).toBe(403);
+    const created = await register("game-1", "owner-token", settings);
+    expect(created.status).toBe(201);
+    const deployment = await created.json() as MultiplayerManifestConfig;
+    expect(deployment).toMatchObject({ gameId: "game-1", serverUrl: "https://games.example.test", authPolicy: "guest-or-account", adapterId: "stones", maxClients: 3 });
+    // The same settings find the same deployment; others make a new one, up to the game's limit.
+    expect(await (await register("game-1", "owner-token", settings)).json()).toEqual(deployment);
+    expect((await register("game-1", "owner-token", { ...settings, adapterId: "missing" })).status).toBe(400);
+    expect((await register("game-1", "owner-token", { ...settings, maxClients: 2 })).status).toBe(201);
+    expect((await register("game-1", "owner-token", { ...settings, maxClients: 4 })).status).toBe(409);
+    expect((await register("game-1", "owner-token", { ...settings, code: "evil" })).status).toBe(400);
+    // Its rooms open at once, and the deployment survives a restart.
+    const [first] = await match(deployment);
+    expect(first.snapshot!.state.phase).toBe("playing");
+    await service.stop();
+    await start();
+    expect(await (await fetch(`${endpoint}/v1/games/game-1/deployments/${deployment.deploymentId}`)).json()).toEqual(deployment);
+  });
+
   it("counts a finished built-in match for its winner on the match board", async () => {
     const store = new MemoryGameDataStore();
     const deployment = await customService("ranked-stones", createBuiltInAdapter("stones"), {}, { gameData: { store } });

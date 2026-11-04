@@ -29,7 +29,8 @@ export class RoomStore {
     this.db = new DatabaseSync(filename);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS commands (room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE, player_id TEXT NOT NULL, command_id TEXT NOT NULL, command TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY (room_id, player_id, command_id));`);
+      CREATE TABLE IF NOT EXISTS commands (room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE, player_id TEXT NOT NULL, command_id TEXT NOT NULL, command TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY (room_id, player_id, command_id));
+      CREATE TABLE IF NOT EXISTS deployments (room_type TEXT PRIMARY KEY, game_id TEXT NOT NULL, config TEXT NOT NULL);`);
   }
   save(
     room: StoredRoom,
@@ -88,6 +89,16 @@ export class RoomStore {
         this.db
           .prepare("DELETE FROM rooms WHERE id=?")
           .run(room.snapshot.roomId);
+  }
+  /** Deployments publishers registered, which outlive restarts like rooms do. */
+  saveDeployment(roomType: string, config: MultiplayerManifestConfig): void {
+    this.db.prepare("INSERT INTO deployments VALUES (?, ?, ?) ON CONFLICT(room_type) DO NOTHING").run(roomType, config.gameId, JSON.stringify(config));
+  }
+  deployments(): MultiplayerManifestConfig[] {
+    return this.db.prepare("SELECT config FROM deployments").all().map((row) => JSON.parse(String(row.config)) as MultiplayerManifestConfig);
+  }
+  deploymentCount(gameId: string): number {
+    return Number(this.db.prepare("SELECT count(*) AS n FROM deployments WHERE game_id = ?").get(gameId)?.n ?? 0);
   }
   close(): void {
     this.db.close();

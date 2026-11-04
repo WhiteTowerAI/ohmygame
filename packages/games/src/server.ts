@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { createMultiplayerServer, publishedGameCheck } from "@ohmygame/server";
+import { cloudGameOwnerCheck, createMultiplayerServer, publishedGameCheck } from "@ohmygame/server";
 import { PostgresGameDataStore } from "@ohmygame/server/postgres";
 import { createBuiltInAdapters } from "./index.js";
 
@@ -27,6 +27,9 @@ if (databaseUrl) {
     adminToken: process.env.GAME_DATA_ADMIN_TOKEN || undefined,
   };
 }
+// Publishers register their games' deployments at publish time, once OhMyGame can say who owns a game.
+const publicUrl = process.env.GAME_SERVICE_PUBLIC_URL?.trim();
+const registration = publicUrl && cloudApiUrl ? { publicUrl, verifyOwner: cloudGameOwnerCheck(cloudApiUrl) } : undefined;
 const service = createMultiplayerServer({
   deployments,
   adapters: createBuiltInAdapters(),
@@ -46,6 +49,7 @@ const service = createMultiplayerServer({
     trustProxyHops: process.env.MULTIPLAYER_TRUST_PROXY_HOPS ? Number(process.env.MULTIPLAYER_TRUST_PROXY_HOPS) : undefined,
   },
   ...(gameData ? { gameData } : {}),
+  ...(registration ? { registration } : {}),
 });
 let stopping = false;
 const shutdown = async () => {

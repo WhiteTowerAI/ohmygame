@@ -3203,7 +3203,7 @@ export function createApp(options: AppOptions = {}) {
         const prepared = localDebug ? undefined : await artifacts.prepare(project, cover, request.body.multiplayer);
         const result = await publisher.publish(
           project,
-          prepared ? (gameId) => prepared.package(gameId) : await artifacts.createLocal(project, cover, request.body.multiplayer),
+          prepared ? (gameId) => prepared.package(gameId, { accessToken: request.body.accessToken }) : await artifacts.createLocal(project, cover, request.body.multiplayer),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         ).finally(() => prepared?.dispose());

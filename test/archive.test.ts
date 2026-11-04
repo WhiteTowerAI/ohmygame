@@ -42,11 +42,46 @@ describe("publish archives", () => {
     await writeFile(path.join(directory, "index.html"), "board");
     await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ multiplayer: localConfig }));
     const builder = new ArtifactBuilder();
-    await expect(builder.create(projectAt(directory))).rejects.toThrow(/HTTPS Colyseus backend/);
+    // Public publishing registers the rooms with OhMyGame's game service, which this builder has none of.
+    await expect(builder.create(projectAt(directory))).rejects.toThrow(/needs OhMyGame's game service/);
     const fetchDeployment = vi.fn(async () => Response.json(localConfig));
     vi.stubGlobal("fetch", fetchDeployment);
     await expect(builder.createLocal(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
     expect(fetchDeployment).toHaveBeenCalledWith(new URL("http://127.0.0.1:43130/v1/games/gomoku/deployments/local-v1"), expect.objectContaining({ redirect: "error" }));
+  });
+
+  it("registers a game's local rooms with OhMyGame's game service as its publisher", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-register-multiplayer-"));
+    await writeFile(path.join(directory, "index.html"), "board");
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ title: "Board", multiplayer: localConfig }));
+    await writeFile(path.join(directory, "multiplayer.json"), JSON.stringify({ multiplayer: localConfig }));
+    const registered = {
+      ...localConfig,
+      gameId: "game-1",
+      deploymentId: "d-registered",
+      serverUrl: "https://games.ohmygame.example/",
+      authPolicy: "guest-or-account" as const,
+    };
+    const register = vi.fn(async (_url: URL, _init: RequestInit) => Response.json(registered, { status: 201 }));
+    vi.stubGlobal("fetch", register);
+    const builder = new ArtifactBuilder({ gameServiceUrl: "https://games.ohmygame.example/" });
+    const prepared = await builder.prepare(projectAt(directory));
+    await expect(prepared.package("game-1")).rejects.toThrow(/publisher's sign-in/);
+    const manifest = JSON.parse(await zipFile(await prepared.package("game-1", { accessToken: "publisher-token" }), "manifest.json"));
+    expect(manifest.multiplayer).toEqual(registered);
+    const [url, init] = register.mock.calls[0]!;
+    expect(String(url)).toBe("https://games.ohmygame.example/v1/games/game-1/deployments");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer publisher-token" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: localConfig.mode, adapterId: localConfig.adapterId, maxClients: localConfig.maxClients,
+      roomPolicy: localConfig.roomPolicy, reconnectSeconds: localConfig.reconnectSeconds,
+    });
+    // A refusal or an answer for other rooms stops the publish.
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Only the game's publisher may register its deployments." }, { status: 403 })));
+    await expect(prepared.package("game-1", { accessToken: "other" })).rejects.toThrow(/refused the game's rooms: Only the game's publisher/);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...registered, maxClients: 8 })));
+    await expect(prepared.package("game-1", { accessToken: "publisher-token" })).rejects.toThrow(/different deployment/);
+    await prepared.dispose();
   });
 
   it("requires a trusted, matching multiplayer deployment for a Web Game", async () => {

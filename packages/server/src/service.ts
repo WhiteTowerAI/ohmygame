@@ -17,6 +17,7 @@ import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
 import { createLocalAccounts, mountGameDataViewer } from "./local-accounts.js";
 import { checkClientAddressOptions, clientAddress, trustForwardingHeaders, type ClientAddressOptions } from "./client-address.js";
+import { deploymentFor, isDeploymentRequest, type DeploymentRegistrationOptions } from "./deployment-registration.js";
 import { MemoryGameDataStore } from "./game-data.js";
 
 export interface MultiplayerServerOptions {
@@ -45,6 +46,11 @@ export interface MultiplayerServerOptions {
    * Without it the service uses the connecting address and ignores forwarding headers.
    */
   clientAddress?: ClientAddressOptions;
+  /**
+   * Lets publishers register their games' deployments at publish time, kept with the
+   * rooms. Without it only the deployments given here exist.
+   */
+  registration?: DeploymentRegistrationOptions;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -95,6 +101,19 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
     clientAddress(request.headers, request.socket.remoteAddress, addressing);
   const auth = new MultiplayerAuth({ ...options.auth, ...(localAccounts ? { localAccountKey: localAccounts.publicKey } : {}) });
   const store = new RoomStore(options.databasePath);
+  if (options.registration && !isMultiplayerManifestConfig(deploymentFor("check", { mode: "turn-based", adapterId: "host", maxClients: 2, roomPolicy: "invite-or-public", reconnectSeconds: 60 }, options.registration.publicUrl)))
+    throw new Error("The registration publicUrl must be this service's HTTPS origin.");
+  // Deployments publishers registered come back after a restart, like their rooms.
+  for (const config of store.deployments()) {
+    const key = multiplayerRoomType(config);
+    if (deployments.has(key)) continue;
+    try {
+      resolveGameAdapter(config, options.adapters);
+      deployments.set(key, config);
+    } catch (cause) {
+      console.error(`A registered deployment no longer has its rules: ${key}`, cause);
+    }
+  }
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const restoring = new Map<string, StoredRoom>();
   const rate = new RateLimit();
@@ -162,6 +181,56 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         }
         // A returning guest sends their old token and stays the same guest.
         response.status(201).json(auth.issueGuest(bearer(request.headers.authorization)));
+      });
+      // A publisher registers the deployment their published game names.
+      app.post("/v1/games/:gameId/deployments", async (request, response) => {
+        const registration = options.registration;
+        if (!registration) {
+          response.status(404).json({ error: "This service does not take registrations." });
+          return;
+        }
+        const gameId = String(request.params.gameId);
+        const token = bearer(request.headers.authorization);
+        const body = request.body as unknown;
+        if (!isDeploymentRequest(body) || !/^[A-Za-z0-9_-]{1,100}$/.test(gameId)) {
+          response.status(400).json({ error: "Send mode, adapterId, maxClients, roomPolicy and reconnectSeconds." });
+          return;
+        }
+        if (!rate.take(`register:${clientOf(request)}`, 20)) {
+          response.status(429).json({ error: "Too many registrations." });
+          return;
+        }
+        try {
+          if (!token || !(await registration.verifyOwner(gameId, token))) {
+            response.status(403).json({ error: "Only the game's publisher may register its deployments." });
+            return;
+          }
+        } catch {
+          response.status(503).json({ error: "The service cannot check the game's publisher right now. Try again shortly." });
+          return;
+        }
+        const config = deploymentFor(gameId, body, registration.publicUrl);
+        const key = multiplayerRoomType(config);
+        const existing = deployments.get(key);
+        if (existing) {
+          response.json(existing);
+          return;
+        }
+        if (store.deploymentCount(gameId) >= (registration.maxPerGame ?? 50)) {
+          response.status(409).json({ error: "This game has registered its most deployments." });
+          return;
+        }
+        try {
+          if (!isMultiplayerManifestConfig(config)) throw new Error("The deployment settings are invalid.");
+          resolveGameAdapter(config, options.adapters);
+        } catch (cause) {
+          response.status(400).json({ error: publicError(cause) });
+          return;
+        }
+        store.saveDeployment(key, config);
+        deployments.set(key, config);
+        defineDeployment(config);
+        response.status(201).json(config);
       });
       app.get(
         "/v1/games/:gameId/deployments/:deploymentId",

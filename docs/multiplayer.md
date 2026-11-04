@@ -419,9 +419,25 @@ the service rewrites them on every upgrade to the address it trusts
 
 Local debug publishing permits loopback deployments, checks the live local
 registration, and creates a temporary local snapshot. It does not upload to a
-hosted service. Public publishing requires an HTTPS backend configured through
-`OHMYGAME_GAME_SERVICE_URL` (or `MULTIPLAYER_PUBLISH_SERVER_URL`), which packaged
-builds read from `desktop-config.json`, and an exactly matching registered deployment.
+hosted service. Public publishing requires OhMyGame's game service, configured
+through `OHMYGAME_GAME_SERVICE_URL` (or `MULTIPLAYER_PUBLISH_SERVER_URL`), which
+packaged builds read from `desktop-config.json`.
+
+A game set up with `multiplayer_setup` declares its local deployment. Public
+publishing registers the same rooms with the game service, as the game's
+publisher, once the game has its OhMyGame ID: `POST
+/v1/games/:gameId/deployments` with `{ mode, adapterId, maxClients, roomPolicy,
+reconnectSeconds }` and the publisher's OhMyGame access token. The service asks
+the cloud API who owns the game (`cloudGameOwnerCheck`: `GET
+{cloud}/v1/games/:gameId` with that token), names the deployment from its
+settings, so publishing the same settings again finds the same deployment and a
+change makes a new one, sets `authPolicy` to `guest-or-account`, and opens its
+rooms at once. Registered deployments are kept with the rooms and return after a
+restart; a game registers at most 50. The published manifest names the
+registered deployment. The service takes registrations when created with
+`registration`; the hosted entry enables it with `GAME_SERVICE_PUBLIC_URL` (its
+own HTTPS origin) and `OHMYGAME_CLOUD_API_URL`. A deployment passed explicitly
+in the publish request must instead already be registered and match exactly.
 See [the multiplayer service guide](google-playground-multiplayer.md) for public
 backend operation; public deployment is independent of local testing.
 
