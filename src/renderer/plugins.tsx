@@ -5,8 +5,8 @@ import { ChevronLeft, CirclePlus, Package, Server, Sparkles, Store } from "./ico
 import { useEffect, useState, type ReactNode } from "react";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, readPluginMarket, setStorePluginEnabled, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
+import { listStorePlugins, readPluginMarket, waitForRuntime } from "./api.js";
+import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash } from "./routes.js";
 import { t } from "./i18n.js";
@@ -55,7 +55,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     setTab("browse");
     setAdds(initialAdds);
   }, [initialAdds]);
-  const [updating, setUpdating] = useState<string>();
   const [error, setError] = useState<string>();
 
   async function load(): Promise<void> {
@@ -81,19 +80,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     }
   }
 
-  async function togglePlugin(id: string, enabled: boolean): Promise<void> {
-    if (updating) return;
-    setUpdating(id);
-    setError(undefined);
-    try {
-      await setStorePluginEnabled(id, enabled);
-      await reload();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setUpdating(undefined);
-    }
-  }
+  const everyProject = useEveryProjectSwitch(reload);
 
   useEffect(() => { void load(); }, [serviceGeneration]);
   // The page works without the market, so it neither waits for it nor reports it failing.
@@ -113,10 +100,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const groups = groupStorePlugins(store);
   const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
-  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(updating)}
-    onToggle={enabled => void togglePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />;
-  // Plugins group by what they are for, whether they apply by themselves or a
-  // project turns them on; each card says which.
+  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(everyProject.busy)}
+    onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
+  // Plugins group by what they are for; each card says whether it is on in every project.
   const published = matching.filter(({ plugin }) => !madeByPerson(plugin));
   const made = matching.filter(({ plugin }) => madeByPerson(plugin));
   // Only categories some plugin falls in, so no choice leads to an empty page.
@@ -244,13 +230,14 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         { value: "skills", label: t("plugins.skills"), count: phase === "ready" ? skills.length : undefined },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={tab === "installed" ? t("plugins.installedTab") : tab === "browse" ? t("plugins.browseTab") : t("plugins.skills")}>
-        {phase === "ready" && error ? <Alert tone="danger" title={error} /> : null}
+        {phase === "ready" && (error ?? everyProject.error) ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
         {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
         {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
         {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}
       </div>
     </>}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {everyProject.dialog}
     {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); void reload().then(() => onPluginChange(id)); }} /> : null}
   </section>;
 

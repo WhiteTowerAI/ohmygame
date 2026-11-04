@@ -1,3 +1,5 @@
+import { useNearViewport } from "./asset-gallery.js";
+import { useListPage } from "./use-list-page.js";
 import { language, t } from "./i18n.js";
 import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
@@ -21,9 +23,10 @@ export function GameGrid<T extends CommunityGame>({
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
+  const page = useListPage(games.length);
   return (
-    <div className="community-grid">
-      {games.map((game) => (
+    <><div className="community-grid">
+      {games.slice(0, page.limit).map((game) => (
         <GameTile
           key={game.id}
           game={game}
@@ -32,7 +35,7 @@ export function GameGrid<T extends CommunityGame>({
           onStatsChange={onStatsChange}
         />
       ))}
-    </div>
+    </div>{page.next}</>
   );
 }
 
@@ -49,25 +52,7 @@ export function GameTile({
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
-  const tile = useRef<HTMLElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "160px" },
-    );
-    if (tile.current) observer.observe(tile.current);
-    return () => observer.disconnect();
-  }, []);
+  const [tile, visible] = useNearViewport<HTMLElement>();
   const coverUrl = useGameCover(visible ? game : undefined, accessToken);
   return (
     <article ref={tile} className="community-card">

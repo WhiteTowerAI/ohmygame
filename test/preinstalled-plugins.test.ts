@@ -63,7 +63,7 @@ describe("preinstalled plugins", () => {
     expect(await listed(first)).toMatchObject({
       id: ID,
       version: "1.0.0",
-      appWide: true,
+      everyProject: true,
       bundled: false,
       preinstalled: true,
       grants: { enabled: true },

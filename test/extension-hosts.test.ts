@@ -36,6 +36,7 @@ import { PluginGameRuntime } from "../src/daemon/plugin-game-runtime.js";
 import {
   PluginGrants,
   projectFolderKey,
+  resolveProjectPlugins,
   setProjectPlugin,
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
@@ -881,7 +882,7 @@ async function nativeSetup() {
   const grants = new PluginGrants(path.join(data, "plugin-grants.json"));
   await grants.load();
   const extensionHosts = hosts();
-  const runtime = new NativePlugins({ index, grants, hosts: extensionHosts, dataFolder: (id) => path.join(data, "plugin-data", id) });
+  const runtime = new NativePlugins({ index, resolve: (project) => resolveProjectPlugins({ folder: project, index, grants }), hosts: extensionHosts, dataFolder: (id) => path.join(data, "plugin-data", id) });
   const install = async (dir: string) => {
     const result = await index.add(dir);
     if (!result.ok) throw new Error(JSON.stringify(result.issues));
@@ -1178,7 +1179,7 @@ describe("plugin tools", () => {
       // watches the folder again.
       await services.closeProject(folder);
       changes.length = 0;
-      await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
+      await services.setProjectPlugin(folder, "acme/tiles", true, { version: "1.1.0" });
       expect(changes).toEqual([folder]);
       await expect(
         count.execute("call-6", {}, undefined, undefined, undefined as never),
@@ -1413,7 +1414,7 @@ describe("project types", () => {
       const pinned = JSON.parse(await readFile(file, "utf8")).plugins["acme/board"];
       expect(project.pluginType.preview).toBe(previewAt(pinned));
       const other = pinned === "2.0.0" ? "1.0.0" : "2.0.0";
-      const switched = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/board`, payload: { version: other } });
+      const switched = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/board`, payload: { on: true, version: other } });
       expect(switched.statusCode).toBe(204);
       const listed = () => app.inject({ method: "GET", url: "/projects" }).then((reply) => reply.json().find((item: { id: string }) => item.id === project.id));
       expect((await listed()).pluginType.preview).toBe(previewAt(other));
@@ -1613,7 +1614,7 @@ describe("plugin settings and commands", () => {
       expect((await services.install(dir)).ok).toBe(true);
       await services.consent("acme/keys", ["native"]);
       await writeProjectFile(folder, (file) => file, { type: "general" });
-      await setProjectPlugin({ folder, id: "acme/keys", version: "1.0.0", index: services.index, grants: services.grants });
+      await setProjectPlugin({ folder, id: "acme/keys", on: true, version: "1.0.0", index: services.index, grants: services.grants });
       const call = () => services.native.callTool("acme/keys:settings", { folder });
       expect(await call()).toEqual({ mode: "safe" });
 

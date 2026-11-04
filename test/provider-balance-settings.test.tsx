@@ -65,3 +65,27 @@ it("deduplicates custom balances while keeping distinct model-level endpoints se
   expect(container.querySelector('[aria-label="API balance · First"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="API balance · Other account"]')).not.toBeNull();
 });
+
+
+it("suspends provider checks while hidden and reconciles missed changes on return", async () => {
+  vi.useFakeTimers();
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  try {
+    const hyper3d = provider("hyper3d");
+    api.providers.mockResolvedValue([hyper3d]);
+    await render(hyper3d);
+    const initial = api.providers.mock.calls.length;
+    hidden.mockReturnValue(true);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("ohmygame-models-changed"));
+      await vi.advanceTimersByTimeAsync(65_000);
+    });
+    expect(api.providers).toHaveBeenCalledTimes(initial);
+    hidden.mockReturnValue(false);
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(api.providers).toHaveBeenCalledTimes(initial + 1);
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(api.providers).toHaveBeenCalledTimes(initial + 2);
+  } finally { hidden.mockRestore(); vi.useRealTimers(); }
+});

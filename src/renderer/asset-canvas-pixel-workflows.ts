@@ -122,7 +122,7 @@ export function pixelAssetTemplateCategories(): {
   return PIXEL_ASSET_TEMPLATE_CATEGORIES.map((id) => ({
     id,
     label: t(`assetCanvas.pixelPresets.categories.${id}`),
-    description: t(`assetCanvas.pixelPresets.templateDescriptions.${id}`),
+    description: t(`assetCanvas.pixelPresets.cardDescriptions.${id}`),
   }));
 }
 

@@ -533,7 +533,9 @@ Project lists receive names from the project activity stream, even after a
 short turn finishes. `/projects/activity` returns `{ activity, names }`, and
 `/projects/activity/events` streams the same snapshot as an `activity` SSE event
 whenever it changes; `names` contains only each project's `id`, `name` and
-optional `nameSource`. Stopping the daemon ends this and the other SSE streams
+optional `nameSource`. New connections receive the current snapshot. Changes to
+agent activity or the project list prompt one shared snapshot for all listening
+windows, including when a turn starts cancelling. Stopping the daemon ends this and the other SSE streams
 first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
@@ -578,8 +580,11 @@ project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
-these shortcuts wait for it to close. A pending desktop update shows above the account until
-it needs a restart. The sidebar collapses to icons, each naming itself in a
+these shortcuts wait for it to close. A desktop update that needs you is a
+blue pill at the account's end: a dot that opens to **Update** or **Restart** on
+hover, filling with the download's progress in between, and a warning that
+leads to About when the update failed. Collapsed, it sits above the account.
+The sidebar collapses to icons, each naming itself in a
 tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
 moment and the next ones show at once while the pointer moves along the icons.
 Its edge drags between
@@ -664,6 +669,9 @@ front. A project without a preview, such as Godot without a web build, has no
 Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
+
+Long conversations open at the most recent 40 turns. Scroll toward the top
+or choose **Show earlier messages** to read the preceding turns.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

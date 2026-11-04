@@ -50,7 +50,8 @@ import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
-import { getCloudQuotas, MODELS_CHANGED_EVENT } from "./api.js";
+import { getCloudQuotas } from "./api.js";
+import { followProviderSettings } from "./model-settings-events.js";
 import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 import { groupProviders } from "./provider-groups.js";
@@ -94,27 +95,18 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
-    let active = true, inFlight = false, rerun = false;
-    const load = () => {
-      if (inFlight) { rerun = true; return; }
-      inFlight = true;
-      void listProviders().then((loaded) => {
+    let active = true;
+    const stop = followProviderSettings(async () => {
+      try {
+        const loaded = await listProviders();
         if (active) { setProviders(loaded); setError(undefined); }
-      }).catch((cause) => {
+      } catch (cause) {
         if (active) setError(errorMessage(cause));
-      }).finally(() => {
-        inFlight = false;
-        if (active) {
-          setLoading(false);
-          if (rerun) { rerun = false; load(); }
-        }
-      });
-    };
-    load();
-    window.addEventListener(MODELS_CHANGED_EVENT, load);
-    window.addEventListener("focus", load);
-    const timer = setInterval(load, 30_000);
-    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, load); window.removeEventListener("focus", load); };
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+    return () => { active = false; stop(); };
   }, [userId]);
   async function toggleProvider(provider: ProviderSummary, enabled: boolean): Promise<void> {
     setPending((current) => new Set(current).add(provider.id));
@@ -350,12 +342,8 @@ function Hyper3DProviderDetail({ provider, onBack, onRemoved }: { provider: Prov
       finally { if (active && revision === sequence) setRefreshing(false); }
     };
     refreshRef.current = load;
-    const refresh = () => { void load(); };
-    refresh();
-    window.addEventListener("focus", refresh);
-    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    const timer = setInterval(refresh, 30_000);
-    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+    const stop = followProviderSettings(load);
+    return () => { active = false; stop(); };
   }, [userId]);
   const keyProvider = providers.find((item) => item.id === "hyper3d");
   const account = providers.find((item) => item.id === HYPER3D_CONNECTION_ID);
@@ -412,7 +400,7 @@ function FreeCloudProviderDetail({ provider, onBack }: { provider: ProviderSumma
     const load = (force = false) => {
       const revision = ++sequence;
       setRefreshing(true);
-      void (force ? getCloudQuotas?.() ?? Promise.resolve() : Promise.resolve()).then(listProviders).then((providers) => {
+      return (force ? getCloudQuotas?.() ?? Promise.resolve() : Promise.resolve()).then(listProviders).then((providers) => {
         if (!active || revision !== sequence) return;
         setCurrent(providers.find((item) => item.id === provider.id) ?? provider);
         setError(undefined);
@@ -421,11 +409,8 @@ function FreeCloudProviderDetail({ provider, onBack }: { provider: ProviderSumma
         .finally(() => { if (active && revision === sequence) setRefreshing(false); });
     };
     refreshRef.current = load;
-    const refresh = () => load();
-    refresh();
-    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    const timer = setInterval(refresh, 30_000);
-    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+    const stop = followProviderSettings(load);
+    return () => { active = false; stop(); };
   }, [provider.id, userId]);
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={current} onBack={onBack}>

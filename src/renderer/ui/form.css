@@ -378,6 +378,11 @@
   flex-direction: column;
 }
 
+/* Descriptions wrap to this width at least, as they don't size the list themselves. */
+.ui-listbox:has(.ui-option-text small) {
+  min-width: min(300px, calc(100vw - 32px));
+}
+
 .ui-listbox-empty {
   margin: 0;
   padding: var(--space-2);
@@ -424,6 +429,8 @@
 }
 
 .ui-option-text small {
+  /* One long description wraps instead of widening the whole list. */
+  contain: inline-size;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }

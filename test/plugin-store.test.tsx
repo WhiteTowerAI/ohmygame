@@ -9,6 +9,7 @@ let configuration: StorePluginConfiguration;
 const api = {
   consentToPlugin: vi.fn(async () => {}),
   setStorePluginEnabled: vi.fn(async () => {}),
+  setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
@@ -34,7 +35,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
   capabilities: ["native", "network:api.example.com"],
   grants: { enabled: true, allowed: ["native"] },
   bundled: false,
-  appWide: false,
+  everyProject: false,
   settings: [
     { name: "path", type: "path", title: "Engine path" },
     { name: "token", type: "secret", title: "Token" },
@@ -75,7 +76,7 @@ it("groups the store's rows by plugin, newest version first", () => {
   ]);
 });
 
-it("asks for what isn't allowed yet, switches off, and uninstalls one version", async () => {
+it("asks for what isn't allowed yet, turns it on in every project with a warning, stops it everywhere, and uninstalls one version", async () => {
   const onChanged = vi.fn(async () => {});
   const onRemoved = vi.fn();
   const [group] = groupStorePlugins([row("2.0.0"), row("1.0.0")]);
@@ -86,7 +87,16 @@ it("asks for what isn't allowed yet, switches off, and uninstalls one version", 
   expect(api.consentToPlugin).toHaveBeenCalledWith("acme/maker", ["native", "network:api.example.com"]);
   expect(onChanged).toHaveBeenCalledTimes(1);
 
-  await act(async () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Disable Maker"]')!.click());
+  // Turning it on in every project asks again, saying it then runs in each of them.
+  await act(async () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!.click());
+  expect(document.querySelector("[role=dialog]")!.textContent).toContain("It will run in every project it works in");
+  expect(api.setStorePluginEveryProject).not.toHaveBeenCalled();
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Allow and turn on")!.click());
+  expect(api.consentToPlugin).toHaveBeenLastCalledWith("acme/maker", ["network:api.example.com"]);
+  expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
+  expect(onChanged).toHaveBeenCalledTimes(2);
+
+  await act(async () => button("Disable everywhere").click());
   expect(api.setStorePluginEnabled).toHaveBeenCalledWith("acme/maker", false);
 
   const uninstall = [...document.querySelectorAll(".plugin-store-versions button")] as HTMLButtonElement[];
@@ -97,6 +107,21 @@ it("asks for what isn't allowed yet, switches off, and uninstalls one version", 
   expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0");
   // Another version is still installed, so the page stays.
   expect(onRemoved).not.toHaveBeenCalled();
+});
+
+it("warns before a plugin already allowed goes on in every project, allowing nothing more", async () => {
+  const onChanged = vi.fn(async () => {});
+  const [group] = groupStorePlugins([row("1.0.0", { bundled: true, grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={onChanged} onRemoved={() => {}} />));
+  const everyProject = () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!;
+  await act(async () => everyProject().click());
+  expect(document.querySelector("[role=dialog]")!.textContent).toContain("It will run in every project it works in");
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Cancel")!.click());
+  expect(api.setStorePluginEveryProject).not.toHaveBeenCalled();
+  await act(async () => everyProject().click());
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Allow and turn on")!.click());
+  expect(api.consentToPlugin).not.toHaveBeenCalled();
+  expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
 });
 
 it("offers Uninstall only for the versions that didn't ship with the app", async () => {
@@ -164,12 +189,12 @@ it("tries an example in a project it suits, turning it on there, or in a new one
   const [group] = groupStorePlugins([row("1.0.0", { ...allowed, examples: ["Build a level"], appliesTo: ["general", "ohmygame/godot:godot-game"] })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
   await act(async () => button("Build a level").click());
-  // A Web game's project file says general; a story suits neither.
+  // By each project's own kind: a Web game is no General project, and a story suits neither.
   const listed = [...document.querySelectorAll(".project-switcher-item strong")].map((item) => item.textContent);
-  expect(listed).toEqual(["Web game", "Godot game"]);
-  const target = { turnOn: "acme/maker", newProjectType: "general" };
+  expect(listed).toEqual(["Godot game"]);
+  const target = { turnOn: "acme/maker", mention: { name: "maker", marketplaceId: "acme", displayName: "Maker" }, newProjectType: "general" };
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-item")!.click());
-  expect(onTry).toHaveBeenLastCalledWith(target, "Build a level", "web");
+  expect(onTry).toHaveBeenLastCalledWith(target, "Build a level", "godot");
   // The app leaves for the conversation; opening the picker again starts over.
   await act(async () => button("Build a level").click());
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
@@ -196,7 +221,7 @@ it("offers a new project of the app's type a plugin's own type goes with", async
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
   await act(async () => button("Build a level").click());
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
-  expect(onTry).toHaveBeenCalledWith({ turnOn: "acme/maker", newProjectType: "godot-game" }, "Build a level", undefined);
+  expect(onTry).toHaveBeenCalledWith({ turnOn: "acme/maker", mention: { name: "maker", marketplaceId: "acme", displayName: "Maker" }, newProjectType: "godot-game" }, "Build a level", undefined);
 });
 
 it("keeps a Skill's content below empty metadata", async () => {
@@ -216,36 +241,36 @@ it("offers a new project of the plugin's own type over a general one", async () 
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
   await act(async () => button("Build a level").click());
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
-  expect(onTry).toHaveBeenCalledWith({ turnOn: "ohmygame/godot", newProjectType: "godot-game" }, "Build a level", undefined);
+  expect(onTry).toHaveBeenCalledWith({ turnOn: "ohmygame/godot", mention: { name: "godot", marketplaceId: "ohmygame", displayName: "Maker" }, newProjectType: "godot-game" }, "Build a level", undefined);
 });
 
-it("tries a plugin that applies by itself by mentioning it, in projects of a kind it names", async () => {
+it("tries a plugin on in every project by mentioning it, in projects of a kind it names", async () => {
   const onTry = vi.fn(async () => {});
   const [group] = groupStorePlugins([row("1.0.0", {
-    id: "acme/worlds", displayName: "Worlds", capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], appWide: true,
+    id: "acme/worlds", displayName: "Worlds", capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], everyProject: true,
     examples: ["Build a world"], appliesTo: ["web-game"],
     adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 1 },
   })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
-  expect(document.body.textContent).not.toContain("Plugins sheet");
+  expect(document.querySelector('[role=switch][aria-label="Turn Worlds on in every project"]')!.getAttribute("aria-checked")).toBe("true");
   await act(async () => button("Build a world").click());
   const picker = () => document.querySelector(".project-switcher")?.textContent ?? document.body.textContent ?? "";
   expect(picker()).toContain("Web game");
   expect(picker()).not.toContain("Godot game");
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
-  expect(onTry).toHaveBeenCalledWith({ mention: { name: "worlds", marketplaceId: "acme", displayName: "Worlds" }, newProjectType: "web-game" }, "Build a world", undefined);
+  expect(onTry).toHaveBeenCalledWith({ turnOn: "acme/worlds", mention: { name: "worlds", marketplaceId: "acme", displayName: "Worlds" }, newProjectType: "web-game" }, "Build a world", undefined);
 });
 
 it("says a preinstalled plugin came with the app, where from, and that it can be uninstalled", async () => {
   const [group] = groupStorePlugins([row("1.0.0", {
-    capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], appWide: true, preinstalled: true,
+    capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], everyProject: true, preinstalled: true,
     origin: { type: "github", repository: "example/tools", commit: "abc123" },
   })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.querySelector("h1")!.textContent).toContain("Included");
   expect(document.querySelector<HTMLAnchorElement>('a[href="https://github.com/example/tools"]')).not.toBeNull();
   await act(async () => button("Uninstall").click());
-  expect(document.body.textContent).toContain("Its Skills stop applying");
+  expect(document.body.textContent).toContain("Projects that use this version stop running the plugin");
 });
 
 it("goes back to About when the open tab goes away with the newest version", async () => {

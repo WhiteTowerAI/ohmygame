@@ -170,7 +170,6 @@
   outline-offset: -2px;
 }
 
-/* the icon holds a status dot, so the collapsed sidebar shows it too */
 .sidebar-item-icon {
   position: relative;
   display: grid;
@@ -212,43 +211,124 @@
   flex: 1;
 }
 
-.sidebar-dot {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  box-shadow: 0 0 0 2px var(--color-app);
+/* the account, with the update pill at its end while a release needs you */
+.sidebar-account-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
 }
 
-.sidebar-dot.is-accent {
+.sidebar-account-row > .sidebar-account {
+  flex: 1;
+}
+
+/* an accent dot that opens to its name on hover or focus */
+.sidebar-update {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-1);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    width var(--duration-fast) ease,
+    gap var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+/* the warning hue is light in the dark theme, so its pill takes dark ink */
+.sidebar-update.is-warning {
+  background: var(--color-warning);
+  color: color-mix(in srgb, var(--color-warning) 20%, black);
+}
+
+.sidebar-update svg {
+  flex: none;
+}
+
+.sidebar-update span {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-width var(--duration-fast) ease,
+    opacity var(--duration-fast) ease;
+}
+
+.sidebar-update:hover,
+.sidebar-update:focus-visible {
+  width: 72px;
+  gap: 4px;
+  background: color-mix(in srgb, var(--color-accent) 85%, black);
+}
+
+.sidebar-update.is-warning:hover,
+.sidebar-update.is-warning:focus-visible {
+  background: color-mix(in srgb, var(--color-warning) 85%, white);
+}
+
+.sidebar-update:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.sidebar-update:hover span,
+.sidebar-update:focus-visible span {
+  max-width: 48px;
+  opacity: 1;
+}
+
+/* a download in progress: the pill fills with a deeper blue, the percentage over both */
+.sidebar-update-progress {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 28px;
+  margin-right: var(--space-1);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
   background: var(--color-accent);
 }
 
-.sidebar-dot.is-warning {
-  background: var(--color-warning);
-}
-
-/* a download in progress: the item, with its progress along the bottom */
-.sidebar-update {
-  position: relative;
-  overflow: hidden;
-  cursor: default;
-}
-
-.sidebar-update:hover {
-  background: none;
-  color: var(--color-text-secondary);
-}
-
-.sidebar-update-bar {
+.sidebar-update-fill {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--color-text-secondary);
-  transition: width var(--duration-fast);
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--color-accent) 65%, black);
+  transition: width var(--duration-base) ease;
+}
+
+.sidebar-update-percent {
+  position: relative;
+  color: var(--color-on-accent);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-update,
+  .sidebar-update span,
+  .sidebar-update-fill {
+    transition: none;
+  }
 }
 
 /* the account: your avatar, or an empty one while signed out */
@@ -348,6 +428,42 @@
   height: 40px;
   padding: 0;
   border-radius: 10px;
+}
+
+/* collapsed, the pill sits above the avatar and keeps to its dot */
+.is-sidebar-collapsed .sidebar-account-row {
+  flex-direction: column-reverse;
+  gap: var(--space-1);
+}
+
+.is-sidebar-collapsed .sidebar-account-row > .sidebar-account {
+  flex: none;
+}
+
+.is-sidebar-collapsed .sidebar-update,
+.is-sidebar-collapsed .sidebar-update-progress {
+  margin-right: 0;
+}
+
+.is-sidebar-collapsed .sidebar-update:hover,
+.is-sidebar-collapsed .sidebar-update:focus-visible {
+  width: 28px;
+  gap: 0;
+}
+
+.is-sidebar-collapsed .sidebar-update:hover span,
+.is-sidebar-collapsed .sidebar-update:focus-visible span {
+  max-width: 0;
+  opacity: 0;
+}
+
+.is-sidebar-collapsed .sidebar-update-progress {
+  width: 40px;
+  height: 22px;
+}
+
+.is-sidebar-collapsed .sidebar-update-percent {
+  font-size: 10px;
 }
 
 .is-sidebar-collapsed .sidebar-recent {

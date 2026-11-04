@@ -1,3 +1,4 @@
+import { useNearViewport } from "./asset-gallery.js";
 import { Check, Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
@@ -267,11 +268,12 @@ export function useProjectActions(reload: () => Promise<unknown>): {
 /** A project's cover, or the default template when it has none or chose the template. */
 export function ProjectCover({ project }: { project: ProjectState }) {
   const [url, setUrl] = useState<string>();
+  const [cover, near] = useNearViewport<HTMLSpanElement>();
   const template = project.appearance?.cover === "template";
 
   useEffect(() => {
     setUrl(undefined);
-    if (template) return;
+    if (template || !near) return;
     let objectUrl: string | undefined;
     let disposed = false;
     void getProjectCover(project.id).then((cover) => {
@@ -283,10 +285,10 @@ export function ProjectCover({ project }: { project: ProjectState }) {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [project.id, project.updatedAt, template]);
+  }, [project.id, project.updatedAt, template, near]);
 
   return (
-    <span className="project-card-preview" aria-hidden="true">
+    <span ref={cover} className="project-card-preview" aria-hidden="true">
       {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={project.appearance} />}
     </span>
   );

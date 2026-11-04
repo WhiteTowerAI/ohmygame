@@ -231,13 +231,11 @@ function HistoryButtons({ history, onLeave = (go) => go() }: {
   </>;
 }
 
-function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
+function SidebarItem({ icon, label, shortcut: keys, active = false, onClick }: {
   icon: ReactNode;
   label: string;
   /** The keyboard shortcut's keys, shown as keycaps at the end while the sidebar is expanded. */
   shortcut?: readonly string[];
-  /** Marks the icon, so it shows in the collapsed sidebar too. */
-  dot?: "accent" | "warning";
   active?: boolean;
   onClick: () => void;
 }) {
@@ -245,7 +243,7 @@ function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick
     <SidebarTip label={label}>
       <button type="button" className={`sidebar-item${active ? " is-active" : ""}`}
         aria-current={active ? "page" : undefined} onClick={onClick}>
-        <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
+        <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
         <span className="sidebar-item-label">{label}</span>
         {keys ? <span className="sidebar-item-shortcut">{keys.map((key) => <Kbd key={key}>{key}</Kbd>)}</span> : null}
       </button>
@@ -384,8 +382,10 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <span className="sidebar-spacer" />
         <div className="sidebar-group">
-          <UpdateItem />
-          <AccountMenu active={active === "settings"} avatarSize={collapsed ? 28 : 24} onNavigate={onNavigate} />
+          <div className="sidebar-account-row">
+            <AccountMenu active={active === "settings"} avatarSize={collapsed ? 28 : 24} onNavigate={onNavigate} />
+            <UpdatePill />
+          </div>
         </div>
       </nav>
       {collapsed ? null : <SidebarResizer width={width} />}
@@ -594,8 +594,10 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
-        <UpdateItem />
-        <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+        <div className="sidebar-account-row">
+          <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+          <UpdatePill />
+        </div>
       </div>
     </nav>
   );
@@ -644,32 +646,37 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   );
 }
 
-// A desktop update needs you only twice, to start it and to restart; it stays
-// out of sight otherwise. A failure leads to About, which says why.
-function UpdateItem() {
+// A desktop update needs you only twice, to start it and to restart, so it is a
+// small pill beside the account: its name opens on hover, it fills while the
+// release downloads, and it is gone otherwise. A failure leads to About, which says why.
+function UpdatePill() {
   const status = useDesktopUpdate()?.status;
   const updates = window.ohMyGameDesktop?.updates;
   if (!status || !updates) return null;
-  switch (status.type) {
-    case "available":
-      return <SidebarItem icon={<ArrowDownToLine size={18} />} dot="accent" label={t("sidebar.updateTo", { version: status.version })}
-        onClick={() => void updates.download()} />;
-    case "downloading":
-      return (
-        <div className="sidebar-item sidebar-update" role="progressbar" aria-label={t("sidebar.downloadingUpdate")}
-          title={t("sidebar.downloadProgress", { percent: status.percent })} aria-valuenow={status.percent} aria-valuemin={0} aria-valuemax={100}>
-          <span className="sidebar-item-icon" aria-hidden="true"><ArrowDownToLine size={18} /></span>
-          <span className="sidebar-item-label">{t("sidebar.downloadProgress", { percent: status.percent })}</span>
-          <span className="sidebar-update-bar" style={{ width: `${status.percent}%` }} />
-        </div>
-      );
-    case "ready":
-      return <SidebarItem icon={<RefreshCircle size={18} />} dot="accent" label={t("sidebar.restartToUpdate")}
-        onClick={() => void updates.install()} />;
-    case "error":
-      return <SidebarItem icon={<DangerCircle size={18} />} dot="warning" label={t("sidebar.updateFailed")}
-        onClick={() => openSettings("about")} />;
-    default:
-      return null;
+  if (status.type === "downloading") {
+    return (
+      <div className="sidebar-update-progress" role="progressbar" aria-label={t("sidebar.downloadingUpdate")}
+        title={t("sidebar.downloadProgress", { percent: status.percent })}
+        aria-valuenow={status.percent} aria-valuemin={0} aria-valuemax={100}>
+        <span className="sidebar-update-fill" style={{ width: `${status.percent}%` }} />
+        <span className="sidebar-update-percent">{status.percent}%</span>
+      </div>
+    );
   }
+  const action = status.type === "available"
+    ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
+    : status.type === "ready"
+      ? { icon: <RefreshCircle size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      : status.type === "error"
+        ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
+        : undefined;
+  if (!action) return null;
+  return (
+    <SidebarTip label={action.label}>
+      <button type="button" className={`sidebar-update${status.type === "error" ? " is-warning" : ""}`}
+        aria-label={action.label} onClick={action.run}>
+        {action.icon}<span>{action.name}</span>
+      </button>
+    </SidebarTip>
+  );
 }

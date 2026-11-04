@@ -9,7 +9,7 @@ import type { GameRecordingFile } from "../src/desktop/game-recorder.js";
 const electron = vi.hoisted(() => {
   const state = {
     hosts: [] as FakeHost[],
-    channels: new Map<string, (event: { sender: { id: number } }, value: unknown) => void>(),
+    channels: new Map<string, (event: { sender: { id: number } }, value: unknown) => void | Promise<void>>(),
     displayHandler: undefined as undefined | ((request: { frame?: unknown }, callback: (streams: unknown) => void) => void),
     /** What the page does when told to start. */
     onStart: (() => ({ mediaType: "video/mp4", extension: "mp4" })) as () => unknown,
@@ -53,7 +53,10 @@ vi.mock("node:fs", async (original) => {
 });
 vi.mock("electron", () => ({
   BrowserWindow: electron.FakeHost,
-  ipcMain: { on: (channel: string, listener: (event: { sender: { id: number } }, value: unknown) => void) => electron.state.channels.set(channel, listener) },
+  ipcMain: {
+    on: (channel: string, listener: (event: { sender: { id: number } }, value: unknown) => void) => electron.state.channels.set(channel, listener),
+    handle: (channel: string, listener: (event: { sender: { id: number } }, value: unknown) => Promise<void>) => electron.state.channels.set(channel, listener),
+  },
   session: { fromPartition: () => ({ setDisplayMediaRequestHandler: (handler: typeof electron.state.displayHandler) => { electron.state.displayHandler = handler; } }) },
   webContents: { fromFrame: (frame: { contents?: unknown }) => frame.contents },
 }));
@@ -109,6 +112,26 @@ describe("game recorder", () => {
     expect(host.destroyed).toBe(true);
     expect(game.isRecording("project")).toBe(false);
     expect(existsSync(saved[0]!.path)).toBe(false);
+  });
+
+  it("acknowledges a chunk only after its disk write and reports a failed write", async () => {
+    let finishWrite!: (error?: Error) => void;
+    state.sink = () => new Writable({ write: (_chunk, _encoding, done) => { finishWrite = done; } });
+    const game = recorder();
+    const { outcome } = await game.start("slow-disk", target() as never, options);
+    const id = state.hosts[0]!.webContents.id;
+    const write = () => send("chunk", id, Uint8Array.of(1));
+    let acknowledged = false;
+    const first = Promise.resolve(write()).then(() => { acknowledged = true; });
+    await Promise.resolve();
+    expect(acknowledged).toBe(false);
+    finishWrite();
+    await first;
+    const failed = expect(write()).rejects.toThrow("Disk full");
+    const stopped = expect(outcome).rejects.toThrow("Disk full");
+    finishWrite(new Error("Disk full"));
+    await Promise.all([failed, stopped]);
+    expect(game.isRecording("slow-disk")).toBe(false);
   });
 
   it("captures only the game it was asked to, for only its own page", async () => {
