@@ -194,6 +194,14 @@ for explicit adoption. Invalid or incomplete output preserves the table, and AI
 instructions and valid candidates survive reloads. Adopting an AI draft is one
 table undo step.
 
+In the Select tool, left-drag on empty canvas draws a selection box; dragging a
+node moves the selection. Shift-click, Cmd-click or Ctrl-click toggles a node in
+the selection.
+Middle-drag or hold Space and left-drag to pan without changing the active tool.
+The hand tool also pans with a left drag. Right-click opens the context menu.
+Space in fields, editors, buttons and media controls keeps its normal behavior.
+Wheel panning and trackpad pinch zoom are available in either tool.
+
 Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
 Enter confirms an active input-method composition or a video `@` reference
 suggestion before it can generate. Text and document content, negative prompts,
