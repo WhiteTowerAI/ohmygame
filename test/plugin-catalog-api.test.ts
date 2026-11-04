@@ -432,5 +432,7 @@ describe("plugin catalog API", () => {
     const unity = ((await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as typeof store).find((plugin) => plugin.id === "ohmygame/unity");
     expect(unity?.everyProject).toBe(true);
     expect(store.every((plugin) => plugin.bundled)).toBe(true);
+    // Approvals go to an installed plugin, so none wait for a package added later under that id.
+    expect((await app.inject({ method: "POST", url: "/plugin-store/acme/later/consent", payload: { allowed: ["native"] } })).statusCode).toBe(409);
   });
 });

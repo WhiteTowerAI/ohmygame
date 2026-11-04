@@ -767,6 +767,8 @@ export class PluginServices {
   /** Records what the person allowed at install; a new plugin starts on. */
   async consent(id: string, allowed: readonly string[]): Promise<void> {
     await this.ready();
+    // What's allowed belongs to an installed plugin, so a package added later under its id asks again.
+    if (!this.index.get(id)) throw new Error(`${id} is not installed`);
     await this.grants.consent(id, allowed);
     await this.changed();
   }
