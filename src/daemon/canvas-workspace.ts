@@ -622,7 +622,7 @@ export class CanvasStore {
       await withCanvasLock(this.#project(id).workspacePath, async () => {
         if (controller.signal.aborted) return;
         const workspace = this.#project(id).workspacePath, boardId = job.context!.boardId!;
-        await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!]);
+        await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
           const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music", "generate-audio": "audio-scene" } as Partial<Record<ToolId, string>>)[job.toolId];

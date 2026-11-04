@@ -277,6 +277,9 @@ describe("tool runner", () => {
     const prepared = await runner.prepare("generate-image", { prompt: "A bird", size: "1024x1024" }, "project-1");
     const retried = await runner.prepare("generate-image", prepared, "project-1", { hooksApplied: true });
     expect(retried).toMatchObject({ prompt: "A bird, pixel art", requestedPrompt: "A bird", pluginChanges: changes });
+    const malformed = await runner.prepare("generate-image", { ...prepared, pluginChanges: [{ plugin: "x/y", version: "1", fields: ["bogus"] }] } as never, "project-1", { hooksApplied: true });
+    expect(malformed).not.toHaveProperty("pluginChanges");
+    expect(malformed).not.toHaveProperty("requestedPrompt");
 
     const plain = await runner.run("generate-image", { prompt: "A dog", ...forged } as never);
     expect(plain).not.toHaveProperty("pluginChanges");

@@ -40,6 +40,7 @@ import type { Model3DExecution } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, resolveModel3D } from "../shared/generation-config.js";
 import { remeshPolycount } from "../shared/model3d-operations.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
+import { isImageHookRecords } from "../shared/plugin-hooks.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 import type {
@@ -259,7 +260,11 @@ export class ToolRunner {
 
   async #prepare(toolId: string, input: RunToolRequest, projectId?: string, hooksApplied = false): Promise<RunToolRequest> {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
-    if (toolId === "generate-image" && !hooksApplied) {
+    if (toolId === "generate-image" && hooksApplied) {
+      // Keep the first run's record only when it is well formed.
+      const { requestedPrompt, pluginChanges, ...rest } = input as RunImageToolRequest;
+      if (typeof requestedPrompt !== "string" || !isImageHookRecords(pluginChanges)) input = rest as RunImageToolRequest;
+    } else if (toolId === "generate-image") {
       // Only the app records what plugins changed.
       const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
       input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;

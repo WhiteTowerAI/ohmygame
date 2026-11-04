@@ -662,7 +662,8 @@ export class ProjectManager {
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
   }
 
-  async materializeLibraryAsset(id: string, assetId: string): Promise<{ path: string; assetId: string }> {
+  /** `origin`: what plugins hear the asset's copy came from; Canvas generations pass "generated". */
+  async materializeLibraryAsset(id: string, assetId: string, origin: "generated" | "imported" = "imported"): Promise<{ path: string; assetId: string }> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
@@ -686,7 +687,7 @@ export class ProjectManager {
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
       return { path: assetPath, assetId, existed: false };
     });
-    if (!added.existed) this.#assetAdded(project, { path: added.path, origin: "imported", ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    if (!added.existed) this.#assetAdded(project, { path: added.path, origin, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
     return { path: added.path, assetId: added.assetId };
   }
 
@@ -1348,9 +1349,13 @@ async function bindCanvasHistory(workspacePath: string, projectId: string): Prom
     return;
   }
   if (!Array.isArray(jobs)) return;
-  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => (
-    job?.context && typeof job.context === "object" ? { ...job, context: { ...job.context, projectId } } : job
-  )));
+  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => {
+    if (!job?.context || typeof job.context !== "object") return job;
+    // A retry trusts its input's record of what plugins changed; a copied one can't bring its own.
+    const input = (job as { input?: unknown }).input;
+    const { requestedPrompt: _, pluginChanges: __, ...asked } = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    return { ...job, context: { ...job.context, projectId }, ...(input && typeof input === "object" ? { input: asked } : {}) };
+  }));
 }
 
 async function exists(target: string): Promise<boolean> {

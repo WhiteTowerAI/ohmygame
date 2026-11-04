@@ -77,6 +77,10 @@ describe("Codex image import", () => {
     const imported = await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
     await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
     expect(added.mock.calls.slice(1)).toEqual([[other, { path: imported.path, origin: "imported", prompt: "Orange cat" }]]);
+    // Canvas saves its generations through the same path, as generated.
+    const canvas = await projects.create("Canvas", "general");
+    const generated = await projects.materializeLibraryAsset(canvas.id, restored.list()[0]!.id, "generated");
+    expect(added.mock.calls.at(-1)).toEqual([canvas, { path: generated.path, origin: "generated", prompt: "Orange cat" }]);
   });
 
   it("imports inline data without reading the external savedPath and uses stable names", async () => {
