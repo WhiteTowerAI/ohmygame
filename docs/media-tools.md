@@ -49,7 +49,8 @@ the installing platform and ships unpacked from the desktop app's ASAR. Set
 `OHMYGAME_FFMPEG_PATH` to use a different binary; if `ffmpeg-static` has no
 binary for the platform, the daemon falls back to `ffmpeg` on `PATH`. The
 binary is a GPL build (MP4 output uses libx264), distributed as a separate
-program with its license file, `ffmpeg.LICENSE`, beside it; the packaging check
+program with its license file beside it (`ffmpeg.LICENSE`, or
+`ffmpeg.exe.LICENSE` on Windows); the packaging check
 fails if either is missing. Interactive Story publishing does not use it and
 still looks for FFmpeg on `PATH`. Batch operations are
 limited to 100 frames, a 64 million pixel processing budget for image inputs
