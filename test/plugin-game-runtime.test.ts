@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OwnedPlaytestDriver } from "../src/daemon/owned-playtest.js";
 import { PluginGameRuntime, type PluginGameHooks } from "../src/daemon/plugin-game-runtime.js";
 import type { GameUseHookInput } from "../src/shared/extension-host-protocol.js";
@@ -58,7 +58,7 @@ function plugin(spec: PluginGameUseSpec = { operations: ["captureFrame"], maxFra
     },
     current: async () => state.spec,
   };
-  const runtime = new PluginGameRuntime({ provider: PROVIDER, spec, hooks, temporaryDirectory: temporary });
+  const runtime = new PluginGameRuntime({ provider: PROVIDER, version: "1.0.0", spec, hooks, temporaryDirectory: temporary });
   return { state, runtime };
 }
 
@@ -169,8 +169,22 @@ describe("plugin game runtime", () => {
     const opening = runtime.request({ operation: "open", target: TARGET }, controller.signal);
     await new Promise((resolve) => setTimeout(resolve, 10));
     controller.abort();
-    finish();
+    // Given up on at once, though the plugin's open runs on.
     await expect(opening).rejects.toThrow();
+    finish();
+    await vi.waitFor(() => expect(state.calls.at(-1)).toEqual({ operation: "close", session: "late" }));
+    expect(state.holds).toBe(0);
+  });
+
+  it("closes a session that finishes opening after the runtime closed", async () => {
+    const { state, runtime } = plugin();
+    let finish!: () => void;
+    state.open = () => new Promise((resolve) => { finish = () => resolve({ session: "late" }); });
+    const opening = runtime.request({ operation: "open", target: TARGET });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    runtime.close();
+    finish();
+    await expect(opening).rejects.toThrow("closed");
     expect(state.calls.at(-1)).toEqual({ operation: "close", session: "late" });
     expect(state.holds).toBe(0);
   });
@@ -206,11 +220,18 @@ describe("plugin game runtime", () => {
     await expect(open(runtime)).rejects.toThrow("At most 4");
   });
 
+  it("counts opens under way towards the limit", async () => {
+    const { runtime } = plugin();
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => open(runtime)));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(4);
+  });
+
   it("closes a session left unused", async () => {
     const { state } = plugin();
     const spec: PluginGameUseSpec = { operations: ["captureFrame"], maxFrame: 600 };
     const runtime = new PluginGameRuntime({
       provider: PROVIDER,
+      version: "1.0.0",
       spec,
       idleMs: 20,
       temporaryDirectory: temporary,
@@ -238,5 +259,15 @@ describe("plugin game runtime", () => {
     await expect(theirs.request({ operation: "captureFrame", sessionId, frame: 1 })).rejects.toThrow("does not belong");
     await theirs.cleanup();
     expect((await mine.request({ operation: "captureFrame", sessionId, frame: 1 })).operation).toBe("captureFrame");
+  });
+
+  it("lets a conversation close a session that already ended", async () => {
+    const { state, runtime } = plugin();
+    const mine = new OwnedPlaytestDriver(runtime);
+    const sessionId = await open(mine);
+    state.generation = 2;
+    await expect(mine.request({ operation: "captureFrame", sessionId, frame: 1 })).rejects.toThrow("restarted");
+    expect(await mine.request({ operation: "close", sessionId })).toEqual({ operation: "close" });
+    await expect(mine.request({ operation: "close", sessionId })).rejects.toThrow("does not belong");
   });
 });

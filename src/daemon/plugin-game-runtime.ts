@@ -44,6 +44,8 @@ export interface PluginGameHooks {
 export interface PluginGameRuntimeOptions {
   /** The project type, `publisher/name:type`. */
   provider: string;
+  /** The version of its plugin; a runtime serves one, since session ids are that version's. */
+  version: string;
   spec: PluginGameUseSpec;
   hooks: PluginGameHooks;
   /** Where per-capture folders are made; the system's temporary folder when left out. */
@@ -94,6 +96,7 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
 
   get provider() { return this.#options.provider; }
   get spec() { return this.#options.spec; }
+  get version() { return this.#options.version; }
 
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     signal?.throwIfAborted();
@@ -113,6 +116,8 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
         throw new Error(`This game runtime opens ${this.#options.provider}`);
       return { operation: "open", snapshot: await this.#open(request.viewport, signal) };
     }
+    // Closing a session that already ended, by expiring or its host stopping, is done.
+    if (request.operation === "close" && !this.#sessions.has(request.sessionId)) return { operation: "close" };
     const session = this.#session(request.sessionId);
     return this.#serial(session, async () => {
       // A session whose host restarted is let go without asking the new one.
@@ -148,43 +153,49 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
   }
 
   close(): void {
-    void this.#closeAll().finally(() => { this.#closed = true; });
+    // Closed first, so an open still under way closes its session itself.
+    this.#closed = true;
+    void this.#closeAll();
   }
 
   async #open(viewport: PlaytestViewport | undefined, signal?: AbortSignal): Promise<GameUseSnapshot> {
     if (viewport) validateViewport(viewport);
     if (this.#sessions.size + this.#opening >= MAX_SESSIONS)
       throw new Error(`At most ${MAX_SESSIONS} game sessions can be open in a project; close one first`);
+    // The slot stays taken until the session is registered or closed. The
+    // plugin's open isn't cancelled, since a cancelled call's result is lost
+    // with the session in it; one given up on is closed when it arrives.
     this.#opening += 1;
-    let result: Partial<GameUseHookResults["open"]> | undefined;
-    try {
-      result = await this.#call(viewport ? { operation: "open", viewport } : { operation: "open" }, signal) as Partial<GameUseHookResults["open"]> | undefined;
-    } finally {
-      this.#opening -= 1;
-    }
-    const plugin = result?.session;
-    if (typeof plugin !== "string" || !plugin || plugin.length > MAX_SESSION_ID)
-      throw new Error(`${this.#options.provider} opened the game without naming its session`);
-    const generation = await this.#options.hooks.generation();
-    const release = await this.#options.hooks.hold();
-    const session: Session = {
-      id: `plugin-${randomUUID()}`,
-      plugin,
-      generation,
-      release,
-      viewport: viewportOf(result?.viewport) ?? viewport,
-      queue: Promise.resolve(),
-      idle: undefined,
-    };
-    // Cancelled while the plugin opened it: nobody holds the session, so it closes now.
-    if (signal?.aborted || this.#closed) {
-      await this.#close(session);
-      signal?.throwIfAborted();
-      throw new Error("This game runtime has closed");
-    }
-    this.#sessions.set(session.id, session);
-    this.#touch(session);
-    return this.#snapshot(session, result);
+    let abandoned = false;
+    const opening = (async () => {
+      try {
+        const result = await this.#call(viewport ? { operation: "open", viewport } : { operation: "open" }) as Partial<GameUseHookResults["open"]> | undefined;
+        const plugin = result?.session;
+        if (typeof plugin !== "string" || !plugin || plugin.length > MAX_SESSION_ID)
+          throw new Error(`${this.#options.provider} opened the game without naming its session`);
+        const session: Session = {
+          id: `plugin-${randomUUID()}`,
+          plugin,
+          generation: await this.#options.hooks.generation(),
+          release: await this.#options.hooks.hold(),
+          viewport: viewportOf(result?.viewport) ?? viewport,
+          queue: Promise.resolve(),
+          idle: undefined,
+        };
+        if (abandoned || this.#closed) {
+          await this.#close(session);
+          return undefined;
+        }
+        this.#sessions.set(session.id, session);
+        this.#touch(session);
+        return this.#snapshot(session, result);
+      } finally {
+        this.#opening -= 1;
+      }
+    })();
+    const snapshot = await untilAborted(opening, signal, () => { abandoned = true; });
+    if (!snapshot) throw new Error("This game runtime has closed");
+    return snapshot;
   }
 
   async #capture(session: Session, frame: number | undefined, signal?: AbortSignal): Promise<PlaytestCapture> {
@@ -281,6 +292,21 @@ export class PluginGameRuntime implements GameRuntimeAdapter {
       throw new Error(`${this.#options.provider} could not ${input.operation} the game: ${message}`);
     }
   }
+}
+
+/** Waits for `task`, or rejects when `signal` aborts first, after telling `onAbort`; `task` runs on. */
+function untilAborted<T>(task: Promise<T>, signal: AbortSignal | undefined, onAbort: () => void): Promise<T> {
+  if (!signal) return task;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      onAbort();
+      void task.catch(() => {});
+      reject(signal.reason);
+    };
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    task.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
 
 /** What `game_use` offers for a plugin's declared `gameUse`. */

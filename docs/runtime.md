@@ -432,7 +432,8 @@ A plugin's `native` project type that declares
 (`src/daemon/plugin-game-runtime.ts`). The daemon makes one runtime per
 project, shared by its conversations, from the type the version pinned in
 `ohmygame.json` declares, while the plugin is on and allowed there. It makes
-the runtime again when that declaration changes. The tool then offers only
+the runtime again, closing its sessions, when the project moves to another
+version or that declaration changes. The tool then offers only
 the operations and input the type declares, with clicks at a point, no
 bridge and no `path`; each call checks again that the project's version
 still declares it. `captureFrame` runs the game again from its start and
@@ -444,8 +445,9 @@ are not promised to match.
   Each is tied to the host process that opened it: once that host stops, the
   session ends without asking the new host about it. While one is open, the
   host doesn't stop for being idle. A session unused for 10 minutes closes,
-  at most four are open per project, and one's requests run in order. A
-  session the plugin opened after its call was cancelled is closed at once.
+  at most four are open per project, and one's requests run in order. An
+  open given up on still waits for the plugin, then closes what it opened;
+  closing a session that already ended succeeds.
   As with the web runtime, a conversation reaches only the sessions it opened
   and closes them when its run ends.
 - **Images.** For each capture the daemon makes a temporary folder and names

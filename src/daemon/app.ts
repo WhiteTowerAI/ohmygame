@@ -875,12 +875,12 @@ export function createApp(options: AppOptions = {}) {
       ? await projectGameUse(project.workspacePath, pluginServices).catch(() => undefined)
       : undefined;
     const existing = pluginGames.get(project.id);
-    if (existing && found && existing.provider === found.provider && isDeepStrictEqual(existing.spec, found.spec)) return existing;
+    if (existing && found && existing.provider === found.provider && existing.version === found.version && isDeepStrictEqual(existing.spec, found.spec)) return existing;
     closePluginGame(project.id);
     if (!found) return undefined;
     const runtime = new PluginGameRuntime({
       ...found,
-      hooks: projectGameHooks(project.workspacePath, pluginServices, found.provider),
+      hooks: projectGameHooks(project.workspacePath, pluginServices, found),
     });
     pluginGames.set(project.id, runtime);
     return runtime;

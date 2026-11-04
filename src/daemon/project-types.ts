@@ -376,7 +376,7 @@ export async function projectPreviewMode(
 export async function projectGameUse(
   folder: string,
   services: PluginServices,
-): Promise<{ provider: string; spec: PluginGameUseSpec } | undefined> {
+): Promise<{ provider: string; version: string; spec: PluginGameUseSpec } | undefined> {
   await services.ready();
   const resolved = await resolveProjectPlugins({
     folder,
@@ -389,14 +389,14 @@ export async function projectGameUse(
   const entry = resolved.plugins.find((plugin) => plugin.providesType)?.entry;
   const contributed = owner && entry ? contribution(entry, type.slice(owner.length + 1)) : undefined;
   if (contributed?.preview !== "native" || !contributed.gameUse) return undefined;
-  return { provider: type, spec: contributed.gameUse as PluginGameUseSpec };
+  return { provider: type, version: entry!.version, spec: contributed.gameUse as PluginGameUseSpec };
 }
 
 /** What a `PluginGameRuntime` for the project's type asks of its extension host. */
 export function projectGameHooks(
   folder: string,
   services: PluginServices,
-  provider: string,
+  { provider, version }: { provider: string; version: string },
 ): PluginGameHooks {
   return {
     call: (input, signal) =>
@@ -415,7 +415,8 @@ export function projectGameHooks(
       const now = await projectGameUse(folder, services).catch(
         () => undefined,
       );
-      return now?.provider === provider ? now.spec : undefined;
+      // Another version's sessions are its own; that version gets a runtime of its own.
+      return now?.provider === provider && now.version === version ? now.spec : undefined;
     },
   };
 }
