@@ -1167,10 +1167,13 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.files.changed", change);
     void pluginHooks.notify(folder, "files.changed", change);
   });
+  /** How many event streams each project has open: it is open in the app while it has one. */
+  const openStreams = new Map<string, number>();
   /** Watches an open project's files while one of its plugins wants to know when they change. */
   const syncFileWatch = async (folder: string) => {
     const wanted = await pluginHooks.wantsFiles(folder);
-    if (projectAt(folder)) fileWatches.set(folder, wanted);
+    const project = projectAt(folder);
+    if (project && openStreams.has(project.id)) fileWatches.set(folder, wanted);
     else fileWatches.close(folder);
   };
   pluginServices.onChange((folder) => {
@@ -4079,7 +4082,18 @@ export function createApp(options: AppOptions = {}) {
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
     for (const event of events.since(project.id, cursor)) send(event);
-    keepOpen(events.subscribe(project.id, send));
+    const unsubscribe = events.subscribe(project.id, send);
+    openStreams.set(project.id, (openStreams.get(project.id) ?? 0) + 1);
+    void syncFileWatch(project.workspacePath);
+    keepOpen(() => {
+      unsubscribe();
+      const left = (openStreams.get(project.id) ?? 1) - 1;
+      if (left > 0) openStreams.set(project.id, left);
+      else {
+        openStreams.delete(project.id);
+        fileWatches.close(project.workspacePath);
+      }
+    });
   });
 
   app.get<{ Params: { operationId: string }; Querystring: { cursor?: string } }>("/settings/model-auth/:operationId/events", async (request, reply) => {
