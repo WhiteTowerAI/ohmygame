@@ -2729,7 +2729,16 @@ describe("ACP adapter", () => {
             sessionUpdate: "agent_message_chunk",
             content: { type: "text", text: "old reply" },
           });
-          return reply({});
+          // A session last used for planning comes back in its plan mode.
+          return reply({
+            modes: {
+              currentModeId: "plan",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+          });
         case "session/set_config_option":
         case "session/set_mode":
           return reply({});
@@ -2757,7 +2766,8 @@ describe("ACP adapter", () => {
 
   const permissionOptions = [
     { optionId: "yes", name: "Allow", kind: "allow_once" },
-    { optionId: "always", name: "Always allow npm", kind: "allow_always" },
+    // A label naming a folder called ohmygame grants nothing by itself.
+    { optionId: "always", name: "Always allow edits in ohmygame/", kind: "allow_always" },
     { optionId: "no", name: "Reject", kind: "reject_once" },
   ];
 
@@ -2796,6 +2806,8 @@ describe("ACP adapter", () => {
     const { received } = acpAgent({
       prompt: async ({ update, ask, reply }) => {
         expect(handlers!.active()).toBe(true);
+        // OhMyGame's tools stop with the turn, not with the agent's process.
+        expect(handlers!.callSignal!()).toBe(turnSignal);
         update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking" } });
         update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello" } });
         update({
@@ -2845,11 +2857,13 @@ describe("ACP adapter", () => {
       { name: "Gemini", args: ["--acp"] },
     );
     const recording = recordingSink(() => "allow-always");
+    const turnSignal = new AbortController().signal;
     const outcome = await driver.runTurn(
       { text: "Do it", images: [{ type: "image", mimeType: "image/png", data: "AAAA" }], readOnly: false },
       recording.sink,
-      new AbortController().signal,
+      turnSignal,
     );
+    expect(handlers!.callSignal!()).toBeUndefined();
     expect(outcome).toEqual({ status: "completed" });
     expect(handlers!.listAll).toBe(true);
     expect(recording.sessionId()).toBe("s1");
@@ -2897,7 +2911,7 @@ describe("ACP adapter", () => {
         kind: "command",
         tool: "Run tests",
         command: "npm test",
-        always: { scope: "saved", rules: ["Always allow npm"] },
+        always: { scope: "saved", rules: ["Always allow edits in ohmygame/"] },
       }),
     ]);
     expect(recording.spent).toEqual(["10:5:2:0"]);
@@ -2950,6 +2964,10 @@ describe("ACP adapter", () => {
       cwd: "/tmp/workspace",
     });
     expect(received.some((message) => message.method === "session/new")).toBe(false);
+    expect(received.find((message) => message.method === "session/set_mode")?.params).toEqual({
+      sessionId: "s1",
+      modeId: "default",
+    });
     expect(recording.calls.filter((call) => call.startsWith("text:"))).toEqual(["text:text-0:new reply"]);
     expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).not.toContain(
       "Project instructions",

@@ -697,7 +697,7 @@ export class AgentRuntimeService {
           if (!entry.handlers.signal.aborted && entry.handlers.active())
             entry.handlers.observe(call, outcome);
         },
-        entry.handlers.signal,
+        entry.handlers.callSignal?.() ?? entry.handlers.signal,
         entry.handlers.listAll ? "all" : "active",
       );
       if (answer) answers.push(answer);

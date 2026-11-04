@@ -174,6 +174,13 @@ function planningMode(mode: Choice | undefined): string | undefined {
   )?.value;
 }
 
+/** The mode working turns use: the session's own, or, for a session loaded while planning, the first other mode. */
+function workingMode(mode: Choice | undefined): string | undefined {
+  const plan = planningMode(mode);
+  if (mode?.current && mode.current !== plan) return mode.current;
+  return mode?.values.find((value) => value.value !== plan)?.value;
+}
+
 /** The models an agent offers, from a session started only to read them. */
 export async function probeAcpModels(
   binaryPath: string,
@@ -394,6 +401,8 @@ export class AcpDriver implements NativeDriver {
           signal: lifetime.signal,
           listAll: true,
           active: () => !!this.#turn && !this.#turn.signal.aborted,
+          // A tool stops with the turn that called it, not with the process.
+          callSignal: () => this.#turn?.signal,
           observe: (call, outcome) => this.#bridged(call, outcome),
         });
         mcpServers.push({
@@ -457,9 +466,8 @@ export class AcpDriver implements NativeDriver {
         choices,
         lifetime,
         instruct: !resume,
-        ...(choices.mode?.current &&
-        choices.mode.current !== planningMode(choices.mode)
-          ? { workingMode: choices.mode.current }
+        ...(workingMode(choices.mode)
+          ? { workingMode: workingMode(choices.mode) }
           : {}),
       };
       await this.#choose(state, "model", context.model, "session/set_model", "modelId");
@@ -736,13 +744,7 @@ export class AcpDriver implements NativeDriver {
     const reject = pick("reject_once", "reject_always");
     const call = this.#merge(turn, record(params.toolCall) ?? {});
     // OhMyGame's own tools need no permission; the daemon runs them.
-    if (
-      call?.bridged ||
-      options.some((option) =>
-        new RegExp(`\\b${BRIDGE_SERVER_NAME}\\b`, "i").test(option.name),
-      )
-    )
-      return select(allow);
+    if (call?.bridged) return select(allow);
     // Planning never stops to ask: what the agent would ask about is not reading.
     if (turn.readOnly) return select(reject);
     if (this.context.permissionMode === "allow") return select(allow);
