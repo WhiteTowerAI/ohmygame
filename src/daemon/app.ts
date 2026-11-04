@@ -1742,6 +1742,8 @@ export function createApp(options: AppOptions = {}) {
           // Other commands hold the workspace already; this one holds it as Export web build does, so no turn writes into the build.
           const leave = readOnly ? (await agents.turnsClosed(project.id), await projectWrites.enter(project.id, true)) : undefined;
           try {
+            if (readOnly && agents.isProjectBusy(project.id)) throw new PublishError("Wait for the agent to finish before building");
+            if (readOnly && await checkpoints.unfinished(project)) throw new PublishError("Recover the interrupted file restore before building");
             await artifacts.buildFolder(project, folder);
           } finally {
             leave?.();
