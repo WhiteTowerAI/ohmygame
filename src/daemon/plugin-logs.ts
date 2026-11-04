@@ -45,8 +45,17 @@ const REDACTED = "[redacted]";
 export function redactCredentials(text: string, secrets: readonly string[] = []): string {
   let result = text;
   // Longest first, so a secret that contains another goes whole.
-  for (const secret of [...secrets].filter((value) => value.length >= 4).sort((a, b) => b.length - a.length))
-    result = result.split(secret).join(REDACTED);
+  const saved = [...secrets].filter((value) => value.length >= 4).sort((a, b) => b.length - a.length);
+  for (const secret of saved) result = result.split(secret).join(REDACTED);
+  // The extension host cuts long lines and errors with "…", which may fall inside a secret.
+  if (result.endsWith("…"))
+    for (const secret of saved) {
+      const start = [...Array(secret.length - 1).keys()].map((index) => secret.length - 1 - index).find((length) => result.endsWith(`${secret.slice(0, length)}…`));
+      if (start) {
+        result = `${result.slice(0, -(start + 1))}${REDACTED}…`;
+        break;
+      }
+    }
   return result
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`)
     .replace(/\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization)["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, `$1${REDACTED}`)

@@ -619,6 +619,24 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("hands what a package from this computer kept to no source that had the id before it", async () => {
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, close } = await setup(pack.routes, pack.files);
+    const preview = await sources.inspect(npm, "en");
+    await sources.install(preview.source!, preview.digest);
+    await services.uninstall("acme/maker");
+    const local = tgz(...pluginEntries("package/", "acme/maker", "2.0.0"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "local");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
+    await close();
+  });
+
   it("doesn't let an uninstall delete what an install just placed", async () => {
     const { services, directory, close } = await setup();
     const folder = await folderPackage(directory);

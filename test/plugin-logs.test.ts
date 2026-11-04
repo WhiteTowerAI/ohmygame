@@ -26,6 +26,9 @@ it("redacts saved secrets and what looks like a credential before anyone reads t
   saved = ["abcdefgh"];
   logs.add("acme/cut", { level: "info", source: "native", text: `${"x".repeat(PLUGIN_LOG_MAX_CHARS - 4)}abcdefgh` });
   expect(logs.read("acme/cut")[0]!.text).not.toContain("abcd");
+  // So is one the extension host already cut, before it got here.
+  expect(redactCredentials(`Failed with abc…`, ["abcdefgh"])).toBe("Failed with [redacted]…");
+  expect(redactCredentials(`Built 3 levels…`, ["abcdefgh"])).toBe("Built 3 levels…");
   expect(redactCredentials("Authorization: Bearer abcdefghijklmnop")).not.toContain("abcdefghijklmnop");
   expect(redactCredentials("sent Bearer abcdefghijklmnop")).toBe("sent Bearer [redacted]");
   expect(redactCredentials("GET https://user:hunter22@example.com/x?token=abc123&page=2")).toBe("GET https://user:[redacted]@example.com/x?token=[redacted]&page=2");

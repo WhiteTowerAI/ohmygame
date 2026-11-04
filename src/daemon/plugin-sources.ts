@@ -173,8 +173,11 @@ export class PluginSources {
       const present = this.services.index.get(entry.id, entry.version);
       if (present?.digest === entry.digest) return present;
       // Settings and data kept at uninstall go back only to the source they came from.
-      if (!this.services.index.versions(entry.id).length && !(await this.#keptFor(entry.id, fetched.origin)))
-        await this.services.forgetKeptData(entry.id);
+      if (!this.services.index.versions(entry.id).length) {
+        if (!(await this.#keptFor(entry.id, fetched.origin))) await this.services.forgetKeptData(entry.id);
+        // From now on what's kept belongs to this package's source alone.
+        await this.#forgetOrigins(entry.id);
+      }
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
@@ -383,7 +386,15 @@ export class PluginSources {
   /** Adding the same version from elsewhere replaces it, origin included. */
   async #recordOrigin(key: string, origin: PluginOrigin | undefined): Promise<void> {
     const { [key]: _replaced, ...others } = await this.#loadOrigins();
-    const next = origin ? { ...others, [key]: origin } : others;
+    await this.#saveOrigins(origin ? { ...others, [key]: origin } : others);
+  }
+
+  async #forgetOrigins(id: string): Promise<void> {
+    const origins = await this.#loadOrigins();
+    await this.#saveOrigins(Object.fromEntries(Object.entries(origins).filter(([key]) => !key.startsWith(`${id}@`))));
+  }
+
+  async #saveOrigins(next: Record<string, PluginOrigin>): Promise<void> {
     await mkdir(path.dirname(this.originsPath), { recursive: true });
     const temporary = `${this.originsPath}.${randomUUID()}.tmp`;
     try {
