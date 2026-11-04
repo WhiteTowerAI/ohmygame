@@ -1,5 +1,7 @@
 export { createMultiplayerServer, type MultiplayerServerOptions } from "./service.js";
 export { compileGame } from "./define-game.js";
+export { ConflictError, MemoryGameDataStore, QuotaError, type ServerStore } from "./game-data.js";
+export { publishedGameCheck, type GameDataOptions } from "./game-data-routes.js";
 export type { GameAdapter } from "./adapters.js";
 export {
   defineGame,

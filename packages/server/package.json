@@ -21,6 +21,11 @@
       "ohmygame-source": "./src/adapters.ts",
       "types": "./dist/adapters.d.ts",
       "default": "./dist/adapters.js"
+    },
+    "./postgres": {
+      "ohmygame-source": "./src/postgres-store.ts",
+      "types": "./dist/postgres-store.d.ts",
+      "default": "./dist/postgres-store.js"
     }
   },
   "files": [
@@ -32,6 +37,10 @@
     "@ohmygame/sdk": "workspace:*",
     "esbuild": "0.28.2",
     "express": "^5.2.1",
-    "jose": "^6.2.12"
+    "jose": "^6.2.12",
+    "pg": "^8"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
   }
 }

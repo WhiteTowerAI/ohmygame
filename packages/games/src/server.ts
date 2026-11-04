@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { createMultiplayerServer } from "@ohmygame/server";
+import { createMultiplayerServer, publishedGameCheck } from "@ohmygame/server";
+import { PostgresGameDataStore } from "@ohmygame/server/postgres";
 import { createBuiltInAdapters } from "./index.js";
 
 // OhMyGame's hosted service: the operator's deployment registry, played with the built-in rules.
@@ -11,6 +12,21 @@ if (!deploymentsFile)
 const deployments = JSON.parse(await readFile(deploymentsFile, "utf8"));
 if (!Array.isArray(deployments))
   throw new Error("The deployment registry must be an array.");
+// Cloud saves and leaderboards, for games published to OhMyGame, when a database is configured.
+const databaseUrl = process.env.GAME_DATA_DATABASE_URL;
+const cloudApiUrl = process.env.OHMYGAME_CLOUD_API_URL;
+if (databaseUrl && !cloudApiUrl)
+  throw new Error("Set OHMYGAME_CLOUD_API_URL so cloud saves serve only games published to OhMyGame.");
+let gameData;
+if (databaseUrl) {
+  const store = new PostgresGameDataStore({ connection: databaseUrl });
+  await store.migrate();
+  gameData = {
+    store,
+    allowGame: publishedGameCheck(cloudApiUrl!),
+    adminToken: process.env.GAME_DATA_ADMIN_TOKEN || undefined,
+  };
+}
 const service = createMultiplayerServer({
   deployments,
   adapters: createBuiltInAdapters(),
@@ -24,6 +40,7 @@ const service = createMultiplayerServer({
   port: Number(process.env.PORT ?? process.env.MULTIPLAYER_PORT ?? 43130),
   maxRooms: Number(process.env.MULTIPLAYER_MAX_ROOMS ?? 100),
   publicAddress: process.env.MULTIPLAYER_PUBLIC_ADDRESS,
+  ...(gameData ? { gameData } : {}),
 });
 let stopping = false;
 const shutdown = async () => {

@@ -13,6 +13,7 @@ import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
 import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
+import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 
 export interface MultiplayerServerOptions {
   deployments: MultiplayerManifestConfig[];
@@ -27,6 +28,8 @@ export interface MultiplayerServerOptions {
   adapters?: Record<string, GameAdapter>;
   /** Pause between drop-in rounds; tests shorten it. */
   roundRestartMs?: number;
+  /** Cloud saves and leaderboards. Without it the service offers rooms only. */
+  gameData?: GameDataOptions;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -85,6 +88,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         : new Response("Too many connections", { status: 429 }),
   });
   let draining = false;
+  let pruneGameData: (() => Promise<void>) | undefined;
   const server = new Server({
     transport,
     greet: false,
@@ -100,7 +104,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         );
         response.setHeader(
           "Access-Control-Allow-Methods",
-          "GET, POST, OPTIONS",
+          "GET, POST, PUT, DELETE, OPTIONS",
         );
         response.setHeader("Cache-Control", "no-store");
         if (request.method === "OPTIONS") {
@@ -112,12 +116,14 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           response.status(429).json({ error: "Too many requests." });
           return;
         }
-        if (draining && request.method === "POST") {
+        if (draining && request.method !== "GET") {
           response.status(503).json({ error: "The service is restarting." });
           return;
         }
         next();
       });
+      // Saves take larger bodies than room requests, so their routes parse their own.
+      if (options.gameData) pruneGameData = mountGameData(app, options.gameData, auth, rate).prune;
       app.use(express.json({ limit: "16kb" }));
       app.get("/healthz", (_request, response) =>
         response.status(draining ? 503 : 200).json({ ok: !draining }),
@@ -127,7 +133,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           response.status(429).json({ error: "Too many guest sessions." });
           return;
         }
-        response.status(201).json(auth.issueGuest());
+        // A returning guest sends their old token and stays the same guest.
+        response.status(201).json(auth.issueGuest(bearer(request.headers.authorization)));
       });
       app.get(
         "/v1/games/:gameId/deployments/:deploymentId",
@@ -310,6 +317,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
   for (const config of deployments.values()) defineDeployment(config);
   let started = false;
   let closed = false;
+  let pruneTimer: ReturnType<typeof setInterval> | undefined;
   return {
     server,
     host,
@@ -338,6 +346,11 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       if (started) return;
       await server.listen(port, host);
       started = true;
+      if (pruneGameData) {
+        void pruneGameData();
+        pruneTimer = setInterval(() => void pruneGameData!(), 60 * 60 * 1000);
+        pruneTimer.unref();
+      }
       for (const record of store.rooms()) {
         if (record.snapshot.state.phase === "closed") continue;
         const config = deployments.get(multiplayerRoomType(record.config));
@@ -370,11 +383,13 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       if (closed) return;
       closed = true;
       draining = true;
+      clearInterval(pruneTimer);
       if (started) {
         await server.gracefullyShutdown(false);
         started = false;
       }
       store.close();
+      await options.gameData?.store.close();
     },
   };
 }

@@ -266,7 +266,7 @@ describe("game tokens on the multiplayer service", () => {
   it("accepts a token for this game and refuses one for another game, issuer or time", async () => {
     const { jwks, sign } = await keys();
     const auth = new MultiplayerAuth({ guestSecret: "a".repeat(32), accountIssuer: `${ISSUER}/`, accountKeys: jwks });
-    await expect(auth.authenticate(await sign(), board)).resolves.toEqual({ kind: "account", userId: `account:${player.id}` });
+    await expect(auth.authenticate(await sign(), board)).resolves.toEqual({ kind: "account", userId: `account:${player.id}`, name: player.name });
     await expect(auth.authenticate(await sign(), { ...board, authPolicy: "guest-or-account" })).resolves.toMatchObject({ kind: "account" });
     for (const token of [
       await sign({ aud: gameTokenAudience("other") }),

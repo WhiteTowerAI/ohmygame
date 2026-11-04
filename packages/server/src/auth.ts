@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { normalizeDisplayName } from "@ohmygame/sdk/protocol";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
@@ -6,7 +7,13 @@ import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 export interface MultiplayerIdentity {
   userId: string;
   kind: "account" | "guest";
+  /** An account's display name, from its game token. */
+  name?: string;
 }
+/** How long a guest token is valid. */
+export const GUEST_TOKEN_MS = 24 * 60 * 60 * 1000;
+/** How long after a guest token expires it may still be renewed as the same guest. */
+export const GUEST_RENEWAL_MS = 30 * 24 * 60 * 60 * 1000;
 export interface MultiplayerAuthOptions {
   guestSecret: string;
   /**
@@ -34,10 +41,18 @@ export class MultiplayerAuth {
       this.keys = options.accountKeys ?? createRemoteJWKSet(new URL(`${this.issuer}/v1/game-auth/jwks.json`));
     }
   }
-  issueGuest(): { token: string; expiresAt: number } {
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+  /**
+   * A new guest, or the same guest again when previous is one of this service's guest
+   * tokens that expired no more than GUEST_RENEWAL_MS ago, so a returning guest keeps
+   * their saves and scores.
+   */
+  issueGuest(previous?: string): { token: string; expiresAt: number } {
+    const now = Date.now();
+    const expiresAt = now + GUEST_TOKEN_MS;
+    const known = previous ? this.readGuest(previous) : undefined;
+    const id = known && known.expiresAt + GUEST_RENEWAL_MS > now ? known.id : randomUUID();
     const payload = Buffer.from(
-      JSON.stringify({ id: randomUUID(), expiresAt }),
+      JSON.stringify({ id, expiresAt }),
     ).toString("base64url");
     return {
       token: `guest.${payload}.${this.sign(payload).toString("base64url")}`,
@@ -55,29 +70,10 @@ export class MultiplayerAuth {
     if (token.startsWith("guest.")) {
       if (policy === "account-required")
         throw new Error("Account sign-in is required.");
-      const [, payload, signature, extra] = token.split(".");
-      try {
-        if (!payload || !signature || extra) throw new Error();
-        const actual = Buffer.from(signature, "base64url");
-        const expected = this.sign(payload);
-        if (
-          actual.length !== expected.length ||
-          !timingSafeEqual(actual, expected)
-        )
-          throw new Error();
-        const claims = JSON.parse(
-          Buffer.from(payload, "base64url").toString(),
-        ) as { id?: unknown; expiresAt?: unknown };
-        if (
-          typeof claims.id !== "string" ||
-          typeof claims.expiresAt !== "number" ||
-          claims.expiresAt <= Date.now()
-        )
-          throw new Error();
-        return { kind: "guest", userId: `guest:${claims.id}` };
-      } catch {
+      const claims = this.readGuest(token);
+      if (!claims || claims.expiresAt <= Date.now())
         throw new Error("The guest token is invalid or expired.");
-      }
+      return { kind: "guest", userId: `guest:${claims.id}` };
     }
     if (policy === "anonymous")
       throw new Error("This game only accepts guests.");
@@ -92,9 +88,30 @@ export class MultiplayerAuth {
         requiredClaims: ["sub", "exp"],
       });
       if (typeof payload.sub !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(payload.sub)) throw new Error();
-      return { kind: "account", userId: `account:${payload.sub}` };
+      return {
+        kind: "account",
+        userId: `account:${payload.sub}`,
+        ...(typeof payload.name === "string" ? { name: normalizeDisplayName(payload.name) } : {}),
+      };
     } catch {
       throw new Error("The account token is invalid, expired or for another game.");
+    }
+  }
+  /** A guest token's claims when this service signed it, expired or not. */
+  private readGuest(token: string): { id: string; expiresAt: number } | undefined {
+    if (token.length > 10_000 || !token.startsWith("guest.")) return undefined;
+    const [, payload, signature, extra] = token.split(".");
+    try {
+      if (!payload || !signature || extra !== undefined) return undefined;
+      const actual = Buffer.from(signature, "base64url");
+      const expected = this.sign(payload);
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return undefined;
+      const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as { id?: unknown; expiresAt?: unknown };
+      return typeof claims.id === "string" && typeof claims.expiresAt === "number"
+        ? { id: claims.id, expiresAt: claims.expiresAt }
+        : undefined;
+    } catch {
+      return undefined;
     }
   }
   private sign(value: string): Buffer {
