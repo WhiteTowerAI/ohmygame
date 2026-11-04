@@ -624,6 +624,11 @@
                       "changesFiles": {
                         "type": "boolean",
                         "description": "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo"
+                      },
+                      "build": {
+                        "type": "string",
+                        "const": "web",
+                        "description": "The app builds the game's web package first and gives the command its folder, as for Export web build"
                       }
                     },
                     "additionalProperties": false

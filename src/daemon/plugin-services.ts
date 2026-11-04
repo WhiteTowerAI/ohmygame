@@ -905,7 +905,7 @@ export class PluginServices {
   async runCommand(
     entry: PluginIndexEntry,
     command: PluginCommand,
-    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress">,
+    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress" | "build">,
   ): Promise<unknown> {
     const { run } = command;
     const id = `${entry.id}:${command.id}`;

@@ -310,7 +310,8 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    | { native: string };
+    /** `build: "web"`: the app builds the game for the command first. */
+    | { native: string; build?: "web" };
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

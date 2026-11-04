@@ -205,6 +205,7 @@ async function invoke(
       send({ type: "progress", id: request.id, message: cut(String(message)), ...(url ? { url } : {}) });
     },
     ...(request.turn ? { turn: request.turn } : {}),
+    ...(request.build ? { build: Object.freeze({ ...request.build }) } : {}),
     configuration: Object.freeze({ ...request.configuration }),
   });
   // Serializing here both bounds the size and turns values IPC can't carry
