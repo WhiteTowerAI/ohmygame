@@ -93,7 +93,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginSkillContent } from "../shared/plugins.js";
+import type { PluginSkillContent, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -819,8 +819,13 @@ export async function setStorePluginEnabled(id: string, enabled: boolean): Promi
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }
 
-export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+export function readPluginUninstall(id: string, version: string): Promise<PluginUninstallPreview> {
+  return request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}/uninstall`);
+}
+
+/** Uninstalls a version; `keepData` keeps the last version's settings and data for a later install. */
+export async function uninstallStorePlugin(id: string, version: string, options: { keepData?: boolean } = {}): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}${options.keepData ? "?keepData=true" : ""}`, { method: "DELETE" });
 }
 
 export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {

@@ -13,7 +13,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -475,6 +475,13 @@ export const PluginManifestV2Schema = Type.Object(
       ),
     ),
     capabilities: Type.Optional(Capabilities),
+    /**
+     * Files or folders, such as `./.maker/`, the plugin leaves in a project.
+     * Uninstalling lists them and leaves them, since they're the project's.
+     */
+    projectFiles: Type.Optional(
+      Type.Array(RelativePath(), { minItems: 1, maxItems: 20, uniqueItems: true }),
+    ),
     /**
      * The plugin's pages: `major` is the version of the page components they
      * use, `preview` lets them load one still in preview, and `accent` is its

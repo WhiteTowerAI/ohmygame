@@ -329,6 +329,20 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
+/** What uninstalling a version, or a plugin's every version, removes and leaves. */
+export interface PluginUninstallPreview {
+  /** No version is left after it, so its permissions go too. */
+  last: boolean;
+  /** Saved settings and sign-ins removed with the last version, unless kept. */
+  settings: number;
+  /** The size of its data folder, removed with the last version unless kept. */
+  dataBytes: number;
+  /** Files its manifest says it leaves in projects; uninstalling doesn't touch them. */
+  projectFiles: string[];
+  /** Projects that use the removed version, which stop running it. */
+  projects: string[];
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;

@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { consentToPlugin, readPluginUninstall, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
@@ -12,7 +13,7 @@ import { SkillSection } from "./plugin-skills.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
-import { Alert, Badge, Button, Dialog, Switch, Tabs } from "./ui/index.js";
+import { Alert, Badge, Button, Checkbox, Dialog, Skeleton, Switch, Tabs } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -315,10 +316,10 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
 
   const toggle = (on: boolean) => void act("enabled", () => setStorePluginEnabled(plugin.id, on));
   const allow = () => void act("consent", () => consentToPlugin(plugin.id, plugin.capabilities));
-  const remove = (version: StorePlugin) => {
+  const remove = (version: StorePlugin, keepData: boolean) => {
     setRemoving(undefined);
     void act(`remove:${version.version}`, async () => {
-      await uninstallStorePlugin(plugin.id, version.version);
+      await uninstallStorePlugin(plugin.id, version.version, { keepData });
       if (versions.length === 1) onRemoved();
     });
   };
@@ -432,15 +433,58 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         </div> : null}
       </aside>
     </div>
-    {removing ? <Dialog open title={t("pluginStore.uninstallTitle", { name: plugin.displayName, version: removing.version })} onClose={() => setRemoving(undefined)}
-      footer={<>
-        <Button variant="ghost" onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
-        <Button variant="primary" onClick={() => remove(removing)}>{t("pluginStore.uninstall")}</Button>
-      </>}>
-      <p>{t("pluginStore.uninstallHint")}</p>
-    </Dialog> : null}
+    {removing ? <UninstallDialog plugin={plugin} version={removing} onCancel={() => setRemoving(undefined)}
+      onUninstall={(keepData) => remove(removing, keepData)} /> : null}
     {everyProject.dialog}
   </div>;
+}
+
+/** Says what uninstalling a version removes, and what it leaves, before it does. */
+function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
+  plugin: StorePlugin;
+  version: StorePlugin;
+  onCancel: () => void;
+  onUninstall: (keepData: boolean) => void;
+}): ReactNode {
+  const [preview, setPreview] = useState<PluginUninstallPreview>();
+  const [error, setError] = useState<string>();
+  const [keepData, setKeepData] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void readPluginUninstall(plugin.id, version.version).then(
+      (value) => { if (active) setPreview(value); },
+      (cause: unknown) => { if (active) setError(message(cause)); },
+    );
+    return () => { active = false; };
+  }, [plugin.id, version.version]);
+  const hasData = Boolean(preview && preview.last && (preview.settings || preview.dataBytes));
+  return <Dialog open title={t("pluginStore.uninstallTitle", { name: plugin.displayName, version: version.version })} onClose={onCancel}
+    footer={<>
+      <Button variant="ghost" onClick={onCancel}>{t("common.cancel")}</Button>
+      <Button variant="primary" disabled={!preview && !error} onClick={() => onUninstall(hasData && keepData)}>{t("pluginStore.uninstall")}</Button>
+    </>}>
+    {error ? <Alert tone="danger" title={error} /> : null}
+    {!preview && !error ? <Skeleton height={64} /> : null}
+    {preview ? <div className="plugin-uninstall">
+      <p>{t("pluginStore.uninstallRemoves")}</p>
+      <ul>
+        <li>{t("pluginStore.uninstallFiles", { version: version.version })}</li>
+        {preview.last ? <li>{t("pluginStore.uninstallPermissions")}</li> : null}
+        {preview.last && preview.settings && !keepData ? <li>{t("pluginStore.uninstallSettings", { count: preview.settings })}</li> : null}
+        {preview.last && preview.dataBytes && !keepData ? <li>{t("pluginStore.uninstallData", { size: formatBytes(preview.dataBytes) })}</li> : null}
+      </ul>
+      {hasData ? <Checkbox checked={keepData} onChange={setKeepData} label={t("pluginStore.uninstallKeepData")}
+        description={t("pluginStore.uninstallKeepDataHint")} /> : null}
+      {preview.projects.length ? <>
+        <p>{t("pluginStore.uninstallProjects", { count: preview.projects.length })}</p>
+        <ul>{preview.projects.map((name) => <li key={name}>{name}</li>)}</ul>
+      </> : null}
+      {preview.projectFiles.length ? <>
+        <p>{t("pluginStore.uninstallProjectFiles")}</p>
+        <ul>{preview.projectFiles.map((file) => <li key={file} className="plugins-mono">{file}</li>)}</ul>
+      </> : null}
+    </div> : null}
+  </Dialog>;
 }
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */

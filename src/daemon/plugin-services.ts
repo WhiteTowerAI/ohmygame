@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -9,7 +9,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition } from "../shared/plugins.js";
+import type { McpServerDefinition, PluginUninstallPreview } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -137,6 +137,15 @@ export interface PluginServicesOptions {
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
+/** The bytes of the files under a folder, not following links; 0 when it doesn't exist. */
+async function folderBytes(folder: string): Promise<number> {
+  const entries = await readdir(folder, { withFileTypes: true, recursive: true }).catch(() => []);
+  let bytes = 0;
+  for (const entry of entries)
+    if (entry.isFile()) bytes += (await lstat(path.join(entry.parentPath, entry.name)).catch(() => undefined))?.size ?? 0;
+  return bytes;
+}
+
 function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRegistration {
   return {
     path: file,
@@ -674,8 +683,28 @@ export class PluginServices {
     return entry;
   }
 
-  uninstall(id: string, version?: string): Promise<void> {
-    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version));
+  /**
+   * Uninstalls a version, or every version. The last one takes the plugin's
+   * grants with it and, unless `keepData`, its settings and data folder;
+   * kept, a later install finds them again.
+   */
+  uninstall(id: string, version?: string, options: { keepData?: boolean } = {}): Promise<void> {
+    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version, options.keepData ?? false));
+  }
+
+  /** What uninstalling a version, or every version, removes and leaves. */
+  async uninstallPreview(id: string, version?: string): Promise<Omit<PluginUninstallPreview, "projects">> {
+    await this.ready();
+    const removed = version
+      ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
+      : this.index.versions(id);
+    const last = removed.length > 0 && removed.length === this.index.versions(id).length;
+    return {
+      last,
+      settings: last ? this.values.count(id) : 0,
+      dataBytes: last ? await folderBytes(this.dataFolder(id)) : 0,
+      projectFiles: [...new Set(removed.flatMap((entry) => entry.manifest.projectFiles ?? []))].sort(),
+    };
   }
 
   /** Installing and uninstalling share folders, so one can't delete what the other just placed. */
@@ -685,7 +714,7 @@ export class PluginServices {
     return run;
   }
 
-  async #uninstall(id: string, version?: string): Promise<void> {
+  async #uninstall(id: string, version: string | undefined, keepData: boolean): Promise<void> {
     await this.ready();
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
@@ -695,7 +724,7 @@ export class PluginServices {
     const last = !this.index.versions(id).length;
     if (last) {
       await this.grants.forget(id);
-      await this.values.forget(id);
+      if (!keepData) await this.values.forget(id);
     }
     // Hosts let go of the removed versions before their files go.
     await this.changed();
@@ -704,7 +733,7 @@ export class PluginServices {
       if (inside && !inside.startsWith("..") && !path.isAbsolute(inside))
         await rm(entry.root, { recursive: true, force: true });
     }
-    if (last) await rm(this.dataFolder(id), { recursive: true, force: true });
+    if (last && !keepData) await rm(this.dataFolder(id), { recursive: true, force: true });
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */

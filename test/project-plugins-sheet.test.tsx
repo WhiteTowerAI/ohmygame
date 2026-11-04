@@ -85,6 +85,22 @@ it("keeps the older version a project uses when allowing it", async () => {
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "acme/tiles", true, "2.0.0");
 });
 
+it("moves a project off an uninstalled version, and finds or removes an uninstalled plugin", async () => {
+  view.plugins[1] = { ...view.plugins[1]!, used: "1.0.0", status: "version-not-installed" };
+  view.plugins[2] = { ...view.plugins[2]!, version: "2.0.0", used: "2.0.0", status: "not-installed", consented: true };
+  const onOpenPlugins = vi.fn();
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onOpenPlugins={onOpenPlugins} />));
+  const find = (text: string) => [...document.querySelectorAll("button")].find((button) => button.textContent === text)!;
+  await act(async () => find("Use 1.2.0").click());
+  expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/game-studio", true, "1.2.0");
+  // Nothing installed to switch: it is found again in Plugins, or taken out here.
+  expect(toggle("Tiles")).toBeNull();
+  await act(async () => find("Find in Plugins").click());
+  expect(onOpenPlugins).toHaveBeenCalled();
+  await act(async () => find("Remove from project").click());
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false, undefined);
+});
+
 it("allows the type's plugin in a copied project without turning it off", async () => {
   view.plugins[0] = { ...view.plugins[0]!, status: "needs-approval", capabilities: ["processes:godot"] };
   await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));

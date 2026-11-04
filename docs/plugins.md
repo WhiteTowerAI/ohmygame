@@ -385,7 +385,9 @@ HTTP on this computer), there's no market and nothing is read.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
+on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
+projects: uninstalling lists them and leaves them in place. `ui.preview` lets its pages
 load page components still in preview, and `ui.major` says which major its
 pages use, so an app without it can say which way to go (see
 [Page components](#page-components)).
@@ -417,6 +419,14 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
   `plugins/` only switches off; uninstalling it is refused.
+- **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
+  whether it is the last version, the saved settings and size of the data
+  folder that go with the last one, the projects that use the version, and
+  the manifest's `projectFiles`, which stay. The last version always takes
+  what the person allowed; `?keepData=true` on the `DELETE` keeps its
+  settings and data folder for a later install. A project's Plugins sheet
+  offers an installed version in place of an uninstalled one, and for an
+  uninstalled plugin, finding it in Plugins or removing it from the project.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the

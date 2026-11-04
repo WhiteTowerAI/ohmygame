@@ -31,7 +31,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     void load().catch((cause: unknown) => setError(message(cause)));
   }, [open, projectId]);
 
-  async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented): Promise<void> {
+  async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented, version = on ? keptVersion(plugin) : undefined): Promise<void> {
     if (on && !consented) {
       setConsent(plugin);
       return;
@@ -41,7 +41,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     try {
       if (on && !plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
       // Turning on again at the version in use is how a project allows a plugin it asks for.
-      await setProjectPlugin(projectId, plugin.id, on, on ? keptVersion(plugin) : undefined);
+      await setProjectPlugin(projectId, plugin.id, on, version);
       onChanged?.();
       await load();
     } catch (cause) {
@@ -76,9 +76,20 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
               {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
                 <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
               ) : null}
-              <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
+              {/* A version this project uses was uninstalled: it moves to one that is installed. */}
+              {plugin.used && plugin.status === "version-not-installed" && plugin.version !== plugin.used ? (
+                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true, plugin.consented, plugin.version)}>
+                  {t("projectPlugins.useVersion", { version: plugin.version })}
+                </Button>
+              ) : null}
+              {/* The plugin itself was uninstalled: it is added again from Plugins, or taken out of the project. */}
+              {plugin.used && plugin.status === "not-installed" ? <>
+                {onOpenPlugins ? <Button size="sm" variant="ghost" onClick={() => { onClose(); onOpenPlugins(); }}>{t("projectPlugins.reinstall")}</Button> : null}
+                {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
+              </> : null}
+              {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
                 disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
-                onChange={(next) => void change(plugin, next)} />
+                onChange={(next) => void change(plugin, next)} /> : null}
             </div>
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}

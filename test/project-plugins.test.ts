@@ -492,6 +492,7 @@ describe("project plugins", () => {
             token: { type: "secret", title: "Token" },
           },
           capabilities: { processes: ["maker"], secrets: true },
+          projectFiles: ["./.maker/"],
           contributes: {
             mcpServers: [
               { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"], timeoutSeconds: 600 },
@@ -546,8 +547,18 @@ describe("project plugins", () => {
       await services.uninstall("../../projects");
       expect(() => services.dataFolder("../../projects")).toThrow("Not a plugin id");
       expect((await stat(outside)).isDirectory()).toBe(true);
+      // Before uninstalling, it says what goes: the last version takes its settings and data.
+      await writeFile(path.join(services.dataFolder("acme/maker"), "session.json"), "{}");
+      expect(await services.uninstallPreview("acme/maker", "1.0.0")).toEqual({ last: true, settings: 2, dataBytes: 2, projectFiles: ["./.maker/"] });
+      // Kept, they wait for a later install; what was allowed goes either way.
+      await services.uninstall("acme/maker", "1.0.0", { keepData: true });
+      expect(services.grants.plugin("acme/maker")).toBeUndefined();
+      expect(services.values.count("acme/maker")).toBe(2);
+      expect((await stat(path.join(services.dataFolder("acme/maker"), "session.json"))).isFile()).toBe(true);
+      expect((await services.index.add(root)).ok).toBe(true);
       // Uninstalling the last version deletes the data folder.
       await services.uninstall("acme/maker");
+      expect(services.values.count("acme/maker")).toBe(0);
       await expect(stat(services.dataFolder("acme/maker"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await services.close();

@@ -3,14 +3,16 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
+import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let configuration: StorePluginConfiguration;
+let uninstallPreview: PluginUninstallPreview;
 const api = {
   consentToPlugin: vi.fn(async () => {}),
   setStorePluginEnabled: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
+  readPluginUninstall: vi.fn(async () => uninstallPreview),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
@@ -55,6 +57,7 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
   configuration = { path: { type: "path", value: null }, token: { type: "secret", configured: true } };
+  uninstallPreview = { last: false, settings: 0, dataBytes: 0, projectFiles: [], projects: [] };
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -104,9 +107,30 @@ it("asks for what isn't allowed yet, turns it on in every project with a warning
   await act(async () => uninstall[1]!.click());
   expect(api.uninstallStorePlugin).not.toHaveBeenCalled();
   await act(async () => [...document.querySelectorAll(".ui-dialog button, [role=dialog] button")].find((item) => item.textContent === "Uninstall")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-  expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0");
+  expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0", { keepData: false });
   // Another version is still installed, so the page stays.
   expect(onRemoved).not.toHaveBeenCalled();
+});
+
+it("says what uninstalling the last version removes and leaves, and can keep its settings and data", async () => {
+  uninstallPreview = { last: true, settings: 2, dataBytes: 3 * 1024, projectFiles: ["./.maker/"], projects: ["Castle", "Forest"] };
+  const onRemoved = vi.fn();
+  const [group] = groupStorePlugins([row("1.0.0")]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={onRemoved} />));
+  await act(async () => document.querySelector<HTMLButtonElement>(".plugin-store-versions button")!.click());
+  const dialog = () => document.querySelector("[role=dialog]")!;
+  expect(api.readPluginUninstall).toHaveBeenCalledWith("acme/maker", "1.0.0");
+  expect(dialog().textContent).toContain("What you allowed it to do");
+  expect(dialog().textContent).toContain("2 saved settings and sign-ins");
+  expect(dialog().textContent).toContain("Its data folder (3 KB)");
+  expect(dialog().textContent).toContain("CastleForest");
+  expect(dialog().textContent).toContain("./.maker/");
+  // Kept, the settings and data are no longer listed as removed.
+  await act(async () => dialog().querySelector<HTMLInputElement>("input[type=checkbox]")!.click());
+  expect(dialog().textContent).not.toContain("Its data folder");
+  await act(async () => [...dialog().querySelectorAll("button")].find((item) => item.textContent === "Uninstall")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0", { keepData: true });
+  expect(onRemoved).toHaveBeenCalled();
 });
 
 it("warns before a plugin already allowed goes on in every project, allowing nothing more", async () => {
@@ -270,7 +294,7 @@ it("says a preinstalled plugin came with the app, where from, and that it can be
   expect(document.querySelector("h1")!.textContent).toContain("Included");
   expect(document.querySelector<HTMLAnchorElement>('a[href="https://github.com/example/tools"]')).not.toBeNull();
   await act(async () => button("Uninstall").click());
-  expect(document.body.textContent).toContain("Projects that use this version stop running the plugin");
+  expect(document.body.textContent).toContain("Version 1.0.0 and its files");
 });
 
 it("goes back to About when the open tab goes away with the newest version", async () => {

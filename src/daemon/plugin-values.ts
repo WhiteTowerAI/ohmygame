@@ -146,6 +146,11 @@ export class PluginValues {
     });
   }
 
+  /** How many values are saved for a plugin, for what uninstalling it removes. */
+  count(id: string): number {
+    return Object.keys(this.#values[id] ?? {}).length;
+  }
+
   /** Removes a plugin's values, as when its last version is uninstalled. */
   forget(id: string): Promise<void> {
     return this.#write((values) => {
