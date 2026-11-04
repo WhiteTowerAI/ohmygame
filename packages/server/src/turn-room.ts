@@ -23,6 +23,7 @@ import type { MultiplayerIdentity } from "./auth.js";
 import { nextTurn, tickMsOf } from "./game.js";
 import { describePlayerRange, type GameAdapter } from "./adapters.js";
 import type { RoomStore, StoredRoom } from "./store.js";
+import type { ServerStore } from "./game-data.js";
 
 export interface RoomServices {
   config: MultiplayerManifestConfig;
@@ -32,6 +33,8 @@ export interface RoomServices {
   reserve(roomId: string): boolean;
   /** How long a finished drop-in round shows its result before the next one starts. */
   roundRestartMs: number;
+  /** Where finished matches go when the rules name a matchBoard and the service keeps game data. */
+  results?: { store: ServerStore; allowGame?(gameId: string): boolean | Promise<boolean> };
 }
 export const ROOM_IDLE_MS = 30 * 60 * 1000;
 export const ROUND_RESTART_MS = 3000;
@@ -597,6 +600,34 @@ export class GameRoom extends Room {
       );
     }
   }
+  /**
+   * Counts a finished match for its winners on the rules' match board. A failure costs
+   * the leaderboard one result and never the match, so it is only logged.
+   */
+  private async recordResult(state: MultiplayerGameState, now: number): Promise<void> {
+    const board = this.services.adapter.matchBoard;
+    const results = this.services.results;
+    const winners = state.winnerPlayerIds ?? (state.winnerPlayerId ? [state.winnerPlayerId] : []);
+    if (!board || !results || !winners.length) return;
+    const { gameId } = this.services.config;
+    try {
+      if (results.allowGame && !(await results.allowGame(gameId))) return;
+      for (const playerId of winners) {
+        const userId = this.record.members.find((member) => member.playerId === playerId)?.userId;
+        if (!userId) continue;
+        await results.store.addScore(gameId, board, {
+          playerId: userId,
+          name: state.players.find((player) => player.playerId === playerId)?.displayName ?? "Player",
+          delta: 1,
+          // As with submitted scores, only signed-in players appear publicly.
+          public: userId.startsWith("account:"),
+          now,
+        });
+      }
+    } catch (cause) {
+      console.error("Recording a match result failed", cause);
+    }
+  }
   private commit(
     state: MultiplayerGameState,
     type: MultiplayerEventType,
@@ -611,8 +642,10 @@ export class GameRoom extends Room {
     members = this.record.members,
   ): void {
     const now = Date.now();
-    if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished")
+    if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished") {
       this.finishedAt = now;
+      void this.recordResult(state, now);
+    }
     const record: StoredRoom = {
       ...this.record,
       members,

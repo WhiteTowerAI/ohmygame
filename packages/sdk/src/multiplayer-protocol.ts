@@ -245,6 +245,12 @@ export interface MultiplayerGameAdapter<State, Command> {
   ): State;
   /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
   tickMs?: number;
+  /**
+   * A leaderboard, named with MATCH_BOARD_PREFIX, on which a service that keeps game data
+   * records every finished match: each winner's count goes up by one. Only rules the
+   * service runs itself may set it, since their results cannot be forged.
+   */
+  matchBoard?: string;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
   validateInput?(input: RealtimeInput, playerId: string): void;
   /**

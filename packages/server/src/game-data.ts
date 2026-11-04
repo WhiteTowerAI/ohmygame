@@ -29,6 +29,15 @@ export interface ServerStore {
     board: string,
     score: { playerId: string; name: string; value: number; public: boolean; order?: LeaderboardOrder; now: number },
   ): Promise<{ improved: boolean }>;
+  /**
+   * Adds delta to the player's score on a board that counts up, such as wins, which the
+   * service keeps for rules it trusts. The board ranks higher scores first.
+   */
+  addScore(
+    gameId: string,
+    board: string,
+    score: { playerId: string; name: string; delta: number; public: boolean; now: number },
+  ): Promise<void>;
   /** Public entries from rank offset + 1, best first; ties go to the earlier score. */
   topScores(gameId: string, board: string, limit: number, offset: number): Promise<LeaderboardEntry[]>;
   /** The player's best, ranked among public entries. */
@@ -104,6 +113,19 @@ export class MemoryGameDataStore implements ServerStore {
       at: improved ? score.now : previous!.at,
     });
     return { improved };
+  }
+  async addScore(gameId: string, board: string, score: { playerId: string; name: string; delta: number; public: boolean; now: number }) {
+    const entry = this.boards.get(slot(gameId, board)) ?? { order: "desc" as const, scores: new Map<string, MemoryScore>() };
+    if (entry.order !== "desc") throw orderConflict(entry.order);
+    this.boards.set(slot(gameId, board), entry);
+    const previous = entry.scores.get(score.playerId);
+    entry.scores.set(score.playerId, {
+      playerId: score.playerId,
+      name: score.name,
+      public: score.public,
+      score: (previous?.score ?? 0) + score.delta,
+      at: score.now,
+    });
   }
   async topScores(gameId: string, board: string, limit: number, offset: number) {
     const entry = this.boards.get(slot(gameId, board));

@@ -3,6 +3,7 @@ import express, { type Application, type Request, type Response } from "express"
 import {
   CLOUD_NAME_PATTERN,
   LEADERBOARD_PAGE_MAX,
+  MATCH_BOARD_PREFIX,
   SAVE_MAX_BYTES,
   SAVE_MAX_KEYS,
   SCORE_SUBMITS_PER_MINUTE,
@@ -166,6 +167,8 @@ export function mountGameData(app: Application, options: GameDataOptions, auth: 
   app.post("/v1/games/:gameId/leaderboards/:board/scores", json, route(async (request, response) => {
     const { gameId, identity } = await player(request);
     const board = name(request.params.board, "leaderboard name");
+    if (board.startsWith(MATCH_BOARD_PREFIX))
+      throw new RouteError(403, "not_authorized", "The service records match results on this leaderboard; players cannot submit to it.");
     const body = request.body as unknown;
     if (!isRecord(body) || Object.keys(body).some((field) => field !== "score" && field !== "order"))
       throw new RouteError(400, "invalid_request", "Send { score } and optionally { order }.");

@@ -1,3 +1,4 @@
+import { MATCH_WINS } from "./match-board.js";
 import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
 import { createRoomAdapter, finishMatch, type GameAdapter } from "@ohmygame/server/adapters";
 import { moveToward, validateDirection } from "./direction.js";
@@ -42,6 +43,7 @@ export function spawnArenaPlayers(state: MultiplayerGameState, only?: string): M
 export function createArenaAdapter(): GameAdapter {
   return {
     ...createRoomAdapter("realtime"),
+    matchBoard: MATCH_WINS,
     step: stepArena,
     validateInput: validateDirection,
     onPlayerJoin: (state, playerId) => spawnArenaPlayers(state, playerId),

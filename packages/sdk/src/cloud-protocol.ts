@@ -23,6 +23,12 @@ export const SCORE_SUBMITS_PER_MINUTE = 10;
 /** The most leaderboard entries one request returns. */
 export const LEADERBOARD_PAGE_MAX = 100;
 
+/**
+ * Leaderboards the game service writes itself from match results, such as match.wins for
+ * built-in rules. Players can read them but not submit to them.
+ */
+export const MATCH_BOARD_PREFIX = "match.";
+
 /** "desc": a higher score ranks first, as in points. "asc": lower ranks first, as in a time. */
 export type LeaderboardOrder = "desc" | "asc";
 

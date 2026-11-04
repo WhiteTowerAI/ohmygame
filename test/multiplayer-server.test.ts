@@ -5,7 +5,7 @@ import { createServer, type AddressInfo } from "node:net";
 import path from "node:path";
 import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, startDevServer } from "@ohmygame/server";
+import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, MemoryGameDataStore, startDevServer } from "@ohmygame/server";
 import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
@@ -254,6 +254,28 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(second.snapshot!.state.currentPlayerId).toBe(first.ready!.playerId);
     expect(second.snapshot!.state.winnerPlayerId).toBe("");
     expect(second.snapshot!.state.winnerPlayerIds).toBeUndefined();
+  });
+
+  it("counts a finished built-in match for its winner on the match board", async () => {
+    const store = new MemoryGameDataStore();
+    const deployment = await customService("ranked-stones", createBuiltInAdapter("stones"), {}, { gameData: { store } });
+    const [first, second] = await match(deployment);
+    const paced = async (...args: Parameters<typeof command>) => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return command(...args);
+    };
+    let next = first;
+    while (next.snapshot!.state.phase === "playing") {
+      const result = await paced(next, "action", take(Math.min(3, pile(next))));
+      await wait(() => expect(first.snapshot!.sequence).toBe(result.result.sequence));
+      next = next === first ? second : first;
+    }
+    const winner = first.snapshot!.state.winnerPlayerId;
+    const boards = (store as unknown as { boards: Map<string, { scores: Map<string, { name: string; score: number; public: boolean }> }> }).boards;
+    await wait(() => expect(boards.get("ranked-stones\u0000match.wins")?.scores.size).toBe(1));
+    const [entry] = [...boards.get("ranked-stones\u0000match.wins")!.scores.values()];
+    // Guests are counted for themselves only, as with submitted scores.
+    expect(entry).toMatchObject({ score: 1, public: false, name: first.snapshot!.state.players.find((player) => player.playerId === winner)!.displayName });
   });
 
   it("ends a match without a winner when a removal leaves too few seats", async () => {

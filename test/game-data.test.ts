@@ -84,6 +84,16 @@ describe.each(stores)("%s game data store", (_name, open) => {
     expect(await store.playerScore("g1", "time", "account:a")).toMatchObject({ score: 29.25, at: 8, rank: 1 });
   });
 
+  it("counts up a board of match results", async () => {
+    const add = (playerId: string, now: number) => store.addScore("g6", "match.wins", { playerId, name: playerId, delta: 1, public: true, now });
+    await add("account:a", 1);
+    await add("account:b", 2);
+    await add("account:a", 3);
+    expect((await store.topScores("g6", "match.wins", 10, 0)).map(({ playerId, score }) => [playerId, score])).toEqual([["a", 2], ["b", 1]]);
+    await store.submitScore("g6", "time", { playerId: "account:a", name: "A", value: 1, public: true, order: "asc", now: 1 });
+    await expect(store.addScore("g6", "time", { playerId: "account:a", name: "A", delta: 1, public: true, now: 2 })).rejects.toBeInstanceOf(ConflictError);
+  });
+
   it("deletes a player everywhere and prunes players who stopped coming", async () => {
     for (const gameId of ["g3", "g4"]) {
       await store.putSave(gameId, "account:gone", "s", "1", { maxKeys: 5, now: 1 });
@@ -205,6 +215,10 @@ describe("game data service", () => {
     expect((await call("POST", "/v1/games/board/leaderboards/points/scores", bo, { score: 1, order: "asc" })).body).toMatchObject({ code: "conflict" });
     expect((await call("POST", "/v1/games/board/leaderboards/points/scores", bo, { score: "lots" })).body).toMatchObject({ code: "invalid_request" });
     expect((await call("GET", "/v1/games/board/leaderboards/points?limit=500", bo)).body).toMatchObject({ code: "invalid_request" });
+
+    // Match boards are the service's to write.
+    expect(await call("POST", "/v1/games/board/leaderboards/match.wins/scores", ada, { score: 100 })).toMatchObject({ status: 403, body: { code: "not_authorized" } });
+    expect((await call("GET", "/v1/games/board/leaderboards/match.wins", ada)).status).toBe(200);
 
     const eager = await sign("eager", "Eager");
     for (let index = 0; index < SCORE_SUBMITS_PER_MINUTE; index++)

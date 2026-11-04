@@ -1,3 +1,4 @@
+import { MATCH_WINS } from "./match-board.js";
 import { compileGame, defineGame, type GameAdapter } from "@ohmygame/server";
 import {
   GOMOKU_SIZE,
@@ -54,5 +55,5 @@ export const gomokuRules = defineGame({
 /** The board is empty in the lobby, so players see it before the owner starts. */
 export function createGomokuAdapter(): GameAdapter {
   const rules = compileGame(gomokuRules);
-  return { ...rules, initialState: () => ({ ...rules.initialState(), game: initialGomokuState() }) };
+  return { ...rules, matchBoard: MATCH_WINS, initialState: () => ({ ...rules.initialState(), game: initialGomokuState() }) };
 }

@@ -135,6 +135,23 @@ export class PostgresGameDataStore implements ServerStore {
       return { improved: result.rows[0]!.improved };
     });
   }
+  async addScore(gameId: string, board: string, score: { playerId: string; name: string; delta: number; public: boolean; now: number }) {
+    await this.migrate();
+    await this.transaction(async (client) => {
+      await client.query("INSERT INTO ohmygame_boards VALUES ($1, $2, 'desc') ON CONFLICT DO NOTHING", [gameId, board]);
+      const { rows } = await client.query<{ rank_order: LeaderboardOrder }>(
+        "SELECT rank_order FROM ohmygame_boards WHERE game_id = $1 AND board = $2",
+        [gameId, board],
+      );
+      if (rows[0]!.rank_order !== "desc") throw orderConflict(rows[0]!.rank_order);
+      await client.query(
+        `INSERT INTO ohmygame_scores AS s VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (game_id, board, player_id) DO UPDATE SET
+           name = EXCLUDED.name, public = EXCLUDED.public, score = s.score + EXCLUDED.score, at = EXCLUDED.at`,
+        [gameId, board, score.playerId, score.name, score.delta, score.now, score.public],
+      );
+    });
+  }
   async topScores(gameId: string, board: string, limit: number, offset: number) {
     const order = await this.order(gameId, board);
     if (!order) return [];

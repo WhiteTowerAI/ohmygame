@@ -1,3 +1,4 @@
+import { MATCH_WINS } from "./match-board.js";
 import { compileGame, defineGame, type GameAdapter } from "@ohmygame/server";
 
 export const STONES = 21;
@@ -26,5 +27,5 @@ export const stonesRules = defineGame({
 });
 
 export function createStonesAdapter(): GameAdapter {
-  return compileGame(stonesRules);
+  return { ...compileGame(stonesRules), matchBoard: MATCH_WINS };
 }

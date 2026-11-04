@@ -65,6 +65,15 @@ times. A later score may leave `order` out; naming the other order answers
 A guest's score is kept for them only, with `public: false` and the rank it would
 take among accounts.
 
+Boards named `match.…` belong to the service: it counts results of rules it runs
+itself, and a player's submission to one answers 403 `not_authorized`. When a match
+of rules with a `matchBoard` finishes in a room of a service that keeps game data,
+each winner's count on that board goes up by one, publicly for accounts and
+privately for guests. The built-in gomoku, stones and arena rules count wins on
+`match.wins`; roam has no winners. Rules a game runs itself, on its host's browser
+(see [multiplayer](multiplayer.md)), cannot write to a match board, since their
+results could be forged.
+
 | Limit                                  | Value | Error            |
 | -------------------------------------- | ----- | ---------------- |
 | Saves per player in a game             | 32    | `quota_exceeded` |

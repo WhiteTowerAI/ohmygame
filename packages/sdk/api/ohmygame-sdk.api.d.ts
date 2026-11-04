@@ -248,6 +248,11 @@ export declare const SAVE_MAX_BYTES: number;
 export declare const SCORE_SUBMITS_PER_MINUTE = 10;
 /** The most leaderboard entries one request returns. */
 export declare const LEADERBOARD_PAGE_MAX = 100;
+/**
+ * Leaderboards the game service writes itself from match results, such as match.wins for
+ * built-in rules. Players can read them but not submit to them.
+ */
+export declare const MATCH_BOARD_PREFIX = "match.";
 /** "desc": a higher score ranks first, as in points. "asc": lower ranks first, as in a time. */
 export type LeaderboardOrder = "desc" | "asc";
 export interface SaveRecord {
@@ -797,6 +802,12 @@ export interface MultiplayerGameAdapter<State, Command> {
     }[]): State;
     /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
     tickMs?: number;
+    /**
+     * A leaderboard, named with MATCH_BOARD_PREFIX, on which a service that keeps game data
+     * records every finished match: each winner's count goes up by one. Only rules the
+     * service runs itself may set it, since their results cannot be forged.
+     */
+    matchBoard?: string;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
     validateInput?(input: RealtimeInput, playerId: string): void;
     /**

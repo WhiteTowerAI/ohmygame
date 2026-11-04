@@ -293,6 +293,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           return true;
         },
         roundRestartMs: options.roundRestartMs ?? ROUND_RESTART_MS,
+        ...(options.gameData ? { results: { store: options.gameData.store, allowGame: options.gameData.allowGame } } : {}),
       };
       static async onAuth(token: string, value: unknown) {
         if (

@@ -9,6 +9,7 @@ export { moveToward, validateDirection, type DirectionInput } from "./direction.
 export { createGomokuAdapter, gomokuRules } from "./gomoku.js";
 export { createRoamAdapter, ROAM_UNITS_PER_SECOND, spawnRoamPlayer, stepRoam } from "./roam.js";
 export { createStonesAdapter } from "./stones.js";
+export { MATCH_WINS } from "./match-board.js";
 
 /** The rules OhMyGame offers its games. The service runs only the rules it is given. */
 export type BuiltInAdapterId = "gomoku" | "stones" | "arena" | "roam";
