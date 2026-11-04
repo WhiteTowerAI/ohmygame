@@ -29,6 +29,11 @@ it("redacts saved secrets and what looks like a credential before anyone reads t
   // So is one the extension host already cut, before it got here.
   expect(redactCredentials(`Failed with abc…`, ["abcdefgh"])).toBe("Failed with [redacted]…");
   expect(redactCredentials(`Built 3 levels…`, ["abcdefgh"])).toBe("Built 3 levels…");
+  // Secrets that overlap, or contain each other, go together, whole or cut.
+  expect(redactCredentials("Failed with abcd…", ["abcdefgh", "cdefghijkl"])).toBe("Failed with [redacted]…");
+  expect(redactCredentials("Failed with abcdefgh12345…", ["abcdefgh", "abcdefgh1234567890"])).toBe("Failed with [redacted]…");
+  expect(redactCredentials("a zzzzabcd…", ["zzzzab", "abcdefgh"])).toBe("a [redacted]…");
+  expect(redactCredentials("keys abcdefgh and abcdefgh", ["abcdefgh"])).toBe("keys [redacted] and [redacted]");
   expect(redactCredentials("Authorization: Bearer abcdefghijklmnop")).not.toContain("abcdefghijklmnop");
   expect(redactCredentials("sent Bearer abcdefghijklmnop")).toBe("sent Bearer [redacted]");
   expect(redactCredentials("GET https://user:hunter22@example.com/x?token=abc123&page=2")).toBe("GET https://user:[redacted]@example.com/x?token=[redacted]&page=2");

@@ -43,19 +43,7 @@ const REDACTED = "[redacted]";
  * key formats. It can't know every format, so it is a safety net, not a promise.
  */
 export function redactCredentials(text: string, secrets: readonly string[] = []): string {
-  let result = text;
-  // Longest first, so a secret that contains another goes whole.
-  const saved = [...secrets].filter((value) => value.length >= 4).sort((a, b) => b.length - a.length);
-  for (const secret of saved) result = result.split(secret).join(REDACTED);
-  // The extension host cuts long lines and errors with "…", which may fall inside a secret.
-  if (result.endsWith("…"))
-    for (const secret of saved) {
-      const start = [...Array(secret.length - 1).keys()].map((index) => secret.length - 1 - index).find((length) => result.endsWith(`${secret.slice(0, length)}…`));
-      if (start) {
-        result = `${result.slice(0, -(start + 1))}${REDACTED}…`;
-        break;
-      }
-    }
+  const result = withoutSecrets(text, secrets.filter((value) => value.length >= 4));
   return result
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`)
     .replace(/\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization)["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, `$1${REDACTED}`)
@@ -65,4 +53,37 @@ export function redactCredentials(text: string, secrets: readonly string[] = [])
     .replace(/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, REDACTED)
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, REDACTED)
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, REDACTED);
+}
+
+/**
+ * Every place a saved secret shows, whole or, where the extension host cut a
+ * line with "…", as its start. They're found in the text as it came and
+ * merged, so secrets that overlap or contain each other go together.
+ */
+function withoutSecrets(text: string, secrets: readonly string[]): string {
+  const ranges: Array<[number, number]> = [];
+  for (const secret of secrets)
+    for (let at = text.indexOf(secret); at !== -1; at = text.indexOf(secret, at + 1)) ranges.push([at, at + secret.length]);
+  if (text.endsWith("…")) {
+    const end = text.length - 1;
+    const body = text.slice(0, end);
+    for (const secret of secrets)
+      for (let length = secret.length - 1; length > 0; length -= 1)
+        if (body.endsWith(secret.slice(0, length))) {
+          ranges.push([end - length, end]);
+          break;
+        }
+  }
+  if (!ranges.length) return text;
+  ranges.sort((a, b) => a[0] - b[0]);
+  let result = "";
+  let from = 0;
+  for (let index = 0; index < ranges.length; ) {
+    const start = ranges[index]![0];
+    let stop = ranges[index]![1];
+    for (index += 1; index < ranges.length && ranges[index]![0] <= stop; index += 1) stop = Math.max(stop, ranges[index]![1]);
+    result += `${text.slice(from, start)}${REDACTED}`;
+    from = stop;
+  }
+  return result + text.slice(from);
 }
