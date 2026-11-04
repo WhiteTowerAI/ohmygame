@@ -1,6 +1,13 @@
-import { Type } from "typebox";
-import { Check, Equal as equal } from "typebox/value";
+import { Equal as equal } from "typebox/value";
 import type { AgentModelRef, AgentReasoningLevel } from "./contracts.js";
+import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from "./canvas-table-schema.js";
+import { tableValidator } from "./canvas-validators.js";
+
+export {
+  CANVAS_TABLE_SCHEMA,
+  MAX_TABLE_COLUMNS,
+  MAX_TABLE_ROWS,
+} from "./canvas-table-schema.js";
 
 export type CanvasCell = string | number | boolean | null;
 export type CanvasColumnType = "text" | "number" | "boolean";
@@ -38,60 +45,14 @@ export type CanvasTableGenerationResponse = CanvasTableGenerationResult & {
   model: AgentModelRef;
   revision: string;
 };
-export const MAX_TABLE_ROWS = 1000;
-export const MAX_TABLE_COLUMNS = 100;
 export const canvasTablePath = (id: string) => `canvas/tables/${id}.json`;
 export const canvasCell = (
   row: CanvasTableRow,
   columnId: string,
 ): CanvasCell | undefined =>
   Object.hasOwn(row.cells, columnId) ? row.cells[columnId] : undefined;
-const id = Type.String({ pattern: "^[a-zA-Z0-9_-]{1,100}$" });
-export const CANVAS_TABLE_SCHEMA = Type.Object(
-  {
-    version: Type.Literal(1),
-    id,
-    title: Type.String({ maxLength: 200 }),
-    columns: Type.Array(
-      Type.Object(
-        {
-          id,
-          title: Type.String({ maxLength: 200 }),
-          type: Type.Union([
-            Type.Literal("text"),
-            Type.Literal("number"),
-            Type.Literal("boolean"),
-          ]),
-          width: Type.Optional(Type.Number({ minimum: 80, maximum: 1200 })),
-        },
-        { additionalProperties: false },
-      ),
-      { minItems: 1, maxItems: MAX_TABLE_COLUMNS },
-    ),
-    rows: Type.Array(
-      Type.Object(
-        {
-          id,
-          cells: Type.Record(
-            id,
-            Type.Union([
-              Type.String({ maxLength: 10000 }),
-              Type.Number(),
-              Type.Boolean(),
-              Type.Null(),
-            ]),
-          ),
-        },
-        { additionalProperties: false },
-      ),
-      { maxItems: MAX_TABLE_ROWS },
-    ),
-  },
-  { additionalProperties: false },
-);
-
 export function isCanvasTable(value: unknown): value is CanvasTable {
-  if (!Check(CANVAS_TABLE_SCHEMA, value)) return false;
+  if (!tableValidator.Check(value)) return false;
   const table = value as CanvasTable;
   const columns = new Map(table.columns.map((column) => [column.id, column]));
   return (
@@ -382,25 +343,26 @@ export function mergeCanvasTable(
         }
       }
   }
-  const rows = entities(base.rows, local.rows, remote.rows, (a, b, c) => ({
-    id: b.id,
-    cells: Object.fromEntries(
-      [
-        ...new Set([
-          ...Object.keys(a.cells),
-          ...Object.keys(b.cells),
-          ...Object.keys(c.cells),
-        ]),
-      ].flatMap((id) => {
+  const rows = entities(base.rows, local.rows, remote.rows, (a, b, c) => {
+    if (equal(b.cells, c.cells) || equal(a.cells, c.cells)) return b;
+    if (equal(a.cells, b.cells)) return c;
+    const ids = new Set([
+      ...Object.keys(a.cells),
+      ...Object.keys(b.cells),
+      ...Object.keys(c.cells),
+    ]);
+    const cells = Object.fromEntries(
+      [...ids].flatMap((id) => {
         const value = merge(
           canvasCell(a, id),
           canvasCell(b, id),
           canvasCell(c, id),
         );
-        return columnIds.has(id) && value !== undefined ? [[id, value]] : [];
+        return value === undefined ? [] : [[id, value]];
       }),
-    ),
-  }));
+    );
+    return { id: b.id, cells };
+  });
   const result = {
     ...local,
     title: merge(base.title, local.title, remote.title),

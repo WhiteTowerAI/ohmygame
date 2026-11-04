@@ -28,10 +28,10 @@ export async function readCanvasFile(workspace: string, name: string, limit = 4 
   } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw cause; }
 }
 
-export function parseCanvasJson<T>(text: string, name: string, schema: object): T {
+export function parseCanvasJson<T>(text: string, name: string, schema: object, validator?: { Check(value: unknown): boolean }): T {
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new CanvasError(`canvas/${name}: invalid JSON`); }
-  if (!Check(schema, value)) {
+  if (!(validator ? validator.Check(value) : Check(schema, value))) {
     const issues = [...Errors(schema, value)].slice(0, 8).map((issue) => `${issue.instancePath || "/"}: ${issue.message}`);
     throw new CanvasError(`canvas/${name}: ${issues.join("; ")}`);
   }

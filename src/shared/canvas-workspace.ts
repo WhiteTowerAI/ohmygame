@@ -53,6 +53,10 @@ export function isCanvasBoard(value: unknown): value is CanvasBoard {
   return typeof boardId === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(boardId) && isAssetCanvasDocument(canvas);
 }
 export function createCanvasBoard(id = crypto.randomUUID()): CanvasBoard { return { ...createAssetCanvasDocument(), id }; }
+function byId<T extends { id: string }>(items: readonly T[]) {
+  return new Map(items.map((item) => [item.id, item]));
+}
+
 export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanvasDocument, remote: AssetCanvasDocument): AssetCanvasDocument | undefined {
   const serialize = (value: unknown) => JSON.stringify(value, (_key, item) =>
     item && typeof item === "object" && !Array.isArray(item)
@@ -61,8 +65,13 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
   const equal = (a: unknown, b: unknown) => serialize(a) === serialize(b);
   const merge = <T>(a: T, b: T, c: T): T | undefined => equal(b, c) || equal(a, c) ? b : equal(a, b) ? c : undefined;
   const nodes: AssetCanvasNode[] = [];
-  for (const id of new Set([...local.nodes, ...remote.nodes].map((node) => node.id))) {
-    const before = base.nodes.find((node) => node.id === id), ours = local.nodes.find((node) => node.id === id), theirs = remote.nodes.find((node) => node.id === id);
+  const baseNodes = byId(base.nodes);
+  const localNodes = byId(local.nodes);
+  const remoteNodes = byId(remote.nodes);
+  for (const id of new Set([...localNodes.keys(), ...remoteNodes.keys()])) {
+    const before = baseNodes.get(id);
+    const ours = localNodes.get(id);
+    const theirs = remoteNodes.get(id);
     if (!ours && before) continue;
     if (!theirs && before) { if (!equal(before, ours)) return undefined; continue; }
     if (!ours || !theirs || !before) { if (ours && theirs && !equal(ours, theirs)) return undefined; nodes.push((ours ?? theirs)!); continue; }
@@ -92,8 +101,13 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     nodes.push({ ...ours, ...metadata, ...dimensions, position, data } as AssetCanvasNode);
   }
   const edges = [];
-  for (const id of new Set([...local.edges, ...remote.edges].map((edge) => edge.id))) {
-    const before = base.edges.find((edge) => edge.id === id), ours = local.edges.find((edge) => edge.id === id), theirs = remote.edges.find((edge) => edge.id === id);
+  const baseEdges = byId(base.edges);
+  const localEdges = byId(local.edges);
+  const remoteEdges = byId(remote.edges);
+  for (const id of new Set([...localEdges.keys(), ...remoteEdges.keys()])) {
+    const before = baseEdges.get(id);
+    const ours = localEdges.get(id);
+    const theirs = remoteEdges.get(id);
     if (before && !ours) continue;
     if (before && !theirs) { if (!equal(before, ours)) return undefined; continue; }
     const edge = merge(before, ours, theirs);
