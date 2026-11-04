@@ -13,6 +13,7 @@ import {
 } from "./generation-config.js";
 import { boardContentValidator, layoutValidator, positionValidator } from "./canvas-validators.js";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
+import { withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
 
@@ -66,17 +67,6 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
   return { id, type, position, data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] } };
 }
 
-export function createAssetCanvasStarterDocument(
-  type: AssetCanvasStarter,
-  options: Parameters<typeof createAssetGenerationNode>[2] = {},
-): { document: AssetCanvasDocument; nodeId: string } {
-  const document = createAssetCanvasDocument();
-  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, options);
-  document.nodes = [node];
-  document.editorLayout.nodes = { [node.id]: node.position };
-  return { document, nodeId: node.id };
-}
-
 export function preferredImageOption(model?: ImageModel, preferredAspectRatio = "1:1"): ImageModel["generationOptions"][number] | undefined {
   return model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === preferredAspectRatio)
     ?? model?.generationOptions.find((option) => option.aspectRatio === preferredAspectRatio)
@@ -107,6 +97,17 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) throw new Error(`Asset Canvas edge ${edge.id} references a missing Node`);
   }
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
+  for (const node of document.nodes) {
+    const seen = new Set([node.id]);
+    let parentId = node.parentId;
+    while (parentId) {
+      const parent = nodes.get(parentId);
+      if (parent?.type !== "group" || seen.has(parentId)) throw new Error(`Node ${node.id} has an invalid parent group`);
+      seen.add(parentId);
+      parentId = parent.parentId;
+    }
+    if (node.type === "group" && (!node.width || !node.height)) throw new Error(`Group ${node.id} needs a width and height`);
+  }
   for (const node of document.nodes) {
     if (node.type === "text" || node.type === "document") {
       for (const reference of node.data.references ?? []) {
@@ -204,4 +205,45 @@ export function resolveAssetCanvasAssetId(nodes: readonly AssetCanvasNode[], ref
 
 export function combineAssetCanvasPrompt(linkedText: string | undefined, localPrompt: string): string {
   return [linkedText, localPrompt].map((part) => part?.trim()).filter(Boolean).join("\n\n");
+}
+
+/** Safety constraint for generated sprite sheets so grid splitting cannot clip a frame. */
+export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Treat every cell as an independent square canvas. Keep every frame fully inside its own cell with a full 15% transparent margin on all four sides, including the ground contact or baseline. Keep the main effect within about 60% of the cell width and height; never let it fill the entire cell. No visual element, baseline, particle, glow, or shadow may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
+
+/** Default editor template for image nodes created inside the Effect Library. */
+export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
+
+const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Render at premium 32-bit pixel-art illustration fidelity using the full per-frame logical pixel budget, never enlarged classic-pixel shapes. Preserve secondary contour breaks, layered highlights, compact particle clusters, internal material structure, and controlled texture in every phase. Make the bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, and transient fragments visibly distinct with 6–8 hard-edged palette steps. Build believable material volume with directional lighting and compact specular highlights: faceted internal refraction and cold glints for ice, layered translucent depth and sharp reflections for water, and nested hot emissive cores with stepped radiating falloff for fire or magic. Retain thin readable arcs, tendrils, droplets, sparks, shards, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette, palette, scale, light direction, and frame-to-frame motion coherent.";
+/** Builds the complete, portable prompt behind an Effect Library image node. */
+export function effectLibraryPrompt(
+  basePrompt: string | undefined,
+  color: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold" | undefined,
+  rhythm: "sample" | "quick" | "extended" | undefined,
+  additionalPrompt: string,
+  pixelStyle: PixelArtLevel = "classic",
+): string {
+  if (!basePrompt) return [additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT].map((part) => part.trim()).filter(Boolean).join("\n\n");
+  const colorDirection = {
+    original: "Color direction: preserve the effect's original palette consistently across every frame.",
+    "ice-blue": "Color direction: use an icy cyan and deep-blue palette across every frame, with a near-white core. Do not use the original warm palette.",
+    "electric-purple": "Color direction: use an electric violet and indigo palette across every frame, with a near-white core.",
+    "toxic-green": "Color direction: use a luminous toxic-green and deep-teal palette across every frame, with a pale green core.",
+    gold: "Color direction: use a radiant gold and amber palette across every frame, with a near-white core.",
+  }[color ?? "original"];
+  const rhythmDirection = {
+    sample: "Timing direction: keep the sample rhythm: a balanced buildup, peak impact, and fade-out.",
+    quick: "Timing direction: make the motion short and forceful: a very brief buildup, an immediate peak impact, then a fast fade-out.",
+    extended: "Timing direction: make the motion spacious and extended: a gradual buildup, a longer peak hold, then a slow fade-out.",
+  }[rhythm ?? "sample"];
+  const gridMatch = basePrompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
+  const columns = Number(gridMatch?.[1] ?? 4);
+  const rows = Number(gridMatch?.[2] ?? 3);
+  const densityPrompt = withPixelArtLevel("EFFECT PIXEL DENSITY RULES:", pixelStyle, "sprite", {
+    assetType: "effect",
+    grid: { columns, rows, unit: "frame" },
+  });
+  return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? EFFECT_DETAILED_PIXEL_RULES : "", EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n\n");
 }

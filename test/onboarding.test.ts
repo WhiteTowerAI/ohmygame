@@ -63,6 +63,15 @@ async function fixture() {
 }
 
 describe("onboarding persistence", () => {
+  it.each(["pending", "completed", "skipped"])("moves the former media step to start and preserves %s status", async (status) => {
+    const { directory } = await fixture();
+    await writeFile(path.join(directory, "onboarding.json"), JSON.stringify({ version: 1, status, step: "media" }));
+    const store = new OnboardingStore(directory);
+    await store.load();
+    expect(store.initialized).toBe(true);
+    expect(store.get()).toEqual({ version: 1, status, step: "start" });
+  });
+
   it("resumes the current step and serializes writes without migration overwriting user choices", async () => {
     const { directory } = await fixture();
     const store = new OnboardingStore(directory);

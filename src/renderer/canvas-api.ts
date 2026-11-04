@@ -2,6 +2,7 @@ import type { CanvasTableDetail, CanvasTableGenerationRequest, CanvasTableGenera
 import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationResponse, AssetCanvasTextGenerationSource, ToolJob } from "../shared/contracts.js";
 import type { CanvasDocumentDetail, CanvasDocumentGenerationRequest, CanvasDocumentGenerationResponse } from "../shared/canvas-document.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail, CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
+import type { CanvasMediaOperation } from "../shared/media-tools.js";
 import { request } from "./api.js";
 import type { WorkspaceRequestInit } from "./workspace-version.js";
 import { t } from "./i18n.js";
@@ -25,6 +26,18 @@ export const generateCanvasMedia = (id: string, boardId: string, nodeId: string,
 export const cancelCanvasJob = (id: string, jobId: string): Promise<ToolJob> => canvasRequest(`${base(id)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 export const generateCanvasText = (id: string, instruction: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel, referenceSource?: AssetCanvasTextGenerationSource, version?: string): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model, reasoningLevel, referenceSource }), workspaceVersion: version });
 export const generateCanvasDocument = (id: string, documentId: string, input: CanvasDocumentGenerationRequest, version?: string): Promise<CanvasDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input), workspaceVersion: version });
+export type { CanvasMediaOperation } from "../shared/media-tools.js";
+export interface CanvasMediaRequest {
+  boardId?: string;
+  operation: CanvasMediaOperation;
+  assetIds: string[];
+  options?: Record<string, unknown>;
+}
+export type CanvasMediaResult =
+  | { kind: "asset"; assetId: string; name: string; mediaType: string }
+  | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
+  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
+export const runCanvasMedia = (id: string, input: CanvasMediaRequest): Promise<CanvasMediaResult> => request(`${base(id)}/media`, { method: "POST", body: JSON.stringify(input) });
 
 export const createCanvasTable = (id: string, title: string, version?: string): Promise<CanvasTableDetail> => canvasRequest(`${base(id)}/tables`, { method: "POST", body: JSON.stringify({ title }), workspaceVersion: version });
 export const getCanvasTable = (id: string, tableId: string): Promise<CanvasTableDetail> => canvasRequest(`${base(id)}/tables/${encodeURIComponent(tableId)}`);

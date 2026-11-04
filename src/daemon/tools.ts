@@ -315,7 +315,7 @@ export class ToolRunner {
       return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "imageModel", "size", "resolution", "aspectRatio", "outputs", "images"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
@@ -347,6 +347,7 @@ export class ToolRunner {
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
+        ...(input.transparentBackground ? { transparentBackground: true } : {}),
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();

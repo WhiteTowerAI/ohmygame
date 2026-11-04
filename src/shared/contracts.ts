@@ -491,7 +491,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -539,6 +539,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
+  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string; pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel } }
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
   /** Any other project file or folder, by project-relative path. */
   | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
@@ -546,6 +547,7 @@ export type AssetCanvasNode = (
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
+    examplePrompt?: string;
   } }
   | { id: string; type: "text"; position: AssetCanvasPosition; data: {
     text: string;
@@ -556,12 +558,30 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
+    promptExpanded?: boolean;
+    /** Prompt parts managed by the Effect Library template. */
+    effectBasePrompt?: string;
+    effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
+    effectRhythm?: "sample" | "quick" | "extended";
+    /** Pixel density used when expanding this image's preset prompt. */
+    pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel;
+    /** User action substituted into an editable continuous-action template. */
+    actionDescription?: string;
+    materialStyle?: import("./canvas-image-presets.js").CanvasMaterialStyle;
+    sourceInput?: boolean;
+    sourceInputLabel?: string;
+    quickReskinMode?: "person-clothing";
+    /** Legacy drafts only; new nodes store the expanded prompt. */
+    generationMode?: "character-asset" | "continuous-actions" | "all-actions";
     promptSource?: AssetCanvasTextReference;
     model?: ImageModelRef;
     resolution: ImageResolution;
     aspectRatio: ImageAspectRatio;
     images: AssetCanvasReference[];
     assetId?: string;
+    /** Bundled example image id shown until the node has an asset. */
+    exampleImage?: string;
   } }
   | { id: string; type: "video"; position: AssetCanvasPosition; data: {
     prompt: string;
@@ -631,7 +651,7 @@ export type AssetCanvasNode = (
     actionIds: Model3DActionId[];
     assetId?: string;
   } }
-) & { title?: string; description?: string; width?: number; height?: number };
+) & { parentId?: string; title?: string; description?: string; width?: number; height?: number };
 
 export interface AssetCanvasEdge {
   id: string;
@@ -1213,6 +1233,7 @@ export type ToolId = (typeof TOOL_IDS)[number];
 interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  transparentBackground?: boolean;
   size?: ImageSize;
   resolution?: never;
   aspectRatio?: never;
@@ -1223,6 +1244,7 @@ interface RunSizedImageToolRequest {
 interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  transparentBackground?: boolean;
   size?: never;
   resolution: ImageResolution;
   aspectRatio: ImageAspectRatio;

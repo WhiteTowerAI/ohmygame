@@ -4,6 +4,7 @@ import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { Check } from "typebox/value";
 import type { AssetCanvasDocument, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "./asset-canvas.js";
+import { PIXEL_ART_LEVELS, type PixelArtLevel } from "./canvas-pixel-style.js";
 import type { CanvasMarkdownDocument } from "./canvas-document.js";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
@@ -53,6 +54,19 @@ export function isCanvasBoard(value: unknown): value is CanvasBoard {
   return typeof boardId === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(boardId) && isAssetCanvasDocument(canvas);
 }
 export function createCanvasBoard(id = crypto.randomUUID()): CanvasBoard { return { ...createAssetCanvasDocument(), id }; }
+
+/** An empty group for one pixel density, placed where pixel templates and presets expect it. */
+export function createPixelLevelGroup(pixelStyle: PixelArtLevel): Extract<AssetCanvasNode, { type: "group" }> {
+  return {
+    id: crypto.randomUUID(),
+    type: "group",
+    position: { x: -880 + PIXEL_ART_LEVELS.indexOf(pixelStyle) * 600, y: -360 },
+    width: 560,
+    height: 720,
+    data: { name: pixelStyle, pixelStyle },
+  };
+}
+
 function byId<T extends { id: string }>(items: readonly T[]) {
   return new Map(items.map((item) => [item.id, item]));
 }
@@ -79,8 +93,14 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if (equal(ours, theirs) || equal(before, theirs)) { nodes.push(ours); continue; }
     if (equal(before, ours)) { nodes.push(theirs); continue; }
     if (before.type !== ours.type || ours.type !== theirs.type) return undefined;
-    const position = merge(before.position, ours.position, theirs.position);
-    if (!position) return undefined;
+    // Relative position and parent form one coordinate space and must merge together.
+    const placement = merge(
+      { position: before.position, parentId: before.parentId },
+      { position: ours.position, parentId: ours.parentId },
+      { position: theirs.position, parentId: theirs.parentId },
+    );
+    if (!placement) return undefined;
+    const { position, parentId } = placement;
     const dimensions: { width?: number; height?: number } = {};
     for (const key of ["width", "height"] as const) {
       if (!equal(before[key], ours[key]) && !equal(before[key], theirs[key]) && !equal(ours[key], theirs[key])) return undefined;
@@ -98,7 +118,8 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       const value = merge(a, b, c);
       if (value !== undefined) data[key] = value;
     }
-    nodes.push({ ...ours, ...metadata, ...dimensions, position, data } as AssetCanvasNode);
+    const { parentId: _oldParentId, ...withoutParent } = ours;
+    nodes.push({ ...withoutParent, ...(parentId ? { parentId } : {}), ...metadata, ...dimensions, position, data } as AssetCanvasNode);
   }
   const edges = [];
   const baseEdges = byId(base.edges);

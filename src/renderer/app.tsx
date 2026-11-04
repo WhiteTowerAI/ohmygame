@@ -52,6 +52,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   const [start, setStart] = useState<OnboardingStart>();
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
+  const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
 
   // A reconnected runtime may have different providers; model pickers reload theirs.
@@ -87,7 +88,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout>;
   if (route.page === "home") {
-    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
+    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
@@ -111,6 +112,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
+      initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
+      onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
       showStoryMap={playtestEditorProjectId === route.projectId}
       onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
@@ -137,6 +140,14 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
     navigate(projectHash(projectId, view));
+  }
+
+  // Home's creation templates open their new canvas on the node to start from.
+  function openAssetCanvasProject(projectId: string, nodeId?: string): void {
+    setInitialPrompt(undefined);
+    setInitialDraft(undefined);
+    setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
+    navigate(projectHash(projectId));
   }
 
   async function tryPlugin({ mention, turnOn, newProjectType }: PluginTryTarget, prompt: string, projectId?: string): Promise<void> {

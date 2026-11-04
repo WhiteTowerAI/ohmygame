@@ -341,3 +341,60 @@
   color: var(--color-text-tertiary);
   font-size: var(--text-sm);
 }
+
+/* Creation templates reuse the example cover cards; a template opens a density choice. */
+.home-templates .home-template-card {
+  cursor: pointer;
+}
+
+.home-templates .home-template-card:disabled {
+  cursor: progress;
+  opacity: 0.68;
+}
+
+.home-templates .home-template-card:disabled[aria-busy="true"] {
+  opacity: 1;
+}
+
+.home-templates .home-effect-template-card .home-explore-cover {
+  background:
+    radial-gradient(circle at 50% 44%, rgb(126 92 255 / 28%), transparent 58%),
+    linear-gradient(135deg, #28205f 0%, #171747 52%, #101336 100%);
+  box-shadow: inset 0 0 0 1px rgb(151 126 255 / 24%), inset 0 -18px 34px rgb(7 6 28 / 24%);
+}
+
+.home-templates .home-effect-template-card .home-explore-cover::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(135deg, rgb(105 77 229 / 24%), transparent 42%, rgb(7 5 29 / 28%)),
+    radial-gradient(circle at 50% 115%, rgb(183 132 255 / 18%), transparent 58%);
+}
+
+.home-templates .home-effect-template-card .home-explore-cover img {
+  filter: saturate(1.14) contrast(1.05) brightness(0.96);
+}
+
+.home-templates .home-whats-new-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+}
+
+.home-template-loading {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 68%);
+  color: #fff;
+}

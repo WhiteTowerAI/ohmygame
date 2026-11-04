@@ -160,6 +160,9 @@ interface ProjectShellProps {
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
+  /** A canvas node to select once an Asset Canvas project opens, such as a new template's start. */
+  initialCanvasNodeId?: string;
+  onInitialCanvasNodeHandled?: () => void;
   showStoryMap?: boolean;
   onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
@@ -194,6 +197,8 @@ export function ProjectShell({
   onViewChange,
   initialPrompt,
   initialDraft,
+  initialCanvasNodeId,
+  onInitialCanvasNodeHandled,
   showStoryMap,
   onStoryMapShown,
   onInitialPromptHandled,
@@ -1616,6 +1621,8 @@ export function ProjectShell({
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
+        initialNodeId={initialCanvasNodeId}
+        onInitialNodeHandled={onInitialCanvasNodeHandled}
       /></Suspense></ErrorBoundary>, nodes.canvas.body)}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);

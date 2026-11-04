@@ -186,3 +186,29 @@ describe("canvas node type changes", () => {
     expect(isAssetCanvasDocument(merged)).toBe(true);
   });
 });
+
+it("merges a group change with content edits but conflicts with a competing move in the old coordinate space", () => {
+  const base = canvas();
+  const group: AssetCanvasNode = {
+    id: "group",
+    type: "group",
+    position: { x: 0, y: 0 },
+    width: 500,
+    height: 400,
+    data: { name: "Scenes" },
+  };
+  base.nodes.push(group);
+  base.editorLayout.nodes.group = { x: 0, y: 0, width: 500, height: 400 };
+  const local = structuredClone(base),
+    remote = structuredClone(base);
+  // A parent at the origin changes the coordinate space without changing the numeric position.
+  local.nodes[0]!.parentId = "group";
+  remote.nodes[0]!.title = "Garage scene";
+  expect(mergeCanvasDocument(base, local, remote)?.nodes[0]).toMatchObject({
+    parentId: "group",
+    title: "Garage scene",
+  });
+  remote.nodes[0]!.position = { x: 50, y: 20 };
+  remote.editorLayout.nodes.background = { x: 50, y: 20 };
+  expect(mergeCanvasDocument(base, local, remote)).toBeUndefined();
+});

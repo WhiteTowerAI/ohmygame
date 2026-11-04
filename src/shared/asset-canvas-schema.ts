@@ -10,6 +10,8 @@ import { AUDIO_REFERENCE_ID_PATTERN, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_P
 import { AUDIO_SETTINGS_PROPERTIES } from "./audio-schema.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
+import { CANVAS_IMAGE_PRESETS, CANVAS_MATERIAL_STYLES } from "./canvas-image-presets.js";
+import { PIXEL_ART_LEVELS } from "./canvas-pixel-style.js";
 
 export const MAX_ASSET_CANVAS_NODES = 2_000;
 export const MAX_TEXT_NODE_REFERENCES = 14;
@@ -24,8 +26,8 @@ export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
         ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties,
         properties: {
           ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties.properties,
-          width: { type: "number", minimum: 100, maximum: 4096, description: "Text, document and table nodes only; other nodes size to their content." },
-          height: { type: "number", minimum: 100, maximum: 4096, description: "Text, document and table nodes only; other nodes size to their content." },
+          width: { type: "number", minimum: 100, maximum: 4096, description: "Text, document, table and group nodes only; other nodes size to their content." },
+          height: { type: "number", minimum: 100, maximum: 4096, description: "Text, document, table and group nodes only; other nodes size to their content." },
         },
       },
     },
@@ -52,7 +54,7 @@ const node = (type: string, data: object) => ({
   type: "object",
   additionalProperties: false,
   required: ["id", "type", "data"],
-  properties: { id, type: { const: type }, title: { type: "string", maxLength: 200 }, description: { type: "string", maxLength: 2000 }, data },
+  properties: { id, type: { const: type }, parentId: id, title: { type: "string", maxLength: 200 }, description: { type: "string", maxLength: 2000 }, data },
 });
 const model3DOptions = { type: "object", additionalProperties: false, properties: {
   pose: { enum: ["a-pose", "t-pose"] }, textureModel: id, textureQuality: { enum: ["fast", "standard", "detailed", "extreme"] },
@@ -64,6 +66,7 @@ const audioProperties = { ...AUDIO_SETTINGS_PROPERTIES, subtitles: { type: "bool
   },
 } } } as const;
 const nodes = [
+  node("group", { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 120 }, pixelStyle: { enum: ["coarse", "classic", "detailed"] } } }),
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
   node("file", { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000, pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{0,2}(?:/|$))(?!.*\\\\).+", description: "Project-relative path of a file that is not a document, table or media asset." }, directory: { const: true, description: "The path is a folder." } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
@@ -79,12 +82,25 @@ const nodes = [
     required: ["prompt", "resolution", "aspectRatio", "images"],
     properties: {
       prompt: { type: "string" },
+      presetId: { enum: CANVAS_IMAGE_PRESETS },
+      promptExpanded: { type: "boolean" },
+      effectBasePrompt: { type: "string" },
+      effectColor: { enum: ["original", "ice-blue", "electric-purple", "toxic-green", "gold"] },
+      effectRhythm: { enum: ["sample", "quick", "extended"] },
+      pixelStyle: { enum: PIXEL_ART_LEVELS },
+      actionDescription: { type: "string" },
+      materialStyle: { enum: CANVAS_MATERIAL_STYLES },
+      sourceInput: { type: "boolean" },
+      sourceInputLabel: { type: "string", maxLength: 100 },
+      quickReskinMode: { enum: ["person-clothing"] },
+      generationMode: { enum: ["character-asset", "continuous-actions", "all-actions"] },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
       resolution: { enum: IMAGE_RESOLUTIONS },
       aspectRatio: { enum: IMAGE_ASPECT_RATIOS },
       images: { type: "array", maxItems: IMAGE_MAX_REFERENCE_IMAGES, items: reference },
       assetId: id,
+      exampleImage: { type: "string", maxLength: 100 },
     },
   }),
   node("video", {
@@ -182,7 +198,7 @@ const nodes = [
     type: "object",
     additionalProperties: false,
     required: ["assetId", "mediaType"],
-    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } },
+    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] }, examplePrompt: { type: "string" } },
   }),
 ];
 
