@@ -12272,6 +12272,7 @@ summary.work-summary:hover {
 }
 
 .workspace-code {
+  --syntax-comment: var(--color-text-secondary);
   --syntax-keyword: #ff7b72;
   --syntax-string: #a5d6ff;
   --syntax-name: #d2a8ff;
@@ -12283,7 +12284,7 @@ summary.work-summary:hover {
   --syntax-name: #6639ba;
   --syntax-number: #0550ae;
 }
-.workspace-code .token:is(.comment, .prolog, .doctype) { color: var(--color-text-secondary); }
+.workspace-code .token:is(.comment, .prolog, .doctype) { color: var(--syntax-comment); }
 .workspace-code .token:is(.keyword, .tag, .operator, .important) { color: var(--syntax-keyword); }
 .workspace-code .token:is(.string, .attr-value, .regex, .inserted) { color: var(--syntax-string); }
 .workspace-code .token:is(.function, .class-name, .selector) { color: var(--syntax-name); }

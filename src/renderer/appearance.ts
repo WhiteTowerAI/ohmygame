@@ -105,7 +105,8 @@ export function applyPluginTheme(theme: PluginTheme | undefined): void {
     const values = pluginThemeValues(theme, appearance);
     if (!values.length) continue;
     // Set one by one: a value the browser can't read is dropped, and none can reach past its rule.
-    const rule = sheet.cssRules[sheet.insertRule(`:root[data-appearance="${appearance}"] {}`, sheet.cssRules.length)] as CSSStyleRule;
+    // The code view sets its own syntax colours, so the theme's are set there too.
+    const rule = sheet.cssRules[sheet.insertRule(`:root[data-appearance="${appearance}"], :root[data-appearance="${appearance}"] .workspace-code {}`, sheet.cssRules.length)] as CSSStyleRule;
     for (const [token, value] of values) rule.style.setProperty(token, value);
   }
 }

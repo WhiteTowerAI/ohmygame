@@ -1488,7 +1488,19 @@ export function ProjectShell({
             disabled: "native" in command.run && command.run.build === "web" && !!exporting,
             // Plugin code shows as publishing until it ends; the rest only opens or fills something.
             onSelect: () => void ("native" in command.run || "tool" in command.run
-              ? (setPublishing(true), runProjectPluginCommand(command).finally(() => setPublishing(false)))
+              ? (setPublishing(true), (async () => {
+                // A build is read from disk, so pending edits are saved first, as for Export web build.
+                if ("native" in command.run && command.run.build === "web") {
+                  try {
+                    await saveDesign.current?.();
+                    await desktopSave.flush();
+                  } catch (cause) {
+                    dispatch({ type: "notice", message: errorMessage(cause) });
+                    return;
+                  }
+                }
+                await runProjectPluginCommand(command);
+              })().finally(() => setPublishing(false)))
               : runProjectPluginCommand(command)),
           })),
         ]} trigger={(props) => (

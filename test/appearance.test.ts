@@ -37,7 +37,7 @@ it("puts a plugin's theme over the neutral greys for the appearances it covers, 
   expect(readPalette()).toBe("neutral");
   expect(document.documentElement.dataset.palette).toBeUndefined();
   const rules = () => [...(document.getElementById("ohmygame-plugin-theme") as HTMLStyleElement | null)?.sheet?.cssRules ?? []] as CSSStyleRule[];
-  expect(rules().map((rule) => rule.selectorText)).toEqual([':root[data-appearance="dark"]']);
+  expect(rules().map((rule) => rule.selectorText)).toEqual([':root[data-appearance="dark"], :root[data-appearance="dark"] .workspace-code']);
   const rule = rules()[0]!;
   expect(rule.style.getPropertyValue("--gray-0")).toBe("#001020");
   expect(rule.style.getPropertyValue("--hue-doc")).toBe("#88aaff");
