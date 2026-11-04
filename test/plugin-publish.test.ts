@@ -37,7 +37,7 @@ export function activate(context) {
     } finally {
       await rm(work, { recursive: true, force: true });
     }
-    return { folder: build.folder, files: files.sort() };
+    return { folder: build.folder, files: files.map((file) => file.split(path.sep).join("/")).sort() };
   });
 }
 `;
