@@ -93,7 +93,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginSkillContent, PluginUninstallPreview } from "../shared/plugins.js";
+import type { PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -817,6 +817,16 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 /** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+/** Newer packages where installed plugins came from; checked at startup and when the Plugins page opens. */
+export function readPluginUpdates(): Promise<PluginSourceUpdate[]> {
+  return request("/plugin-store/updates");
+}
+
+/** The projects using each installed version of a plugin. */
+export function readPluginUsage(id: string): Promise<Record<string, string[]>> {
+  return request(`/plugin-store/${pluginPath(id)}/usage`);
 }
 
 export function readPluginUninstall(id: string, version: string): Promise<PluginUninstallPreview> {

@@ -1164,6 +1164,12 @@ const zhCN: typeof en = {
   pluginStore: {
     updateAvailable: "有新版本",
     updateTo: "更新到 {{version}}",
+    updateToCommit: "更新到 {{commit}}",
+    unusedVersion: "没有项目在用",
+    removeUnused_one: "移除 {{count}} 个未使用的版本",
+    removeUnused_other: "移除 {{count}} 个未使用的版本",
+    localUpdateHint: "从本机添加，没有可以检查更新的来源。要更新，请重新添加新的文件夹或文件。",
+    addAgain: "重新添加",
     blockedBadge: "已封禁",
     blocked: "OhMyGame 已封禁版本 {{version}}：{{reason}}。建议卸载。",
     npmPackage: "npm 包",
@@ -1206,6 +1212,8 @@ const zhCN: typeof en = {
   projectPlugins: {
     allowHere: "允许",
     useVersion: "使用 {{version}}",
+    versionOf: "{{name}} 在此项目中的版本",
+    newestVersion: "{{version}}（最新）",
     reinstall: "在插件页查找",
     removeHere: "从项目中移除",
     menu: "插件…",
@@ -2513,6 +2521,10 @@ const zhCN: typeof en = {
     replacesVersions: "添加后会替换版本 {{versions}}。",
     keepsVersions: "版本 {{versions}} 会保留给正在使用它的项目。",
     unreviewed: "OhMyGame 不会审核通过这种方式添加的插件，请只添加你信任的内容。",
+    allowedBefore: "之前已允许",
+    newAsk: "新增",
+    asksAgain: "只会再次询问新增的权限。",
+    asksNothingNew: "没有需要重新允许的新权限。",
   },
   plugins: {
     marketFeatured: "精选",

@@ -338,7 +338,27 @@ the source again and refuses a package whose digest isn't the one reviewed.
   `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
   each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
-  its page. Nothing updates a package by itself: adding it again is the update.
+  its page; a GitHub origin keeps the branch or tag it was added from.
+
+### Updates
+
+Nothing updates a package by itself: adding a newer one is the update.
+`GET /plugin-store/updates` (`PluginSources.updates`) looks where each
+plugin's newest version came from, at startup and when the Plugins page opens,
+reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
+GitHub branch or tag is at now. A plugin with an update says so, and its page
+opens the same review as Add plugin, at that version or commit; the market's
+own update comes first when it has one. A package from this computer has
+nowhere to look, so its page says to add it again.
+
+- The review lists what the new version asks for and marks what the person
+  hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
+  only that is asked again.
+- A project that names a version keeps it. Its Plugins sheet moves it to any
+  installed version that works there, newer or older, which is also how it goes
+  back. One that follows the plugin for every project gets the newest.
+- `GET /plugin-store/:publisher/:name/usage` names the projects using each
+  version, and the plugin's page offers to remove older versions none uses.
 
 ## The plugin market
 

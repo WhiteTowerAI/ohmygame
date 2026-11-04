@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, readPluginUninstall, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { consentToPlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
@@ -126,6 +126,11 @@ export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | 
   return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }
 
+/** A newer package where it came from, when the market doesn't offer one: it updates through the same review. */
+export function sourceUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined, updates: readonly PluginSourceUpdate[] | undefined): PluginSourceUpdate | undefined {
+  return marketUpdate(plugin, market) ? undefined : updates?.find((update) => update.id === plugin.id);
+}
+
 /** The installed versions the maintainers blocked. */
 export function marketBlocks(versions: StorePlugin[], market: PluginMarketListing | undefined): MarketBlock[] {
   return versions.flatMap(({ origin }) => {
@@ -178,9 +183,11 @@ function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
   </>;
 }
 
-export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
+export function StorePluginCard({ group, market, updates, disabled, onToggle, onOpen }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
+  /** Newer packages where installed plugins came from. */
+  updates?: readonly PluginSourceUpdate[] | undefined;
   disabled: boolean;
   /** Turns it on or off in every project. */
   onToggle: (on: boolean) => void;
@@ -197,7 +204,7 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
           {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
-          {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
+          {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta">
@@ -251,11 +258,16 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemoved, onTry }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
+  updates?: readonly PluginSourceUpdate[] | undefined;
   /** Reviews a newer version from the market. */
   onUpdate?: (listed: MarketPlugin) => void;
+  /** Reviews a newer package from where it came from. */
+  onUpdateSource?: (update: PluginSourceUpdate) => void;
+  /** Opens Add plugin, for one added from this computer, which has nowhere to update from. */
+  onAddAgain?: () => void;
   /** The store changed; reload it. */
   onChanged: () => Promise<void>;
   /** Its last version was uninstalled. */
@@ -272,7 +284,19 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
   const update = marketUpdate(plugin, market);
+  const fromSource = sourceUpdate(plugin, market, updates);
   const blocks = marketBlocks(versions, market);
+  // Versions some project uses; an older one none uses can go.
+  const [usage, setUsage] = useState<Record<string, string[]>>();
+  const versionKey = versions.map((version) => version.version).join(",");
+  useEffect(() => {
+    if (versions.length < 2) return;
+    let active = true;
+    void readPluginUsage(plugin.id).then((value) => { if (active) setUsage(value); }, () => {});
+    return () => { active = false; };
+  }, [plugin.id, versionKey]);
+  const unused = usage ? versions.slice(1).filter((version) => !version.bundled && !usage[version.version]?.length) : [];
+  const local = !plugin.origin && !plugin.bundled && !plugin.preinstalled && !personal;
   const everyProject = useEveryProjectSwitch(onChanged);
   const tryIt = usePluginTry({
     displayName: plugin.displayName,
@@ -323,6 +347,10 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
       if (versions.length === 1) onRemoved();
     });
   };
+  const removeUnused = () => void act("remove-unused", async () => {
+    for (const version of unused) await uninstallStorePlugin(plugin.id, version.version);
+    setUsage(undefined);
+  });
   const adds = [
     ...plugin.adds.projectTypes.map((title) => ({ kind: t("pluginStore.addsType"), title })),
     ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
@@ -417,6 +445,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
             <ul className="plugin-store-versions">
               {versions.map((version) => <li key={version.version}>
                 <span className="plugins-mono">v{version.version}</span>
+                {unused.includes(version) ? <span className="plugins-note">{t("pluginStore.unusedVersion")}</span> : null}
                 {!version.bundled ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setRemoving(version)}>
                   {t("pluginStore.uninstall")}
                 </Button> : null}
@@ -426,6 +455,18 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         </dl>
         {update && onUpdate ? <div className="plugin-side-actions">
           <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
+        </div> : null}
+        {fromSource && onUpdateSource ? <div className="plugin-side-actions">
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdateSource(fromSource)}>
+            {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
+          </Button>
+        </div> : null}
+        {unused.length ? <div className="plugin-side-actions">
+          <Button disabled={!!busy} onClick={removeUnused}>{t("pluginStore.removeUnused", { count: unused.length })}</Button>
+        </div> : null}
+        {local ? <div className="plugin-side-actions">
+          <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>
+          {onAddAgain ? <Button disabled={!!busy} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
         </div> : null}
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
           {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}

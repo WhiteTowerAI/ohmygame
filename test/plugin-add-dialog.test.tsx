@@ -200,6 +200,22 @@ describe("PluginAddDialog", () => {
     }
   });
 
+  it("opens on the review of an update from where a plugin came from, marking only what it newly asks for", async () => {
+    answer = (route) => route.includes("inspect")
+      ? Response.json({ ...preview, version: "1.1.0", asks: ["network:api.example.com", "secrets"], installedVersions: ["1.0.0"], newAsks: ["secrets"] })
+      : Response.json({ id: preview.id, version: "1.1.0" }, { status: 201 });
+    const source = { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.1.0" } as const;
+    await act(async () => root.render(<PluginAddDialog source={source} onClose={onClose} onAdded={onAdded} />));
+    expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source } });
+    expect(dialog().querySelector('[role="tab"]')).toBeNull();
+    const items = [...dialog().querySelectorAll("li")].map((item) => item.textContent);
+    expect(items).toContain("network:api.example.com · allowed before");
+    expect(items).toContain("secretsNew");
+    expect(dialog().textContent).toContain("You'll be asked to allow only what's new.");
+    await act(async () => button("Add plugin").click());
+    expect(onAdded).toHaveBeenCalledWith("acme/maker");
+  });
+
   describe("for a plugin on the market", () => {
     const listed: MarketPlugin = {
       id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Makes things", asks: [],

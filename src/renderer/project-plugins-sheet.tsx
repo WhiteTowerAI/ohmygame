@@ -4,7 +4,7 @@ import { consentToPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
-import { Alert, Badge, Button, Sheet, Skeleton, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
@@ -75,6 +75,13 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
               </span>
               {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
                 <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
+              ) : null}
+              {/* A project stays on its version when a newer one is installed; it moves, or goes back, here. */}
+              {plugin.used && plugin.versions.length > 1 && plugin.versions.includes(plugin.used) ? (
+                <Select<string> size="sm" label={t("projectPlugins.versionOf", { name: plugin.displayName })} value={plugin.used}
+                  disabled={busy || pending !== undefined}
+                  options={plugin.versions.map((version) => ({ value: version, label: version === plugin.versions[0] ? t("projectPlugins.newestVersion", { version }) : version }))}
+                  onChange={(version) => { if (version !== plugin.used) void change(plugin, true, plugin.consented, version); }} />
               ) : null}
               {/* A version this project uses was uninstalled: it moves to one that is installed. */}
               {plugin.used && plugin.status === "version-not-installed" && plugin.version !== plugin.used ? (

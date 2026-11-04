@@ -13,6 +13,7 @@ const api = {
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
   readPluginUninstall: vi.fn(async () => uninstallPreview),
+  readPluginUsage: vi.fn(async (): Promise<Record<string, string[]>> => ({ "2.0.0": ["Castle"] })),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
@@ -110,6 +111,30 @@ it("asks for what isn't allowed yet, turns it on in every project with a warning
   expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0", { keepData: false });
   // Another version is still installed, so the page stays.
   expect(onRemoved).not.toHaveBeenCalled();
+});
+
+it("updates from where it came from, removes older versions no project uses, and says a local one is added again", async () => {
+  const onUpdateSource = vi.fn();
+  const onAddAgain = vi.fn();
+  const origin = { type: "github", repository: "acme/maker", commit: "a".repeat(40) } as const;
+  const update = { id: "acme/maker", commit: "b".repeat(40), source: { type: "github", url: "https://github.com/acme/maker", commit: "b".repeat(40) } } as const;
+  const [group] = groupStorePlugins([row("2.0.0", { origin }), row("1.5.0", { origin }), row("1.0.0", { origin })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} updates={[update]} onUpdateSource={onUpdateSource} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => button("Update to bbbbbbb").click());
+  expect(onUpdateSource).toHaveBeenCalledWith(update);
+  // Castle uses the newest; the two older ones are used nowhere.
+  expect([...document.querySelectorAll(".plugin-store-versions li")].map((item) => item.textContent)).toEqual([
+    "v2.0.0Uninstall", "v1.5.0No project uses itUninstall", "v1.0.0No project uses itUninstall",
+  ]);
+  await act(async () => button("Remove 2 unused versions").click());
+  expect(api.uninstallStorePlugin).toHaveBeenNthCalledWith(1, "acme/maker", "1.5.0");
+  expect(api.uninstallStorePlugin).toHaveBeenNthCalledWith(2, "acme/maker", "1.0.0");
+  expect(document.body.textContent).not.toContain("Added from this computer");
+
+  await act(async () => root.render(<StorePluginDetail key="local" group={groupStorePlugins([row("1.0.0")])[0]!} onAddAgain={onAddAgain} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).toContain("Added from this computer, so it has nowhere to update from.");
+  await act(async () => button("Add again").click());
+  expect(onAddAgain).toHaveBeenCalled();
 });
 
 it("says what uninstalling the last version removes and leaves, and can keep its settings and data", async () => {

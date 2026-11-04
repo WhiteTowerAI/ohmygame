@@ -132,7 +132,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginSourceUpdate, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -592,6 +592,8 @@ const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 /** Why a story made before web stories cannot play, build, or publish yet. */
 const NEEDS_UPGRADE = "This story was made before stories played as their own web page. Ask the user to open it in the Story editor, which upgrades it, then try again.";
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
+const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -1195,6 +1197,8 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
+    // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
+    void pluginUpdates.check();
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
@@ -1358,6 +1362,16 @@ export function createApp(options: AppOptions = {}) {
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
   });
   const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
+  // The last check, shared by the startup check and every Plugins page opened within a few minutes of it.
+  const pluginUpdates = {
+    last: undefined as { at: number; result: Promise<PluginSourceUpdate[]> } | undefined,
+    check(): Promise<PluginSourceUpdate[]> {
+      if (!this.last || Date.now() - this.last.at > PLUGIN_UPDATE_CHECK_REUSE_MS)
+        this.last = { at: Date.now(), result: pluginSources.updates().catch(() => []) };
+      return this.last.result;
+    },
+  };
+  app.get("/plugin-store/updates", (): Promise<PluginSourceUpdate[]> => pluginUpdates.check());
   const pluginSourceBody = {
     type: "object",
     required: ["type"],
@@ -1398,6 +1412,8 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     try {
       const { id, version } = await pluginSources.install(request.body.source, request.body.digest);
+      // What it updated from is out of date now.
+      pluginUpdates.last = undefined;
       return await reply.code(201).send({ id, version });
     } catch (cause) {
       return sourceReply(reply, cause);
@@ -1471,17 +1487,29 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
+  /** The names of the projects using each version of a plugin. */
+  const projectsUsingPlugin = async (id: string): Promise<Record<string, string[]>> => {
+    const using: Record<string, string[]> = {};
+    for (const project of projects.list()) {
+      const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
+      const state = resolved?.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
+      if (state) (using[state.version] ??= []).push(project.name);
+    }
+    for (const names of Object.values(using)) names.sort((a, b) => a.localeCompare(b));
+    return using;
+  };
   // What uninstalling a version removes, and the projects that use it, for the person to see first.
   app.get<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version/uninstall", async (request, reply): Promise<PluginUninstallPreview | undefined> => {
     await pluginServices.ready();
     const id = `${request.params.publisher}/${request.params.name}`;
     if (!pluginServices.index.get(id, request.params.version)) return reply.code(404).send({ error: `${id} ${request.params.version} is not installed` });
     const preview = await pluginServices.uninstallPreview(id, request.params.version);
-    const using = await Promise.all(projects.list().map(async (project) => {
-      const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
-      return resolved?.ok && resolved.plugins.some((state) => state.id === id && state.version === request.params.version) ? project.name : undefined;
-    }));
-    return { ...preview, projects: using.filter((name) => name !== undefined).sort((a, b) => a.localeCompare(b)) };
+    return { ...preview, projects: (await projectsUsingPlugin(id))[request.params.version] ?? [] };
+  });
+  // Which projects use each installed version, so older ones no project uses can go.
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/usage", async (request): Promise<Record<string, string[]>> => {
+    await pluginServices.ready();
+    return projectsUsingPlugin(`${request.params.publisher}/${request.params.name}`);
   });
   app.delete<{ Params: { publisher: string; name: string; version: string }; Querystring: { keepData?: string } }>("/plugin-store/:publisher/:name/:version", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { keepData: { type: "string", enum: ["true"] } } } },
@@ -1525,6 +1553,10 @@ export function createApp(options: AppOptions = {}) {
         // The version turning it on gives, which a version the project pins differs from.
         version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
+        // Installed versions that work here, newest first, to move the project between.
+        versions: pluginServices.index.versions(id)
+          .filter((item) => !pluginApiIssue(item.manifest) && (appWidePluginSuits(item.manifest.appliesTo, kind) || owner === id))
+          .map((item) => item.version),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),
         capabilities: requested,

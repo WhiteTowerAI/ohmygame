@@ -262,6 +262,9 @@ describe("plugin catalog API", () => {
     // What uninstalling would remove is read first; a version that isn't installed has nothing to say.
     expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/1.0.0/uninstall" })).json()).toEqual({ last: true, settings: 0, dataBytes: 0, projectFiles: [], projects: [] });
     expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/9.9.9/uninstall" })).statusCode).toBe(404);
+    // No project uses it, and one that ships with the app has nowhere to update from.
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/usage" })).json()).toEqual({});
+    expect((await app.inject({ method: "GET", url: "/plugin-store/updates" })).json()).toEqual([]);
     expect((await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0?keepData=yes" })).statusCode).toBe(400);
     // A plugin that ships with the app only turns off.
     const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });

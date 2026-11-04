@@ -4,7 +4,8 @@ import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
-  | { type: "github"; repository: string; commit: string; release?: string }
+  /** `ref`: the branch or tag it was added from; without one, the default branch. */
+  | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
   | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
@@ -69,6 +70,8 @@ export interface PluginAddPreview {
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
+  /** With a version installed: what it asks that the person hasn't allowed yet, the only part asked again. */
+  newAsks?: string[];
   origin?: PluginOrigin;
 }
 
@@ -329,6 +332,16 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
+/** A newer package where an installed plugin came from: npm's `latest`, or a new commit on its GitHub branch or tag. */
+export interface PluginSourceUpdate {
+  id: string;
+  /** The npm version, or for GitHub the commit, it would read. */
+  version?: string;
+  commit?: string;
+  /** Read and reviewed in the Add plugin dialog, like any package. */
+  source: PluginAddSource;
+}
+
 /** What uninstalling a version, or a plugin's every version, removes and leaves. */
 export interface PluginUninstallPreview {
   /** No version is left after it, so its permissions go too. */
@@ -352,6 +365,8 @@ export interface ProjectPluginItem {
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
+  /** Installed versions that work in the project, newest first, to update or go back to. */
+  versions: string[];
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */

@@ -35,9 +35,9 @@ beforeEach(() => {
   root = createRoot(host);
   view = {
     plugins: [
-      { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true, everyProject: false },
-      { id: "ohmygame/game-studio", displayName: "Game Studio", description: "Plan games.", version: "1.2.0", used: "1.2.0", providesType: false, status: "active", capabilities: [], consented: true, everyProject: true },
-      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["network:tiles.example.com"], consented: false, everyProject: false },
+      { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true, everyProject: false, versions: ["1.0.0"] },
+      { id: "ohmygame/game-studio", displayName: "Game Studio", description: "Plan games.", version: "1.2.0", used: "1.2.0", providesType: false, status: "active", capabilities: [], consented: true, everyProject: true, versions: ["1.2.0"] },
+      { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["network:tiles.example.com"], consented: false, everyProject: false, versions: ["2.1.0"] },
     ],
   };
 });
@@ -99,6 +99,18 @@ it("moves a project off an uninstalled version, and finds or removes an uninstal
   expect(onOpenPlugins).toHaveBeenCalled();
   await act(async () => find("Remove from project").click());
   expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", false, undefined);
+});
+
+it("keeps a project on its version when a newer one is installed, and moves it either way", async () => {
+  view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: true, versions: ["2.1.0", "2.0.0", "1.0.0"] };
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  const select = document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!;
+  expect(select.textContent).toContain("2.0.0");
+  await act(async () => select.click());
+  const option = (text: string) => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!;
+  expect(option("2.1.0 (newest)")).toBeDefined();
+  await act(async () => option("2.1.0 (newest)").click());
+  expect(api.setProjectPlugin).toHaveBeenLastCalledWith("p1", "acme/tiles", true, "2.1.0");
 });
 
 it("allows the type's plugin in a copied project without turning it off", async () => {

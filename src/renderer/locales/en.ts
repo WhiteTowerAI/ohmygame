@@ -1182,6 +1182,12 @@ const en = {
   pluginStore: {
     updateAvailable: "Update available",
     updateTo: "Update to {{version}}",
+    updateToCommit: "Update to {{commit}}",
+    unusedVersion: "No project uses it",
+    removeUnused_one: "Remove {{count}} unused version",
+    removeUnused_other: "Remove {{count}} unused versions",
+    localUpdateHint: "Added from this computer, so it has nowhere to update from. Add the new folder or file again to update it.",
+    addAgain: "Add again",
     blockedBadge: "Blocked",
     blocked: "OhMyGame blocked version {{version}}: {{reason}}. Consider uninstalling it.",
     npmPackage: "npm package",
@@ -1224,6 +1230,8 @@ const en = {
   projectPlugins: {
     allowHere: "Allow",
     useVersion: "Use {{version}}",
+    versionOf: "Version of {{name}} in this project",
+    newestVersion: "{{version}} (newest)",
     reinstall: "Find in Plugins",
     removeHere: "Remove from project",
     menu: "Plugins…",
@@ -2559,6 +2567,10 @@ const en = {
     replacesVersions: "This replaces version {{versions}}.",
     keepsVersions: "Version {{versions}} stays for the projects that use it.",
     unreviewed: "OhMyGame doesn't review plugins added this way. Add only what you trust.",
+    allowedBefore: "allowed before",
+    newAsk: "New",
+    asksAgain: "You'll be asked to allow only what's new.",
+    asksNothingNew: "It asks for nothing you haven't allowed already.",
   },
   plugins: {
     marketFeatured: "Featured",
