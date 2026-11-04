@@ -317,6 +317,8 @@ export interface CanvasPluginRequest {
 /** Runs plugins' canvas nodes; the output is a Library asset or text. */
 export interface CanvasPluginRunner {
   run(project: ProjectState, request: CanvasPluginRequest, signal: AbortSignal): Promise<{ assetId: string } | { text: string }>;
+  /** The package the node would run from now, part of what a reused result must match. */
+  package?(project: ProjectState, node: string): Promise<string | undefined>;
 }
 const publicJob = ({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
@@ -723,7 +725,7 @@ export class CanvasStore {
     const { inputs, signature } = await this.#pluginInputs(id, board, node);
     const upstream = await this.#upstream(id, board, node);
     const request: CanvasPluginRequest = { node: node.data.node, params: node.data.params, inputs };
-    const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature });
+    const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature, package: await this.plugins.package?.(project, node.data.node) });
     const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);

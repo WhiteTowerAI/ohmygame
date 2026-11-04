@@ -63,5 +63,6 @@ export function canvasPluginRunner(options: { native: NativePlugins; library: As
         await rm(folder, { recursive: true, force: true });
       }
     },
+    package: (project, node) => options.native.canvasNodePackage(project.workspacePath, node).catch(() => undefined),
   };
 }

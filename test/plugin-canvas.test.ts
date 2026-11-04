@@ -235,6 +235,9 @@ describe("plugin canvas nodes", () => {
     await settle(4);
     current = (await board()).board;
     expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set());
+    // Pointing describe at another source, with the old one unchanged, leaves it out of date too.
+    const rewired = current.nodes.map((node) => node.id === "describe" ? { ...node, data: { ...node.data, inputs: { source: [{ type: "node", nodeId: "hero" }] } } } as AssetCanvasNode : node);
+    expect(staleCanvasNodes(rewired, latest(await jobs()))).toEqual(new Set(["describe"]));
 
     // From the image with nothing changed, the copy still runs again rather than handing back its output.
     const again = (await app.inject({ method: "POST", url: `${boardUrl}/nodes/hero/regenerate` })).json<{ job: ToolJob & { reused?: string } }>().job;

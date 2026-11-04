@@ -141,7 +141,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -234,6 +234,7 @@ export function ProjectShell({
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   // Plugins' panels follow the type's own, in the areas they name.
   const plugins = useProjectPluginContributions(state.project, capabilitiesRevision);
+  useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
   const offered: PanelId[] = state.project ? [...panelsOf(state.project), ...pluginPanels.keys()] : [];

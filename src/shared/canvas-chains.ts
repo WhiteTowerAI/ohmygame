@@ -76,12 +76,13 @@ export function canvasDownstream(nodes: readonly AssetCanvasNode[], id: string):
  * finished run read.
  */
 export function staleCanvasNodes(nodes: readonly AssetCanvasNode[], upstream: Readonly<Record<string, Readonly<Record<string, string>> | undefined>>, markdown?: (documentId: string) => string | undefined): Set<string> {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
   const stale = new Set<string>();
   for (const node of nodes) {
     const read = upstream[node.id];
     if (!read || !canvasOutputKey(node)) continue;
-    if (Object.entries(read).some(([id, key]) => { const source = byId.get(id); return !source || canvasOutputKey(source, markdown) !== key; })) stale.add(node.id);
+    // A source that changed, went away, or was added or swapped since the run.
+    const now = canvasUpstreamKeys(nodes, node, markdown);
+    if (Object.keys(now).length !== Object.keys(read).length || Object.entries(read).some(([id, key]) => now[id] !== key)) stale.add(node.id);
   }
   for (const id of [...stale]) for (const node of canvasDownstream(nodes, id)) if (upstream[node.id] && canvasOutputKey(node)) stale.add(node.id);
   return stale;

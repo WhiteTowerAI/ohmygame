@@ -111,6 +111,7 @@ import { fetchTemplateExample } from "./template-example-cache.js";
 import { effectPresetAspectRatio, effectPresetById, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
+import { useProjectPluginsRevision } from "./project-plugin-contributions.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig } from "../shared/generation-config.js";
 import { mergeCanvasDocument } from "../shared/canvas-workspace.js";
@@ -301,11 +302,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [pluginCanvas, setPluginCanvas] = useState<ProjectPluginCanvas>({ nodes: [], presets: [] });
   const pluginNodes = pluginCanvas.nodes;
   const runtimeGeneration = useReadyRuntimeGeneration();
+  const pluginsRevision = useProjectPluginsRevision();
   useEffect(() => {
     let disposed = false;
     void getProjectPluginCanvas(projectId).catch((): ProjectPluginCanvas => ({ nodes: [], presets: [] })).then((canvas) => { if (!disposed) setPluginCanvas(canvas); });
     return () => { disposed = true; };
-  }, [projectId, runtimeGeneration]);
+  }, [projectId, runtimeGeneration, pluginsRevision]);
   const libraryAssets = useMemo<LibraryAsset[]>(() => {
     const assets = new Map(globalAssets.map((asset) => [asset.id, asset]));
     for (const asset of localAssets) assets.set(asset.id, { ...assets.get(asset.libraryAssetId ?? asset.id), ...asset, assetId: asset.id });
@@ -3796,7 +3798,7 @@ export function connectionRelation(
     const media = pluginSourceMedia(source, libraryAssets, pluginNodes);
     // A drop on one input's port fills that input; elsewhere, the first that fits.
     const input = definition?.inputs.find((candidate) => (!targetHandle || targetHandle === candidate.id) && candidate.accepts === media &&
-      (candidate.multiple || !(target.data.inputs?.[candidate.id]?.length)) &&
+      (target.data.inputs?.[candidate.id]?.length ?? 0) < (candidate.multiple ? MAX_TEXT_NODE_REFERENCES : 1) &&
       !(target.data.inputs?.[candidate.id] ?? []).some((reference) => reference.type === "node" && reference.nodeId === source.id));
     return input ? `plugin-input:${input.id}` : undefined;
   }
