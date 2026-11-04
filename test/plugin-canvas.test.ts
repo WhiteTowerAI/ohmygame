@@ -9,7 +9,7 @@ import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
 import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasBatchCopies, duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
-import { staleCanvasNodes } from "../src/shared/canvas-chains.js";
+import { canvasChainTextStep, staleCanvasNodes } from "../src/shared/canvas-chains.js";
 import { canvasNodeLayout } from "../src/shared/canvas-node-layout.js";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
@@ -273,6 +273,16 @@ describe("plugin canvas nodes", () => {
     // b1–b3 are the first copy: its image, then copy and describe reading it, without the original's output.
     expect(copies.find((node) => node.id === "b1")).toMatchObject({ type: "asset", parentId: "b4", data: { assetId: pictures[0]!.id, mediaType: "image" } });
     expect(copies.find((node) => node.id === "b3")!.data).toMatchObject({ inputs: { source: [{ type: "node", nodeId: "b2" }] } });
+
+    // An image copied out of a group keeps the pixel density that group gave it.
+    const group = { id: "art", type: "group", position: { x: 0, y: 0 }, width: 900, height: 500, data: { name: "Art", pixelStyle: "coarse" } } as AssetCanvasNode;
+    const styled = { id: "styled", type: "image", parentId: "art", position: { x: 20, y: 60 }, data: { prompt: "knight", images: [{ type: "node", nodeId: "hero" }] } } as unknown as AssetCanvasNode;
+    expect(canvasBatchCopies([image, group, styled], "hero", [{ assetId: pictures[0]!.id, name: "villain" }], (name) => name).nodes.find((node) => node.type === "image")!.data).toMatchObject({ pixelStyle: "coarse" });
+    // A Text node a model writes, with something run after it, keeps a chain from starting.
+    const caption = { id: "caption", type: "text", position: { x: 500, y: 0 }, data: { text: "old", instruction: "Describe it", references: [{ type: "node", nodeId: "hero" }] } } as unknown as AssetCanvasNode;
+    const reader = plugin("reader", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "caption" }] });
+    expect(canvasChainTextStep([image, caption, reader], "hero")?.id).toBe("caption");
+    expect(canvasChainTextStep([image, caption], "hero")).toBeUndefined();
 
     const saved = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
     saved.board.nodes = [image, copy, describe, ...copies];

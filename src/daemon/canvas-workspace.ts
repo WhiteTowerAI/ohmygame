@@ -1,5 +1,5 @@
 import { Compile } from "typebox/schema";
-import { canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
+import { canvasChainTextStep, canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
 import { audioSettings } from "../shared/audio.js";
 import { CANVAS_TABLE_SCHEMA, createCanvasTable, isCanvasTable, canvasTablePath, type CanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
@@ -651,6 +651,7 @@ export class CanvasStore {
     const { board } = await this.board(id, boardId);
     const start = board.nodes.find((node) => node.id === nodeId);
     if (!start) throw new CanvasError("Node not found", 404);
+    if (canvasChainTextStep(board.nodes, nodeId)) throw new CanvasError("A Text node after this one writes with a model. Generate it on the canvas, then run the nodes after it.", 409);
     const plan = [start, ...canvasDownstream(board.nodes, nodeId)].filter((node) => Object.hasOwn(NODE_TOOLS, node.type) && !(node.type === "image" && node.data.sourceInput));
     if (!plan.length) throw new CanvasError("Nothing here or after it makes anything");
     // The first node that makes something always runs again; the rest reuse what nothing upstream changed.

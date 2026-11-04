@@ -1,3 +1,4 @@
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { AssetCanvasEdge, AssetCanvasNode, AssetCanvasReference } from "../shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { snapCanvasPosition } from "./canvas-alignment.js";
@@ -96,6 +97,19 @@ export function duplicateCanvasSelection(nodes: AssetCanvasNode[], edges: AssetC
  * such as a shared prompt, stay. `starts` are the new image nodes, one per
  * group, to run each copy from.
  */
+/** The pixel density a node gets from the nearest group that sets one. */
+function inheritedPixelStyle(nodes: readonly AssetCanvasNode[], node: AssetCanvasNode): PixelArtLevel | undefined {
+  const seen = new Set<string>();
+  for (let parentId = node.parentId; parentId && !seen.has(parentId);) {
+    seen.add(parentId);
+    const parent = nodes.find((candidate) => candidate.id === parentId);
+    if (parent?.type !== "group") return undefined;
+    if (parent.data.pixelStyle) return parent.data.pixelStyle;
+    parentId = parent.parentId;
+  }
+  return undefined;
+}
+
 export function canvasBatchCopies(
   nodes: readonly AssetCanvasNode[],
   sourceId: string,
@@ -125,6 +139,11 @@ export function canvasBatchCopies(
       copy.id = ids.get(node.id)!;
       copy.parentId = groupId;
       copy.position = inside(node);
+      // The new group has no pixel density, so an image keeps the one it got from its groups.
+      if (copy.type === "image" && !copy.data.pixelStyle) {
+        const inherited = inheritedPixelStyle(nodes, node);
+        if (inherited) copy.data.pixelStyle = inherited;
+      }
       // Each copy makes its own output.
       const data = copy.data as { assetId?: string; text?: string };
       delete data.assetId;

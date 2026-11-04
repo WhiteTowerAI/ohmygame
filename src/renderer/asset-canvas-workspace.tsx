@@ -136,7 +136,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
-import { canvasDownstream, staleCanvasNodes } from "../shared/canvas-chains.js";
+import { canvasChainTextStep, canvasDownstream, canvasNodeRuns, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -2050,7 +2050,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: nodeLabel, description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: localizedTemplateText(original.type === "group" ? original.data.name ?? "" : original.title ?? ""), description: localizedTemplateText(original.description ?? "") }),
-      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted ? {} : { regenerate: () => void regenerateFrom(original.id) }) } } : {}),
+      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted || !canRegenerateFrom(boardNodes, original.id) ? {} : { regenerate: () => void regenerateFrom(original.id) }) } } : {}),
     } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
@@ -3855,11 +3855,9 @@ function pluginSourceMedia(node: AssetCanvasFlowNode, libraryAssets: LibraryAsse
 }
 
 /** Whether the daemon runs this node, or anything after it. */
-const canvasNodeRuns = (node: AssetCanvasNode) => ["video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene", "plugin"].includes(node.type) || (node.type === "image" && !node.data.sourceInput);
-
 function canRegenerateFrom(nodes: readonly AssetCanvasNode[], id: string): boolean {
   const node = nodes.find((candidate) => candidate.id === id);
-  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)));
+  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)) && !canvasChainTextStep(nodes, id));
 }
 
 /** Images the batch run takes; the ones every image node and plugin reads. */
@@ -3869,7 +3867,7 @@ const BATCH_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg
 function canRunWithImages(nodes: readonly AssetCanvasNode[], id: string): boolean {
   const node = nodes.find((candidate) => candidate.id === id);
   const image = node?.type === "image" || (node?.type === "asset" && node.data.mediaType === "image");
-  return Boolean(image && node?.data && "assetId" in node.data && node.data.assetId && canvasDownstream(nodes, id).some(canvasNodeRuns));
+  return Boolean(image && node?.data && "assetId" in node.data && node.data.assetId && canvasDownstream(nodes, id).some(canvasNodeRuns) && !canvasChainTextStep(nodes, id));
 }
 
 function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {

@@ -70,6 +70,19 @@ export function canvasDownstream(nodes: readonly AssetCanvasNode[], id: string):
   return ordered;
 }
 
+/** Nodes the daemon runs in a chain. */
+export function canvasNodeRuns(node: Pick<AssetCanvasNode, "type" | "data">): boolean {
+  return ["video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene", "plugin"].includes(node.type) || (node.type === "image" && !(node.data as { sourceInput?: boolean }).sourceInput);
+}
+
+/**
+ * A Text node after `id` that something run after it reads. A chain doesn't
+ * write text, so the nodes after it would run on its old words.
+ */
+export function canvasChainTextStep(nodes: readonly AssetCanvasNode[], id: string): AssetCanvasNode | undefined {
+  return canvasDownstream(nodes, id).find((node) => node.type === "text" && canvasDownstream(nodes, node.id).some(canvasNodeRuns));
+}
+
 /**
  * Nodes whose output came from inputs that have since changed, and every
  * node after them that made something. `upstream` is what each node's last

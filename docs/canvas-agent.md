@@ -141,7 +141,11 @@ node ids). The first node runs again; the rest reuse their output when nothing
 they read changed. A failure stops the chain before what reads it. On an image
 with something after it that runs, **Run with several images…** picks 2 to 10
 PNG, JPEG or WebP Library images and copies the chain once per image, each in
-its own group below the original named after the image, then runs every copy.
+its own group below the original named after the image (keeping the pixel
+density its groups gave each image), then runs every copy. A chain doesn't
+write text, so neither Regenerate from here nor Run with several images is
+offered, and the route answers 409, while a Text node a model writes sits
+between the node and something that runs after it.
 Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
 it, and drag the heading to move its entire tree. The empty frame interior
 allows marquee selection of its children. Dropping a node with its center
