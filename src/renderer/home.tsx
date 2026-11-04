@@ -182,6 +182,14 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
             {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
           </section>
 
+          {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
+            <header className="home-section-head">
+              <h2 id="home-examples-heading">{t("home.explore")}</h2>
+              <Button size="sm" variant="ghost" onClick={() => onNavigate("community")}>{t("home.toCommunity")}</Button>
+            </header>
+            <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
+          </section> : null}
+
           <section className="home-section home-explore home-templates" aria-labelledby="home-templates-heading">
             <header className="home-section-head">
               <h2 id="home-templates-heading">{t("home.templates")}</h2>
@@ -231,14 +239,6 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
             </div>
             {templateError ? <p className="home-notice" role="alert">{templateError}</p> : null}
           </section>
-
-          {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
-            <header className="home-section-head">
-              <h2 id="home-examples-heading">{t("home.explore")}</h2>
-              <Button size="sm" variant="ghost" onClick={() => onNavigate("community")}>{t("home.toCommunity")}</Button>
-            </header>
-            <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
-          </section> : null}
         </div>
       </main>
       {projectActions.dialogs}
