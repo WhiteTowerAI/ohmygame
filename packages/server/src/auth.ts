@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { normalizeDisplayName } from "@ohmygame/sdk/protocol";
+import type { KeyObject } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
@@ -23,7 +24,15 @@ export interface MultiplayerAuthOptions {
   accountIssuer?: string;
   /** Signing keys for tests; defaults to the issuer's /v1/game-auth/jwks.json. */
   accountKeys?: JWTVerifyGetKey;
+  /**
+   * Local development only: the key of this service's own test account service, whose
+   * tokens sign in test players to every local game. See local-accounts.ts.
+   */
+  localAccountKey?: KeyObject;
 }
+
+/** The audience of a local test account token: any game on the local service. */
+export const LOCAL_ACCOUNT_AUDIENCE = "ohmygame:game:local";
 
 export class MultiplayerAuth {
   private readonly issuer?: string;
@@ -77,6 +86,8 @@ export class MultiplayerAuth {
     }
     if (policy === "anonymous")
       throw new Error("This game only accepts guests.");
+    const local = this.options.localAccountKey && await this.localAccount(token);
+    if (local) return local;
     if (!this.issuer || !this.keys)
       throw new Error("OhMyGame accounts are not configured on the multiplayer service.");
     // A game token is signed by the account service for one game; the deployment's gameId is that game.
@@ -95,6 +106,24 @@ export class MultiplayerAuth {
       };
     } catch {
       throw new Error("The account token is invalid, expired or for another game.");
+    }
+  }
+  /** A test player from this service's local account service, when the token is one. */
+  private async localAccount(token: string): Promise<MultiplayerIdentity | undefined> {
+    try {
+      const { payload } = await jwtVerify(token, this.options.localAccountKey!, {
+        audience: LOCAL_ACCOUNT_AUDIENCE,
+        algorithms: ["ES256"],
+        requiredClaims: ["sub", "exp"],
+      });
+      if (typeof payload.sub !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(payload.sub)) return undefined;
+      return {
+        kind: "account",
+        userId: `account:${payload.sub}`,
+        ...(typeof payload.name === "string" ? { name: normalizeDisplayName(payload.name) } : {}),
+      };
+    } catch {
+      return undefined;
     }
   }
   /** A guest token's claims when this service signed it, expired or not. */

@@ -15,6 +15,8 @@ import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
+import { createLocalAccounts, mountGameDataViewer } from "./local-accounts.js";
+import { MemoryGameDataStore } from "./game-data.js";
 
 export interface MultiplayerServerOptions {
   deployments: MultiplayerManifestConfig[];
@@ -31,6 +33,12 @@ export interface MultiplayerServerOptions {
   roundRestartMs?: number;
   /** Cloud saves and leaderboards. Without it the service offers rooms only. */
   gameData?: GameDataOptions;
+  /**
+   * Local development only, with allowLocalhost: a stand-in account service where anyone
+   * signs in as a test player, and a page per game showing its saves and leaderboards at
+   * /dev/games/:gameId. See local-accounts.ts.
+   */
+  localAccounts?: boolean;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -73,7 +81,9 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
     deployments.set(multiplayerRoomType(config), config);
     resolveGameAdapter(config, options.adapters);
   }
-  const auth = new MultiplayerAuth(options.auth);
+  if (options.localAccounts && !options.allowLocalhost) throw new Error("Local test accounts are only for a local service.");
+  const localAccounts = options.localAccounts ? createLocalAccounts() : undefined;
+  const auth = new MultiplayerAuth({ ...options.auth, ...(localAccounts ? { localAccountKey: localAccounts.publicKey } : {}) });
   const store = new RoomStore(options.databasePath);
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const restoring = new Map<string, StoredRoom>();
@@ -127,6 +137,9 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       // Saves take larger bodies than room requests, so their routes parse their own.
       if (options.gameData) pruneGameData = mountGameData(app, options.gameData, auth, rate).prune;
       app.use(express.json({ limit: "16kb" }));
+      localAccounts?.mount(app);
+      if (options.allowLocalhost && options.gameData?.store instanceof MemoryGameDataStore)
+        mountGameDataViewer(app, options.gameData.store);
       app.get("/healthz", (_request, response) =>
         response.status(draining ? 503 : 200).json({ ok: !draining }),
       );

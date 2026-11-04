@@ -161,6 +161,27 @@ export class MemoryGameDataStore implements ServerStore {
     }
   }
   async close() {}
+
+  /** Everything kept for a game, for the local viewer: boards best first, and who has saves. */
+  describe(gameId: string): {
+    boards: { board: string; order: LeaderboardOrder; entries: { playerId: string; name: string; score: number; public: boolean }[] }[];
+    saves: { playerId: string; keys: string[] }[];
+  } {
+    const prefix = `${gameId}\u0000`;
+    const boards = [...this.boards]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, { order, scores }]) => ({
+        board: key.slice(prefix.length),
+        order,
+        entries: [...scores.values()]
+          .sort((left, right) => compare(order, left, right))
+          .map(({ playerId, name, score, public: shown }) => ({ playerId: publicPlayerId(playerId), name, score, public: shown })),
+      }));
+    const saves = [...this.saves]
+      .filter(([key, kept]) => key.startsWith(prefix) && kept.size)
+      .map(([key, kept]) => ({ playerId: publicPlayerId(key.slice(prefix.length)), keys: [...kept.keys()].sort() }));
+    return { boards, saves };
+  }
 }
 
 function slot(gameId: string, name: string): string {
