@@ -257,6 +257,8 @@ interface AcpState {
   lifetime: AbortController;
   /** A new session gets OhMyGame's instructions with its first prompt. */
   instruct: boolean;
+  /** Each process stages the Skills afresh, so a continued session hears where they are now. */
+  listSkills: boolean;
 }
 
 // Tools whose kind says little are matched to OhMyGame's own before they are shown.
@@ -305,6 +307,7 @@ export class AcpDriver implements NativeDriver {
       const prompt = await this.#prompt(state, input);
       signal.throwIfAborted();
       state.instruct = false;
+      state.listSkills = false;
       const response = await state.connection.request(
         "session/prompt",
         { sessionId: state.sessionId, prompt },
@@ -471,6 +474,7 @@ export class AcpDriver implements NativeDriver {
         choices,
         lifetime,
         instruct: !resume,
+        listSkills: true,
         ...(workingMode(choices.mode)
           ? { workingMode: workingMode(choices.mode) }
           : {}),
@@ -544,17 +548,21 @@ export class AcpDriver implements NativeDriver {
     const skills = await (this.#skills ??= this.context.skillDirectories.length
       ? stageSkills(this.context.skillDirectories, root).catch(() => [])
       : Promise.resolve([]));
-    if (state.instruct) {
-      const listed = skills.length
-        ? `\n\nSkills you can read when a request calls for one:\n${skills
-            .map((name) => `- ${name}: ${path.join(root, name, "SKILL.md")}`)
-            .join("\n")}`
-        : "";
+    const listed = skills.length
+      ? `Skills you can read when a request calls for one:\n${skills
+          .map((name) => `- ${name}: ${path.join(root, name, "SKILL.md")}`)
+          .join("\n")}`
+      : "";
+    if (state.instruct)
       prompt.push({
         type: "text",
-        text: `<ohmygame-instructions>\n${this.context.instructions}${listed}\n</ohmygame-instructions>`,
+        text: `<ohmygame-instructions>\n${this.context.instructions}${listed ? `\n\n${listed}` : ""}\n</ohmygame-instructions>`,
       });
-    }
+    else if (state.listSkills && listed)
+      prompt.push({
+        type: "text",
+        text: `${listed}\n(These paths replace any given earlier in this session.)`,
+      });
     const named = (input.skills ?? []).filter((name) => skills.includes(name));
     if (named.length)
       prompt.push({

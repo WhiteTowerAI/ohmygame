@@ -2956,7 +2956,11 @@ describe("ACP adapter", () => {
         reply({ stopReason: "end_turn" });
       },
     });
-    const driver = new AcpDriver(await context({ resume: "s1" }), { name: "Gemini", args: [] });
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-acp-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "# Skill\n");
+    const resumed = await context({ resume: "s1", skillDirectories: [skill] });
+    const driver = new AcpDriver(resumed, { name: "Gemini", args: [] });
     const recording = recordingSink();
     await driver.runTurn({ text: "again", images: [], readOnly: false }, recording.sink, new AbortController().signal);
     expect(received.find((message) => message.method === "session/load")?.params).toMatchObject({
@@ -2971,6 +2975,10 @@ describe("ACP adapter", () => {
     expect(recording.calls.filter((call) => call.startsWith("text:"))).toEqual(["text:text-0:new reply"]);
     expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).not.toContain(
       "Project instructions",
+    );
+    // This process staged the Skills in its own folder, so the continued session hears where.
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
+      path.join(resumed.privateDirectory, "skills", path.basename(skill), "SKILL.md"),
     );
 
     acpAgent({ loadSession: false });
