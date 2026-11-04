@@ -138,3 +138,15 @@ obtains the session from the account service for the game it embeds.
 The desktop app's renderer runs from `file://`, which a framed game sees as the origin
 `null`, the same as any sandboxed page; it therefore cannot hand over sessions this way
 yet.
+
+### In the desktop app
+
+Community games play in a frame of the desktop window that may open popups. The app
+opens a popup in its own window only when it is the SDK's sign-in window
+(`ohmygame-sign-in`) at `{issuer}/v1/game-auth/authorize`, with the same issuer the
+daemon writes to manifests (`OHMYGAME_ACCOUNT_ISSUER`, or else the cloud API URL),
+over HTTPS (`src/desktop/game-sign-in.ts`). That window is a plain sandboxed page, with
+no preload and no app access; it may visit any HTTPS page on the way, such as an identity
+provider, and back to the game's page, but opens no windows of its own. Any other
+`http:` or `https:` popup from a game, or from that window, opens in the system browser,
+like other links in the app.

@@ -13,6 +13,7 @@ import { setGlobalDispatcher } from "undici/index.js";
 import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
 import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
+import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
@@ -48,6 +49,8 @@ recordConsole(mainLog);
 recordUncaughtErrors(mainLog);
 mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${process.arch}`);
 let mainWindow: BrowserWindow | undefined;
+/** The account service published games sign in with, from the daemon's environment. */
+let gameSignIn: string | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
@@ -499,6 +502,7 @@ try {
     environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
     resolveProxy: (url) => systemProxySession.resolveProxy(url),
   });
+  gameSignIn = gameSignInIssuer(network.environment);
   // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
   setGlobalDispatcher(createNetworkDispatcher(network.active));
   const proxyConfig = electronProxyConfig(network.active);
@@ -602,6 +606,7 @@ async function openMainWindow(): Promise<void> {
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
     integratedMenuBar: true,
+    gameSignInIssuer: gameSignIn,
     beforeLoad: (window) => {
       mainWindow = window;
       window.webContents.on("console-message", (details) => {

@@ -2,6 +2,7 @@ import { BrowserWindow, nativeTheme, screen, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
+import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest } from "./game-sign-in.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
 const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
@@ -34,6 +35,11 @@ interface CreateWindowOptions {
   minHeight?: number;
   /** Never shown or heard, and keeps rendering while hidden so it can be captured. */
   hidden?: boolean;
+  /**
+   * The account service's HTTPS base URL. Published games framed in this window may then
+   * open its sign-in page in a popup; see game-sign-in.ts.
+   */
+  gameSignInIssuer?: string;
   /** Runs before the renderer loads, so the page can reach the window early. */
   beforeLoad?: (window: BrowserWindow) => void;
 }
@@ -126,10 +132,13 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       : null;
   });
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isHttpUrl(url)) void shell.openExternal(url);
+  window.webContents.setWindowOpenHandler((details) => {
+    if (isGameSignInRequest(details, options.gameSignInIssuer))
+      return { action: "allow", overrideBrowserWindowOptions: { ...GAME_SIGN_IN_WINDOW_OPTIONS, parent: window } };
+    if (isHttpUrl(details.url)) void shell.openExternal(details.url);
     return { action: "deny" };
   });
+  window.webContents.on("did-create-window", (child) => guardGameSignInWindow(child));
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });

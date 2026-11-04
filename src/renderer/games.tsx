@@ -225,7 +225,8 @@ function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onPlayerLoad,
             src={game.playUrl}
             onLoad={onPlayerLoad}
             title={game.title}
-            sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+            // A published game may open the OhMyGame sign-in popup; the desktop app allows only that page.
+            sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
             allow="autoplay; fullscreen"
           />
         </div>
