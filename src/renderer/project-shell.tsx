@@ -1151,6 +1151,7 @@ export function ProjectShell({
       return {};
     }
     try {
+      await saveBeforeBuild(command);
       const { result, change } = await runPluginCommand(project.id, command.id);
       showPluginChange(command.title, change);
       return { result };
@@ -1159,6 +1160,12 @@ export function ProjectShell({
       toast({ title: command.title, description: error, tone: "danger" });
       return { error };
     }
+  }
+  /** A build is read from disk, so pending edits are saved first, as for Export web build. */
+  async function saveBeforeBuild(command: ProjectPluginCommand | undefined): Promise<void> {
+    if (!command || !("native" in command.run) || command.run.build !== "web") return;
+    await saveDesign.current?.();
+    await desktopSave.flush();
   }
   /** Answers a plugin page's question, and lets another be asked. */
   function answerPluginConfirm(yes: boolean): void {
@@ -1236,6 +1243,7 @@ export function ProjectShell({
         if (action.kind === "fill") requestPrompt(action.text);
         else if (action.kind === "app") await runProjectPluginCommand(action.command);
         if (action.kind !== "plugin") return null;
+        await saveBeforeBuild(found);
         const { result, change } = await runPluginCommand(current.id, id, input);
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
@@ -1488,19 +1496,7 @@ export function ProjectShell({
             disabled: "native" in command.run && command.run.build === "web" && !!exporting,
             // Plugin code shows as publishing until it ends; the rest only opens or fills something.
             onSelect: () => void ("native" in command.run || "tool" in command.run
-              ? (setPublishing(true), (async () => {
-                // A build is read from disk, so pending edits are saved first, as for Export web build.
-                if ("native" in command.run && command.run.build === "web") {
-                  try {
-                    await saveDesign.current?.();
-                    await desktopSave.flush();
-                  } catch (cause) {
-                    dispatch({ type: "notice", message: errorMessage(cause) });
-                    return;
-                  }
-                }
-                await runProjectPluginCommand(command);
-              })().finally(() => setPublishing(false)))
+              ? (setPublishing(true), runProjectPluginCommand(command).finally(() => setPublishing(false)))
               : runProjectPluginCommand(command)),
           })),
         ]} trigger={(props) => (
