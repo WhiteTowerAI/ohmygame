@@ -163,8 +163,28 @@ function compileTurnGame<G extends object, Moves extends Record<string, MoveDefi
     },
     onTurnTimeout(state, now) {
       const next = structuredClone(state);
-      // A missed turn is skipped; the service remains the time authority.
-      next.currentPlayerId = seatAfter(next, next.currentPlayerId);
+      const late = next.currentPlayerId;
+      let chosen: string | undefined;
+      if (definition.timeout && next.game !== undefined) {
+        // The rules decide what a missed turn costs; the service remains the time authority.
+        const ctx: MoveContext = {
+          ...context(next, now),
+          playerId: late,
+          setCurrentPlayer(id) {
+            if (!next.players.some((player) => player.playerId === id)) throw new Error("setCurrentPlayer needs a seated player.");
+            chosen = id;
+          },
+        };
+        const draft = structuredClone(next.game) as G;
+        const returned = definition.timeout(draft, ctx);
+        next.game = plainGame(returned === undefined ? draft : returned, "timeout");
+        const result = definition.endIf?.(next.game as G, context(next, now));
+        if (result) {
+          finishMatch(next, result.winners);
+          return next;
+        }
+      }
+      next.currentPlayerId = chosen ?? seatAfter(next, late);
       next.turnDeadline = now + turnMs;
       return next;
     },

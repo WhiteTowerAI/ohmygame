@@ -8,7 +8,7 @@ export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** Map units a racer covers per second; the ring is 35 units from the goal. */
 export const ARENA_UNITS_PER_SECOND = 20;
 
-/** Speed, arena bounds and victory are server rules. */
+/** Speed, arena bounds and victory are server rules. Everyone who reaches the goal in the same tick wins together. */
 export function stepArena(
   state: MultiplayerGameState,
   inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
@@ -20,11 +20,10 @@ export function stepArena(
     const entry = inputs.get(player.playerId);
     if (!player.connected || !entry) continue;
     moveToward(player, entry.input, ARENA_UNITS_PER_SECOND, dt);
-    if (Math.hypot(player.x - 50, player.y - 50) < 4) {
-      finishMatch(next, [player.playerId]);
-      break;
-    }
   }
+  // Seat order must not decide a tie: every player in the goal after this tick's moves wins.
+  const arrived = next.players.filter((player) => player.connected && Math.hypot(player.x - 50, player.y - 50) < 4);
+  if (arrived.length) finishMatch(next, arrived.map((player) => player.playerId));
   return next;
 }
 

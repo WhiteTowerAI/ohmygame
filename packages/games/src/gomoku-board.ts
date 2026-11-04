@@ -12,6 +12,8 @@ export interface GomokuState {
   winningLine: GomokuPoint[];
   blackWins: number;
   whiteWins: number;
+  /** The colour that ran out of time and lost, when the match ended that way. */
+  forfeit?: 1 | 2;
   [key: string]: unknown;
 }
 
@@ -52,7 +54,8 @@ export function isGomokuState(value: unknown): value is GomokuState {
     Number.isSafeInteger(value.blackWins) &&
     Number(value.blackWins) >= 0 &&
     Number.isSafeInteger(value.whiteWins) &&
-    Number(value.whiteWins) >= 0
+    Number(value.whiteWins) >= 0 &&
+    (value.forfeit === undefined || value.forfeit === 1 || value.forfeit === 2)
   );
 }
 

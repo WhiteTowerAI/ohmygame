@@ -65,8 +65,15 @@ export interface GameDefinition<G extends object, Moves extends Record<string, M
   endIf?(G: G, ctx: GameContext): GameResult | undefined;
   /** What one player may see, such as their own hand. playerId is undefined for a spectator. */
   playerView?(G: G, ctx: GameContext, playerId: string | undefined): object;
-  /** Seconds before a turn is skipped. Defaults to 60. */
+  /** Seconds a player has for their turn. Defaults to 60. */
   turnSeconds?: number;
+  /**
+   * Runs when the current player's time runs out, with ctx.playerId the player who ran out
+   * of time; endIf then runs as after a move, for example to make them lose. Change G in
+   * place or return a new one. Without it, or when it chooses no one with
+   * ctx.setCurrentPlayer, the turn passes to the next seat.
+   */
+  timeout?(G: G, ctx: MoveContext): G | void;
   /** Reserved for bots and automated testing; the service does not call it yet. */
   legalMoves?(G: G, ctx: GameContext, playerId: string): { move: keyof Moves & string; args?: object }[];
 }

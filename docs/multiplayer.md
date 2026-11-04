@@ -183,8 +183,9 @@ a flat 15 × 15 board, move history, winning line, and black/white scores. Use
 players send `action` with `{ action: "move", point: { r, c } }`. The service
 rejects out-of-turn, out-of-bounds, occupied, and extra-field moves, calculates
 five-in-a-row and draws, and preserves scores across the owner's `restart`,
-which is accepted once a match has ended. A turn timeout skips the player without
-placing a stone.
+which is accepted once a match has ended. Running out of time loses the match: the
+other colour wins and scores, and `state.game.forfeit` names the colour that ran out
+of time (1 black, 2 white).
 
 `createMultiplayerServer({ adapters })` can accept additional trusted rules
 adapters keyed by ID. `MultiplayerGameAdapter` is experimental: rules should use
@@ -216,8 +217,10 @@ Turn-based rules can be plain functions instead of an adapter.
 `defineGame` (from `@ohmygame/server`, or `@ohmygame/sdk/game` for types in the
 page) takes `players`, `setup(ctx, previous)` for the game at `start` and
 `restart` (`previous` is the finished match's game on a restart), `moves`, and the
-optional `endIf(G, ctx)`, `playerView(G, ctx, playerId)`, and `turnSeconds`
-(default 60). `compileGame(rules)` returns the adapter to register:
+optional `endIf(G, ctx)`, `playerView(G, ctx, playerId)`, `turnSeconds`
+(default 60), and `timeout(G, ctx)`, which runs when the current player
+(`ctx.playerId`) runs out of time and before `endIf`; without it the turn passes to
+the next seat. `compileGame(rules)` returns the adapter to register:
 
 ```ts
 const rules = defineGame({

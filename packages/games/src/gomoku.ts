@@ -35,7 +35,15 @@ export const gomokuRules = defineGame({
       }
     },
   },
+  // Running out of time loses the match; skipping the turn would give the other colour two stones.
+  timeout(G, ctx) {
+    const cell = ctx.players[0] === ctx.playerId ? 1 : 2;
+    G.forfeit = cell;
+    if (cell === 1) G.whiteWins++;
+    else G.blackWins++;
+  },
   endIf(G, ctx) {
+    if (G.forfeit) return { winners: [G.forfeit === 1 ? ctx.players[1]! : ctx.players[0]!] };
     const [first] = G.winningLine;
     if (first) return { winners: [G.board[first.r * GOMOKU_SIZE + first.c] === 1 ? ctx.players[0]! : ctx.players[1]!] };
     if (G.history.length === GOMOKU_SIZE ** 2) return { winners: [], draw: true };
