@@ -15,6 +15,9 @@ const host = vi.hoisted(() => ({
   daemonOptions: undefined as Record<string, unknown> | undefined,
   applicationMenu: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
   menuBeforeLabels: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
+  daemonGate: undefined as Promise<void> | undefined,
+  mainWindows: 0,
+  showErrorBox: vi.fn(),
 }));
 vi.mock("electron", () => ({
   app: {
@@ -29,7 +32,7 @@ vi.mock("electron", () => ({
     on: (name: string, fn: (...args: any[]) => void) => host.ipcEvents.set(name, fn),
   },
   nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
-  BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: vi.fn() }, shell: {},
+  BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: host.showErrorBox }, shell: {},
   Menu: {
     buildFromTemplate: (template: Array<{ role?: string; label?: string }>) => ({ template }),
     setApplicationMenu: (menu: typeof host.applicationMenu) => { host.applicationMenu = menu; },
@@ -44,6 +47,7 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
   startDaemon: async (options: Record<string, unknown>) => {
     host.daemonOptions = options;
+    await host.daemonGate;
     return { runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped };
   },
 }));
@@ -83,6 +87,7 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       on: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
       once: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
     };
+    host.mainWindows += 1;
     options.beforeLoad(window);
     host.menuBeforeLabels = host.applicationMenu;
     // The page sends its labels as it loads, before the window has finished opening.
@@ -98,6 +103,8 @@ beforeEach(async () => {
   host.thumbnails.length = 0;
   host.applicationMenu = undefined;
   host.menuBeforeLabels = undefined;
+  host.daemonGate = undefined;
+  host.mainWindows = 0;
   process.argv.push("--built-renderer");
   host.quit.mockImplementation(() => host.appEvents.get("before-quit")!({ preventDefault() {} }));
   await import("../src/desktop/main.js");
@@ -135,6 +142,22 @@ it("lets only the main window relabel the application menu", async () => {
 });
 it("accepts the labels the main window sends while it loads", () => {
   expect(host.applicationMenu!.template.find((item) => item.role === "windowMenu")!.label).toBe("Sent while loading");
+});
+it("ignores a macOS activate while the service is still starting", async () => {
+  vi.resetModules(); host.appEvents.clear(); host.mainWindows = 0; host.daemonOptions = undefined;
+  let release!: () => void;
+  host.daemonGate = new Promise((resolve) => { release = resolve; });
+  const starting = import("../src/desktop/main.js");
+  await vi.waitFor(() => expect(host.daemonOptions).toBeDefined());
+  // Relaunching the app after an update sends activate before startup opens its window.
+  host.appEvents.get("activate")!();
+  await settle();
+  expect(host.showErrorBox).not.toHaveBeenCalled();
+  expect(host.mainWindows).toBe(0);
+  release(); await starting;
+  expect(host.mainWindows).toBe(1);
+  host.appEvents.get("activate")!();
+  expect(host.mainWindows).toBe(1);
 });
 it("keeps services running until Quit receives a save acknowledgement", async () => {
   quit(); quit();
