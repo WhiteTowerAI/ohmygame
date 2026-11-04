@@ -154,15 +154,16 @@ export class PluginModelProviders {
     }, this.request, catalog);
     const models = new Map(listed.map((model) => [model.id, model]));
     for (const model of result.models) {
-      // A plugin's provider is a chat provider; skip what only makes media.
+      // A plugin's provider is a chat provider: skip what only makes media,
+      // and Google models it doesn't list as generating content.
       const usages = model.usages;
-      if (usages && !usages.language && Object.keys(usages).length) continue;
+      if (provider.api === "google-generative-ai" ? !usages?.language : usages && !usages.language && Object.keys(usages).length) continue;
       if (models.has(model.id)) continue;
       models.set(model.id, {
         id: model.id, name: model.name, api: provider.api,
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-        ...thinkingLevels(model.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
+        ...thinkingLevels(model.thinkingLevelMap ?? model.reasoningCapabilities?.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
       });
     }
     const list = [...models.values()];
