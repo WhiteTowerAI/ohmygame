@@ -2983,6 +2983,22 @@ describe("ACP adapter", () => {
     ).rejects.toBeInstanceOf(NativeSessionExpiredError);
   });
 
+  it("stops at once while the agent is still starting its session", async () => {
+    // This agent never answers session/new.
+    const stuck = fakeCli((message, cli) => {
+      if (message.method === "initialize")
+        cli.send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    });
+    const driver = new AcpDriver(await context(), { name: "Gemini", args: [] });
+    const turn = driver.runTurn({ text: "hi", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    await vi.waitFor(() => expect(stuck[0]).toBeDefined());
+    await vi.waitFor(() => expect(stuck[0]!.exited).not.toBe(true));
+    const started = Date.now();
+    await driver.dispose();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(await turn).toMatchObject({ status: "failed" });
+  });
+
   it("says how to sign in when the agent needs it", async () => {
     acpAgent({ authRequired: true });
     const outcome = await new AcpDriver(await context(), {

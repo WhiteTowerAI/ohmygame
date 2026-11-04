@@ -270,6 +270,8 @@ const UNCLEAR_KINDS = new Set([undefined, "other", "think"]);
 export class AcpDriver implements NativeDriver {
   #state?: AcpState;
   #starting?: Promise<AcpState>;
+  /** The process a start is still setting up, so stopping need not wait for it. */
+  #connecting?: AcpConnection;
   #turn?: AcpTurn;
   #loading = false;
   #sessionId?: string;
@@ -355,6 +357,8 @@ export class AcpDriver implements NativeDriver {
   }
 
   async dispose(): Promise<void> {
+    // A start waiting on the agent ends now; stopping its process fails what it waits for.
+    await this.#connecting?.stop();
     const state = this.#state ?? (await this.#starting?.catch(() => undefined));
     this.#state = undefined;
     this.#starting = undefined;
@@ -390,6 +394,7 @@ export class AcpDriver implements NativeDriver {
         },
       },
     );
+    this.#connecting = connection;
     try {
       const capabilities = await connection.initialize();
       const mcp = record(capabilities.mcpCapabilities);
@@ -481,6 +486,8 @@ export class AcpDriver implements NativeDriver {
       lifetime.abort();
       await connection.stop();
       throw cause;
+    } finally {
+      if (this.#connecting === connection) this.#connecting = undefined;
     }
   }
 
