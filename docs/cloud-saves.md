@@ -94,8 +94,9 @@ reached.
   connection string or pool and creates or upgrades its tables when it starts;
   several instances may share one database.
 - `allowGame(gameId)`: which games the service keeps data for, every game by
-  default. `publishedGameCheck(cloudApiUrl)` allows the games OhMyGame lists
-  publicly and caches the answer.
+  default. `publishedGameCheck(cloudApiUrl)` allows the games OhMyGame has
+  published, listed in Community or not (`GET /v1/published-games/:id` on the
+  cloud API), and caches the answer.
 - `guestRetentionDays` (30) and `accountRetentionDays` (365): data of a player who
   has not used a game for that long is removed, hourly.
 - `adminToken`: enables the operator route. Call it when an OhMyGame account is

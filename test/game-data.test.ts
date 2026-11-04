@@ -284,9 +284,9 @@ describe("published game check", () => {
     expect(await check("g2")).toBe(false);
     expect(await check("g1")).toBe(true);
     expect(requests).toEqual([
-      "https://api.example.test/v1/community/games/g1",
-      "https://api.example.test/v1/community/games/g2",
-      "https://api.example.test/v1/community/games/g1",
+      "https://api.example.test/v1/published-games/g1",
+      "https://api.example.test/v1/published-games/g2",
+      "https://api.example.test/v1/published-games/g1",
     ]);
     const cached = publishedGameCheck("https://api.example.test", { fetch: (async () => new Response(null, { status: 200 })) as typeof fetch });
     expect(await cached("g3")).toBe(true);

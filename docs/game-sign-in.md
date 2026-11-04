@@ -8,13 +8,14 @@ as the multiplayer service, accept the token in place of a guest.
 This document is the contract between three parties:
 
 - the browser SDK in a game (`packages/sdk/src/account.ts`, `game.auth`);
-- the OhMyGame account service, part of the cloud (`ohmygame-cloud`), which signs players
-  in and issues tokens;
+- the OhMyGame account service in `ohmygame-cloud` (its `docs/game-sign-in.md`), which
+  signs players in and issues tokens;
 - game services that verify tokens (`packages/server/src/auth.ts`), for rooms and for
   [cloud saves and leaderboards](cloud-saves.md).
 
-The account service side is not implemented yet. Until it is, `game.auth.signIn()` in a
-published game fails when the sign-in page cannot be reached, and players stay guests.
+Until the account service is deployed with game sign-in configured,
+`game.auth.signIn()` in a published game fails when the sign-in page cannot be
+reached, and players stay guests.
 
 ## Configuration
 
@@ -75,9 +76,11 @@ page. Query parameters:
 | `code_challenge_method` | `S256`                                                    |
 | `state`                 | Opaque; returned unchanged                                |
 
-The service rejects a `redirect_uri` that is not on a published game's origin. It signs
-the player in with their OhMyGame account, shows which game is asking, and on first use
-says that the game will receive the player's name. It then redirects to
+The service rejects a `redirect_uri` that is not a published game's own page and never
+redirects to it. Otherwise it sends the player to the account dashboard's
+`/game-sign-in` page, which signs them in with their OhMyGame account if needed, shows
+which game is asking and that the game will receive the player's name and ID, and asks
+them to continue or cancel. It then redirects to
 `redirect_uri?code=…&state=…`, or `redirect_uri?error=access_denied&state=…` when the
 player declines. A code is single use and expires within a minute.
 
@@ -100,8 +103,9 @@ A JSON body, answered with a session:
 }
 ```
 
-Refresh tokens belong to one game, rotate on every use, and stop working when the player
-signs out of OhMyGame or the account is deleted. An invalid, used, or expired grant
+Refresh tokens belong to one game, rotate on every use, and last 30 days. One used twice
+ends every session of that sign-in; they also end when the account is deleted or the
+game unpublished. An invalid, used, or expired grant
 answers 400 or 401, which signs the player out in the game. The endpoint allows
 cross-origin requests from published games' origins.
 

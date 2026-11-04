@@ -41,8 +41,8 @@ export interface GameDataRateLimit {
 }
 
 /**
- * Allows a game when OhMyGame lists it as published: GET {cloudApiUrl}/v1/community/games/{id}
- * answers 200. Answers are cached, and a listed game is not checked again for cacheMs.
+ * Allows a game when OhMyGame has it published, listed in Community or not:
+ * GET {cloudApiUrl}/v1/published-games/{id} answers 200. Answers are cached, and a listed game is not checked again for cacheMs.
  */
 export function publishedGameCheck(cloudApiUrl: string, options: { cacheMs?: number; fetch?: typeof fetch } = {}) {
   const cacheMs = options.cacheMs ?? 5 * 60 * 1000;
@@ -54,7 +54,7 @@ export function publishedGameCheck(cloudApiUrl: string, options: { cacheMs?: num
     if (cached && cached.until > now) return cached.allowed;
     let allowed: boolean;
     try {
-      const response = await request(new URL(`/v1/community/games/${encodeURIComponent(gameId)}`, cloudApiUrl), {
+      const response = await request(new URL(`/v1/published-games/${encodeURIComponent(gameId)}`, cloudApiUrl), {
         signal: AbortSignal.timeout(5000),
       });
       if (response.status !== 200 && response.status !== 404) throw new Error(`HTTP ${response.status}`);
