@@ -447,7 +447,6 @@ export function ProjectShell({
       for (const event of pending) dispatch({ type: "runtime-event", event });
     };
     const awaitTextFrame = (now: number) => {
-      frame = 0;
       if (now - applied < TEXT_INTERVAL_MS) frame = requestAnimationFrame(awaitTextFrame);
       else applyText();
     };

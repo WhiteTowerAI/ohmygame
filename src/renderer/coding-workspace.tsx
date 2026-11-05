@@ -1154,8 +1154,7 @@ export function WorkspaceFileBrowser({
   // The tree renders its children as the row component, so a new function on
   // each render would remount every row. The menu reads the latest state instead.
   const rowMenu = useRef({ busy: false, onSelect });
-  const hasRowMenu = Boolean(projectId);
-  const renderTreeRow = useCallback((props: NodeRendererProps<WorkspaceFileNode>) => <WorkspaceTreeNode {...props} onContextMenu={hasRowMenu ? (node, event) => {
+  const renderTreeRow = useCallback((props: NodeRendererProps<WorkspaceFileNode>) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
     event.preventDefault();
     event.stopPropagation();
     if (rowMenu.current.busy) return;
@@ -1166,7 +1165,7 @@ export function WorkspaceFileBrowser({
       x: event.clientX,
       y: event.clientY,
     });
-  } : undefined} />, [hasRowMenu]);
+  } : undefined} />, [projectId]);
   const [entryDialog, setEntryDialog] = useState<{ kind: "rename" | "file" | "folder"; path: string }>();
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
