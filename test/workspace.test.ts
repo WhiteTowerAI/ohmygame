@@ -5,6 +5,30 @@ import { describe, expect, it } from "vitest";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile } from "../src/daemon/workspace.js";
 
 describe("workspace inspection", () => {
+  it("lists immediate children without descending into nonempty or excluded folders", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
+    await mkdir(path.join(workspace, "src", "empty"));
+    await mkdir(path.join(workspace, "node_modules"));
+    await writeFile(path.join(workspace, "root.ts"), "root");
+    await writeFile(path.join(workspace, "src", "deep", "hidden.ts"), "deep");
+    await writeFile(path.join(workspace, "src", "hero.png"), "image");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([
+      { path: "root.ts", size: 4 }, { path: "src", size: 0, directory: true },
+    ]);
+    await expect(listWorkspaceFiles(workspace, "src")).resolves.toEqual([
+      { path: "src/deep", size: 0, directory: true },
+      { path: "src/empty", size: 0, directory: true },
+      { path: "src/hero.png", size: 5, mediaType: "image" },
+    ]);
+    for (const directory of ["..", "src/../../outside", "/tmp", "C:/Windows", "C:Windows", "node_modules", ".data", "src//deep"]) {
+      await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow();
+    }
+    await expect(listWorkspaceFiles(workspace, "root.ts")).rejects.toThrow("not a directory");
+    await expect(listWorkspaceFiles(workspace, "missing")).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
+  });
+
   it("lists source files and ignores generated directories", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "src"));
@@ -23,6 +47,17 @@ describe("workspace inspection", () => {
       { path: "src/main.ts", size: 26 },
       { path: "src/model.glb", size: 5, mediaType: "model" },
     ]);
+  });
+
+  it("does not list or enter directory links in shallow listings", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-outside-"));
+    await mkdir(path.join(outside, "nested"));
+    await writeFile(path.join(outside, "nested", "secret.ts"), "secret");
+    await symlink(outside, path.join(workspace, "linked"), process.platform === "win32" ? "junction" : "dir");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
+    await expect(listWorkspaceFiles(workspace, "linked")).rejects.toThrow("Symbolic links cannot be opened");
+    await expect(listWorkspaceFiles(workspace, "linked/nested")).rejects.toThrow("Symbolic links cannot be opened");
   });
 
   it("adds stored local Asset metadata", async () => {

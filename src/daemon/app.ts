@@ -135,6 +135,7 @@ import type { PluginMention } from "../shared/contracts.js";
 import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
+import type { WorkspaceFile } from "../shared/contracts.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
@@ -2587,10 +2588,17 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/files", async (request, reply) => {
+  app.get<{ Params: { projectId: string }; Querystring: { directory?: string } }>("/projects/:projectId/files", {
+    schema: { querystring: { type: "object", properties: { directory: { type: "string", maxLength: 4096 } } } },
+  }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const files = await listWorkspaceFiles(project.workspacePath);
+    let files: WorkspaceFile[];
+    try { files = await listWorkspaceFiles(project.workspacePath, request.query.directory); }
+    catch (cause) {
+      if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
+      throw cause;
+    }
     let usage: Map<string, boolean> | undefined;
     if (files.some((file) => (file.libraryAssetId ? library.get(file.libraryAssetId)?.purpose : file.purpose) === "reference")) {
       try { usage = await canvasLibraryAssetUsage(project.workspacePath); }
