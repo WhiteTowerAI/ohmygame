@@ -323,25 +323,6 @@ export interface MultiplayerSnapshot {
   sequence: number;
   state: MultiplayerGameState;
   serverTime: string;
-  /**
-   * In a realtime room whose rules a player's browser runs, the tick that made this state:
-   * so other players can run the same rules ahead of it and see their own input at once.
-   * Absent with playerView, which keeps each player's view to themselves.
-   */
-  frame?: RealtimeFrame;
-}
-/** The inputs a tick of hosted realtime rules read, and each player's last input it read. */
-export interface RealtimeFrame {
-  /** Each player's input that the tick read. */
-  inputs: Record<string, RealtimeInput>;
-  /** Each player's latest inputId that reached the rules by that tick. */
-  acks: Record<string, number>;
-}
-export function isRealtimeFrame(value: unknown): value is RealtimeFrame {
-  if (!isRecord(value) || !isRecord(value.inputs) || !isRecord(value.acks)) return false;
-  const inputs = Object.values(value.inputs);
-  const acks = Object.values(value.acks);
-  return inputs.length <= 32 && acks.length <= 32 && inputs.every(isRealtimeInput) && acks.every(isSequence);
 }
 export interface PublicMultiplayerRoom {
   roomId: string;

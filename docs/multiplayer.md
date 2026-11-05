@@ -347,17 +347,8 @@ APIs nor the DOM.
 - During a round the host's own inputs and actions go straight to its loop, and
   its page shows each tick at once; snapshots the service sends back for that
   round are not shown again.
-- Other players' inputs take two trips, to the host and back, so their pages run
-  the same rules ahead (client-side prediction). Each `host.state` carries a
-  `frame`: the inputs that tick read and each player's last `inputId` it read
-  (`host.input` passes the `inputId` on). The service sends it as
-  `snapshot.frame`. A player's page measures the round trip from it, runs the rules
-  from the newest state far enough ahead that its latest input has reached the
-  host (at most one second), and shows that, again on every tick. The next state
-  from the host replaces the guess and corrects it; random draws, such as where
-  food appears, and other players' new inputs are what it gets wrong. Actions are
-  not predicted. With `playerView` there is no frame and no prediction, since a
-  player sees only their own view.
+- Other players' inputs and actions wait for the service, about two trips: to the
+  host and back.
 - The loop's timer runs in a Web Worker, which browsers do not slow down in a
   hidden tab or a covered window. When a worker is not available it uses the
   page's timer and makes up at most five missed ticks per wake-up, so a hidden

@@ -2,7 +2,6 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
   isRealtimeAction,
-  isRealtimeFrame,
   isRealtimeInputMessage,
   isRecord,
   isTurnCommand,
@@ -17,7 +16,6 @@ import {
   type MultiplayerManifestConfig,
   type MultiplayerSnapshot,
   type RealtimeAction,
-  type RealtimeFrame,
   type RealtimeInput,
   type TurnCommand,
   type TurnCommandResult,
@@ -107,8 +105,6 @@ export class GameRoom extends Room {
   >();
   /** Actions for the next tick, in the order they arrived. */
   private actions: { playerId: string; action: RealtimeAction }[] = [];
-  /** The hosting player's last tick, which players see with the state it made. */
-  private frame?: RealtimeFrame;
   private shuttingDown = false;
   private lastInputId = new Map<string, number>();
   private inviteCode = "";
@@ -391,7 +387,6 @@ export class GameRoom extends Room {
   snapshotFor(playerId: string | undefined): MultiplayerSnapshot {
     const snapshot = structuredClone(this.record.snapshot);
     const views = this.record.views;
-    if (this.frame && !views) return { ...snapshot, frame: this.frame };
     if (this.hosted && views && snapshot.state.game !== undefined) {
       const game = views[playerId ?? ""] ?? views[""];
       return { ...snapshot, state: { ...snapshot.state, game: structuredClone(game) ?? {} } };
@@ -607,7 +602,7 @@ export class GameRoom extends Room {
     if (this.hosted) {
       // The hosting player's rules read and check it.
       this.lastInputId.set(id, inputId);
-      this.hostConnection()?.send("host.input", { playerId: id, input, inputId });
+      this.hostConnection()?.send("host.input", { playerId: id, input });
       return;
     }
     try {
@@ -791,11 +786,9 @@ export class GameRoom extends Room {
     persist = true,
     active = true,
     members = this.record.members,
-    host: { views?: HostViews; fromHost?: boolean; frame?: RealtimeFrame } = {},
+    host: { views?: HostViews; fromHost?: boolean } = {},
   ): void {
     const now = Date.now();
-    // A frame describes only the tick that made this state.
-    this.frame = host.frame;
     if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished") {
       this.finishedAt = now;
       void this.recordResult(state, now);
@@ -949,8 +942,7 @@ export class GameRoom extends Room {
       this.services.config.mode !== "realtime" ||
       this.record.snapshot.state.phase !== "playing" ||
       !isHostState(message?.state) ||
-      (message.views !== undefined && !isHostViews(message.views)) ||
-      (message.frame !== undefined && !isRealtimeFrame(message.frame))
+      (message.views !== undefined && !isHostViews(message.views))
     )
       return;
     const state = mergeHostState(message.state, this.record.snapshot.state);
@@ -958,7 +950,6 @@ export class GameRoom extends Room {
     // Like the service's own tick, only the end of a round needs a disk write.
     this.commit(state, state.phase === "finished" ? "room.finished" : "state.updated", {}, undefined, state.phase === "finished", true, this.record.members, {
       ...(message.views ? { views: message.views as HostViews } : {}),
-      ...(message.frame && !message.views ? { frame: message.frame as RealtimeFrame } : {}),
       fromHost: true,
     });
   }

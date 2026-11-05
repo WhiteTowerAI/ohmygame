@@ -1398,11 +1398,6 @@ export default defineRealtimeGame({
       first.sendAction({ boost: true });
       await wait(() => expect((second.snapshot!.state.game as { boosts: number }).boosts).toBe(1));
       expect(ticks(first)).toBeGreaterThanOrEqual(ticks(second));
-      // Each state the guest gets tells which of its inputs the host's rules read, so its
-      // page can run the rules ahead and show its own input at once.
-      second.sendInput({ go: true });
-      await wait(() => expect(second.snapshot!.frame?.acks[second.playerId!]).toBe(0));
-      expect(second.snapshot!.frame!.inputs[second.playerId!]).toEqual({ go: true });
       // The guest's action reaches the host's rules once, and a bad one comes back as an error.
       second.sendAction({ boost: true });
       await wait(() => expect((first.snapshot!.state.game as { boosts: number }).boosts).toBe(2));

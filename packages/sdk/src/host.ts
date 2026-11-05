@@ -9,7 +9,6 @@ import {
   isRecord,
   type MultiplayerGameState,
   type RealtimeAction,
-  type RealtimeFrame,
   type RealtimeInput,
   type TurnCommand,
 } from "./multiplayer-protocol.js";
@@ -145,8 +144,6 @@ export function mergeHostState(
 interface HeldInput {
   input: RealtimeInput;
   at: number;
-  /** The player's inputId, for inputs that came through the service. */
-  id?: number;
 }
 
 /** The most ticks the loop makes up at once after its timer was held back. */
@@ -157,7 +154,7 @@ const MAX_CATCH_UP_TICKS = 5;
  * page's own timers to about once a second, which would slow the whole room while the
  * hosting player looks at another tab or window. Falls back to the page's timer.
  */
-export function startTicker(ms: number, tick: () => void): () => void {
+function startTicker(ms: number, tick: () => void): () => void {
   if (typeof document !== "undefined" && typeof Worker === "function" && typeof Blob === "function" && typeof URL.createObjectURL === "function") {
     let url: string | undefined;
     try {
@@ -204,7 +201,7 @@ export class HostLoop {
     private readonly adapter: GameAdapter,
     private readonly tickMs: number,
     private readonly playerView: boolean,
-    private readonly send: (state: MultiplayerGameState, views?: HostViews, frame?: RealtimeFrame) => void,
+    private readonly send: (state: MultiplayerGameState, views?: HostViews) => void,
     private readonly show?: (state: MultiplayerGameState) => void,
   ) {}
 
@@ -227,8 +224,8 @@ export class HostLoop {
       this.actions = [];
     } else this.show?.(this.state);
   }
-  input(playerId: string, input: RealtimeInput, id?: number): void {
-    this.inputs.set(playerId, { input, at: Date.now(), ...(id === undefined ? {} : { id }) });
+  input(playerId: string, input: RealtimeInput): void {
+    this.inputs.set(playerId, { input, at: Date.now() });
   }
   action(playerId: string, action: RealtimeAction): void {
     this.actions.push({ playerId, action });
@@ -241,15 +238,6 @@ export class HostLoop {
     this.actions = [];
   }
 
-  /** What the last tick read, so other players can run the rules ahead of it. */
-  private frame(): RealtimeFrame {
-    const frame: RealtimeFrame = { inputs: {}, acks: {} };
-    for (const [id, held] of this.inputs) {
-      frame.inputs[id] = held.input;
-      if (held.id !== undefined) frame.acks[id] = held.id;
-    }
-    return frame;
-  }
   private tick(): void {
     const start = this.state;
     if (!start || start.phase !== "playing" || !this.adapter.step) return;
@@ -272,7 +260,6 @@ export class HostLoop {
     if (JSON.stringify(state) === JSON.stringify(start)) return;
     this.state = state;
     this.show?.(state);
-    if (this.playerView) this.send(state, hostViews(this.adapter, state));
-    else this.send(state, undefined, this.frame());
+    this.send(state, this.playerView ? hostViews(this.adapter, state) : undefined);
   }
 }

@@ -31,10 +31,8 @@ import {
   HostLoop,
   mergeHostState,
   runHostRequest,
-  startTicker,
   type HostRequest,
 } from "./host.js";
-import { Predictor } from "./prediction.js";
 import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
@@ -147,9 +145,6 @@ export class MultiplayerClient<Game = unknown> {
   private readonly hostRules?: { adapter: GameAdapter; playerView: boolean };
   private hostLoop?: HostLoop;
   private hostingRoom = false;
-  /** Runs hosted realtime rules ahead of the host's state while another player hosts. */
-  private readonly predictor?: Predictor;
-  private stopPredicting?: () => void;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -185,9 +180,6 @@ export class MultiplayerClient<Game = unknown> {
       if (adapter.mode !== options.manifest.mode)
         throw new OhMyGameError("invalid_option", `The game's rules are ${adapter.mode}, but the deployment is ${options.manifest.mode}. Run multiplayer_setup again.`);
       this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
-      // With playerView a player sees only their view, too little to run the rules on.
-      if (adapter.mode === "realtime" && !this.hostRules.playerView)
-        this.predictor = new Predictor(adapter, tickMsOf(adapter), () => this.saved?.playerId);
     }
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
@@ -399,9 +391,7 @@ export class MultiplayerClient<Game = unknown> {
       }
       return;
     }
-    const inputId = this.inputId++;
-    this.room.send("input", { ...input, inputId });
-    this.predictor?.sentInput(inputId, input);
+    this.room.send("input", { ...input, inputId: this.inputId++ });
   }
   /**
    * The loop this player runs for the room while they host a round: their own input and
@@ -490,23 +480,6 @@ export class MultiplayerClient<Game = unknown> {
       this.merging = false;
     }
   }
-  private stopPrediction(): void {
-    this.stopPredicting?.();
-    this.stopPredicting = undefined;
-    this.predictor?.reset();
-  }
-  /** Shows the predictor's state each tick between states from the host. */
-  private keepPredicting(room: Room): void {
-    const predictor = this.predictor;
-    if (!predictor || this.stopPredicting) return;
-    this.stopPredicting = startTicker(tickMsOf(this.hostRules!.adapter), () => {
-      const state = predictor.advance();
-      const base = this.fromService;
-      if (!state || !base || this.room !== room) return;
-      this.current = { ...base, state };
-      this.callbacks.onSnapshot?.(this.current);
-    });
-  }
   private stopInput(): void {
     clearInterval(this.inputTimer);
     this.inputTimer = undefined;
@@ -535,7 +508,6 @@ export class MultiplayerClient<Game = unknown> {
   private async leaveRoom(): Promise<void> {
     this.stopHosting();
     this.stopInput();
-    this.stopPrediction();
     this.stopMerge();
     this.generation++;
     const room = this.room;
@@ -553,7 +525,6 @@ export class MultiplayerClient<Game = unknown> {
   dispose(): void {
     this.stopHosting();
     this.stopInput();
-    this.stopPrediction();
     this.stopMerge();
     this.disposed = true;
     this.generation++;
@@ -643,14 +614,13 @@ export class MultiplayerClient<Game = unknown> {
     const active = value.active === true;
     this.hostLoop?.stop();
     this.hostLoop = undefined;
-    if (active) this.stopPrediction();
     if (active && rules.adapter.mode === "realtime" && isRecord(value.state)) {
       this.hostLoop = new HostLoop(
         rules.adapter,
         tickMsOf(rules.adapter),
         rules.playerView,
-        (state, views, frame) => {
-          if (this.room === room) room.send("host.state", { state, ...(views ? { views } : {}), ...(frame ? { frame } : {}) });
+        (state, views) => {
+          if (this.room === room) room.send("host.state", { state, ...(views ? { views } : {}) });
         },
         (state) => this.showHosted(room, state),
       );
@@ -687,7 +657,7 @@ export class MultiplayerClient<Game = unknown> {
       if (!this.hostLoop || !isRecord(value) || typeof value.playerId !== "string" || !isRecord(value.input)) return;
       try {
         rules.adapter.validateInput?.(value.input, value.playerId);
-        this.hostLoop.input(value.playerId, value.input, typeof value.inputId === "number" ? value.inputId : undefined);
+        this.hostLoop.input(value.playerId, value.input);
       } catch (cause) {
         room.send("host.inputError", { playerId: value.playerId, message: cause instanceof Error ? cause.message : "The input is invalid." });
       }
@@ -750,7 +720,6 @@ export class MultiplayerClient<Game = unknown> {
     room.onDrop(() => {
       this.stopHosting();
       this.stopInput();
-      this.stopPrediction();
       this.aloneSince = undefined;
       this.current = undefined;
       this.fromService = undefined;
@@ -777,7 +746,6 @@ export class MultiplayerClient<Game = unknown> {
       if (this.room !== room) return;
       this.stopHosting();
       this.stopInput();
-      this.stopPrediction();
       this.stopMerge();
       this.room = undefined;
       this.current = undefined;
@@ -822,14 +790,8 @@ export class MultiplayerClient<Game = unknown> {
     // includes a round their rules just ended, which a late tick must not seem to reopen.
     const shown = this.current?.state.phase;
     if (!first && value.state.phase === "playing" && this.hostingRoom && this.hostLoop?.phase === shown && (shown === "playing" || shown === "finished")) return;
-    if (this.predictor && this.room && !this.hostingRoom && value.frame && value.state.phase === "playing") {
-      this.current = { ...value, state: this.predictor.receive(value.state, value.frame) };
-      this.keepPredicting(this.room);
-    } else {
-      this.stopPrediction();
-      this.current = value;
-    }
-    this.callbacks.onSnapshot?.(this.current);
+    this.current = value;
+    this.callbacks.onSnapshot?.(value);
     if (first)
       for (const command of this.saved?.pending ?? [])
         this.room?.send("command", command);

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
-import { Predictor } from "../packages/sdk/src/prediction.js";
 import { compileGame, defineGame, defineRealtimeGame } from "@ohmygame/server";
 import type { MultiplayerGameState } from "@ohmygame/sdk/protocol";
 
@@ -107,36 +106,5 @@ describe("hosted rules", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("runs the host's rules ahead for another player, so their own input shows at once", () => {
-    const adapter = compileGame(defineRealtimeGame({
-      players: { min: 2, max: 2 },
-      tickMs: 100,
-      setup: () => ({ x: {} as Record<string, number> }),
-      input: (value) => ({ dx: Number(value.dx) }),
-      tick(G: { x: Record<string, number> }, ctx, inputs) {
-        for (const id of ctx.players) G.x[id] = (G.x[id] ?? 0) + (inputs[id]?.dx ?? 0);
-      },
-    }));
-    const predictor = new Predictor(adapter, 100, () => "b");
-    const at = (x: Record<string, number>) => ({ ...room("playing"), players: room("playing").players.map((player) => ({ ...player, playerId: player.playerId })), game: { x } });
-    const x = (state: MultiplayerGameState) => (state.game as { x: Record<string, number> }).x;
-    // Before a round trip is measured there is nothing to predict with.
-    expect(x(predictor.receive(at({ a: 0, b: 0 }), { inputs: {}, acks: {} }, 0))).toEqual({ a: 0, b: 0 });
-    predictor.sentInput(0, { dx: 1 }, 0);
-    // The host read input 0 in a state that took 300 ms to come back: the page shows three
-    // ticks further on, with its own input and the other player's last one.
-    const shown = predictor.receive(at({ a: 3, b: 2 }), { inputs: { a: { dx: 1 }, b: { dx: 1 } }, acks: { b: 0 } }, 300);
-    expect(predictor.latency).toBe(300);
-    expect(x(shown)).toEqual({ a: 6, b: 5 });
-    expect(x(predictor.advance(400)!)).toEqual({ a: 7, b: 6 });
-    // A new input counts from the next tick shown, not a round trip later.
-    predictor.sentInput(1, { dx: -1 }, 400);
-    expect(x(predictor.advance(400)!)).toEqual({ a: 7, b: 4 });
-    // Unchanged, it shows nothing new; after the round, nothing at all.
-    expect(predictor.advance(400)).toBeUndefined();
-    expect(predictor.receive({ ...at({ a: 9, b: 9 }), phase: "finished" }, { inputs: {}, acks: {} }, 500).phase).toBe("finished");
-    expect(predictor.advance(600)).toBeUndefined();
   });
 });
