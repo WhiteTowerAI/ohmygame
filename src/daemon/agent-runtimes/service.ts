@@ -275,7 +275,7 @@ export class AgentRuntimeService {
       ...(definition.testedVersion
         ? { testedVersion: definition.testedVersion }
         : {}),
-      ...(definition.acp ? { plugin: definition.acp.plugin } : {}),
+      ...(definition.acp ? { plugin: definition.acp.plugin, launch: definition.acp.launch } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       permissionMode: settings.permissionMode,

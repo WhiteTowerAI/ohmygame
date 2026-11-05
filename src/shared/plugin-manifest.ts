@@ -754,6 +754,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
 
   const processes = new Set(capabilities.processes);
+  contributes.agents?.forEach((agent, index) => {
+    if (!processes.has(agent.command))
+      issue(`/contributes/agents/${index}/command`, `${agent.command} must be listed in capabilities.processes`);
+  });
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
     if ("url" in server) {

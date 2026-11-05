@@ -316,10 +316,13 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
 `src/daemon/plugin-agents.ts` turns the manifest into the agent's definition.
 
 - `command` is the program, found on PATH and in the usual install folders as
-  the built-in agents are, and `args` start ACP on its stdio. Like a built-in
-  agent, it is off until the person turns it on in Settings → Agents; only its
-  `--version` runs before that. `installUrl` and `loginCommand` are shown when
-  it is missing or signed out.
+  the built-in agents are, and `args` start ACP on its stdio. `command` must
+  be listed in `capabilities.processes`, as an MCP server's is, so the add
+  review shows it; this covers only the program OhMyGame starts, not what the
+  agent runs afterwards, which its own permissions decide. Like a built-in
+  agent, it is off until the person turns it on in Settings → Agents, which
+  first shows the whole command line; only its `--version` runs before that.
+  `installUrl` and `loginCommand` are shown when it is missing or signed out.
 - Checking it runs `command --version`, then starts an ACP session in an empty
   folder to read its models and reasoning levels from the session's config
   options. An agent that answers `auth_required` shows as signed out. One

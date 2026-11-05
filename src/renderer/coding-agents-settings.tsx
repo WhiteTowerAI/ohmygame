@@ -32,7 +32,7 @@ import {
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { openModelAuthExternal } from "./use-model-provider-auth.js";
-import { Badge, Button, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
+import { Badge, Button, Dialog, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
@@ -106,6 +106,7 @@ export function CodingAgentsGroup({
   actions?: ReactNode;
 }) {
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
+  const [turningOn, setTurningOn] = useState<AgentRuntimeStatus>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<Set<AgentRuntimeId>>(new Set());
   useEffect(() => {
@@ -172,6 +173,7 @@ export function CodingAgentsGroup({
           {t("codingAgents.checking")}
         </div>
       ) : null}
+      {turningOn ? <PluginAgentTurnOn agent={turningOn} onClose={() => setTurningOn(undefined)} onConfirm={() => { setTurningOn(undefined); void toggle(turningOn, true); }} /> : null}
       {(agents ?? []).map((agent) => {
         const action = agent.installed
           ? t("codingAgents.manage", { name: agent.name })
@@ -205,7 +207,10 @@ export function CodingAgentsGroup({
                 label={t("codingAgents.enable", { name: agent.name })}
                 checked={agent.enabled}
                 disabled={pending.has(agent.id)}
-                onChange={(enabled) => void toggle(agent, enabled)}
+                onChange={(enabled) => {
+                  if (enabled && agent.plugin) setTurningOn(agent);
+                  else void toggle(agent, enabled);
+                }}
               />
             ) : (
               <Button size="sm" icon={<ExternalLink size={14} />} onClick={() => onOpen(agent.id)}>
@@ -292,6 +297,7 @@ export function CodingAgentDetail({
       if (started.url)
         await openModelAuthExternal(started.url).catch(() => undefined);
     });
+  const [turningOn, setTurningOn] = useState(false);
   const update = (change: Parameters<typeof updateAgentRuntime>[1]) =>
     run("save", async () => {
       const status = await updateAgentRuntime(id, change);
@@ -322,6 +328,7 @@ export function CodingAgentDetail({
   const problems = agent.diagnostics;
   return (
     <div className="settings-form coding-agent-detail">
+      {turningOn ? <PluginAgentTurnOn agent={agent} onClose={() => setTurningOn(false)} onConfirm={() => { setTurningOn(false); void update({ enabled: true }); }} /> : null}
       <SettingsDetailHead
         mark={<AgentMark id={agent.id} />}
         title={agent.name}
@@ -334,7 +341,10 @@ export function CodingAgentDetail({
             label={t("codingAgents.enable", { name: agent.name })}
             checked={agent.enabled}
             disabled={busy !== undefined}
-            onChange={(enabled) => void update({ enabled })}
+            onChange={(enabled) => {
+              if (enabled && agent.plugin) setTurningOn(true);
+              else void update({ enabled });
+            }}
           />
         ) : null}
       </SettingsDetailHead>
@@ -361,6 +371,9 @@ export function CodingAgentDetail({
               {t("providers.plugin.open")}
             </Button>
           </SettingsRow>
+        ) : null}
+        {agent.launch ? (
+          <SettingsRow title={t("codingAgents.launch")} description={<code className="coding-agent-launch">{agent.launch}</code>} />
         ) : null}
         {problems.length ? (
           <div className="settings-pad settings-form" aria-label={t("codingAgents.diagnostics")} role="group">
@@ -448,6 +461,25 @@ export function CodingAgentDetail({
       </SettingsGroup>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </div>
+  );
+}
+
+/** Turning on a plugin's agent starts what the plugin wrote, so the person reads it first. */
+function PluginAgentTurnOn({ agent, onClose, onConfirm }: { agent: AgentRuntimeStatus; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog
+      open
+      size="sm"
+      onClose={onClose}
+      title={t("codingAgents.turnOnTitle", { name: agent.name })}
+      description={t("codingAgents.turnOnDescription", { plugin: agent.plugin ?? "" })}
+      footer={<>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
+        <Button variant="primary" onClick={onConfirm}>{t("codingAgents.turnOn")}</Button>
+      </>}
+    >
+      <code className="coding-agent-launch">{agent.launch}</code>
+    </Dialog>
   );
 }
 

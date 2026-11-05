@@ -173,6 +173,8 @@ export interface AgentRuntimeStatus {
   testedVersion?: string;
   /** The plugin that adds this agent, for agents that come from plugins. */
   plugin?: string;
+  /** The command line a plugin's agent starts with, shown before it is turned on. */
+  launch?: string;
   auth: {
     status: AgentRuntimeAuthStatus;
     /** Account or plan text the CLI reports, such as an email address. */

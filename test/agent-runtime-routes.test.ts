@@ -159,7 +159,8 @@ describe("coding agent routes", () => {
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       id: "acme/fake-acp", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Fake ACP", description: "An ACP agent",
-      contributes: { agents: [{ id: "fake", title: "Fake ACP", command: "fake-acp", args: ["--acp"], loginCommand: "fake-acp login" }] },
+      capabilities: { processes: ["fake-acp"] },
+      contributes: { agents: [{ id: "fake", title: "Fake ACP", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" }] },
     }));
     const payload = { source: { type: "directory", path: source } };
     const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
@@ -168,7 +169,7 @@ describe("coding agent routes", () => {
     const id = "agent.acme.fake-acp.fake";
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
-        name: "Fake ACP", plugin: "acme/fake-acp", enabled: false, permissionMode: "allow",
+        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow",
       }),
     );
     const executable = path.join(dataDirectory, "fake-acp");

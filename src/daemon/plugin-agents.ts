@@ -21,7 +21,12 @@ export function pluginAgentDefinitions(
       versionArgs: ["--version"],
       ...(agent.loginCommand ? { loginCommand: agent.loginCommand } : {}),
       ...(agent.installUrl ? { installUrl: agent.installUrl } : {}),
-      acp: { plugin: entry.id, args: agent.args ?? [] },
+      acp: { plugin: entry.id, args: agent.args ?? [], launch: commandLine([agent.command, ...agent.args ?? []]) },
     })),
   );
+}
+
+/** A command line for the person to read: an argument that isn't plain is quoted, so spaces and line breaks show. */
+function commandLine(parts: readonly string[]): string {
+  return parts.map((part) => /^[\w@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part)).join(" ");
 }
