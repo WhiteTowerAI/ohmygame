@@ -1,5 +1,5 @@
 import { LoaderCircle, Pause, Play } from "./icons.js";
-import { createElement, useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { IconButton } from "./ui/button.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
@@ -89,7 +89,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     return () => { end(); setTurnSource(undefined); };
   }, [seen, source]);
 
-  useEffect(() => {
+  // Listen as the viewer is put in the page, before it can fail: a missed
+  // error would keep its turn from every other model.
+  useLayoutEffect(() => {
     const viewer = viewerRef.current;
     if (!componentReady || !viewer) return;
 

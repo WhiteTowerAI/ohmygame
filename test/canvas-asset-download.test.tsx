@@ -374,10 +374,10 @@ it("downloads the current title after renaming a node and falls back when cleare
   }
 });
 
-async function renderNode(nodeId: string, catalog = assets, data?: Record<string, unknown>) {
+async function renderNode(nodeId: string, catalog = assets, data?: Record<string, unknown>, type?: string) {
   const { ReactFlowProvider } = await import("@xyflow/react");
   const node = props.nodes.find((item) => item.id === nodeId)!;
-  const Component = props.nodeTypes![node.type!] as unknown as (value: { data: unknown; selected: boolean }) => React.ReactNode;
+  const Component = props.nodeTypes![type ?? node.type!] as unknown as (value: { data: unknown; selected: boolean }) => React.ReactNode;
   const host = document.createElement("div");
   document.body.append(host);
   const nodeRoot = createRoot(host);
@@ -424,5 +424,15 @@ it("waits for the person while a 3D file's size isn't known yet", async () => {
   const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
   await act(async () => load.click());
   expect(getLibraryAsset).toHaveBeenCalledExactlyOnceWith("new-model");
+  await node.unmount();
+});
+
+it("keeps a plugin node's large 3D output waiting for the person", async () => {
+  const large = assets.map((asset) => asset.id === "model-output" ? { ...asset, size: 100 * 1024 * 1024 } : asset);
+  const node = await renderNode("library", large, { assetId: "model-output", pluginRuntime: { output: "model", sources: {} } }, "plugin");
+  expect(getWorkspaceAsset).not.toHaveBeenCalled();
+  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
+  await act(async () => load.click());
+  expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/model.glb");
   await node.unmount();
 });

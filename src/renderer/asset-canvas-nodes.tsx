@@ -869,7 +869,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
 const LARGE_CANVAS_MODEL_BYTES = 32 * 1024 * 1024;
 
 /** A canvas node's file, downloaded once the node comes near the screen, and a large 3D file only once asked for. */
-function useCanvasMedia(assetId: string | undefined, threeD: boolean, knownSize?: number) {
+export function useCanvasMedia(assetId: string | undefined, threeD: boolean, knownSize?: number) {
   const [stage, stageRef] = useState<HTMLDivElement | null>(null);
   const seen = useSeenOnScreen(stage);
   const [requested, setRequested] = useState(false);
@@ -880,7 +880,7 @@ function useCanvasMedia(assetId: string | undefined, threeD: boolean, knownSize?
   return { preview, stageRef, largeModel: waiting ? { size, onLoad: () => setRequested(true) } : undefined };
 }
 
-function LargeModelPlaceholder({ size, onLoad }: { size?: number; onLoad: () => void }) {
+export function LargeModelPlaceholder({ size, onLoad }: { size?: number; onLoad: () => void }) {
   return <div className="story-media-empty">
     <Box size={34} />
     <strong>{size === undefined ? t("assetCanvas.modelSizeUnknown") : t("assetCanvas.largeModel", { size: formatBytes(size) })}</strong>

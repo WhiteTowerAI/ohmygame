@@ -7,10 +7,13 @@ import { ModelPreview } from "../src/renderer/model-preview.js";
 /** The viewer's public playback and visibility API; GPU behavior is checked in Electron. */
 /** Every model a viewer was put in the page for, since a viewer starts loading as it connects. */
 const connected: Array<string | null> = [];
+/** Runs as each viewer connects; the element's own callbacks are fixed when it is defined. */
+let onConnect: ((viewer: ModelViewer) => void) | undefined;
 class ModelViewer extends HTMLElement {
   static observedAttributes = ["auto-rotate"];
   connectedCallback() {
     connected.push(this.getAttribute("src"));
+    onConnect?.(this);
   }
   loaded = false;
   availableAnimations = ["Walk", "Run"];
@@ -130,6 +133,24 @@ it("makes a model whose source changes wait for a turn of its own", async () => 
   expect(connected).not.toContain("a2.glb");
   await act(async () => container.querySelector<ModelViewer>('model-viewer[src="b.glb"]')!.load());
   expect(viewers()).toEqual(["a2.glb", "b.glb", "c.glb"]);
+});
+
+it("frees a turn for a model that fails as soon as its viewer connects", async () => {
+  const failing = new Set(["a.glb", "b.glb"]);
+  onConnect = (viewer) => {
+    // As a revoked file would, before React's passive effects run.
+    if (failing.has(viewer.getAttribute("src")!)) queueMicrotask(() => viewer.dispatchEvent(new CustomEvent("error", { detail: { type: "loadfailure" } })));
+  };
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  // Outside act, which would run passive effects straight after the commit.
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+  root.render(<>
+    {["a.glb", "b.glb", "c.glb"].map((source) => <ModelPreview key={source} source={source} label={source} />)}
+  </>);
+  await vi.waitFor(() => expect(container.querySelectorAll("model-viewer")).not.toHaveLength(0));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  onConnect = undefined;
+  expect([...container.querySelectorAll("model-viewer")].map((item) => item.getAttribute("src"))).toContain("c.glb");
 });
 
 it("loads once on screen and stays still until the person plays the preview", async () => {
