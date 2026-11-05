@@ -5,7 +5,7 @@ description: Develop Cocos Creator 3.x scenes, TypeScript components, and assets
 
 # Cocos Creator
 
-Read the project's Creator version from `package.json` (`creator.version`) and use the matching editor installed through Cocos Dashboard; do not migrate the project. This workflow targets Creator 3.8 LTS.
+Read the project's Creator version from `package.json` (`creator.version`) and use the matching editor installed through Cocos Dashboard; do not migrate the project. Dashboard keeps each version in its own folder, commonly `/Applications/Cocos/Creator/<VERSION>/CocosCreator.app/Contents/MacOS/CocosCreator` on macOS and `ProgramData/cocos/editors/Creator/<VERSION>/CocosCreator.exe` on Windows; its settings can move editors elsewhere. On Windows the install can be on any drive: also check Start menu shortcuts and their targets (`%ProgramData%` and `%APPDATA%` under `Microsoft/Windows/Start Menu/Programs`). If none is found, ask the user for the executable's path instead of reporting it as not installed. This workflow targets Creator 3.8 LTS.
 
 ## Edit
 
