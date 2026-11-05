@@ -1,3 +1,4 @@
+// compat: since beta.5.4, remove from beta.7 and 2026-12-04. Canvases keep template text, not keys; storing a key next to it ends this table.
 /**
  * Template wording that earlier versions saved into canvases, keyed by the
  * string that replaced it, so those canvases show today's text in the current

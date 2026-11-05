@@ -93,6 +93,7 @@ export async function readCanvasIndex(workspace: string): Promise<CanvasWorkspac
 async function ensureCanvasIndex(workspace: string): Promise<CanvasWorkspaceIndex> {
   const current = await readCanvasIndex(workspace);
   if (current) return current;
+  // compat: since beta.2, remove from beta.4 and 2026-11-07. The canvas format before canvas/, with scripts/migrate-canvas-workspaces.ts.
   for (const legacy of ["design", "canvas.json"]) {
     try { await lstat(path.join(workspace, legacy)); }
     catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") continue; throw cause; }

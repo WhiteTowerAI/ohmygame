@@ -432,6 +432,7 @@ export async function importProjectArchive(
   }
 }
 
+// compat: since beta.4.14, kept for archives until a major version (docs/compatibility.md). Archives without a manifest; see also renderer/api.ts.
 /**
  * Earlier versions export only Interactive Stories, as their bare workspace
  * with graph.json at the root of the archive.

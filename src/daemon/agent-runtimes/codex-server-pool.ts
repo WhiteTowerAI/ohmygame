@@ -206,6 +206,7 @@ function threadOf(params: Record<string, unknown>): string | undefined {
   for (const value of [
     params.threadId,
     record(params.thread)?.id,
+    // compat: remove when the oldest supported Codex CLI names the thread in every approval request.
     // Legacy approval requests name the thread as the conversation.
     params.conversationId,
   ])

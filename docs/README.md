@@ -125,6 +125,7 @@ trimming, the shared preview controls, encoding, and the Library record.
 | [CONTRIBUTING.md](../CONTRIBUTING.md)              | Setup, branches, verification, PRs, and optional integrations.                     |
 | [中文快速指引](contributing.zh-CN.md)              | A short Chinese entry point; the full contribution rules are in `CONTRIBUTING.md`. |
 | [maintaining.md](maintaining.md)                   | Maintainer triage, reviews, repository settings, and releases.                     |
+| [compatibility.md](compatibility.md)               | What stays compatible across versions, how data migrates, and when that code goes. |
 | [AGENTS.md](../AGENTS.md)                          | Repository instructions for coding agents.                                         |
 | [Issue and PR labels](../.github/LABELS.md)        | Label definitions, progress states, and automation.                                |
 | [PR template](../.github/PULL_REQUEST_TEMPLATE.md) | Change rationale, related issues, verification, and limitations.                   |
