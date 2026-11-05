@@ -91,7 +91,12 @@ the daemon. `context.project.folder` is the project and
 type hooks the manifest declares can be registered. A tool, native command
 or MCP server may set `timeoutSeconds` (up to 3600) for calls that
 download or build. A native command with `changesFiles: false` runs
-without the project's write lock and leaves no change to undo.
+without the project's write lock and leaves no change to undo. One with
+`build: "web"` gets `build.folder`: the game's web build, made as Export web
+build makes it and under the same rules (not while the agent works, a web
+export or a publish runs, nor for a project without a web build), removed
+once the call ends. Only making the build holds up an export or a publish,
+not the plugin's own upload that follows.
 `progress(message, { url })` carries an https link the person needs, such
 as a device sign-in page; it is never dropped as frequent updates are. For a
 command the app runs, every message arrives as `plugin.command.progress`;
@@ -194,6 +199,8 @@ shows it in the call's progress.
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
 - Market: `GET /plugin-market?locale=` gives the
   [listing](#the-plugin-market); installing uses the Adding routes.
+- Themes: `GET /plugin-themes?locale=` lists the themes of the plugins that
+  are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
   `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
@@ -385,7 +392,17 @@ HTTP on this computer), there's no market and nothing is read.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
+on the plugin's page, and mark itself `beta`. `contributes.themes` each give
+values for the theme tokens (`THEME_TOKENS` in
+`src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
+syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
+themes of the plugins the person has on (`GET /plugin-themes`) beside the
+palettes; a chosen theme sets its values over the neutral greys, for the
+appearances it covers, and its plugin's pages get them with the other page
+tokens. The choice keeps the values, so it applies at launch, follows the
+plugin's updates and falls back to the neutral palette once the plugin is
+switched off or uninstalled. Themes set colours only: the app's own styles
+don't read font, radius or spacing tokens throughout yet. `ui.preview` lets its pages
 load page components still in preview, and `ui.major` says which major its
 pages use, so an app without it can say which way to go (see
 [Page components](#page-components)).
@@ -422,7 +439,10 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   it is offered and stays closed once the person closes it, like the
   built-in ones.
 - **Commands** show in the slots `composer.slash` (and every command with a
-  `slash` name), `composer.add` and `project.menu`. A prompt is sent, or
+  `slash` name), `composer.add`, `project.menu` and `project.publish`, the
+  Publish menu, after the app's own entries. The Publish button opens for a
+  project with no web build, such as a Maker game, once a plugin offers a way
+  to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
   put in the composer with `insert`; `openPanel` brings the panel forward;
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
@@ -790,6 +810,9 @@ the project has no web preview and isn't published to Community.
   Release Skill uses the person's signed-in `taptap-cli` for the store page,
   Spark version binding and review, and asks before installing it and before
   each approval-gated write.
+- **Publish menu:** in a Maker project, "Submit a build to Maker…" and
+  "Release on TapTap…" put the request in the composer with its Skill, for
+  the person to send.
 
 See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)

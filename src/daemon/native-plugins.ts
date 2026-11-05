@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import type {
   ExtensionHostPlugin,
+  PluginBuild,
   PluginConfigurationValues,
   ProjectTypeHook,
 } from "../shared/extension-host-protocol.js";
@@ -37,6 +38,8 @@ export interface PluginCallOptions {
   turn?: string;
   /** The version the caller expects; the call is refused if the project moved on. */
   version?: string;
+  /** The web build a command asked for. */
+  build?: PluginBuild;
 }
 
 export interface NativePluginStatus {
@@ -246,6 +249,7 @@ export class NativePlugins {
       timeoutMs: options.timeoutMs,
       onProgress: options.onProgress,
       turn: options.turn,
+      build: options.build,
       configuration: this.#configuration?.(entry) ?? {},
       // Activation can take a while; the person may have revoked the plugin
       // or the project moved on meanwhile.

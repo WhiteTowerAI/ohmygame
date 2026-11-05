@@ -13,7 +13,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -237,6 +237,12 @@ const CommandRun = Type.Union([
         Type.Boolean({
           description:
             "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo",
+        }),
+      ),
+      build: Type.Optional(
+        Type.Literal("web", {
+          description:
+            "The app builds the game's web package first and gives the command its folder, as for Export web build",
         }),
       ),
     },

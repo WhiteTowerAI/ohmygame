@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Cloud, ExternalLink, Globe2, MessageCircle } from "./icons.js";
 import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { useAuth } from "./auth.js";
@@ -12,9 +12,10 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
 import { SETTINGS_NAV as NAV } from "./settings-sections.js";
 import {
-  readAppearance, readChatFont, readPalette, setAppearance as persistAppearance, setChatFont, setPalette,
+  pluginThemeValues, readAppearance, readChatFont, readPalette, readPluginTheme, setAppearance as persistAppearance, setChatFont, setPalette, setPluginTheme,
   type Appearance, type ChatFont, type Palette,
 } from "./appearance.js";
+import type { PluginTheme } from "../shared/plugins.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
@@ -22,7 +23,7 @@ import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readNotificationSettings, setNotificationSettings, useNotificationPermission, type NotificationSettings as NotificationPreferences } from "./agent-notifications.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
-import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
+import { exportDiagnostics, getProjectLocation, listPluginThemes, setProjectLocation } from "./api.js";
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
 import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -239,10 +240,11 @@ function NotificationSettings() {
 
 // ---------- appearance ----------
 
-/** A small drawing of the app in one theme: sidebar, sheet, a line of text. */
-function ThemePreview({ appearance, palette }: { appearance: "light" | "dark"; palette: Palette }) {
+/** A small drawing of the app in one theme: sidebar, sheet, a line of text. A plugin's theme brings its own values. */
+function ThemePreview({ appearance, palette, theme }: { appearance: "light" | "dark"; palette: Palette; theme?: PluginTheme }) {
+  const style = theme ? Object.fromEntries(pluginThemeValues(theme, appearance)) as CSSProperties : undefined;
   return (
-    <span className="theme-preview" data-appearance={appearance} data-palette={palette} aria-hidden="true">
+    <span className="theme-preview" data-appearance={appearance} data-palette={palette} style={style} aria-hidden="true">
       <span className="theme-preview-rail"><i /><i /><i /></span>
       <span className="theme-preview-sheet"><i /><i /><b /></span>
     </span>
@@ -267,7 +269,14 @@ function ThemeTile({ selected, label, description, onSelect, children }: {
 function AppearanceSettings() {
   const [appearance, updateAppearance] = useState<Appearance>(readAppearance);
   const [palette, updatePalette] = useState<Palette>(readPalette);
+  const [pluginTheme, updatePluginTheme] = useState<PluginTheme | undefined>(readPluginTheme);
+  const [pluginThemes, setPluginThemes] = useState<PluginTheme[]>([]);
   const [chatFont, updateChatFont] = useState<ChatFont>(readChatFont);
+  useEffect(() => {
+    let current = true;
+    void listPluginThemes().then((themes) => { if (current) setPluginThemes(themes); }, () => undefined);
+    return () => { current = false; };
+  }, []);
   const system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   const shown = appearance === "system" ? system : appearance;
   const themes: Appearance[] = ["system", "light", "dark"];
@@ -282,8 +291,8 @@ function AppearanceSettings() {
               persistAppearance(value);
             }}>
               {value === "system" ? (
-                <span className="theme-preview-split"><ThemePreview appearance="light" palette={palette} /><ThemePreview appearance="dark" palette={palette} /></span>
-              ) : <ThemePreview appearance={value} palette={palette} />}
+                <span className="theme-preview-split"><ThemePreview appearance="light" palette={palette} theme={pluginTheme} /><ThemePreview appearance="dark" palette={palette} theme={pluginTheme} /></span>
+              ) : <ThemePreview appearance={value} palette={palette} theme={pluginTheme} />}
             </ThemeTile>
           ))}
         </div>
@@ -291,11 +300,22 @@ function AppearanceSettings() {
       <SettingsGroup title={t("settings.appearance.palette")} description={t("settings.appearance.paletteHint")} bare>
         <div className="theme-tiles" role="radiogroup" aria-label={t("settings.appearance.palette")}>
           {palettes.map((value) => (
-            <ThemeTile key={value} selected={palette === value} label={t(`settings.appearance.palettes.${value}`)} description={t(`settings.appearance.palettes.${value}Hint`)} onSelect={() => {
+            <ThemeTile key={value} selected={!pluginTheme && palette === value} label={t(`settings.appearance.palettes.${value}`)} description={t(`settings.appearance.palettes.${value}Hint`)} onSelect={() => {
               updatePalette(value);
+              updatePluginTheme(undefined);
               setPalette(value);
             }}>
               <ThemePreview appearance={shown} palette={value} />
+            </ThemeTile>
+          ))}
+          {/* Plugins' themes, over the neutral greys. */}
+          {pluginThemes.map((theme) => (
+            <ThemeTile key={theme.id} selected={pluginTheme?.id === theme.id} label={theme.title} description={t("settings.appearance.pluginTheme", { plugin: theme.plugin })} onSelect={() => {
+              updatePalette("neutral");
+              updatePluginTheme(theme);
+              setPluginTheme(theme);
+            }}>
+              <ThemePreview appearance={shown} palette="neutral" theme={theme} />
             </ThemeTile>
           ))}
         </div>

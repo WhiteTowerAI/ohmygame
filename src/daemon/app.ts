@@ -17,7 +17,8 @@ import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readdir, realpath } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -66,7 +67,7 @@ import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
-import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { ArtifactBuilder, assertBuildable, PublishError } from "./publish/archive.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
@@ -132,7 +133,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type PluginTheme, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import type { WorkspaceFile } from "../shared/contracts.js";
@@ -1305,6 +1306,22 @@ export function createApp(options: AppOptions = {}) {
     }
     return validated;
   };
+  // Themes of the plugins the person has on, each from its newest version; Settings › Appearance offers them.
+  app.get<{ Querystring: { locale?: string } }>("/plugin-themes", async (request): Promise<PluginTheme[]> => {
+    await pluginServices.ready();
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = pluginServices.index.get(id);
+      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false) return [];
+      return (entry.manifest.contributes?.themes ?? []).map((theme) => ({
+        id: `${id}:${theme.id}`,
+        plugin: id,
+        title: localizePluginString(entry, theme.title, locale),
+        ...(theme.dark ? { dark: theme.dark } : {}),
+        ...(theme.light ? { light: theme.light } : {}),
+      }));
+    });
+  });
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
@@ -1687,6 +1704,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginChangeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
     if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError || cause instanceof PluginCommandInputError) return reply.code(cause.statusCode).send({ error: cause.message });
     if (cause instanceof ExtensionHostError) return reply.code(cause.code === "unavailable" ? 409 : 503).send({ error: cause.message, code: cause.code });
+    if (cause instanceof PublishError) return reply.code(cause.statusCode).send({ error: cause.message });
     throw cause;
   };
   app.post<{ Params: { projectId: string }; Body: { command: string; input?: unknown } }>("/projects/:projectId/plugin-commands", {
@@ -1700,14 +1718,48 @@ export function createApp(options: AppOptions = {}) {
       const { entry, command } = found;
       // Prompts, links, panels and settings run in the app; these run plugin code.
       if (!("native" in command.run) && !("tool" in command.run)) return reply.code(400).send({ error: "This command runs in the app" });
-      const run = () => pluginServices.runCommand(entry, command, {
+      const withBuild = "native" in command.run && command.run.build === "web";
+      if (withBuild) {
+        // The same build, under the same rules, as Export web build.
+        assertBuildable(project);
+        if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
+      }
+      const call = (build?: { folder: string }) => pluginServices.runCommand(entry, command, {
         folder: project.workspacePath,
         input: request.body.input,
+        ...(build ? { build } : {}),
         // Progress reaches the plugin's page; a link the person needs, such as a sign-in page, reaches the app too.
         onProgress: (message, url) => events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, ...(url ? { url } : {}) }),
       });
       // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.
-      if ("native" in command.run && command.run.changesFiles === false) return { result: (await run()) ?? null };
+      const readOnly = "native" in command.run && command.run.changesFiles === false;
+      const run = withBuild ? async () => {
+        if (publishing.has(project.id)) throw new PublishError("Project is already being published");
+        if (building.has(project.id)) throw new PublishError("The web build is already being exported");
+        building.add(project.id);
+        let folder: string | undefined;
+        try {
+          try {
+            folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
+            // Other commands hold the workspace already; this one holds it as Export web build does, so no turn writes into the build.
+            const leave = readOnly ? (await agents.turnsClosed(project.id), await projectWrites.enter(project.id, true)) : undefined;
+            try {
+              if (readOnly && agents.isProjectBusy(project.id)) throw new PublishError("Wait for the agent to finish before building");
+              if (readOnly && await checkpoints.unfinished(project)) throw new PublishError("Recover the interrupted file restore before building");
+              await artifacts.buildFolder(project, folder);
+            } finally {
+              leave?.();
+            }
+          } finally {
+            // Only making the build excludes other builds; the plugin may upload for minutes from its own copy.
+            building.delete(project.id);
+          }
+          return await call({ folder });
+        } finally {
+          if (folder) await rm(folder, { recursive: true, force: true });
+        }
+      } : () => call();
+      if (readOnly) return { result: (await run()) ?? null };
       const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, run);
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
