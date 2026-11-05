@@ -331,6 +331,11 @@ describe("PluginSources", () => {
     await expect(hosted.sources.inspect(npm, "en")).rejects.toThrow("doesn't download from npmjs");
     expect(hosted.requested.some((url) => url.includes("evil.example"))).toBe(false);
     await hosted.close();
+    // A mirror that lists a version it hasn't copied yet points back at npm.
+    const copying = npmPackage("@acme/maker", bytes);
+    const mirror = await setup({ "https://registry.npmmirror.com/@acme%2Fmaker": copying.routes["https://registry.npmjs.org/@acme%2Fmaker"]! }, copying.files);
+    await expect(mirror.sources.inspect({ ...npm, registry: "npmmirror" }, "en")).rejects.toThrow("npmmirror hasn't finished copying @acme/maker 1.0.0 yet");
+    await mirror.close();
     const unchecked = npmPackage("@acme/maker", bytes, { checksum: "" });
     const noSum = await setup(unchecked.routes, unchecked.files);
     await expect(noSum.sources.inspect(npm, "en")).rejects.toThrow("no SHA-512");

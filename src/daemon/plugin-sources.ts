@@ -268,7 +268,10 @@ export class PluginSources {
     if (!version || !published) throw new PluginSourceError(`${fullName} has no version ${version ?? "to install"}.`);
     const tarball = published.dist?.tarball;
     if (typeof tarball !== "string" || !isFromHost(tarball, registry.tarballHosts))
-      throw new PluginSourceError(`${fullName} ${version} doesn't download from ${source.registry}.`);
+      // A mirror lists a new version before it has copied it, pointing back at npm meanwhile.
+      throw new PluginSourceError(source.registry === "npmmirror" && typeof tarball === "string" && isFromHost(tarball, NPM_REGISTRIES.npmjs.tarballHosts)
+        ? `npmmirror hasn't finished copying ${fullName} ${version} yet. Try again in a few minutes, or add it from npm.`
+        : `${fullName} ${version} doesn't download from ${source.registry}.`);
     // The newest version may be one the market knows, or has blocked.
     const latest = requested ? undefined : await this.#marketRelease(fullName, version);
     const integrity = latest?.integrity ?? published.dist?.integrity;
