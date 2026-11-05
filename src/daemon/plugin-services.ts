@@ -604,8 +604,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
-    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  installManaged(source: string, { consent = true, before }: { consent?: boolean; before?: () => Promise<void> } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(async () => {
+      await before?.();
+      return this.#installManaged(source, consent);
+    });
   }
 
   async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
@@ -660,12 +663,13 @@ export class PluginServices {
   /**
    * Installs a package the person added from npm, GitHub or a file. It allows
    * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses.
+   * sheet. It can't take a name the app or the Plugin Builder uses. `before`
+   * runs first, with no other package changing, to call the install off.
    */
-  async installAdded(source: string): Promise<PluginIndexEntry> {
+  async installAdded(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
   }
 
   /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */

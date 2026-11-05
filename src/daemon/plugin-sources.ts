@@ -132,14 +132,13 @@ export class PluginSources {
   async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
     const run = this.#adding.then(async () => {
-      await before?.();
       await this.#assertCanJoin(entry, fetched.origin);
       const present = this.services.index.get(entry.id, entry.version);
       if (present?.digest === entry.digest) return present;
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
-      return this.services.installAdded(fetched.root);
+      return this.services.installAdded(fetched.root, before);
     });
     this.#adding = run.catch(() => undefined);
     return run;
