@@ -22,6 +22,11 @@ export interface MultiplayerManifestConfig {
   reconnectSeconds: number;
   /** The rules the service registered for this deployment, by name. */
   adapterId: string;
+  /**
+   * Lockstep deployments only: the rules' tick in milliseconds, at which the service
+   * numbers frames, since it never loads the rules.
+   */
+  tickMs?: number;
 }
 
 /** Explicit reference runtime; authored Web Games render their own adapter. */
@@ -61,6 +66,13 @@ export const MULTIPLAYER_ROOM_LIMIT_CODE = 503;
 export const MULTIPLAYER_MIN_CLIENTS = 2;
 export const MULTIPLAYER_MAX_CLIENTS = 32;
 
+/**
+ * The adapterId of realtime deployments whose rules every player's browser runs alike
+ * (lockstep): the service numbers frames of everyone's input and passes them on, and each
+ * page steps the same rules with the same random numbers. docs/multiplayer.md describes it.
+ */
+export const LOCKSTEP_ADAPTER_ID = "lockstep";
+
 export const MULTIPLAYER_MANIFEST_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -89,6 +101,7 @@ export const MULTIPLAYER_MANIFEST_SCHEMA = {
     maxClients: { type: "integer", minimum: MULTIPLAYER_MIN_CLIENTS, maximum: MULTIPLAYER_MAX_CLIENTS },
     reconnectSeconds: { type: "integer", minimum: 0, maximum: 3600 },
     adapterId: identifier,
+    tickMs: { type: "integer", minimum: 20, maximum: 1000 },
   },
 } as const;
 
@@ -128,8 +141,12 @@ export function isMultiplayerManifestConfig(
     properties: { ...MULTIPLAYER_MANIFEST_SCHEMA.properties, serverUrl: { type: "string" as const } },
   } : MULTIPLAYER_MANIFEST_SCHEMA;
   if (!matchesManifestSchema(schema, value)) return false;
+  const config = value as MultiplayerManifestConfig;
   // A round in progress has no seat to give a turn-based latecomer.
-  if ((value as MultiplayerManifestConfig).roomPolicy === "drop-in" && (value as MultiplayerManifestConfig).mode !== "realtime") return false;
+  if (config.roomPolicy === "drop-in" && config.mode !== "realtime") return false;
+  // Only a lockstep deployment names its tick, and it must: the service cannot read the rules.
+  if ((config.adapterId === LOCKSTEP_ADAPTER_ID) !== (config.tickMs !== undefined)) return false;
+  if (config.adapterId === LOCKSTEP_ADAPTER_ID && config.mode !== "realtime") return false;
   try {
     const url = new URL((value as MultiplayerManifestConfig).serverUrl);
     return (
@@ -217,6 +234,11 @@ export interface MultiplayerGameState {
   hostPlayerId?: string;
   /** Serializable data owned and validated by the deployment's rules adapter. */
   game?: Record<string, unknown>;
+  /**
+   * Lockstep rounds: where the rules' random numbers are, so every page draws the same
+   * ones. Each draw moves it on.
+   */
+  seed?: number;
 }
 /**
  * Adapters run only on the service; clients submit intent, never final state.
@@ -258,6 +280,14 @@ export interface MultiplayerGameAdapter<State, Command> {
    * adapter keeps only the room's own commands. Set by the service, not by rules.
    */
   hosted?: boolean;
+  /**
+   * The room numbers frames of input for the players' browsers, which all run the rules
+   * (adapterId "lockstep"): the adapter keeps only the room's own commands. Set by the
+   * service, not by rules.
+   */
+  lockstep?: boolean;
+  /** The rules show each player only part of the state, through playerView. */
+  playerView?: boolean;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
   validateInput?(input: RealtimeInput, playerId: string): void;
   /**
@@ -488,4 +518,54 @@ function isSequence(value: unknown): value is number {
 }
 function isServerTime(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+/** A seat change that every page applies at the same frame of a lockstep round. */
+export type LockstepEvent =
+  | { type: "join"; player: MultiplayerPlayer }
+  | { type: "leave"; playerId: string }
+  | { type: "connected"; playerId: string; connected: boolean };
+/** One tick of a lockstep round: what every page applies, in order, to step the rules. */
+export interface LockstepFrame {
+  round: number;
+  /** 1 for a round's first tick, then one more each tick. */
+  frame: number;
+  /** Each player's input the rules read this tick. */
+  inputs: Record<string, RealtimeInput>;
+  /** Actions in the order the service received them. */
+  actions?: { playerId: string; action: RealtimeAction }[];
+  /** Seats that changed since the last frame, applied before the tick. */
+  events?: LockstepEvent[];
+}
+/**
+ * What a page needs to run a lockstep round from where it is now: sent to everyone when a
+ * round starts and to a player who arrives or reconnects during one.
+ */
+export interface LockstepSync {
+  round: number;
+  tickMs: number;
+  /** The round as it began: the room's state with the seed, the clock, and the last round's game. */
+  start: { state: MultiplayerGameState; startedAt: number; previous?: Record<string, unknown> };
+  /** A later state of the round that a page reported, to run on from instead of the start. */
+  checkpoint?: { frame: number; state: MultiplayerGameState };
+  /** Every frame after the checkpoint, or after the start. */
+  frames: LockstepFrame[];
+}
+/** A page's state of a lockstep round after a frame: a checkpoint, or the end of the round. */
+export interface LockstepReport {
+  round: number;
+  frame: number;
+  state: MultiplayerGameState;
+}
+export function isLockstepFrame(value: unknown): value is LockstepFrame {
+  return isRecord(value) && isSequence(value.round) && isSequence(value.frame) && isRecord(value.inputs) &&
+    (value.actions === undefined || Array.isArray(value.actions)) && (value.events === undefined || Array.isArray(value.events));
+}
+export function isLockstepSync(value: unknown): value is LockstepSync {
+  return isRecord(value) && isSequence(value.round) && isSequence(value.tickMs) && isRecord(value.start) &&
+    isRecord(value.start.state) && typeof value.start.startedAt === "number" && Array.isArray(value.frames) &&
+    value.frames.every(isLockstepFrame) && (value.checkpoint === undefined || (isRecord(value.checkpoint) && isSequence(value.checkpoint.frame) && isRecord(value.checkpoint.state)));
+}
+export function isLockstepReport(value: unknown): value is LockstepReport {
+  return isRecord(value) && isSequence(value.round) && isSequence(value.frame) && isRecord(value.state);
 }

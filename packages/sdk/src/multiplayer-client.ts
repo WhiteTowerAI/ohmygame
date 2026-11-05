@@ -9,6 +9,7 @@ import {
   isTurnCommand,
   isRecord,
   isTurnCommandResult,
+  LOCKSTEP_ADAPTER_ID,
   MULTIPLAYER_ROOM_LIMIT_CODE,
   multiplayerRoomType,
   TICK_MS_RANGE,
@@ -34,6 +35,7 @@ import {
   type HostRequest,
 } from "./host.js";
 import type { OhMyGame } from "./index.js";
+import { LockstepRunner } from "./lockstep.js";
 
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
@@ -145,6 +147,8 @@ export class MultiplayerClient<Game = unknown> {
   private readonly hostRules?: { adapter: GameAdapter; playerView: boolean };
   private hostLoop?: HostLoop;
   private hostingRoom = false;
+  /** Runs the rules in step with every other player, for a lockstep deployment. */
+  private readonly lockstep?: { adapter: GameAdapter; runner: LockstepRunner };
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -165,7 +169,8 @@ export class MultiplayerClient<Game = unknown> {
         options.connectionTimeoutMs <= 0)
     )
       throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
-    if (options.manifest.adapterId === HOST_ADAPTER_ID) {
+    const runsRules = options.manifest.adapterId === HOST_ADAPTER_ID || options.manifest.adapterId === LOCKSTEP_ADAPTER_ID;
+    if (runsRules) {
       if (options.rules === undefined)
         throw new OhMyGameError(
           "not_configured",
@@ -179,7 +184,12 @@ export class MultiplayerClient<Game = unknown> {
       }
       if (adapter.mode !== options.manifest.mode)
         throw new OhMyGameError("invalid_option", `The game's rules are ${adapter.mode}, but the deployment is ${options.manifest.mode}. Run multiplayer_setup again.`);
-      this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
+      if (options.manifest.adapterId === LOCKSTEP_ADAPTER_ID) {
+        // Every page must step the rules at the tick the service numbers frames at.
+        if (tickMsOf(adapter) !== options.manifest.tickMs || adapter.playerView)
+          throw new OhMyGameError("invalid_option", "The game's rules changed since its multiplayer deployment was set up. Run multiplayer_setup again.");
+        this.lockstep = { adapter, runner: new LockstepRunner(adapter, this.lockstepHooks()) };
+      } else this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
     }
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
@@ -374,6 +384,17 @@ export class MultiplayerClient<Game = unknown> {
       }
       return true;
     }
+    if (this.lockstep) {
+      // Every page's rules read it; they would drop one they refuse, so say why here.
+      const { validateAction } = this.lockstep.adapter;
+      try {
+        if (!validateAction) throw new Error("This game takes no actions.");
+        validateAction(action, this.saved?.playerId ?? "");
+      } catch (cause) {
+        this.error(new OhMyGameError("request_failed", cause instanceof Error ? cause.message : "The action is invalid."));
+        return true;
+      }
+    }
     this.room.send("action", action);
     return true;
   }
@@ -391,7 +412,37 @@ export class MultiplayerClient<Game = unknown> {
       }
       return;
     }
+    if (this.lockstep) {
+      try {
+        this.lockstep.adapter.validateInput?.(input, this.saved?.playerId ?? "");
+      } catch (cause) {
+        this.error(new OhMyGameError("request_failed", cause instanceof Error ? cause.message : "The input is invalid."));
+        return;
+      }
+    }
     this.room.send("input", { ...input, inputId: this.inputId++ });
+  }
+  /** What the lockstep runner does with the round: show it, and report to the service. */
+  private lockstepHooks() {
+    return {
+      show: (state: MultiplayerSnapshot["state"]) => this.showLockstep(state),
+      finish: (report: unknown) => this.room?.send("lockstep.finish", report),
+      checkpoint: (report: unknown) => this.room?.send("lockstep.checkpoint", report),
+      // The first connected seat reports checkpoints; every page can tell which that is.
+      reporter: () => {
+        const first = this.fromService?.state.players.find((player) => player.connected);
+        return !!first && first.playerId === this.saved?.playerId;
+      },
+      resync: () => this.room?.send("sync"),
+    };
+  }
+  /** Shows a lockstep round's state on the room's latest seats and phase. */
+  private showLockstep(state: MultiplayerSnapshot["state"]): void {
+    const base = this.fromService;
+    // The round shows once the room says it plays; a page that caught up early waits for that.
+    if (!base || base.state.phase !== "playing") return;
+    this.current = { ...base, state: mergeHostState(state, base.state) };
+    this.callbacks.onSnapshot?.(this.current);
   }
   /**
    * The loop this player runs for the room while they host a round: their own input and
@@ -515,6 +566,7 @@ export class MultiplayerClient<Game = unknown> {
     this.saved = undefined;
     this.current = undefined;
     this.fromService = undefined;
+    this.lockstep?.runner.reset();
     this.persist();
     room?.removeAllListeners();
     if (room) {
@@ -586,6 +638,7 @@ export class MultiplayerClient<Game = unknown> {
       this.room = room;
       this.current = undefined;
       this.fromService = undefined;
+      this.lockstep?.runner.reset();
       this.lastEventSequence = -1;
       this.reportedUnreadable = false;
       this.inputId = 0;
@@ -678,6 +731,8 @@ export class MultiplayerClient<Game = unknown> {
     this.bindHost(room);
     // Each player gets their own snapshot, so rules can keep a hand or a role private.
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
+    room.onMessage("lockstep.sync", (value: unknown) => this.lockstep?.runner.sync(value));
+    room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
         return;
@@ -723,6 +778,7 @@ export class MultiplayerClient<Game = unknown> {
       this.aloneSince = undefined;
       this.current = undefined;
       this.fromService = undefined;
+      this.lockstep?.runner.reset();
       this.setStatus("reconnecting");
     });
     room.onReconnect(() => {
@@ -750,6 +806,7 @@ export class MultiplayerClient<Game = unknown> {
       this.room = undefined;
       this.current = undefined;
       this.fromService = undefined;
+      this.lockstep?.runner.reset();
       if (code === 1000 || code >= 4000) {
         this.saved = undefined;
         this.persist();
@@ -790,8 +847,14 @@ export class MultiplayerClient<Game = unknown> {
     // includes a round their rules just ended, which a late tick must not seem to reopen.
     const shown = this.current?.state.phase;
     if (!first && value.state.phase === "playing" && this.hostingRoom && this.hostLoop?.phase === shown && (shown === "playing" || shown === "finished")) return;
-    this.current = value;
-    this.callbacks.onSnapshot?.(value);
+    if (this.lockstep && value.state.phase === "playing") {
+      // The room keeps no game while a lockstep round plays: this page's own run has it.
+      const round = this.lockstep.runner.current;
+      if (round) this.showLockstep(round);
+    } else {
+      this.current = value;
+      this.callbacks.onSnapshot?.(value);
+    }
     if (first)
       for (const command of this.saved?.pending ?? [])
         this.room?.send("command", command);

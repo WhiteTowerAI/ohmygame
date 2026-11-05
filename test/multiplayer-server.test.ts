@@ -1214,7 +1214,8 @@ export default defineRealtimeGame({
     const clients: MultiplayerClient[] = [];
     try {
       const config = await runtime.configure("snake", "custom", { dropIn: true }, rulesFile);
-      expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", adapterId: "host", deploymentId: "local-host-realtime-4p-dropin-v1" });
+      // Realtime rules that hide nothing run in every player's browser, in lockstep.
+      expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", adapterId: "lockstep", tickMs: 50, deploymentId: "local-lockstep-50ms-4p-dropin-v1" });
       const rules = await loadRulesDefinition(rulesFile);
       const errors: string[] = [];
       const join = () => {
@@ -1412,6 +1413,95 @@ export default defineRealtimeGame({
     } finally {
       first.dispose();
       second.dispose();
+    }
+  });
+
+  it("runs realtime rules in every player's browser in lockstep, alike everywhere, and catches up a latecomer", async () => {
+    // Every tick may drop food at a random place, so pages that drew different numbers would differ at once.
+    type Game = { ticks: number; rounds: number; startedAt: number; x: Record<string, number>; food: number[]; ended: string };
+    const rules = defineRealtimeGame({
+      players: { min: 1, max: 4 },
+      tickMs: 40,
+      setup: (ctx, previous?: Game): Game => ({
+        ticks: 0,
+        rounds: (previous?.rounds ?? 0) + 1,
+        startedAt: ctx.now(),
+        x: Object.fromEntries(ctx.players.map((id) => [id, 0])),
+        food: [],
+        ended: "",
+      }),
+      input: (value) => ({ dx: value.dx === -1 ? -1 : 1 }),
+      action: (value) => {
+        if (value.end !== true) throw new Error("Send { end: true }.");
+        return { end: true };
+      },
+      tick(G, ctx, inputs, _dt, actions) {
+        G.ticks++;
+        for (const id of ctx.players) G.x[id] = (G.x[id] ?? 0) + (inputs[id]?.dx ?? 0);
+        if (ctx.random() < 0.5) G.food = [...G.food, Math.floor(ctx.random() * 100)].slice(-10);
+        for (const { playerId } of actions) G.ended = playerId;
+      },
+      join: (G, _ctx, playerId) => { G.x[playerId] = 0; },
+      leave: (G, _ctx, playerId) => { delete G.x[playerId]; },
+      endIf: (G) => (G.ended ? { winners: [G.ended] } : undefined),
+    });
+    const manifest = await hostedService({ deploymentId: "lockstep", adapterId: "lockstep", tickMs: 40, mode: "realtime", roomPolicy: "drop-in", maxClients: 4 });
+    const seen: Map<string, string>[] = [];
+    const join = () => {
+      const byTick = new Map<string, string>();
+      seen.push(byTick);
+      return new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+        onSnapshot: (snapshot) => {
+          const game = snapshot.state.game as Game | undefined;
+          if (snapshot.state.phase === "playing" && game) byTick.set(`${game.rounds}:${game.ticks}`, JSON.stringify(game));
+        },
+      }) as MultiplayerClient<typeof rules>;
+    };
+    const game = (client: MultiplayerClient<typeof rules>) => client.snapshot?.state.game as Game | undefined;
+    /** Every tick two pages both showed must be the same on both. */
+    const alike = (a: number, b: number) => {
+      const shared = [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
+      expect(shared.length).toBeGreaterThan(5);
+      for (const tick of shared) expect(seen[b]!.get(tick)).toBe(seen[a]!.get(tick));
+    };
+    const [first, second, late] = [join(), join(), join()];
+    try {
+      await first.quickPlay();
+      await wait(() => expect(game(first)?.ticks).toBeGreaterThan(3));
+      await second.quickPlay();
+      expect(second.roomId).toBe(first.roomId);
+      await wait(() => expect(Object.keys(game(second)?.x ?? {}).sort()).toEqual([first.playerId, second.playerId].sort()));
+      first.sendInput({ dx: 1 });
+      second.sendInput({ dx: -1 });
+      await wait(() => expect(game(second)!.x[first.playerId!]).toBeGreaterThan(0));
+      // Nobody hosts, and each page's own run of the rules reaches the same states.
+      expect(first.hosting || second.hosting).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      alike(0, 1);
+      // After a checkpoint, a latecomer starts from it and runs on in step.
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+      await late.quickPlay();
+      expect(late.roomId).toBe(first.roomId);
+      await wait(() => expect(Object.keys(game(late)?.x ?? {})).toHaveLength(3));
+      await wait(() => expect(game(first)!.x).toHaveProperty(late.playerId!));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      alike(0, 2);
+      alike(1, 2);
+
+      // An action ends the round on every page; the next one's setup gets the last game.
+      expect(second.sendAction({ end: false } as never)).toBe(true);
+      second.sendAction({ end: true });
+      await wait(() => expect(first.snapshot?.state.phase).toBe("finished"));
+      for (const client of [first, second, late]) {
+        await wait(() => expect(client.snapshot?.state.phase).toBe("finished"));
+        expect(client.snapshot!.state.winnerPlayerIds).toEqual([second.playerId]);
+      }
+      await wait(() => expect(game(first)?.rounds).toBe(2));
+      await wait(() => expect(game(late)?.rounds).toBe(2));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      alike(0, 2);
+    } finally {
+      for (const client of [first, second, late]) client.dispose();
     }
   });
 

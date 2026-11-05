@@ -368,6 +368,43 @@ service runs, rank players on `match.wins` (see
 register a game's rules as a server adapter, as `ohmygame-server dev` does; then
 the service runs them and players need not pass them.
 
+### Lockstep
+
+A realtime deployment with `adapterId: "lockstep"` runs the rules in every
+player's browser instead of one host's. Local playtests use it for realtime rules
+from `defineRealtimeGame` without `playerView`; turn-based rules, and rules with
+`playerView`, still use a host. Each player sees their own input after one trip to
+the service and back, where a host's guest waits for two, and nobody's background
+tab slows the others. The cost is that the host's own input is no longer instant.
+
+- The deployment names the rules' `tickMs`, since the service never loads them;
+  only lockstep deployments have one. The page checks it against its rules and
+  throws `invalid_option` when they differ.
+- The service keeps the room as for a host, and keeps no game while a round plays.
+  Every tick it sends a frame (`lockstep.frame`): its number, each player's input
+  the rules read, actions in arrival order, and seat changes since the last frame
+  (join, leave, connected), which pages apply before the tick. Late input goes
+  into the next frame; the service never waits for a player.
+- A round starts with `lockstep.sync`: the room's state with a random `seed`, the
+  start time and the last round's game, for `setup(ctx, previous)`. With the seed in
+  the state, `ctx.random()` draws a fixed sequence (mulberry32), and `ctx.now()` is
+  the start time plus the frame number times `tickMs`, so every page reaches the
+  same state. Rules must not use `Math.random`, `Date.now` or anything else
+  outside `G`, `ctx`, the inputs and the actions, and should avoid functions such
+  as `Math.sin` whose last digits differ between browsers.
+- The first connected seat reports a checkpoint every two seconds
+  (`lockstep.checkpoint`). A player who arrives or reconnects during a round gets
+  the latest checkpoint and every frame since, and runs on from there.
+- The page whose rules end the round reports the final state
+  (`lockstep.finish`); the first report decides the winners, which the service
+  takes among the seats as from a host, and the next round's setup gets its game.
+- Pages check inputs and actions with the rules before sending, so `onError`
+  still explains a refusal. Results never reach a match leaderboard.
+
+Not yet: pages do not compare their states, so a page whose rules drift from the
+others stays wrong until the next round or a reconnection, and the service
+believes the first report and the latest checkpoint it gets.
+
 ## Drop-in rooms
 
 `roomPolicy: "drop-in"` lets realtime players press Play without creating a

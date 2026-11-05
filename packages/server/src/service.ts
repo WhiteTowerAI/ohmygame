@@ -193,7 +193,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         const token = bearer(request.headers.authorization);
         const body = request.body as unknown;
         if (!isDeploymentRequest(body) || !/^[A-Za-z0-9_-]{1,100}$/.test(gameId)) {
-          response.status(400).json({ error: "Send mode, adapterId, maxClients, roomPolicy and reconnectSeconds." });
+          response.status(400).json({ error: "Send mode, adapterId, maxClients, roomPolicy and reconnectSeconds, and tickMs for a lockstep deployment." });
           return;
         }
         if (!rate.take(`register:${clientOf(request)}`, 20)) {

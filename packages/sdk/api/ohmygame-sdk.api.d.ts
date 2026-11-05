@@ -385,8 +385,13 @@ export interface RealtimeGameContext {
     readonly connected: readonly string[];
     /** The room owner; empty in a drop-in room. */
     readonly ownerId: string;
+    /**
+     * A random number in [0, 1). Use it instead of Math.random: in a lockstep room every
+     * player's browser runs the rules and must draw the same numbers.
+     */
     random(): number;
     shuffle<T>(items: readonly T[]): T[];
+    /** The tick's time in milliseconds. Use it instead of Date.now, for the same reason. */
     now(): number;
 }
 /** One player's action, as tick reads it. */
@@ -642,6 +647,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly hostRules?;
     private hostLoop?;
     private hostingRoom;
+    /** Runs the rules in step with every other player, for a lockstep deployment. */
+    private readonly lockstep?;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     get status(): MultiplayerConnectionStatus;
     get roomId(): string | undefined;
@@ -687,6 +694,10 @@ export declare class MultiplayerClient<Game = unknown> {
      */
     sendAction(action: ClientAction<Game>): boolean;
     private flushInput;
+    /** What the lockstep runner does with the round: show it, and report to the service. */
+    private lockstepHooks;
+    /** Shows a lockstep round's state on the room's latest seats and phase. */
+    private showLockstep;
     /**
      * The loop this player runs for the room while they host a round: their own input and
      * actions go straight to it, as the service would only pass them back. Between rounds
@@ -763,6 +774,11 @@ export interface MultiplayerManifestConfig {
     reconnectSeconds: number;
     /** The rules the service registered for this deployment, by name. */
     adapterId: string;
+    /**
+     * Lockstep deployments only: the rules' tick in milliseconds, at which the service
+     * numbers frames, since it never loads the rules.
+     */
+    tickMs?: number;
 }
 /** Explicit reference runtime; authored Web Games render their own adapter. */
 export interface PublishedMultiplayerManifest {
@@ -787,6 +803,12 @@ export declare const REALTIME_INPUT_MAX_LENGTH = 512;
 export declare const MULTIPLAYER_ROOM_LIMIT_CODE = 503;
 export declare const MULTIPLAYER_MIN_CLIENTS = 2;
 export declare const MULTIPLAYER_MAX_CLIENTS = 32;
+/**
+ * The adapterId of realtime deployments whose rules every player's browser runs alike
+ * (lockstep): the service numbers frames of everyone's input and passes them on, and each
+ * page steps the same rules with the same random numbers. docs/multiplayer.md describes it.
+ */
+export declare const LOCKSTEP_ADAPTER_ID = "lockstep";
 export declare const MULTIPLAYER_MANIFEST_SCHEMA: {
     readonly type: "object";
     readonly additionalProperties: false;
@@ -832,6 +854,11 @@ export declare const MULTIPLAYER_MANIFEST_SCHEMA: {
         readonly adapterId: {
             readonly type: "string";
             readonly pattern: "^[A-Za-z0-9_-]{1,100}$";
+        };
+        readonly tickMs: {
+            readonly type: "integer";
+            readonly minimum: 20;
+            readonly maximum: 1000;
         };
     };
 };
@@ -895,6 +922,11 @@ export interface MultiplayerGameState {
     hostPlayerId?: string;
     /** Serializable data owned and validated by the deployment's rules adapter. */
     game?: Record<string, unknown>;
+    /**
+     * Lockstep rounds: where the rules' random numbers are, so every page draws the same
+     * ones. Each draw moves it on.
+     */
+    seed?: number;
 }
 /**
  * Adapters run only on the service; clients submit intent, never final state.
@@ -939,6 +971,14 @@ export interface MultiplayerGameAdapter<State, Command> {
      * adapter keeps only the room's own commands. Set by the service, not by rules.
      */
     hosted?: boolean;
+    /**
+     * The room numbers frames of input for the players' browsers, which all run the rules
+     * (adapterId "lockstep"): the adapter keeps only the room's own commands. Set by the
+     * service, not by rules.
+     */
+    lockstep?: boolean;
+    /** The rules show each player only part of the state, through playerView. */
+    playerView?: boolean;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
     validateInput?(input: RealtimeInput, playerId: string): void;
     /**
@@ -1010,6 +1050,63 @@ export declare function isTurnCommandResult(value: unknown): value is TurnComman
 export declare function isMultiplayerSnapshot(value: unknown): value is MultiplayerSnapshot;
 export declare function normalizeDisplayName(value: unknown): string;
 export declare function isRecord(value: unknown): value is Record<string, unknown>;
+/** A seat change that every page applies at the same frame of a lockstep round. */
+export type LockstepEvent = {
+    type: "join";
+    player: MultiplayerPlayer;
+} | {
+    type: "leave";
+    playerId: string;
+} | {
+    type: "connected";
+    playerId: string;
+    connected: boolean;
+};
+/** One tick of a lockstep round: what every page applies, in order, to step the rules. */
+export interface LockstepFrame {
+    round: number;
+    /** 1 for a round's first tick, then one more each tick. */
+    frame: number;
+    /** Each player's input the rules read this tick. */
+    inputs: Record<string, RealtimeInput>;
+    /** Actions in the order the service received them. */
+    actions?: {
+        playerId: string;
+        action: RealtimeAction;
+    }[];
+    /** Seats that changed since the last frame, applied before the tick. */
+    events?: LockstepEvent[];
+}
+/**
+ * What a page needs to run a lockstep round from where it is now: sent to everyone when a
+ * round starts and to a player who arrives or reconnects during one.
+ */
+export interface LockstepSync {
+    round: number;
+    tickMs: number;
+    /** The round as it began: the room's state with the seed, the clock, and the last round's game. */
+    start: {
+        state: MultiplayerGameState;
+        startedAt: number;
+        previous?: Record<string, unknown>;
+    };
+    /** A later state of the round that a page reported, to run on from instead of the start. */
+    checkpoint?: {
+        frame: number;
+        state: MultiplayerGameState;
+    };
+    /** Every frame after the checkpoint, or after the start. */
+    frames: LockstepFrame[];
+}
+/** A page's state of a lockstep round after a frame: a checkpoint, or the end of the round. */
+export interface LockstepReport {
+    round: number;
+    frame: number;
+    state: MultiplayerGameState;
+}
+export declare function isLockstepFrame(value: unknown): value is LockstepFrame;
+export declare function isLockstepSync(value: unknown): value is LockstepSync;
+export declare function isLockstepReport(value: unknown): value is LockstepReport;
 
 // rules.d.ts
 /**

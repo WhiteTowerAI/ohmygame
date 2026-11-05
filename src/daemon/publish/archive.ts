@@ -257,13 +257,13 @@ async function localDeployment(source: string, declared: unknown): Promise<Multi
  * deployment again.
  */
 async function registerDeployment(serverUrl: string, gameId: string, accessToken: string, local: MultiplayerManifestConfig): Promise<MultiplayerManifestConfig> {
-  const { mode, adapterId, maxClients, roomPolicy, reconnectSeconds } = local;
+  const { mode, adapterId, maxClients, roomPolicy, reconnectSeconds, tickMs } = local;
   let response: Response;
   try {
     response = await fetch(new URL(`/v1/games/${encodeURIComponent(gameId)}/deployments`, serverUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ mode, adapterId, maxClients, roomPolicy, reconnectSeconds }),
+      body: JSON.stringify({ mode, adapterId, maxClients, roomPolicy, reconnectSeconds, ...(tickMs === undefined ? {} : { tickMs }) }),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
@@ -274,7 +274,7 @@ async function registerDeployment(serverUrl: string, gameId: string, accessToken
   if (!response.ok)
     throw new PublishError(`OhMyGame's game service refused the game's rooms: ${isRecord(value) && typeof value.error === "string" ? value.error : `HTTP ${response.status}`}`, 502);
   if (!isMultiplayerManifestConfig(value) || value.gameId !== gameId || value.serverUrl.replace(/\/$/, "") !== serverUrl.replace(/\/$/, "") ||
-      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || value.roomPolicy !== roomPolicy)
+      value.adapterId !== adapterId || value.mode !== mode || value.maxClients !== maxClients || value.roomPolicy !== roomPolicy || value.tickMs !== tickMs)
     throw new PublishError("OhMyGame's game service answered with a different deployment.", 502);
   return value;
 }

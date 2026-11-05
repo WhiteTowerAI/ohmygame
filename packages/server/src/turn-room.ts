@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
+  isLockstepReport,
   isRealtimeAction,
   isRealtimeInputMessage,
   isRecord,
@@ -10,10 +11,14 @@ import {
   REALTIME_ACTIONS_PER_TICK,
   TICK_MS_RANGE,
   type JoinRoomOptions,
+  type LockstepEvent,
+  type LockstepFrame,
+  type LockstepSync,
   type MultiplayerErrorCode,
   type MultiplayerEventType,
   type MultiplayerGameState,
   type MultiplayerManifestConfig,
+  type MultiplayerPlayer,
   type MultiplayerSnapshot,
   type RealtimeAction,
   type RealtimeInput,
@@ -90,6 +95,28 @@ function realtimeMessageLimit(tickMs: number): number {
 function inputLifetimeMs(tickMs: number): number {
   return Math.max(250, 5 * tickMs);
 }
+/**
+ * The most frames a lockstep round keeps after its last checkpoint for a player who
+ * arrives; a page reports a checkpoint every couple of seconds, long before this.
+ */
+const LOCKSTEP_MAX_FRAMES = 10_000;
+
+/** A lockstep round as the room runs it: it numbers frames of input; the players' browsers run the rules. */
+interface LockstepRound {
+  round: number;
+  start: LockstepSync["start"];
+  /** The last frame sent. */
+  frame: number;
+  checkpoint?: LockstepSync["checkpoint"];
+  /** Frames after the checkpoint, or after the start. */
+  frames: LockstepFrame[];
+  /** Each player's latest input and the frame it arrived during. */
+  inputs: Map<string, { input: RealtimeInput; frame: number }>;
+  /** Seat changes for the next frame. */
+  events: LockstepEvent[];
+  /** The seats as the frames sent so far leave them. */
+  players: MultiplayerPlayer[];
+}
 
 /**
  * Transport, membership and persistence surround pure game rules. Snapshots go to each
@@ -116,7 +143,15 @@ export class GameRoom extends Room {
   private hostQueue: Promise<void> = Promise.resolve();
   private hostTimeoutPending = false;
   private hostRoundPending = false;
+  /** The round a lockstep room is running, and how many it has started. */
+  private lockstepRound?: LockstepRound;
+  private lockRounds = 0;
   protected services!: RoomServices;
+
+  /** Every player's browser runs the rules; the room numbers frames of their input. */
+  private get lockstep(): boolean {
+    return this.services.adapter.lockstep === true;
+  }
 
   /** A player's browser runs the rules; the room keeps seats, phase, order and the saved state. */
   private get hosted(): boolean {
@@ -201,6 +236,7 @@ export class GameRoom extends Room {
             ? this.inviteCode || undefined
             : undefined,
       });
+      this.sendLockstep(client);
       client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
       if (!this.hosted) return;
       // A host that reconnected stopped running the rules when it dropped; it resumes here.
@@ -226,6 +262,8 @@ export class GameRoom extends Room {
     this.onMessage("action", (client, value: unknown) =>
       this.action(client, value),
     );
+    this.onMessage("lockstep.finish", (client, value: unknown) => this.lockstepFinish(client, value));
+    this.onMessage("lockstep.checkpoint", (client, value: unknown) => this.lockstepCheckpoint(client, value));
     this.clock.setInterval(() => this.maintenance(), 1000);
     // A hosted realtime room runs no tick: the hosting player's browser does.
     if (config.mode === "realtime" && !this.hosted)
@@ -303,6 +341,8 @@ export class GameRoom extends Room {
       true,
       members,
     );
+    // A player who arrives during a lockstep round catches up before the room's state shows it.
+    this.sendLockstep(client);
     client.send("ready", {
       playerId,
       ...this.tickInfo(),
@@ -336,6 +376,7 @@ export class GameRoom extends Room {
     this.validateIdentity(client);
     this.lastInputId.delete(this.controls.get(client.sessionId)!);
     this.connected(client, true);
+    this.sendLockstep(client);
     client.send("ready", { playerId: this.controls.get(client.sessionId), ...this.tickInfo() });
     client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
   }
@@ -599,6 +640,13 @@ export class GameRoom extends Room {
       return reject("The input is invalid.");
     const { inputId, ...input } = value;
     if (inputId <= (this.lastInputId.get(id) ?? -1)) return;
+    if (this.lockstep) {
+      // Every player's rules read and check it, at the next frame.
+      this.lastInputId.set(id, inputId);
+      this.lockstepRound?.inputs.set(id, { input, frame: this.lockstepRound.frame });
+      this.record.updatedAt = Date.now();
+      return;
+    }
     if (this.hosted) {
       // The hosting player's rules read and check it.
       this.lastInputId.set(id, inputId);
@@ -626,6 +674,15 @@ export class GameRoom extends Room {
       this.hostConnection()?.send("host.action", { playerId: id, action: value });
       return;
     }
+    if (this.lockstep) {
+      // Every player's rules read and check it; the page checked it before sending.
+      if (this.record.snapshot.state.phase !== "playing" || !this.lockstepRound) return reject("The round is not running.");
+      if (this.actions.filter((entry) => entry.playerId === id).length >= REALTIME_ACTIONS_PER_TICK)
+        return reject("Too many actions at once. Send fewer actions per tick.");
+      this.actions.push({ playerId: id, action: value });
+      this.record.updatedAt = Date.now();
+      return;
+    }
     if (!validateAction) return reject("This game takes no actions.");
     if (this.record.snapshot.state.phase !== "playing")
       return reject("The round is not running.");
@@ -641,10 +698,12 @@ export class GameRoom extends Room {
   /** A player who leaves or drops stops steering, and their waiting actions go. */
   private forgetInput(playerId: string): void {
     this.playerInputs.delete(playerId);
+    this.lockstepRound?.inputs.delete(playerId);
     this.actions = this.actions.filter((entry) => entry.playerId !== playerId);
   }
   /** Runs every tick of a round, so rules can move things nobody is steering. */
   private tick(): void {
+    if (this.lockstep) return this.lockstepTick();
     const actions = this.actions;
     this.actions = [];
     if (this.record.snapshot.state.phase !== "playing") return;
@@ -692,8 +751,115 @@ export class GameRoom extends Room {
   ): MultiplayerGameState {
     this.playerInputs.clear();
     this.actions = [];
+    if (this.lockstep) return this.beginLockstep(state, now, finished);
     const { onRoundStart } = this.services.adapter;
     return onRoundStart ? onRoundStart(state, now, finished) : state;
+  }
+  /**
+   * Starts a lockstep round: every page sets it up from this state, seed and clock, and the
+   * last round's game. The room keeps no game while it runs.
+   */
+  private beginLockstep(state: MultiplayerGameState, now: number, finished?: MultiplayerGameState): MultiplayerGameState {
+    this.lockstepRound = undefined;
+    const start: MultiplayerGameState = { ...structuredClone(state), seed: randomBytes(4).readUInt32LE(0) };
+    delete start.game;
+    this.lockstepRound = {
+      round: ++this.lockRounds,
+      start: { state: start, startedAt: now, ...(finished?.game ? { previous: structuredClone(finished.game) } : {}) },
+      frame: 0,
+      frames: [],
+      inputs: new Map(),
+      events: [],
+      players: structuredClone(state.players),
+    };
+    // Before the room's state says the round plays, so every page has it to show.
+    for (const client of this.clients) this.sendLockstep(client);
+    const next = { ...state };
+    delete next.game;
+    return next;
+  }
+  /** Numbers the next frame of a lockstep round and sends it to everyone. */
+  private lockstepTick(): void {
+    const lock = this.lockstepRound;
+    if (!lock || this.record.snapshot.state.phase !== "playing") return;
+    lock.frame++;
+    const lifetime = Math.ceil(inputLifetimeMs(this.tickMs) / this.tickMs);
+    const inputs: Record<string, RealtimeInput> = {};
+    for (const [id, held] of lock.inputs)
+      if (lock.frame - held.frame > lifetime) lock.inputs.delete(id);
+      else inputs[id] = held.input;
+    const frame: LockstepFrame = { round: lock.round, frame: lock.frame, inputs };
+    if (this.actions.length) frame.actions = this.actions;
+    if (lock.events.length) frame.events = lock.events;
+    this.actions = [];
+    lock.events = [];
+    if (lock.frames.length < LOCKSTEP_MAX_FRAMES) lock.frames.push(frame);
+    this.broadcast("lockstep.frame", frame);
+  }
+  /** Seats that changed during a lockstep round reach every page in the next frame. */
+  private lockstepSeats(players: MultiplayerPlayer[]): void {
+    const lock = this.lockstepRound!;
+    const before = new Map(lock.players.map((player) => [player.playerId, player]));
+    const after = new Set(players.map((player) => player.playerId));
+    for (const player of lock.players)
+      if (!after.has(player.playerId)) lock.events.push({ type: "leave", playerId: player.playerId });
+    for (const player of players) {
+      const was = before.get(player.playerId);
+      if (!was) lock.events.push({ type: "join", player: structuredClone(player) });
+      else if (was.connected !== player.connected)
+        lock.events.push({ type: "connected", playerId: player.playerId, connected: player.connected });
+    }
+    lock.players = structuredClone(players);
+  }
+  private sendLockstep(client: Client): void {
+    const lock = this.lockstepRound;
+    if (!lock) return;
+    const sync: LockstepSync = {
+      round: lock.round,
+      tickMs: this.tickMs,
+      start: lock.start,
+      ...(lock.checkpoint ? { checkpoint: lock.checkpoint } : {}),
+      frames: lock.frames,
+    };
+    client.send("lockstep.sync", sync);
+  }
+  /** A page's rules ended the round; the first report decides it. */
+  private lockstepFinish(client: Client, value: unknown): void {
+    const lock = this.lockstepRound;
+    const report = hostMessage(value);
+    if (
+      !lock ||
+      !this.controls.get(client.sessionId) ||
+      !isLockstepReport(report) ||
+      report.round !== lock.round ||
+      report.frame > lock.frame ||
+      !isHostState(report.state) ||
+      report.state.phase !== "finished" ||
+      this.record.snapshot.state.phase !== "playing"
+    )
+      return;
+    // As from a hosting player: the room keeps its seats, owner and connections.
+    const state = mergeHostState(report.state, this.record.snapshot.state);
+    delete state.seed;
+    this.commit(state, "room.finished", { reason: "round_end" }, undefined, true);
+  }
+  /** A page's state partway through the round, for players who arrive later. */
+  private lockstepCheckpoint(client: Client, value: unknown): void {
+    const lock = this.lockstepRound;
+    const report = hostMessage(value);
+    if (
+      !lock ||
+      !this.controls.get(client.sessionId) ||
+      !isLockstepReport(report) ||
+      report.round !== lock.round ||
+      report.frame <= (lock.checkpoint?.frame ?? 0) ||
+      report.frame > lock.frame ||
+      !isHostState(report.state) ||
+      report.state.phase !== "playing"
+    )
+      return;
+    lock.checkpoint = { frame: report.frame, state: report.state };
+    lock.frames = lock.frames.filter((frame) => frame.frame > report.frame);
   }
   private maintenance(): void {
     const now = Date.now();
@@ -789,6 +955,10 @@ export class GameRoom extends Room {
     host: { views?: HostViews; fromHost?: boolean } = {},
   ): void {
     const now = Date.now();
+    if (this.lockstepRound) {
+      if (state.phase !== "playing") this.lockstepRound = undefined;
+      else this.lockstepSeats(state.players);
+    }
     if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished") {
       this.finishedAt = now;
       void this.recordResult(state, now);

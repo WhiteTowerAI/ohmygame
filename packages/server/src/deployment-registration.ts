@@ -22,14 +22,17 @@ export interface DeploymentRequest {
   maxClients: number;
   roomPolicy: MultiplayerManifestConfig["roomPolicy"];
   reconnectSeconds: number;
+  /** Lockstep deployments only: the rules' tick, at which the service numbers frames. */
+  tickMs?: number;
 }
 
 export function isDeploymentRequest(value: unknown): value is DeploymentRequest {
   if (!isRecord(value)) return false;
-  const allowed = new Set(["mode", "adapterId", "maxClients", "roomPolicy", "reconnectSeconds"]);
+  const allowed = new Set(["mode", "adapterId", "maxClients", "roomPolicy", "reconnectSeconds", "tickMs"]);
   return Object.keys(value).every((key) => allowed.has(key)) &&
     typeof value.mode === "string" && typeof value.adapterId === "string" &&
-    typeof value.maxClients === "number" && typeof value.roomPolicy === "string" && typeof value.reconnectSeconds === "number";
+    typeof value.maxClients === "number" && typeof value.roomPolicy === "string" && typeof value.reconnectSeconds === "number" &&
+    (value.tickMs === undefined || typeof value.tickMs === "number");
 }
 
 /**
@@ -46,6 +49,8 @@ export function deploymentFor(gameId: string, request: DeploymentRequest, public
     reconnectSeconds: request.reconnectSeconds,
     // Published games let players sign in, and let guests play.
     authPolicy: "guest-or-account" as const,
+    // Only lockstep deployments have one, so other deployments keep their IDs.
+    ...(request.tickMs === undefined ? {} : { tickMs: request.tickMs }),
   };
   const deploymentId = `d-${createHash("sha256").update(JSON.stringify(settings)).digest("hex").slice(0, 20)}`;
   return {

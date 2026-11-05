@@ -1,15 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import type { createMultiplayerServer, GameAdapter } from "@ohmygame/server";
-import { sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { LOCKSTEP_ADAPTER_ID, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { describePlayerRange } from "@ohmygame/server/adapters";
+import { tickMsOf } from "@ohmygame/sdk/rules";
 import { BUILT_IN_ADAPTER_IDS, createBuiltInAdapters, type BuiltInAdapterId } from "@ohmygame/games";
 import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
 
 /**
  * custom: the game's own rules in server/rules.ts, from defineGame or defineRealtimeGame.
- * They run on a player's browser, as once the game is published: the deployment's
- * adapterId is "host", and the service keeps only the room.
+ * They run in the players' browsers, as once the game is published, and the service keeps
+ * only the room. Realtime rules that show everyone the whole state run in every browser in
+ * lockstep (adapterId "lockstep"); other rules run on one player's, the host's ("host").
  */
 export type LocalGameAdapterId = BuiltInAdapterId | "custom";
 export interface LocalMultiplayerOptions {
@@ -24,7 +26,7 @@ export const LOCAL_MULTIPLAYER_MAX_CLIENTS = 8;
 const LOCAL_MULTIPLAYER_DEFAULT_CLIENTS = 4;
 /** A fixed address keeps the URL written into a game valid after OhMyGame restarts. */
 export const LOCAL_MULTIPLAYER_PORT = 43139;
-const LOCAL_ADAPTER_IDS: readonly string[] = [...BUILT_IN_ADAPTER_IDS, HOST_ADAPTER_ID];
+const LOCAL_ADAPTER_IDS: readonly string[] = [...BUILT_IN_ADAPTER_IDS, HOST_ADAPTER_ID, LOCKSTEP_ADAPTER_ID];
 /** The built-in rules the local service registers; custom rules come with each deployment. */
 const BUILT_IN_ADAPTERS = createBuiltInAdapters();
 
@@ -90,13 +92,16 @@ export class LocalMultiplayerRuntime {
     if (!Number.isInteger(maxClients) || maxClients < range.min || maxClients > range.max)
       throw new Error(`Local ${adapterId} rooms hold ${describePlayerRange(range)} players.`);
     await this.ensureService();
+    // Every browser can run realtime rules in step when nobody's view is private.
+    const lockstep = adapterId === "custom" && mode === "realtime" && !adapter.playerView;
+    const tickMs = lockstep ? tickMsOf(adapter) : undefined;
     const config: MultiplayerManifestConfig = {
       enabled: true,
       mode,
       gameId,
       // Deployments are immutable, so each room size and policy is its own deployment.
       // Custom rules may switch between turn-based and realtime, which needs another deployment.
-      deploymentId: `local-${adapterId === "custom" ? `host-${mode}` : adapterId}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
+      deploymentId: `local-${lockstep ? `lockstep-${tickMs}ms` : adapterId === "custom" ? `host-${mode}` : adapterId}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
       protocolVersion: 1,
       serverUrl: `http://127.0.0.1:${this.service!.port}`,
       authPolicy: "anonymous",
@@ -104,8 +109,9 @@ export class LocalMultiplayerRuntime {
       maxClients,
       // A wandering player who closed the tab need not hold a seat for long; turn-based seats wait.
       reconnectSeconds: dropIn ? 15 : 120,
-      // The game's own rules run on a player's browser; the service never loads them.
-      adapterId: adapterId === "custom" ? HOST_ADAPTER_ID : adapterId,
+      // The game's own rules run in the players' browsers; the service never loads them.
+      adapterId: lockstep ? LOCKSTEP_ADAPTER_ID : adapterId === "custom" ? HOST_ADAPTER_ID : adapterId,
+      ...(tickMs === undefined ? {} : { tickMs }),
     };
     this.service!.registerLocalDeployment(config);
     return config;
@@ -118,7 +124,7 @@ export class LocalMultiplayerRuntime {
    */
   async restore(gameId: string, config: MultiplayerManifestConfig, rulesFile?: string): Promise<MultiplayerManifestConfig | undefined> {
     if (config.gameId !== gameId || !config.deploymentId.startsWith("local-") || !LOCAL_ADAPTER_IDS.includes(config.adapterId ?? "")) return undefined;
-    const adapterId = config.adapterId === HOST_ADAPTER_ID ? "custom" : (config.adapterId as LocalGameAdapterId);
+    const adapterId = config.adapterId === HOST_ADAPTER_ID || config.adapterId === LOCKSTEP_ADAPTER_ID ? "custom" : (config.adapterId as LocalGameAdapterId);
     const restored = await this.configure(gameId, adapterId, {
       maxClients: config.maxClients,
       dropIn: config.roomPolicy === "drop-in",

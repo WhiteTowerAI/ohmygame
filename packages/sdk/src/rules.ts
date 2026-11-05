@@ -126,6 +126,17 @@ const ROOM_COMMANDS = new Set<TurnCommand["type"]>(["start", "restart", "close",
 function random(): number {
   return globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! / 2 ** 32;
 }
+/**
+ * The next of a lockstep round's random numbers (mulberry32): state.seed holds where the
+ * sequence is, so every page that runs the rules from the same state draws the same ones.
+ */
+function seededRandom(state: MultiplayerGameState): number {
+  let t = (state.seed! + 0x6d2b79f5) >>> 0;
+  state.seed = t;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32;
+}
 
 function seatAfter(state: MultiplayerGameState, playerId: string): string {
   const index = state.players.findIndex((player) => player.playerId === playerId);
@@ -133,15 +144,17 @@ function seatAfter(state: MultiplayerGameState, playerId: string): string {
 }
 
 function context(state: MultiplayerGameState, now: number): GameContext {
+  // A lockstep round's state carries a seed, and its rules draw from it.
+  const draw = typeof state.seed === "number" ? () => seededRandom(state) : random;
   return {
     players: state.players.map((player) => player.playerId),
     ownerId: state.ownerId,
     currentPlayer: state.currentPlayerId,
-    random,
+    random: draw,
     shuffle(items) {
       const copy = [...items];
       for (let index = copy.length - 1; index > 0; index--) {
-        const other = Math.floor(random() * (index + 1));
+        const other = Math.floor(draw() * (index + 1));
         [copy[index], copy[other]] = [copy[other]!, copy[index]!];
       }
       return copy;
@@ -351,6 +364,7 @@ function compileRealtimeGame<G extends object, Input extends object, Action exte
   return {
     ...room,
     tickMs: definition.tickMs,
+    playerView: definition.playerView !== undefined,
     validateInput(input, playerId) {
       definition.input(input, playerId);
     },

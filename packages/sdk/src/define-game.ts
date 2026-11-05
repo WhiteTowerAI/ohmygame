@@ -93,8 +93,13 @@ export interface RealtimeGameContext {
   readonly connected: readonly string[];
   /** The room owner; empty in a drop-in room. */
   readonly ownerId: string;
+  /**
+   * A random number in [0, 1). Use it instead of Math.random: in a lockstep room every
+   * player's browser runs the rules and must draw the same numbers.
+   */
   random(): number;
   shuffle<T>(items: readonly T[]): T[];
+  /** The tick's time in milliseconds. Use it instead of Date.now, for the same reason. */
   now(): number;
 }
 
