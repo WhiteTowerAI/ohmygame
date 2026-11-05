@@ -104,7 +104,9 @@ export class WebGamePlayerWindows {
     await game.ready;
     await game.navigation;
     if (this.#games.get(projectId) !== game || !game.view || game.crashed) throw new Error("The game preview is unavailable.");
-    return (await game.view.webContents.capturePage()).toPNG();
+    // Encoding blocks the main process, and with it every window: PNG takes
+    // about 200 ms for a full Retina frame, JPEG about a seventh of that.
+    return (await game.view.webContents.capturePage()).toJPEG(90);
   }
 
   /** What a recording of this project's running game should capture. */

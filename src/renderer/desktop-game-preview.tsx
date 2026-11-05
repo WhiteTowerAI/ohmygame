@@ -57,9 +57,9 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     let disposed = false;
     const discard = (still: Promise<string | undefined>) => { void still.then((url) => { if (url) URL.revokeObjectURL(url); }); };
     const takeStill = async () => {
-      const png = await bridge.capture(projectId).catch(() => undefined);
-      if (!png?.length) return undefined;
-      const url = URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }));
+      const jpeg = await bridge.capture(projectId).catch(() => undefined);
+      if (!jpeg?.length) return undefined;
+      const url = URL.createObjectURL(new Blob([jpeg as BlobPart], { type: "image/jpeg" }));
       const image = new Image();
       image.src = url;
       await image.decode?.().catch(() => {});
@@ -69,7 +69,10 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       // Only a control can open a menu or dialog; typing never needs a still.
       if (!shown || !(event.target instanceof Element) || element.current?.contains(event.target)) return;
       if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
-      if (!event.target.closest('button, [role="button"], [role="menuitem"], [role="combobox"]')) return;
+      const control = event.target.closest('button, [role="button"], [role="menuitem"], [role="combobox"]');
+      if (!control) return;
+      // Switching or closing a tab hides or keeps the game; only a tab strip's menus cover it.
+      if (control.closest('[role="tablist"]') && !control.hasAttribute("aria-haspopup")) return;
       if (early) discard(early.still);
       early = { at: performance.now(), still: takeStill() };
     };

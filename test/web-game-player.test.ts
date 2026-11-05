@@ -22,7 +22,7 @@ const electron = vi.hoisted(() => {
     getZoomFactor = () => 1;
     isDestroyed = () => this.destroyed;
     close = vi.fn(() => { this.destroyed = true; });
-    capturePage = vi.fn(async () => ({ toPNG: () => new Uint8Array([1, 2, 3]) }));
+    capturePage = vi.fn(async () => ({ toJPEG: () => new Uint8Array([1, 2, 3]) }));
   }
   class Window extends Events {
     destroyed = false;
