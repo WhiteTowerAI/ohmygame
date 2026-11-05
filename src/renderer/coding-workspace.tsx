@@ -1151,9 +1151,26 @@ export function WorkspaceFileBrowser({
   const selectedMedia = selectedEntry && hasMediaType(selectedEntry) ? selectedEntry : undefined;
   const [treeElement, setTreeElement] = useState<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu>();
+  // The tree renders its children as the row component, so a new function on
+  // each render would remount every row. The menu reads the latest state instead.
+  const rowMenu = useRef({ busy: false, onSelect });
+  const hasRowMenu = Boolean(projectId);
+  const renderTreeRow = useCallback((props: NodeRendererProps<WorkspaceFileNode>) => <WorkspaceTreeNode {...props} onContextMenu={hasRowMenu ? (node, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (rowMenu.current.busy) return;
+    if (node.data.path && !node.data.directory) rowMenu.current.onSelect(node.data.path);
+    setContextMenu({
+      path: node.data.path ?? node.data.id,
+      directory: Boolean(node.data.directory || !node.isLeaf),
+      x: event.clientX,
+      y: event.clientY,
+    });
+  } : undefined} />, [hasRowMenu]);
   const [entryDialog, setEntryDialog] = useState<{ kind: "rename" | "file" | "folder"; path: string }>();
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  rowMenu.current = { busy, onSelect };
   const codeElement = useRef<HTMLDivElement>(null);
   const [explorerWidth, setExplorerWidth] = useState(240);
   const explorerResize = useRef<{ clientX: number; width: number; maximum: number; current: number }>(null);
@@ -1296,18 +1313,7 @@ export function WorkspaceFileBrowser({
               }}
               aria-label={t("workspace.files")}
             >
-              {(props) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (busy) return;
-                if (node.data.path && !node.data.directory) onSelect(node.data.path);
-                setContextMenu({
-                  path: node.data.path ?? node.data.id,
-                  directory: Boolean(node.data.directory || !node.isLeaf),
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              } : undefined} />}
+              {renderTreeRow}
             </Tree>
           ) : null}
         </div>}

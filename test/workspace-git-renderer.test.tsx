@@ -225,6 +225,23 @@ describe("Code file browser refresh", () => {
     expect(fileRow()).toBeNull();
   });
 
+  it("keeps its rows as the parent renders again, and opens their menu with the latest handlers", async () => {
+    const resized = sized();
+    const list = files();
+    await act(async () => root.render(<WorkspaceFileBrowser {...props} files={list} />));
+    await resized();
+    await settled();
+    const row = fileRow();
+    expect(row).not.toBeNull();
+    const onSelect = vi.fn();
+    await act(async () => root.render(<WorkspaceFileBrowser {...props} files={list} onSelect={onSelect} />));
+    await settled();
+    // A remounted row would be a new element; each one costs layout on every render.
+    expect(fileRow()).toBe(row);
+    await act(async () => row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    expect(onSelect).toHaveBeenCalledWith("src/deep/saved.ts");
+  });
+
   it("brings the file back into view when it is asked for again", async () => {
     const resized = sized();
     const list = files();
