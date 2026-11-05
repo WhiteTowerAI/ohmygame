@@ -1738,19 +1738,23 @@ export function createApp(options: AppOptions = {}) {
         building.add(project.id);
         let folder: string | undefined;
         try {
-          folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
-          // Other commands hold the workspace already; this one holds it as Export web build does, so no turn writes into the build.
-          const leave = readOnly ? (await agents.turnsClosed(project.id), await projectWrites.enter(project.id, true)) : undefined;
           try {
-            if (readOnly && agents.isProjectBusy(project.id)) throw new PublishError("Wait for the agent to finish before building");
-            if (readOnly && await checkpoints.unfinished(project)) throw new PublishError("Recover the interrupted file restore before building");
-            await artifacts.buildFolder(project, folder);
+            folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
+            // Other commands hold the workspace already; this one holds it as Export web build does, so no turn writes into the build.
+            const leave = readOnly ? (await agents.turnsClosed(project.id), await projectWrites.enter(project.id, true)) : undefined;
+            try {
+              if (readOnly && agents.isProjectBusy(project.id)) throw new PublishError("Wait for the agent to finish before building");
+              if (readOnly && await checkpoints.unfinished(project)) throw new PublishError("Recover the interrupted file restore before building");
+              await artifacts.buildFolder(project, folder);
+            } finally {
+              leave?.();
+            }
           } finally {
-            leave?.();
+            // Only making the build excludes other builds; the plugin may upload for minutes from its own copy.
+            building.delete(project.id);
           }
           return await call({ folder });
         } finally {
-          building.delete(project.id);
           if (folder) await rm(folder, { recursive: true, force: true });
         }
       } : () => call();

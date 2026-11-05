@@ -95,7 +95,8 @@ without the project's write lock and leaves no change to undo. One with
 `build: "web"` gets `build.folder`: the game's web build, made as Export web
 build makes it and under the same rules (not while the agent works, a web
 export or a publish runs, nor for a project without a web build), removed
-once the call ends.
+once the call ends. Only making the build holds up an export or a publish,
+not the plugin's own upload that follows.
 `progress(message, { url })` carries an https link the person needs, such
 as a device sign-in page; it is never dropped as frequent updates are. For a
 command the app runs, every message arrives as `plugin.command.progress`;

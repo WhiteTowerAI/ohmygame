@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,7 +19,8 @@ afterEach(async () => {
 // it to the gh-pages branch of the remote in its settings.
 const PAGES = `
 import { execFileSync } from "node:child_process";
-import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { cp, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 export function activate(context) {
@@ -38,6 +40,12 @@ export function activate(context) {
       await rm(work, { recursive: true, force: true });
     }
     return { folder: build.folder, files: files.map((file) => file.split(path.sep).join("/")).sort() };
+  });
+  // An upload that lasts until the test lets it end.
+  context.registerCommand("upload", async (_input, { configuration }) => {
+    await writeFile(path.join(configuration.remote, "uploading"), "");
+    while (!existsSync(path.join(configuration.remote, "uploaded"))) await new Promise((resolve) => setTimeout(resolve, 10));
+    return true;
   });
 }
 `;
@@ -59,7 +67,10 @@ async function setup(type?: string) {
     capabilities: { native: true, processes: ["git"] },
     configuration: { remote: { type: "text", title: "Remote" } },
     contributes: {
-      commands: [{ id: "publish", title: "GitHub Pages", run: { native: "publish", build: "web", changesFiles: false }, slots: [{ slot: "project.publish" }] }],
+      commands: [
+        { id: "publish", title: "GitHub Pages", run: { native: "publish", build: "web", changesFiles: false }, slots: [{ slot: "project.publish" }] },
+        { id: "upload", title: "Upload", run: { native: "upload", build: "web", changesFiles: false } },
+      ],
     },
   }));
   const payload = { source: { type: "directory", path: source } };
@@ -83,7 +94,7 @@ describe("plugin publishing", () => {
     await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
     await writeFile(path.join(project.workspacePath, "assets/hero.png"), "png");
     const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-commands` })).json();
-    expect(listed).toEqual([expect.objectContaining({ id: "acme/pages:publish", slots: [{ slot: "project.publish" }], run: expect.objectContaining({ build: "web" }) })]);
+    expect(listed).toContainEqual(expect.objectContaining({ id: "acme/pages:publish", slots: [{ slot: "project.publish" }], run: expect.objectContaining({ build: "web" }) }));
 
     const published = await publish();
     expect(published.statusCode, published.body).toBe(200);
@@ -93,6 +104,17 @@ describe("plugin publishing", () => {
     expect(files.filter((file) => file.startsWith(".") || file === "AGENTS.md")).toEqual([]);
     expect(execFileSync("git", ["--git-dir", remote, "show", "gh-pages:index.html"], { encoding: "utf8" })).toBe("<h1>Game</h1>");
     await expect(import("node:fs/promises").then(({ access }) => access(folder))).rejects.toThrow();
+  });
+
+  it("leaves exporting free while a plugin uploads its finished build", async () => {
+    const { app, project, remote } = await setup();
+    await writeFile(path.join(project.workspacePath, "index.html"), "<h1>Game</h1>");
+    const uploading = app.inject({ method: "POST", url: `/projects/${project.id}/plugin-commands`, payload: { command: "acme/pages:upload" } });
+    await expect.poll(() => existsSync(path.join(remote, "uploading")), { timeout: 10_000 }).toBe(true);
+    const exported = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    await writeFile(path.join(remote, "uploaded"), "");
+    expect(exported.statusCode, exported.body).toBe(200);
+    expect((await uploading).statusCode).toBe(200);
   });
 
   it("refuses to build a project that has no web build", async () => {
