@@ -200,6 +200,22 @@ describe("PluginAddDialog", () => {
     }
   });
 
+  it("develops a folder, typed in where there's no folder picker", async () => {
+    answer = (route) => route.includes("inspect")
+      ? Response.json({ ...preview, source: { type: "directory", path: "/plugins/maker", development: true }, origin: { type: "development", folder: "/plugins/maker" } })
+      : Response.json({ id: preview.id, version: preview.version }, { status: 201 });
+    await open();
+    await tab("This computer");
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="/Users/me/my-plugin"]')!, "/plugins/maker");
+    await act(async () => dialog().querySelector<HTMLElement>('[role="checkbox"], input[type="checkbox"]')!.click());
+    await submit();
+    expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker", development: true } });
+    expect(dialog().textContent).toContain("/plugins/maker · In development");
+    expect(dialog().textContent).toContain("added again whenever a file in the folder changes");
+    await submit();
+    expect(requests.at(-1)).toMatchObject({ route: "/plugin-sources/install", body: { source: { type: "directory", path: "/plugins/maker", development: true }, digest: preview.digest } });
+  });
+
   describe("for a plugin on the market", () => {
     const listed: MarketPlugin = {
       id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Makes things", asks: [],

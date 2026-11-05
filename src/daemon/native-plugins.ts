@@ -198,6 +198,20 @@ export class NativePlugins {
     );
   }
 
+  /**
+   * Restarts the hosts that run a plugin, as when its package changed under
+   * the same version in development: a host keeps the modules it imported, so
+   * only a new one runs the new code. Each starts again on its next call.
+   */
+  async reload(id: string): Promise<void> {
+    await Promise.all(
+      this.#hosts
+        .scopes()
+        .filter((scope) => this.#hosts.active(scope)[id])
+        .map((scope) => this.#hosts.stop(scope)),
+    );
+  }
+
   /** Stops a project's host, as when the project is closed. */
   async closeProject(folder: string): Promise<void> {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));

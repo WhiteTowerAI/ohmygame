@@ -4,15 +4,15 @@ import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type Mark
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { consentToPlugin, exportStorePlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { language, t } from "./i18n.js";
-import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
+import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
-import { Alert, Badge, Button, Dialog, Switch, Tabs } from "./ui/index.js";
+import { Alert, Badge, Button, Dialog, Field, Input, Switch, Tabs } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -194,6 +194,7 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
+          {plugin.origin?.type === "development" ? <Badge tone={plugin.developmentError ? "danger" : "outline"}>{t("plugins.inDevelopment")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
           {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
           {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
@@ -267,6 +268,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
+  const [exporting, setExporting] = useState(false);
   const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
@@ -339,6 +341,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
           <span>{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
+          {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
         </h1>
         <p>{plugin.description}</p>
       </div>
@@ -349,6 +352,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
       </div> : null}
     </header>
     {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
+    {plugin.developmentError ? <Alert tone="danger" title={t("pluginStore.developmentError")}>{plugin.developmentError}</Alert> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
       <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
@@ -409,6 +413,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
           {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
+          {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
           {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size={11} /></a> : plugin.origin.package}</dd></> : null}
           {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size={11} /></a></dd></> : null}
           <dt>{versions.length > 1 ? t("pluginStore.versions") : t("plugins.version")}</dt>
@@ -428,10 +433,12 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         </div> : null}
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
           {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {personal ? <Button icon={<Upload size={14} />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
           {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
       </aside>
     </div>
+    {exporting ? <PluginExportDialog plugin={plugin} onClose={() => setExporting(false)} /> : null}
     {removing ? <Dialog open title={t("pluginStore.uninstallTitle", { name: plugin.displayName, version: removing.version })} onClose={() => setRemoving(undefined)}
       footer={<>
         <Button variant="ghost" onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
@@ -525,4 +532,38 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
 
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** Copies a plugin made in the Plugin Builder out as a package its author can publish. */
+function PluginExportDialog({ plugin, onClose }: { plugin: StorePlugin; onClose: () => void }): ReactNode {
+  const [publisher, setPublisher] = useState("");
+  const [folder, setFolder] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [exported, setExported] = useState<string>();
+  const desktop = window.ohMyGameDesktop;
+  const name = plugin.id.slice(plugin.id.indexOf("/") + 1);
+  const submit = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      setExported((await exportStorePlugin(plugin.id, publisher.trim(), folder.trim())).folder);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <Dialog open title={t("pluginStore.exportTitle", { name: plugin.displayName })} description={exported ? undefined : t("pluginStore.exportDescription")} onClose={() => { if (!busy) onClose(); }}
+    footer={exported ? <Button variant="primary" onClick={onClose}>{t("common.done")}</Button> : <>
+      <Button disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
+      <Button variant="primary" type="submit" form="plugin-export-form" disabled={busy || !publisher.trim() || !folder.trim()}>{t("pluginStore.exportAction")}</Button>
+    </>}>
+    {exported ? <p>{t("pluginStore.exported", { folder: exported })}</p> : <form id="plugin-export-form" className="plugins-install-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <Field label={t("pluginStore.exportPublisher")} hint={t("pluginStore.exportPublisherHint", { id: `${publisher.trim() || "publisher"}/${name}` })}>{(props) => <Input {...props} autoFocus required disabled={busy} value={publisher} placeholder="publisher" spellCheck={false} onChange={(event) => setPublisher(event.target.value)} />}</Field>
+      <Field label={t("pluginStore.exportFolder")} hint={t("pluginStore.exportFolderHint", { name })}>{(props) => <Input {...props} required disabled={busy} value={folder} placeholder="/Users/me/plugins" spellCheck={false} onChange={(event) => setFolder(event.target.value)} />}</Field>
+      {desktop ? <Button disabled={busy} onClick={() => void desktop.selectPluginDirectory().then((selected) => { if (selected) setFolder(selected); })}>{t("pluginAdd.chooseFolder")}</Button> : null}
+      {error ? <Alert tone="danger" title={error} /> : null}
+    </form>}
+  </Dialog>;
 }

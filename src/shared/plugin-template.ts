@@ -166,11 +166,17 @@ context.fillRect(0, 0, canvas.width, canvas.height);
   files["locales/en.json"] = json(strings);
   // The same text until it is translated; the app falls back to en for a missing key.
   files["locales/zh-CN.json"] = json(strings);
-  files["package.json"] = pluginPackageJson(options, "0.1.0", published);
-  files["README.md"] = pluginReadme(options);
-  files[".github/workflows/publish.yml"] = PUBLISH_WORKFLOW;
-  files[".gitignore"] = "node_modules/\n*.tgz\n";
-  return files;
+  return { ...files, ...pluginPublishingFiles(options, "0.1.0", published) };
+}
+
+/** What a package needs to publish to npm beside the plugin: package.json, a README, a workflow and .gitignore. */
+export function pluginPublishingFiles(options: Omit<PluginTemplateOptions, "parts">, version: string, published: readonly string[]): Record<string, string> {
+  return {
+    "package.json": pluginPackageJson(options, version, published),
+    "README.md": pluginReadme(options),
+    ".github/workflows/publish.yml": PUBLISH_WORKFLOW,
+    ".gitignore": "node_modules/\n*.tgz\n",
+  };
 }
 
 /** A package.json npm publishes the plugin with: its name is the plugin id under the publisher's scope. */

@@ -97,6 +97,8 @@ export interface ProjectPanel {
   id: string;
   plugin: string;
   version: string;
+  /** The package's digest, which changes only when a plugin in development changes under the same version. */
+  revision: string;
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
@@ -441,6 +443,7 @@ export class PluginServices {
           id: panel.id,
           plugin: entry.id,
           version: entry.version,
+          revision: entry.digest,
           title: localizePluginString(entry, panel.title, locale),
           area: panel.area,
           ...(panel.when ? { when: panel.when } : {}),

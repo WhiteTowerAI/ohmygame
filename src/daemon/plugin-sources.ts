@@ -151,13 +151,44 @@ export class PluginSources {
    */
   async #assertCanJoin(entry: PluginIndexEntry, origin: PluginOrigin | undefined): Promise<void> {
     const present = this.services.index.get(entry.id, entry.version);
-    if (present?.digest === entry.digest) return;
+    // A folder in development is watched and keeps changing, so even the same
+    // contents can't make it one with a plugin from elsewhere; and it replaces
+    // its own version in place.
+    const developing = origin?.type === "development";
+    if (!developing && present?.digest === entry.digest) return;
     for (const installed of this.services.index.versions(entry.id)) {
       const previous = await this.origin(installed.id, installed.version);
       if (!isSameSource(previous, origin))
         throw new PluginSourceError(`${entry.id} is already installed from ${sourceName(previous)}. Its approvals and settings stay with that source, so uninstall it first to add it from here.`);
     }
-    if (present) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+    if (present && present.digest !== entry.digest && !developing) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+  }
+
+  /** The folder each plugin in development is added from, by id. */
+  async developmentFolders(): Promise<Map<string, string>> {
+    await this.services.ready();
+    const folders = new Map<string, string>();
+    for (const entry of this.services.index.entries()) {
+      const origin = await this.origin(entry.id, entry.version);
+      if (origin?.type === "development") folders.set(entry.id, origin.folder);
+    }
+    return folders;
+  }
+
+  /**
+   * Adds a plugin in development from its folder again, without a review: the
+   * person chose to develop it. What it asks for beyond what they allowed
+   * still waits for them. Says whether the package changed.
+   */
+  async refreshDevelopment(id: string): Promise<boolean> {
+    const folder = (await this.developmentFolders()).get(id);
+    if (!folder) throw new PluginSourceError(`${id} isn't in development.`);
+    return this.#reading(() => this.#directory({ type: "directory", path: folder, development: true }), async (fetched, entry) => {
+      if (entry.id !== id) throw new PluginSourceError(`The folder now holds ${entry.id}, not ${id}. Uninstall ${id} to develop another plugin.`);
+      if (this.services.index.get(entry.id, entry.version)?.digest === entry.digest) return false;
+      await this.#install(fetched, entry, entry.digest);
+      return true;
+    });
   }
 
   #fetch(source: PluginAddSource): Promise<FetchedPackage> {
@@ -179,7 +210,7 @@ export class PluginSources {
         if (cause instanceof PluginPackError) throw new PluginSourceError(`This isn't a valid plugin: ${cause.message}`);
         throw cause;
       });
-      return { root, source };
+      return { root, source, ...(source.development ? { origin: { type: "development" as const, folder: real } } : {}) };
     });
   }
 
@@ -364,12 +395,14 @@ async function validPackage(root: string): Promise<PluginIndexEntry> {
 function isSameSource(left: PluginOrigin | undefined, right: PluginOrigin | undefined): boolean {
   if (left?.type === "npm" && right?.type === "npm") return left.package.split("/")[0] === right.package.split("/")[0];
   if (left?.type === "github" && right?.type === "github") return left.repository.toLowerCase() === right.repository.toLowerCase();
+  if (left?.type === "development" && right?.type === "development") return left.folder === right.folder;
   return false;
 }
 
 function sourceName(origin: PluginOrigin | undefined): string {
   if (origin?.type === "npm") return `npm (${origin.package})`;
   if (origin?.type === "github") return `GitHub (${origin.repository})`;
+  if (origin?.type === "development") return `the folder ${origin.folder}, in development`;
   return "another package on this computer";
 }
 

@@ -120,6 +120,8 @@ import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
+import { PluginDevelopment } from "./plugin-development.js";
+import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, missingGrants, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
@@ -209,6 +211,8 @@ export interface AppOptions {
   pluginMarketKeys?: PluginMarketOptions["keys"];
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
+  /** How long a plugin in development waits for its edits to settle, in tests. */
+  pluginDevelopmentSettleMs?: number;
   preinstalledPluginsDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
@@ -1199,6 +1203,8 @@ export function createApp(options: AppOptions = {}) {
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
     await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
+    // Folders in development may have changed while the app was closed.
+    void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -1321,6 +1327,7 @@ export function createApp(options: AppOptions = {}) {
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
         ...(added ? { origin: added } : {}),
+        ...(added?.type === "development" && pluginDevelopment.error(entry.id) ? { developmentError: pluginDevelopment.error(entry.id) } : {}),
         ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
@@ -1358,6 +1365,9 @@ export function createApp(options: AppOptions = {}) {
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
   });
   const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
+  const pluginDevelopment = new PluginDevelopment(pluginServices, pluginSources, options.pluginDevelopmentSettleMs === undefined ? {} : { settleMs: options.pluginDevelopmentSettleMs });
+  // Adding or uninstalling a plugin in development starts or stops watching its folder.
+  pluginServices.onChange(() => void pluginDevelopment.sync().catch(() => undefined));
   const pluginSourceBody = {
     type: "object",
     required: ["type"],
@@ -1372,7 +1382,7 @@ export function createApp(options: AppOptions = {}) {
       },
       {
         required: ["path"], additionalProperties: false,
-        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 } },
+        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 }, development: { const: true } },
       },
     ],
   } as const;
@@ -1471,6 +1481,20 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
+  // A plugin made in the Plugin Builder, copied out as a package to publish under the person's own publisher.
+  app.post<{ Params: { publisher: string; name: string }; Body: { publisher: string; folder: string } }>("/plugin-store/:publisher/:name/export", {
+    schema: { body: { type: "object", required: ["publisher", "folder"], additionalProperties: false, properties: { publisher: { type: "string", minLength: 1, maxLength: 100 }, folder: { type: "string", minLength: 1, maxLength: 4096 } } } },
+  }, async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not found" });
+    try {
+      return { folder: await exportPlugin(entry, request.body.publisher.trim(), request.body.folder) };
+    } catch (cause) {
+      if (cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
   app.delete<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version", async (request, reply) => {
     await pluginServices.ready();
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
@@ -1563,7 +1587,11 @@ export function createApp(options: AppOptions = {}) {
     const panels = await pluginServices.panels(project.workspacePath, locale);
     if (!panels.length) return [];
     const server = await pluginUiServer();
-    return panels.map((panel) => ({ ...panel, url: server.panelUrl(panel.plugin, panel.version, panel.id) }));
+    // The revision makes a changed page a new address, so an open panel loads it again.
+    return panels.map((panel) => {
+      const url = server.panelUrl(panel.plugin, panel.version, panel.id);
+      return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
+    });
   });
   // Only a plugin the project uses, with a page, has storage there.
   const pagePlugin = async (projectId: string, publisher: string, name: string) => {
@@ -4038,6 +4066,7 @@ export function createApp(options: AppOptions = {}) {
     codexImages.close();
     await projectNaming.close();
     await pluginMcpHost.close();
+    await pluginDevelopment.close();
     await pluginServices.close();
     await (await pluginUi?.catch(() => undefined))?.close();
     await cloudModels.setSession(null);

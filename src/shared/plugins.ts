@@ -5,7 +5,9 @@ import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
-  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
+  /** A folder on this computer being developed: it's added again whenever its files change. */
+  | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
 export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
@@ -15,7 +17,8 @@ export type PluginAddSource =
   /** `market`: opened from a market card, so only a version the market signs off will do. */
   | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
-  | { type: "directory"; path: string };
+  /** `development`: the folder is added again whenever its files change. */
+  | { type: "directory"; path: string; development?: true };
 
 /** A plugin published on npm that the market lists, at its newest version. */
 export interface MarketPlugin {
@@ -280,6 +283,8 @@ export interface StorePlugin {
   /** Installed with the app from another repository; it can be uninstalled. */
   preinstalled?: boolean;
   origin?: PluginOrigin;
+  /** Why its folder, in development, couldn't be added again the last time it changed. */
+  developmentError?: string;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
   categories?: PluginCategory[];

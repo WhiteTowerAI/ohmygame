@@ -819,6 +819,11 @@ export async function setStorePluginEnabled(id: string, enabled: boolean): Promi
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }
 
+/** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
+export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
+  return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
+}
+
 export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
 }
