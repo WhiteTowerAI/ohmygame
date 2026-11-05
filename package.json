@@ -35,7 +35,7 @@
     "build:multiplayer": "bun run build:packages",
     "start:multiplayer": "node --env-file-if-exists=packages/server/.env packages/games/dist/server.js",
     "start:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun --bun node_modules/electron/cli.js . --built-renderer",
-    "prepare:preinstalled-plugins": "node --import tsx scripts/prepare-preinstalled-plugins.ts",
+    "prepare:preinstalled-plugins": "node --conditions=ohmygame-source --import tsx scripts/prepare-preinstalled-plugins.ts",
     "prepare:examples": "bun scripts/prepare-examples.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",

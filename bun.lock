@@ -97,7 +97,7 @@
     },
     "packages/sdk": {
       "name": "@ohmygame/sdk",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "dependencies": {
         "@colyseus/sdk": "^0.18.5",
       },
