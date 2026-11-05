@@ -22,7 +22,7 @@ import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
-import { ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 import { migrateProjectLayout } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -195,7 +195,10 @@ export class ProjectManager {
           const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
           const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
           const workspaceAvailable = await isDirectory(workspacePath);
-          if (workspaceAvailable) await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
+          if (workspaceAvailable) {
+            await this.#covers.migrate(projectDirectory, path.join(workspacePath, PROJECT_DATA_DIRECTORY)).catch((cause: unknown) => onError?.(projectDirectory, cause));
+            await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
+          }
           const project = projectState(
             workspacePath,
             metadata,
@@ -401,11 +404,10 @@ export class ProjectManager {
         errorOnExist: true,
         filter: (sourcePath) => {
           const relative = path.relative(source.workspacePath, sourcePath).replaceAll(path.sep, "/");
-          return path.basename(sourcePath) !== "node_modules" && relative !== PROJECT_LOCAL_DIRECTORY;
+          return path.basename(sourcePath) !== "node_modules" && relative !== AGENT_ATTACHMENTS_DIRECTORY;
         },
       });
       await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
-      await this.#covers.copy(this.#projectDirectory(source.id), duplicateDirectory);
       await writeMetadata(duplicateDirectory, metadata);
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
@@ -539,7 +541,7 @@ export class ProjectManager {
   async cover(id: string): Promise<Buffer | undefined> {
     const project = this.#projects.get(id);
     if (!project || project.appearance?.cover === "template") return undefined;
-    return this.#covers.read(this.#projectDirectory(id));
+    return this.#covers.read(coversDirectory(project));
   }
 
   /** Replaces the icon, tone and template choice; the logo follows its own upload. */
@@ -553,14 +555,15 @@ export class ProjectManager {
   }
 
   async logo(id: string): Promise<Buffer | undefined> {
-    if (!this.#projects.get(id)?.appearance?.logo) return undefined;
-    return this.#covers.readLogo(this.#projectDirectory(id));
+    const project = this.#projects.get(id);
+    if (!project?.appearance?.logo) return undefined;
+    return this.#covers.readLogo(coversDirectory(project));
   }
 
   async setLogo(id: string, contents: Uint8Array | undefined): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await this.#covers.setLogo(this.#projectDirectory(id), contents);
+    await this.#covers.setLogo(coversDirectory(project), contents);
     await this.#save(project, (current) => {
       const { logo: _logo, ...rest } = current.appearance ?? {};
       return withAppearance(contents ? { ...rest, logo: true } : rest);
@@ -569,18 +572,21 @@ export class ProjectManager {
   }
 
   async coverState(id: string): Promise<ProjectCoverState> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    return this.#covers.state(this.#projectDirectory(id));
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return this.#covers.state(coversDirectory(project));
   }
 
   async setCover(id: string, contents: Uint8Array, source: ProjectCoverMode = "custom"): Promise<void> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    return this.#covers.set(this.#projectDirectory(id), contents, source);
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return this.#covers.set(coversDirectory(project), contents, source);
   }
 
   async setCoverMode(id: string, mode: ProjectCoverMode, fallback?: Uint8Array): Promise<void> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    await this.#covers.setMode(this.#projectDirectory(id), mode, fallback);
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#covers.setMode(coversDirectory(project), mode, fallback);
   }
 
   async addGeneratedAsset(
@@ -1411,6 +1417,11 @@ async function importDirectory(workspacePath: string, folder: readonly string[])
     await ensureDirectory(directory, true);
   }
   return directory;
+}
+
+/** Where a project's cover and logo are: its `.ohmygame/` folder, so they go wherever the folder goes. */
+function coversDirectory(project: ProjectState): string {
+  return path.join(project.workspacePath, PROJECT_DATA_DIRECTORY);
 }
 
 async function ensureDirectory(target: string, create = false): Promise<void> {

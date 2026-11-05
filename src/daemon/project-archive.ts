@@ -38,7 +38,7 @@ import { sniffImageType } from "./image-format.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import type { ProjectManager } from "./projects.js";
-import { PROJECT_BUILD_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
+import { PROJECT_BUILD_DIRECTORY, PROJECT_IDENTITY_FILES, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 
 const GRAPH_FILE = "graph.json";
 
@@ -55,6 +55,8 @@ const EXCLUDED_AT_ROOT = new Set([
   ".godot",
   PROJECT_LOCAL_DIRECTORY,
   PROJECT_BUILD_DIRECTORY,
+  // The cover and logo go in the archive's own entries.
+  ...PROJECT_IDENTITY_FILES,
   ".ohmygame-install-pending",
   // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept agent attachments in `.data/`.
   ".data/agent-attachments",
@@ -63,6 +65,7 @@ const EXCLUDED_AT_ROOT = new Set([
 const SKIPPED_ON_IMPORT_AT_ROOT = new Set([
   PROJECT_LOCAL_DIRECTORY,
   PROJECT_BUILD_DIRECTORY,
+  ...PROJECT_IDENTITY_FILES,
   ".ohmygame-install-pending",
   // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Archives from before kept Node thumbnails and story
   // runtime updates straight in `.ohmygame/`, and agent attachments in `.data/`.

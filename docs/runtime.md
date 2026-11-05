@@ -496,11 +496,6 @@ Each project lives under the daemon data directory:
 ```text
 projects/<project-id>/
 ├── project.json   project identity and latest publication
-├── cover.webp     uploaded cover, retained while automatic mode is enabled
-├── cover-auto.webp last automatic cover, retained when a custom cover is applied
-├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
-├── cover-state.json explicit cover mode, including when no cover exists
-├── logo.webp      uploaded logo, shown in the sidebar instead of the icon
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -511,19 +506,26 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 
 ```text
 .ohmygame/
-├── .gitignore       leaves local/ and build/ out of the project's repository
-├── assets.json      prompts, previews, Library links and origins of assets
-├── asset-previews/  preview images of generated assets
-├── build/           what plugins build, such as a Godot web build
-└── local/           this computer's files: agent attachments, Node thumbnails,
-                     newer story runtime files
+├── .gitignore        leaves local/ and build/ out of the project's repository
+├── assets.json       prompts, previews, Library links and origins of assets
+├── asset-previews/   preview images of generated assets
+├── cover.webp        uploaded cover, retained while automatic mode is enabled
+├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
+├── cover-state.json  explicit cover mode, including when no cover exists
+├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
+├── build/            what plugins build, such as a Godot web build
+└── local/            this computer's files: the last automatic cover
+                      (cover-auto.webp), agent attachments, Node thumbnails,
+                      newer story runtime files
 ```
 
 Everything but `local/` and `build/` goes with the project into snapshots,
-exports and its repository. A project from an older OhMyGame keeps asset
-records, previews and attachments in `.data/` and its caches straight in
-`.ohmygame/`; they move when the project loads, is imported, or a snapshot
-from before comes back. What is already in place is never replaced.
+exports and its repository, except that snapshots leave out the cover and
+logo, so undoing a turn keeps them. A project from an older OhMyGame keeps asset
+records, previews and attachments in `.data/`, its caches straight in
+`.ohmygame/`, and its covers and logo beside `project.json`; they move when
+the project loads, is imported, or a snapshot from before comes back. What is
+already in place is never replaced.
 
 Settings → General → **Project location** sets the folder new projects are
 made in when the dialog doesn't choose one: each gets a new subfolder named

@@ -17,7 +17,7 @@ import path from "node:path";
 import ignore, { type Ignore } from "ignore";
 import type { ProjectState, TurnChanges } from "../shared/contracts.js";
 import { countLineChanges } from "../shared/line-diff.js";
-import { PROJECT_BUILD_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
+import { PROJECT_BUILD_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_IDENTITY_FILES, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
 import {
   BUFFERED_BYTES,
@@ -226,7 +226,7 @@ const UNSETTLED_MS = 2_000;
 // Dependencies and version control are left out wherever they are. Build output and OhMyGame's files for this
 // computer are left out at the workspace root only: a game may keep its own `levels/build/`. The rest of
 // `.ohmygame/` is kept, unlike in the file tree and in published archives, because asset metadata must go back
-// together with the assets it describes.
+// together with the assets it describes. The project's cover and logo stay as they are when a turn is undone.
 // Generation history and Godot's generated cache are not project creative state.
 const EXCLUDED_ANYWHERE = new Set(["node_modules", ".git"]);
 const EXCLUDED_AT_ROOT = new Set([
@@ -236,6 +236,7 @@ const EXCLUDED_AT_ROOT = new Set([
   ".godot",
   PROJECT_LOCAL_DIRECTORY,
   PROJECT_BUILD_DIRECTORY,
+  ...PROJECT_IDENTITY_FILES,
   ".ohmygame-install-pending",
   // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept agent attachments in `.data/`, and Node
   // thumbnails and story runtime updates straight in `.ohmygame/`.

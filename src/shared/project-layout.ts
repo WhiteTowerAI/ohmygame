@@ -14,5 +14,16 @@ export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
+/**
+ * The project's cover and logo. They travel with the project, but snapshots
+ * leave them out: going back to an earlier turn keeps the cover as it is.
+ */
+export const PROJECT_IDENTITY_FILES = [
+  ".ohmygame/cover.webp",
+  ".ohmygame/cover-frozen.webp",
+  ".ohmygame/cover-state.json",
+  ".ohmygame/logo.webp",
+] as const;
+
 /** What `.ohmygame/.gitignore` leaves out of a project's repository. */
 export const PROJECT_DATA_GITIGNORE = "local/\nbuild/\n";

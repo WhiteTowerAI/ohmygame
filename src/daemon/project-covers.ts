@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { access, copyFile, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectCoverMode, ProjectCoverState } from "../shared/contracts.js";
 
 /** The largest cover a project accepts, uploaded or imported. */
 export const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 
+// Names in a project's `.ohmygame/` folder. The automatic cover is captured on
+// this computer and is captured again elsewhere, so it stays in `local/`.
 const CUSTOM_COVER = "cover.webp";
-const AUTOMATIC_COVER = "cover-auto.webp";
+const AUTOMATIC_COVER = path.join("local", "cover-auto.webp");
 const FROZEN_COVER = "cover-frozen.webp";
 const COVER_STATE = "cover-state.json";
 const LOGO = "logo.webp";
@@ -15,7 +18,10 @@ const LOGO = "logo.webp";
 /** The largest logo a project accepts. */
 export const MAX_PROJECT_LOGO_BYTES = 1024 * 1024;
 
-/** Cover operations share a queue so a late automatic capture cannot overwrite a custom cover. */
+/**
+ * Cover operations share a queue so a late automatic capture cannot overwrite a custom cover. Each takes the
+ * project's `.ohmygame/` folder.
+ */
 export class ProjectCovers {
   readonly #operations = new Map<string, Promise<unknown>>();
 
@@ -65,12 +71,23 @@ export class ProjectCovers {
     });
   }
 
-  copy(source: string, destination: string): Promise<void> {
-    return this.#serial(source, async () => {
+  /**
+   * Moves the covers and logo an older OhMyGame kept in the project's own
+   * storage into `directory`, without replacing any already there.
+   */
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Covers and logos were kept beside project.json.
+  migrate(storage: string, directory: string): Promise<void> {
+    return this.#serial(directory, async () => {
       for (const file of [CUSTOM_COVER, AUTOMATIC_COVER, FROZEN_COVER, COVER_STATE, LOGO]) {
-        await copyFile(path.join(source, file), path.join(destination, file)).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== "ENOENT") throw error;
+        const source = path.join(storage, path.basename(file));
+        const destination = path.join(directory, file);
+        if (!(await exists(source))) continue;
+        await mkdir(path.dirname(destination), { recursive: true });
+        // A copy, since the workspace can be on another drive than the storage.
+        await copyFile(source, destination, constants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "EEXIST") throw error;
         });
+        await rm(source, { force: true });
       }
     });
   }
@@ -100,9 +117,13 @@ async function coverMode(directory: string): Promise<ProjectCoverMode> {
   return await hasCustomCover(directory) ? "custom" : "auto";
 }
 
-async function hasCustomCover(directory: string): Promise<boolean> {
+function hasCustomCover(directory: string): Promise<boolean> {
+  return exists(path.join(directory, CUSTOM_COVER));
+}
+
+async function exists(file: string): Promise<boolean> {
   try {
-    await access(path.join(directory, CUSTOM_COVER));
+    await access(file);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -120,6 +141,7 @@ async function readOptional(file: string): Promise<Buffer | undefined> {
 }
 
 async function replaceFile(destination: string, contents: Uint8Array): Promise<void> {
+  await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, contents, { flag: "wx" });
