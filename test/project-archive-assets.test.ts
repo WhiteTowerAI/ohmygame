@@ -380,9 +380,7 @@ function unzip(archive: Buffer): Promise<Record<string, Buffer>> {
           stream.on("data", (chunk: Buffer) => chunks.push(chunk));
           stream.once("error", reject);
           stream.once("end", () => {
-            if (entry.fileName.startsWith("workspace/"))
-              files[entry.fileName.slice("workspace/".length)] =
-                Buffer.concat(chunks);
+            files[entry.fileName] = Buffer.concat(chunks);
             zip.readEntry();
           });
         });

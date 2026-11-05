@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectCoverMode, ProjectCoverState } from "../shared/contracts.js";
+import { AUTOMATIC_COVER_FILE } from "../shared/project-layout.js";
 
 /** The largest cover a project accepts, uploaded or imported. */
 export const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
@@ -10,7 +11,7 @@ export const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 // Names in a project's `.ohmygame/` folder. The automatic cover is captured on
 // this computer and is captured again elsewhere, so it stays in `local/`.
 const CUSTOM_COVER = "cover.webp";
-const AUTOMATIC_COVER = path.join("local", "cover-auto.webp");
+const AUTOMATIC_COVER = path.join(...AUTOMATIC_COVER_FILE.split("/").slice(1));
 const FROZEN_COVER = "cover-frozen.webp";
 const COVER_STATE = "cover-state.json";
 const LOGO = "logo.webp";

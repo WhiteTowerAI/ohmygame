@@ -21,8 +21,8 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
-import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE } from "../shared/project-layout.js";
+import { PROJECT_ARCHIVE_SETTING_KEYS, projectSettingsFileText, type ProjectArchiveSettings } from "../shared/project-archive.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -1361,7 +1361,7 @@ function folderSettings(metadata: ProjectMetadata): ProjectArchiveSettings {
  */
 async function writeFolderSettings(workspacePath: string, metadata: ProjectMetadata): Promise<void> {
   const destination = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
-  const text = `${JSON.stringify({ version: 1, ...folderSettings(metadata) }, null, 2)}\n`;
+  const text = projectSettingsFileText(folderSettings(metadata));
   try {
     if ((await readFile(destination, "utf8").catch(() => undefined)) === text) return;
     await ensureDirectory(path.dirname(destination), true);
@@ -1381,7 +1381,7 @@ async function writeFolderSettings(workspacePath: string, metadata: ProjectMetad
 async function readFolderSettings(workspacePath: string): Promise<ProjectArchiveSettings | undefined> {
   try {
     const value = JSON.parse(await readFile(path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/")), "utf8")) as Record<string, unknown>;
-    if (value?.version !== 1) return undefined;
+    if (value?.version !== PROJECT_SETTINGS_VERSION) return undefined;
     const candidate = Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
     const updatedAt = new Date(0).toISOString();
     return folderSettings(parseMetadata({ ...candidate, version: 1, id: "folder", updatedAt }, "folder", updatedAt).metadata);

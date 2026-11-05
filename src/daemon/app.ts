@@ -4334,8 +4334,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
     try {
-      const [cover, coverState, logo] = await Promise.all([projects.cover(project.id), projects.coverState(project.id), projects.logo(project.id)]);
-      const archive = await exportProjectArchive(project, { library, ...(cover ? { cover: { contents: cover, mode: coverState.mode } } : {}), ...(logo ? { logo } : {}) });
+      const archive = await exportProjectArchive(project, { library });
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)

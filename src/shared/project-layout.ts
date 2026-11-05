@@ -16,6 +16,10 @@ export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
 /** The project's name and settings, which OhMyGame writes and reads when the folder is opened again. */
 export const PROJECT_SETTINGS_FILE = ".ohmygame/settings.json";
+export const PROJECT_SETTINGS_VERSION = 1;
+
+/** The last automatic cover, captured on this computer; exports carry it so an imported project has a cover. */
+export const AUTOMATIC_COVER_FILE = ".ohmygame/local/cover-auto.webp";
 
 /**
  * The project's settings, cover and logo. They travel with the project, but
