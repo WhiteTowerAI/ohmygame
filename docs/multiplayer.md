@@ -472,25 +472,22 @@ and add a Postgres service for `GAME_DATA_DATABASE_URL`.
 Every service this repository deploys, such as the game service, follows one
 layout, so another service is added the same way:
 
-- It lives in its own package under `packages/`, and its deployment
-  configuration is `packages/<package>/railway.json`. The game service's is
-  `packages/games/railway.json`.
+- It lives in its own package under `packages/`.
 - The root `package.json` has `build:<service>` and `start:<service>` for it:
   `build:multiplayer` and `start:multiplayer` for the game service.
-  `railway.json` names them, with the health check path.
-- `railway.json` lists the watch patterns that redeploy it: its own package, the
-  shared packages it uses (`packages/server`, `packages/sdk`), the root
-  `package.json` and `bun.lock`. A change elsewhere, such as to the desktop app,
-  deploys nothing.
 - On Railway the service uses this repository with the **root directory left at
-  the repository root**, since the packages share code and one lockfile, and its
-  config-as-code path is its `railway.json`. Railway otherwise falls back to the
-  root `start` script, which runs the desktop daemon.
+  the repository root**, since the packages share code and one lockfile. Its
+  variables name the two scripts for Railpack, and its settings hold the health
+  check and the watch paths:
 
-Publishing rejects a missing build manifest when `multiplayer.json` declares
-multiplayer, mismatches between source/build/request configurations, and known
-PeerJS dependencies or public PeerJS/CDN markers in the build. These checks
-catch the observed default-stack regression; they do not infer every networking
-implementation or prove that a game uses its declared rules. Verify gameplay
-with two clients before delivery. Single-player games require no multiplayer
-manifest or backend.
+  | Setting | Game service |
+  | --- | --- |
+  | `RAILPACK_BUILD_CMD` (variable) | `bun run build:multiplayer` |
+  | `RAILPACK_START_CMD` (variable) | `bun run start:multiplayer` |
+  | Healthcheck path | `/healthz` |
+  | Watch paths | `/packages/games/**`, `/packages/server/**`, `/packages/sdk/**`, `/package.json`, `/bun.lock` |
+
+  Watch paths cover the service's package, the shared packages it uses, the root
+  `package.json` and `bun.lock`, so a change elsewhere, such as to the desktop
+  app, deploys nothing. Without the start command, Railway falls back to the root
+  `start` script, which runs the desktop daemon and fails.
