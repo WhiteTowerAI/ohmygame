@@ -512,7 +512,8 @@ Nothing updates a package by itself: adding a newer one is the update.
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
 reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
-GitHub branch or tag is at now. A plugin with an update says so, and its page
+GitHub branch or tag is at now. An npm version the market blocked or turned
+away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
 nowhere to look, so its page says to add it again.
@@ -531,9 +532,11 @@ nowhere to look, so its page says to add it again.
 The market lists the plugins published on npm. A job in the
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
 finds them, runs the same package checks as the app, and publishes an index file.
-`src/daemon/plugin-market.ts` reads it from the address in
-`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
-HTTP on this computer), there's no market and nothing is read.
+`src/daemon/plugin-market.ts` reads it from
+`https://plugins.ohmygame.ai/plugins/index.json` (`PLUGIN_INDEX_URL`), on
+Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
+or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
+nothing is read.
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
   file, then the index it names if that changed, checks the index against the

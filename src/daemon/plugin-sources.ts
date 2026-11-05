@@ -91,7 +91,8 @@ export class PluginSources {
 
   /**
    * Looks where each plugin's newest version came from for a newer package.
-   * One that can't be checked now is left out; a local one can only be added again.
+   * One that can't be checked now, or that the market blocked or turned away,
+   * is left out; a local one can only be added again.
    */
   async updates(): Promise<PluginSourceUpdate[]> {
     await this.services.ready();
@@ -103,9 +104,10 @@ export class PluginSources {
           const { scope, name } = parseNpmName(origin.package);
           const response = await this.#request(`${NPM_REGISTRIES[origin.registry].url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, "Could not reach npm");
           const latest = response.ok ? (await readJson(response) as NpmMetadata)["dist-tags"]?.latest : undefined;
-          return typeof latest === "string" && isNewerPluginVersion(latest, entry.version) && !this.services.index.get(entry.id, latest)
-            ? { id: entry.id, version: latest, source: { type: "npm", name: origin.package, registry: origin.registry, version: latest } }
-            : undefined;
+          if (typeof latest !== "string" || !isNewerPluginVersion(latest, entry.version) || this.services.index.get(entry.id, latest)) return undefined;
+          // A version the market blocked or turned away would only be refused when added.
+          await this.market?.release(origin.package, latest);
+          return { id: entry.id, version: latest, source: { type: "npm", name: origin.package, registry: origin.registry, version: latest } };
         }
         if (origin?.type === "github" && !origin.release) {
           const commit = await this.#resolveCommit(origin.repository, origin.ref);

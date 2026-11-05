@@ -12,6 +12,9 @@ import { RESERVED_PUBLISHERS } from "./plugin-services.js";
 // version's checksum, so an index or a mirror that lies about a package can't
 // get it installed (PluginSources checks the download against that checksum).
 
+/** The index the ohmygame-plugins job publishes; `OHMYGAME_PLUGIN_INDEX_URL` replaces it, and an empty one turns the market off. */
+export const PLUGIN_INDEX_URL = "https://plugins.ohmygame.ai/plugins/index.json";
+
 const POINTER_MAX_BYTES = 4 * 1024;
 const INDEX_MAX_BYTES = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;

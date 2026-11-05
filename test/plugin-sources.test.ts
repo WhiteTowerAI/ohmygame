@@ -554,6 +554,12 @@ describe("PluginSources", () => {
     }, {
       ...npmFirst.files,
       [`https://codeload.github.com/acme/tiles/tar.gz/${commit}`]: tgz(...pluginEntries("tiles/", "acme/tiles")),
+    }, {
+      // The market knows only the version it blocked.
+      release: async (name, version) => {
+        if (version === "1.2.0") throw new PluginMarketError(`${name} ${version} was blocked: steals keys`);
+        return undefined;
+      },
     });
     const preview = await sources.inspect(npm, "en");
     // Nothing is installed yet, so there is nothing to compare with.
@@ -572,6 +578,9 @@ describe("PluginSources", () => {
       { id: "acme/maker", version: "1.1.0", source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.1.0" } },
       { id: "acme/tiles", commit: newer, source: { type: "github", url: "https://github.com/acme/tiles/tree/stable", commit: newer } },
     ].sort((a, b) => a.id.localeCompare(b.id)));
+    // A version the market blocked would only be refused, so it isn't offered.
+    latest.version = "1.2.0";
+    expect((await sources.updates()).map((update) => update.id)).toEqual(["acme/tiles"]);
     // With a version installed, the review says what isn't allowed yet; once allowed, nothing is new.
     expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual(["network:api.example.com"]);
     await services.consent("acme/maker", ["network:api.example.com"]);
