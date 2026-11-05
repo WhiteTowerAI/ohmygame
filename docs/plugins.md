@@ -613,7 +613,8 @@ the source again and refuses a package whose digest isn't the one reviewed.
   last copy and shows on the plugin's page until a change fixes it. It never
   shares an id with a plugin from elsewhere, even one with the same contents, nor
   with another folder. Uninstalling stops watching and never touches the folder.
-  At startup each folder is added again for edits made meanwhile.
+  At startup each folder is added again for edits made meanwhile. A theme in
+  use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
   (`PluginServices.installAdded`), so a package can't stand in for what the app or
   the Plugin Builder provides.

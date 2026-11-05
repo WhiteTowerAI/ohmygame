@@ -36,6 +36,15 @@ export async function exportPlugin(entry: PluginIndexEntry, publisher: string, i
     const manifestFile = path.join(staging, ...PLUGIN_MANIFEST_PATH.split("/"));
     const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Record<string, unknown>;
     await writeFile(manifestFile, `${JSON.stringify({ ...manifest, id: `${publisher}/${name}` }, null, 2)}\n`);
+    // A preset's nodes name the plugin they run in, and it has a new id now.
+    for (const preset of entry.manifest.contributes?.canvasPresets ?? []) {
+      const file = path.join(staging, preset.board);
+      const board = JSON.parse(await readFile(file, "utf8")) as { nodes?: { data?: { node?: unknown } }[] };
+      for (const node of board.nodes ?? [])
+        if (node.data && typeof node.data.node === "string" && node.data.node.startsWith(`${entry.id}:`))
+          node.data.node = `${publisher}/${name}${node.data.node.slice(entry.id.length)}`;
+      await writeFile(file, `${JSON.stringify(board, null, 2)}\n`);
+    }
     // Installed, a template has its .gitignore back; published, it needs the name npm keeps.
     for (const type of entry.manifest.contributes?.projectTypes ?? [])
       if (type.template) await hideGitignores(path.join(staging, type.template));

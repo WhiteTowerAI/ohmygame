@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { exportPlugin } from "../src/daemon/plugin-export.js";
+import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { publishedFiles, stagePublished } from "../src/daemon/plugin-pack.js";
 import { PLUGIN_TEMPLATE_PARTS, pluginTemplate } from "../src/shared/plugin-template.js";
 import { checkFolder } from "../scripts/plugin-check.js";
@@ -55,6 +57,29 @@ const cases: Record<string, Record<string, string>> = {
     "node_modules/other/package.json": JSON.stringify({ name: "other", version: "1.0.0" }),
   },
 };
+
+describe("exporting a plugin", () => {
+  it("moves its canvas presets' nodes to the new id, leaving other plugins' alone", async () => {
+    const node = (id: string, plugin: string) => ({ id, type: "plugin", position: { x: 0, y: 0 }, data: { node: plugin, params: {}, inputs: {} } });
+    const root = await folder({
+      ".ohmygame-plugin/plugin.json": JSON.stringify({
+        id: "personal/frames", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Frames", description: "Frames",
+        capabilities: { native: true }, entrypoints: { native: "./native/index.mjs" },
+        contributes: {
+          canvasNodes: [{ id: "copy", title: "Copy", output: "image", run: { native: "copy" } }],
+          canvasPresets: [{ id: "set", title: "Set", board: "./presets/set.json" }],
+        },
+      }),
+      "native/index.mjs": "export function activate() {}\n",
+      "presets/set.json": JSON.stringify({ nodes: [node("a", "personal/frames:copy"), node("b", "acme/other:blur")], edges: [] }),
+    });
+    const indexed = await indexPluginPackage(root);
+    if (!indexed.ok) throw new Error(JSON.stringify(indexed.issues));
+    const exported = await exportPlugin(indexed.entry, "acme", await folder({}));
+    const board = JSON.parse(await readFile(path.join(exported, "presets/set.json"), "utf8")) as { nodes: { data: { node: string } }[] };
+    expect(board.nodes.map((item) => item.data.node)).toEqual(["acme/frames:copy", "acme/other:blur"]);
+  });
+});
 
 describe("published files", () => {
   it.skipIf(!npm).each(Object.keys(cases))("match what npm packs: %s", async (name) => {
