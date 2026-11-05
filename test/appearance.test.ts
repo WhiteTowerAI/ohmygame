@@ -44,14 +44,23 @@ it("puts a plugin's theme over the neutral greys for the appearances it covers, 
   // Only theme tokens: the roles built on them stay the app's.
   expect(rule.style.getPropertyValue("--color-app")).toBe("");
 
-  // Updated with its plugin, gone with it.
+  // Updated with its plugin.
   const brighter = { ...ocean, dark: { "--gray-0": "#002040" } };
   await syncPluginTheme(async () => [brighter]);
   expect(readPluginTheme()).toEqual(brighter);
   expect(rules()[0]!.style.getPropertyValue("--gray-0")).toBe("#002040");
   await syncPluginTheme(async () => { throw new Error("offline"); });
   expect(readPluginTheme()).toEqual(brighter);
+  // Offered by nothing for now, as in safe mode: it stops showing, stays chosen and comes back.
   await syncPluginTheme(async () => []);
+  expect(readPluginTheme()).toEqual(brighter);
+  expect(rules()).toEqual([]);
+  await syncPluginTheme(async () => [brighter]);
+  expect(rules()[0]!.style.getPropertyValue("--gray-0")).toBe("#002040");
+  // Another plugin ending leaves it chosen; its own plugin ending doesn't.
+  await syncPluginTheme(async () => [], "acme/other");
+  expect(readPluginTheme()).toEqual(brighter);
+  await syncPluginTheme(async () => [], "acme/ocean");
   expect(readPluginTheme()).toBeUndefined();
   expect(rules()).toEqual([]);
 

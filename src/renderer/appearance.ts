@@ -113,17 +113,20 @@ export function applyPluginTheme(theme: PluginTheme | undefined): void {
 
 /**
  * Keeps the chosen plugin theme to what its plugin now offers: its newest
- * values, or no theme once the plugin is gone or off.
+ * values. A theme its plugin no longer offers stops showing, but stays chosen
+ * unless that plugin is `ended`, turned off or removed by the person: safe
+ * mode and a plugin that fails to load offer nothing for a while.
  */
-export async function syncPluginTheme(load: () => Promise<PluginTheme[]>): Promise<void> {
+export async function syncPluginTheme(load: () => Promise<PluginTheme[]>, ended?: string): Promise<void> {
   const current = readPluginTheme();
   if (!current) return;
   const themes = await load().catch(() => undefined);
   // The person may have chosen something else meanwhile.
   if (!themes || JSON.stringify(readPluginTheme()) !== JSON.stringify(current)) return;
   const now = themes.find((theme) => theme.id === current.id);
-  if (!now) setPluginTheme(undefined);
-  else if (JSON.stringify(now) !== JSON.stringify(current)) setPluginTheme(now);
+  if (now && JSON.stringify(now) !== JSON.stringify(current)) setPluginTheme(now);
+  else if (!now && current.plugin === ended) setPluginTheme(undefined);
+  else applyPluginTheme(now);
 }
 
 export function applyPalette(palette: Palette): void {

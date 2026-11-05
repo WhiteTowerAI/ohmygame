@@ -823,12 +823,12 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 /** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
-  void syncPluginTheme(listPluginThemes);
+  void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
 }
 
 export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
-  void syncPluginTheme(listPluginThemes);
+  void syncPluginTheme(listPluginThemes, id);
 }
 
 export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
