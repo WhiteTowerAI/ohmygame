@@ -1445,6 +1445,7 @@ const en = {
     loadingCode: "Loading code",
     filterFiles: "Filter files…",
     filterFilesLabel: "Filter workspace files",
+    refreshFiles: "Refresh files",
     files: "Workspace files",
     gitViews: "Code browser views",
     gitFiles: "Files",
@@ -3815,7 +3816,7 @@ const en = {
   },
   editorCanvas: {
     select: "Select",
-    selectHint: "Select · drag empty space to pan, Shift-drag to select an area",
+    selectHint: "Select · drag to select an area, middle-drag or hold Space to pan",
     pan: "Pan canvas",
     fit: "Fit view",
     zoomOut: "Zoom out",

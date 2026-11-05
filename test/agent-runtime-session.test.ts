@@ -349,11 +349,11 @@ describe("coding agent sessions", () => {
     session.dispose();
   });
 
-  it("rebuilds an expired native session with one handoff and one stored user message", async () => {
+  it.each([false, true])("rebuilds an expired native session with one handoff and one stored user message (pending=%s)", async (pending) => {
     const sm = SessionManager.inMemory("/tmp/project-1");
-    sm.appendMessage({
+    const originalId = sm.appendMessage({
       role: "user",
-      content: "keep the original requirement",
+      content: "keep the original requirement" + (pending ? " details".repeat(300) + " UNSENT-END" : ""),
       timestamp: 1,
     });
     sm.appendCustomEntry(NATIVE_SESSION_ENTRY, {
@@ -361,6 +361,7 @@ describe("coding agent sessions", () => {
       state: "ready",
       runtime: "claude-code-cli",
       sessionId: "expired",
+      ...(pending ? { pendingUserMessageId: originalId } : {}),
     });
     const { session, drivers } = fixture(
       [
@@ -370,7 +371,9 @@ describe("coding agent sessions", () => {
         async (_input, sink) => {
           sink.nativeSession("replacement");
           sink.textDone("a", "continued");
-          return { status: "completed" };
+          return pending
+            ? { status: "failed", error: "temporary rejection", resumable: true, inputAccepted: false }
+            : { status: "completed" };
         },
       ],
       sm,
@@ -395,6 +398,13 @@ describe("coding agent sessions", () => {
     expect(
       latestNativeSession(sm.getBranch(), "claude-code-cli")?.sessionId,
     ).toBe("replacement");
+    if (pending) {
+      expect(drivers[1]!.inputs[0]!.text).toContain("UNSENT-END");
+      expect(latestNativeSession(sm.getBranch(), "claude-code-cli")?.pendingUserMessageId).toBe(originalId);
+      await session.prompt("try again");
+      expect(drivers[1]!.inputs[1]!.text).toContain("UNSENT-END");
+      expect(latestNativeSession(sm.getBranch(), "claude-code-cli")?.pendingUserMessageId).toBeUndefined();
+    }
     session.dispose();
   });
 

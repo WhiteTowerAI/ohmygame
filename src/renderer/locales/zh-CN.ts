@@ -1427,6 +1427,7 @@ const zhCN: typeof en = {
     loadingCode: "正在加载代码",
     filterFiles: "筛选文件…",
     filterFilesLabel: "筛选工作区文件",
+    refreshFiles: "刷新文件",
     files: "工作区文件",
     gitViews: "代码浏览视图",
     gitFiles: "文件",
@@ -3740,7 +3741,7 @@ const zhCN: typeof en = {
   },
   editorCanvas: {
     select: "选择",
-    selectHint: "选择 · 拖动空白处平移，Shift+拖动框选",
+    selectHint: "选择 · 拖动空白处框选，中键或按住空格拖动平移",
     pan: "平移画布",
     fit: "适应视图",
     zoomOut: "缩小",

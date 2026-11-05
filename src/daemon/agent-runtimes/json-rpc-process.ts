@@ -151,14 +151,19 @@ export class JsonRpcProcess {
     const error = record(message.error);
     if (error)
       pending.reject(
-        Object.assign(
+        this.requestError(
           cliProbeError(
             this.name,
             String(error.message ?? `${this.name} request failed`),
           ),
-          typeof error.code === "number" ? { rpcCode: error.code } : {},
+          typeof error.code === "number" ? error.code : undefined,
         ),
       );
     else pending.resolve(message.result);
+  }
+
+  /** What a request the other side refused rejects with. */
+  protected requestError(failure: Error, code: number | undefined): Error {
+    return code === undefined ? failure : Object.assign(failure, { rpcCode: code });
   }
 }

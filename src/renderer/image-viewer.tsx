@@ -8,17 +8,18 @@ import { ConversationImage } from "./image-attachments.js";
 import { ContextMenu, useModal, useToast, type MenuEntry } from "./ui/overlay.js";
 
 const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+type GalleryImage = PromptImage | { blob: Blob; url: string; name?: string };
 
 /** Images in a message or tool result. Choosing one shows it larger; right-click copies or saves it. */
-export function ImageGallery({ images, alt, className }: { images: PromptImage[]; alt: (index: number) => string; className: string }) {
+export function ImageGallery({ images, alt, className }: { images: GalleryImage[]; alt: (index: number) => string; className: string }) {
   const [open, setOpen] = useState<number>();
   const menu = useImageMenu();
   return <>
     <div className={className}>
       {images.map((image, index) => (
-        <ContextMenu key={`${image.mediaType}:${index}`} items={menu(image, index)}>
+        <ContextMenu key={`${"blob" in image ? image.blob.type : image.mediaType}:${index}`} items={menu(image, index)}>
           <button type="button" className="image-gallery-item" aria-label={t("imageViewer.open", { name: alt(index) })} onClick={() => setOpen(index)}>
-            <ConversationImage image={image} alt={alt(index)} />
+            {"blob" in image ? <img src={image.url} alt={alt(index)} /> : <ConversationImage image={image} alt={alt(index)} />}
           </button>
         </ContextMenu>
       ))}
@@ -28,8 +29,9 @@ export function ImageGallery({ images, alt, className }: { images: PromptImage[]
   </>;
 }
 
-/** The whole image, from the conversation's image cache or its own data. */
-function imageBlob(image: PromptImage, signal?: AbortSignal): Promise<Blob> {
+/** The whole image, from a loaded workspace file, the conversation cache or its own data. */
+function imageBlob(image: GalleryImage, signal?: AbortSignal): Promise<Blob> {
+  if ("blob" in image) return Promise.resolve(image.blob);
   if (image.url) return getConversationImage(image.url, signal);
   // The app's content policy does not let it fetch `data:` URLs, so the data is decoded here.
   const bytes = Uint8Array.from(atob(image.data), (character) => character.charCodeAt(0));
@@ -48,7 +50,7 @@ async function pngBlob(blob: Blob): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((png) => png ? resolve(png) : reject(new Error("Could not encode the image")), "image/png"));
 }
 
-function useImageMenu(): (image: PromptImage, index: number) => MenuEntry[] {
+function useImageMenu(): (image: GalleryImage, index: number) => MenuEntry[] {
   const toast = useToast();
   return (image, index) => [
     {
@@ -69,7 +71,7 @@ function useImageMenu(): (image: PromptImage, index: number) => MenuEntry[] {
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = url;
-          link.download = image.name ?? `image-${index + 1}.${EXTENSIONS[image.mediaType] ?? "png"}`;
+          link.download = image.name ?? `image-${index + 1}.${EXTENSIONS[blob.type] ?? "png"}`;
           link.click();
           setTimeout(() => URL.revokeObjectURL(url), 1_000);
         }).catch(() => toast({ title: t("imageViewer.saveFailed"), tone: "danger" }));
@@ -79,7 +81,7 @@ function useImageMenu(): (image: PromptImage, index: number) => MenuEntry[] {
 }
 
 /** The image fitted to the window. Esc or a click anywhere closes it. */
-function ImagePreview({ image, alt, menu, onClose }: { image: PromptImage; alt: string; menu: MenuEntry[]; onClose: () => void }) {
+function ImagePreview({ image, alt, menu, onClose }: { image: GalleryImage; alt: string; menu: MenuEntry[]; onClose: () => void }) {
   const panel = useModal(true, onClose);
   const [url, setUrl] = useState<string>();
   useEffect(() => {

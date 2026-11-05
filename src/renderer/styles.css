@@ -6461,6 +6461,16 @@ button {
   cursor: grab;
 }
 
+/* Let the hand tool drag through the group selection and connection handles. */
+.story-canvas.story-canvas-pan .react-flow__nodesselection-rect,
+.story-canvas.story-canvas-pan .react-flow__handle {
+  pointer-events: none;
+}
+
+.story-canvas.story-canvas-pan .react-flow__node {
+  cursor: grab;
+}
+
 .story-canvas .react-flow__pane.dragging {
   cursor: grabbing;
 }
@@ -9301,13 +9311,16 @@ summary.work-summary:hover {
   margin: 12px 0 16px;
 }
 
-.tool-artifact-image {
+.tool-generated-image {
+  min-height: 96px;
+}
+
+.tool-generated-image img {
   display: block;
-  width: min(100%, 360px);
-  max-height: 360px;
-  margin: 0 0 12px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .tool-artifact-video {
@@ -12000,6 +12013,19 @@ summary.work-summary:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-explorer-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: var(--space-2) var(--space-2) 4px;
+}
+
+.file-explorer-filter .file-filter {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
 }
 
 .file-filter {

@@ -58,6 +58,9 @@ export async function checkCodexCompatibility(
 }
 
 const REQUEST_TIMEOUT_MS = 60_000;
+/** The server explicitly rejected an RPC, rather than losing its response. */
+export class CodexRequestError extends Error {}
+
 export const CODEX_CLIENT = {
   name: "ohmygame",
   title: "OhMyGame",
@@ -85,6 +88,12 @@ export class CodexAppServer extends JsonRpcProcess {
       timeoutMs,
     );
     this.notify("initialized");
+  }
+
+  protected override requestError(failure: Error): Error {
+    return failure instanceof AgentRuntimeCompatibilityError
+      ? failure
+      : new CodexRequestError(failure.message);
   }
 }
 

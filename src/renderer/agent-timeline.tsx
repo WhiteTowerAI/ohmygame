@@ -71,7 +71,7 @@ interface AgentTimelineProps {
   onLimitResumeChange?: (on: boolean) => void;
 }
 
-const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+const WorkspaceLinkContext = createContext<{ projectId: string; workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({ projectId: "" });
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
@@ -133,7 +133,7 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
     return () => element.removeEventListener("scroll", onScroll);
   }, [selectionRoot, start, oldest, turns, loadEarlier]);
   const displays = useMemo(() => visible.map(turnDisplay), [visible]);
-  const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
+  const workspaceLinks = useMemo(() => ({ projectId, workspacePath, onOpenWorkspaceFile }), [projectId, workspacePath, onOpenWorkspaceFile]);
   const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
   const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");
@@ -313,7 +313,7 @@ function SteeringActivity() {
 function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   projectId: string;
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
-  artifacts: ToolArtifact[];
+  artifacts: TurnDisplay["artifacts"];
   controls: AssistantControls;
   changes: ReactNode;
 }) {
@@ -820,6 +820,7 @@ function AgentErrorDetails({ error }: { error: ThreadItemError }) {
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
+  const { projectId } = useContext(WorkspaceLinkContext);
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
@@ -840,6 +841,7 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
   if (!expandable) return row;
   return (
     <LazyDetails className="tool-activity-details" summary={<summary>{row}</summary>}>
+      {item.artifact?.type === "image" ? <div className="tool-details"><ArtifactPreview projectId={projectId} artifact={item.artifact} /></div> : null}
       <ToolDetails item={item} />
     </LazyDetails>
   );
@@ -930,7 +932,7 @@ function ToolDetailBlock({ label, children }: { label: string; children: ReactNo
 }
 
 function hasToolDetails(item: ToolCallItem): boolean {
-  if (item.status === "failed" || item.truncated) return true;
+  if (item.status === "failed" || item.truncated || item.artifact?.type === "image") return true;
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
@@ -947,33 +949,34 @@ function formatToolValue(value: unknown): string {
   }
 }
 
-function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: ToolArtifact[] }) {
+function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: TurnDisplay["artifacts"] }) {
   return <div className="tool-artifacts">{artifacts.map((artifact) => <ArtifactPreview key={artifact.path} projectId={projectId} artifact={artifact} />)}</div>;
 }
 
 function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
-  const [url, setUrl] = useState<string>();
+  const [preview, setPreview] = useState<{ url: string; blob: Blob }>();
   const [target, visible] = useNearViewport<HTMLDivElement>();
   useEffect(() => {
     if (!visible) return;
     let disposed = false;
     let objectUrl: string | undefined;
-    setUrl(undefined);
+    setPreview(undefined);
     void getWorkspaceAsset(projectId, artifact.path).then((blob) => {
       if (disposed) return;
       objectUrl = URL.createObjectURL(blob);
-      setUrl(objectUrl);
+      setPreview({ url: objectUrl, blob });
     }).catch(() => undefined);
     return () => {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [artifact.path, projectId, visible]);
-  return <div ref={target} className="tool-artifact-preview">{!url ? null : artifact.type === "model"
-    ? <ModelPreview source={url} label={t("timeline.generated3d")} minHeight={320} />
+  return <div ref={target} className={artifact.type === "image" ? "tool-generated-image" : "tool-artifact-preview"}>{!preview ? null : artifact.type === "model"
+    ? <ModelPreview source={preview.url} label={t("timeline.generated3d")} minHeight={320} />
     : artifact.type === "video"
-      ? <video className="tool-artifact-video" src={url} controls preload="metadata" />
-    : <img className="tool-artifact-image" src={url} alt={t("timeline.generatedImage")} />}</div>;
+      ? <video className="tool-artifact-video" src={preview.url} controls preload="metadata" />
+    : <ImageGallery className="tool-generated-image-gallery" images={[{ ...preview, name: artifact.path.split("/").at(-1) }]}
+        alt={() => t("timeline.generatedImage")} />}</div>;
 }
 
 function preparingToolLabel(toolName: string): string {
