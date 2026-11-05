@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   AgentUsageDetails,
   AgentUsageInline,
+  usageResetLabel,
   usageWindowLabel,
 } from "../src/renderer/agent-usage.js";
 
@@ -74,7 +75,11 @@ it("shows each window's share used, warns near the limit and treats a passed res
     [...container.querySelectorAll(".agent-usage-inline > span")].map(
       (window) => window.getAttribute("title"),
     ),
-  ).toEqual(["5-hour · 13% used", "Weekly · 96% used", "5-hour · 0% used"]);
+  ).toEqual([
+    "5-hour · 13% used · Resets in 1h 0m",
+    "Weekly · 96% used · Resets in 1d 0h",
+    "5-hour · 0% used · Reset since last report",
+  ]);
   expect(
     [...container.querySelectorAll('[role="meter"]')].map(
       (meter) => meter.getAttribute("aria-valuetext"),
@@ -112,4 +117,14 @@ it("translates the compact quota tooltip and accessible value into Chinese", asy
   } finally {
     await i18next.changeLanguage(previousLanguage);
   }
+});
+
+it("says how long until a window resets, and that a passed one was reset", () => {
+  const now = 1_000_000_000_000;
+  const at = (minutes: number) => ({ id: "claude/five_hour", usedPercent: 40, resetsAt: (now + minutes * 60_000) / 1000 });
+  expect(usageResetLabel(at(147), now)).toBe("Resets in 2h 27m");
+  expect(usageResetLabel(at(9 * 24 * 60 + 600), now)).toBe("Resets in 9d 10h");
+  expect(usageResetLabel(at(0.5), now)).toBe("Resets in 1m");
+  expect(usageResetLabel(at(-1), now)).toBe("Reset since last report");
+  expect(usageResetLabel({ id: "codex/primary", usedPercent: 0 }, now)).toBeUndefined();
 });

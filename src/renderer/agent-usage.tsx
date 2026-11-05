@@ -28,8 +28,21 @@ function wasReset(limit: AgentUsageLimit, now: number): boolean {
   return limit.resetsAt !== undefined && limit.resetsAt * 1000 <= now;
 }
 
-function current(limit: AgentUsageLimit, now: number): AgentUsageLimit {
+/** The limit as it stands now: a window whose reset passed counts as empty. */
+function currentUsage(limit: AgentUsageLimit, now: number): AgentUsageLimit {
   return wasReset(limit, now) ? { ...limit, usedPercent: 0 } : limit;
+}
+
+/** "Resets in 2h 27m": how long until a window empties, to the minute. */
+export function usageResetLabel(limit: AgentUsageLimit, now: number): string | undefined {
+  if (limit.resetsAt === undefined) return undefined;
+  if (wasReset(limit, now)) return t("agentUsage.wasReset");
+  const minutes = Math.max(1, Math.ceil((limit.resetsAt * 1000 - now) / 60_000));
+  const days = Math.floor(minutes / (24 * 60));
+  const hours = Math.floor((minutes % (24 * 60)) / 60);
+  const rest = minutes % 60;
+  const time = days ? `${days}d ${hours}h` : hours ? `${hours}h ${rest}m` : `${rest}m`;
+  return t("agentUsage.resetsIn", { time });
 }
 
 function level(percent: number): string {
@@ -67,12 +80,12 @@ export function AgentUsageInline({
   return (
     <span className="agent-usage-inline">
       {limits.map((reported) => {
-        const limit = current(reported, now);
+        const limit = currentUsage(reported, now);
         const window = usageWindowLabel(limit);
         const percent = Math.round(limit.usedPercent);
         const used = t("agentUsage.used", { percent });
         return (
-          <span key={limit.id} title={compact ? `${window} · ${used}` : undefined}>
+          <span key={limit.id} title={compact ? [window, used, usageResetLabel(limit, now)].filter(Boolean).join(" · ") : undefined}>
             <small>{window}</small>
             <Meter limit={limit} />
             <small>{compact ? `${percent}%` : used}</small>
@@ -94,7 +107,7 @@ export function AgentUsageDetails({
   return (
     <div className="cloud-quota-details">
       {limits.map((reported) => {
-        const limit = current(reported, now);
+        const limit = currentUsage(reported, now);
         return (
           <div className="cloud-quota-row" key={limit.id}>
             <div className="cloud-quota-row-heading">

@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Search, Settings, type IconComponent } from "./icons.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
@@ -11,6 +11,8 @@ export interface CanvasChipOption<Value extends string> {
   shortLabel?: string;
   /** Options sharing a group are listed under its heading, like the Home model picker's providers. */
   group?: string;
+  /** Shown at the end of the option's row, such as an account's quota. */
+  detail?: ReactNode;
 }
 
 /** A line under a group heading, such as why a connected provider has no models. */
@@ -173,7 +175,9 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
                 const selected = option.value === value;
                 const choice = <button type="button" role={optionAction ? "menuitemradio" : "option"} aria-selected={optionAction ? undefined : selected} aria-checked={optionAction ? selected : undefined} key={option.value} onClick={() => choose(option)}>
                   <span>{option.label}</span>
-                  {selected ? <Check size={13} /> : null}
+                  {option.detail ? <span className="canvas-chip-option-detail">{option.detail}</span> : null}
+                  {/* Details line up whether or not their row is the one chosen. */}
+                  {selected ? <Check size={13} /> : option.detail ? <span className="canvas-chip-check-space" /> : null}
                 </button>;
                 return optionAction && OptionActionIcon ? <div className="canvas-chip-menu-row" key={option.value}>
                   {choice}

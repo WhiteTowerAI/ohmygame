@@ -14249,9 +14249,16 @@ summary.work-summary:hover {
 .agent-account-profile-form .settings-detail-inline > button,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: 12px; }
 .chat-account-selector { min-width: 0; }
+
 .chat-account-selector .canvas-chip { max-width: 140px; height: 26px; padding: 0 6px; border-radius: 6px; background: transparent; }
 .chat-account-selector .canvas-chip:hover:not(:disabled),
 .chat-account-selector .canvas-chip[aria-expanded="true"] { background: var(--menu-hover); }
+/* An option's quota after its name: the name gives way first. */
+.canvas-chip-menu-group > button > span:first-child { flex: 1; }
+.canvas-chip-menu-group > button > .canvas-chip-option-detail { flex: none; overflow: visible; }
+.canvas-chip-option-detail .agent-usage-inline { flex-wrap: nowrap; gap: 10px; }
+.canvas-chip-option-detail .agent-usage-meter { width: 28px; }
+.canvas-chip-check-space { flex: none; width: 13px; }
 @media (max-width: 640px) {
   .agent-account-profiles .provider-model-row { flex-wrap: wrap; }
   .agent-account-profiles .provider-model-row > label { flex-basis: calc(100% - 96px); }
@@ -14346,10 +14353,79 @@ summary.work-summary:hover {
   white-space: normal;
 }
 
-.project-plugins-capabilities {
+/* What a plugin asks for, one line per kind of access (plugin-consent-dialog.tsx). */
+.plugin-capability-list {
+  display: grid;
   margin: var(--space-2) 0 0;
-  padding-left: var(--space-5);
-  font-size: var(--text-sm);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+
+.plugin-capability-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  font-size: var(--text-md);
+}
+
+.plugin-capability-list > li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.plugin-capability-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.plugin-capability-list > li.is-danger .plugin-capability-icon {
+  color: var(--color-danger);
+}
+
+.plugin-capability-text > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.plugin-capability-items code.is-new {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent);
+}
+
+.plugin-capability-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  line-height: 20px;
+}
+
+.plugin-capability-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plugin-capability-items code {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Beside the game, not over it: see GameTuningPanel. */

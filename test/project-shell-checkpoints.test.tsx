@@ -952,7 +952,7 @@ describe("checkpoints in the project shell", () => {
     const daemon = await openProject((route, init) => {
       if (route === `/agent-runtimes/${runtime}/profiles`) return Response.json([
         { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription", account: "personal@example.com" } },
-        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" } },
+        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" }, limits: [{ id: "codex/primary", usedPercent: 96, windowMinutes: 300 }] },
       ]);
       if (route.endsWith("/account-profile") && init.method === "PUT") return Response.json({ profileId: "work" });
     }, chat);
@@ -962,6 +962,9 @@ describe("checkpoints in the project shell", () => {
     const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
     await act(async () => selector.click());
     const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
+    // Each account shows its last quota report, so one with room left is easy to pick.
+    expect(option.querySelector('.canvas-chip-option-detail [role="meter"]')?.getAttribute("aria-valuenow")).toBe("96");
+    expect(option.querySelector(".agent-usage-meter.is-danger")).not.toBeNull();
     await act(async () => option.click());
     await settle();
     expect(confirm).not.toHaveBeenCalled();

@@ -169,8 +169,10 @@ have independent CLI settings, hooks, MCP servers, Skills and native history.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
 each agent's selection. With multiple profiles, the chat header offers an account
-menu showing the selected account name. Picking another account switches it
-without an additional confirmation. Wait for the current request to finish before switching.
+menu showing the selected account name. Each account in the menu shows its
+quota windows' share used from its last report, with when each resets on
+hover, and **Manage accounts** opens the agent's settings.
+Picking another account switches it without an additional confirmation. Wait for the current request to finish before switching.
 Choosing the account the chat already uses changes nothing. When the selected
 account's model catalog does not offer the chat's model, the chat moves to the
 new-chat default model if that account offers it, otherwise to the first model

@@ -117,6 +117,8 @@ import {
   updateAgentRuntime,
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
+import { settingsHash } from "./routes.js";
+import { AgentUsageInline } from "./agent-usage.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
@@ -1619,8 +1621,11 @@ export function ProjectShell({
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
                 options={accountProfiles.map((profile) => {
                   const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
-                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
+                  // Each account's last quota report, so the person can pick one with room left.
+                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name,
+                    detail: profile.limits?.length ? <AgentUsageInline limits={profile.limits} compact /> : undefined };
                 })}
+                action={{ label: t("codingAgents.accountManage"), onSelect: () => { window.location.hash = settingsHash("agents", accountRuntime); } }}
                 disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
             </div> : null}
             <ConversationMenu
