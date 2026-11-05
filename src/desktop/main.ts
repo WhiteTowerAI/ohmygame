@@ -38,6 +38,7 @@ import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type A
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
+import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
 
@@ -317,6 +318,18 @@ handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!response.ok) throw new Error("Plugin directory is not available");
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid plugin directory");
+  const error = await shell.openPath(result.path);
+  if (error) throw new Error(error);
+});
+handle("ohmygame:browse-account-directory", async (event, runtime: unknown, profileId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
+  if (!isAccountRuntimeId(runtime) || !validRouteId(profileId) || !daemon) throw new Error("Invalid account");
+  const response = await fetch(`${daemon.runtime.url}/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/directory`, {
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) throw new Error("Account directory is not available");
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid account directory");
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });

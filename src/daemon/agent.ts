@@ -645,14 +645,14 @@ export class AgentManager {
         this.#forgetConversation(key);
   }
 
-  /** Reject removal during startup/work, then stop the profile's idle processes before deleting files. */
+  /** Reject a change during startup/work, then stop the profile's idle processes before its directory changes or goes. */
   async releaseAccountProfileSessions(runtime: AgentRuntimeId, profileId: string): Promise<void> {
     const matches = (session: CodingSession) => session.runtime === runtime && (session.profileId ?? "system") === profileId;
     const sessions = [...this.#sessions].filter(([, managed]) => matches(managed.session));
     await Promise.all(sessions.flatMap(([key]) => this.#activeTurns.get(key)?.ended ? [this.#turnClosed(key)] : []));
     // An unconstructed session does not yet expose its account. Retry once startup finishes.
     if (this.#sessionLoads.size || sessions.some(([key]) => this.#activeTurns.has(key) || this.#revisions.has(key)))
-      throw new Error("Wait for the agent to finish before deleting this account configuration");
+      throw new Error("Wait for the agent to finish before changing this account configuration");
     await Promise.all(sessions.map(([key]) => this.#forgetConversation(key)));
     await Promise.all([...this.#sessionDisposals].flatMap(([session, stopped]) => matches(session) ? [stopped] : []));
   }
