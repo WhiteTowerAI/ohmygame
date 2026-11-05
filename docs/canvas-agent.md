@@ -134,13 +134,15 @@ Text nodes use their own selected model, falling back to the default text model.
 Each canvas job records `upstream`, what every node it read gave when it
 started (`asset:<id>`, or a hash of the text). A node whose last finished run
 read something that has changed since, and every node after it that made
-something, shows **Out of date**; clicking that, or **Regenerate from here** in
-the node's menu, runs the node and the nodes after it one at a time in the
-daemon (`POST …/boards/:boardId/nodes/:nodeId/regenerate`, 202 with the planned
-node ids). The first node runs again; the rest reuse their output when nothing
-they read changed. A failure stops the chain before what reads it. On an image
-with something after it that runs, **Run with several images…** picks 2 to 10
-PNG, JPEG or WebP Library images and copies the chain once per image, each in
+something, shows **Out of date**; clicking that, which first asks and says how
+many generations can run, or **Regenerate from here** in the node's menu, runs
+the node and the nodes after it one at a time in the daemon
+(`POST …/boards/:boardId/nodes/:nodeId/regenerate`, 202 with the planned node
+ids). The first node runs again; the rest reuse their output when nothing they
+read changed. A failure stops the chain before what reads it. On an image with
+something after it that runs, **Run with several images…** picks 2 to 10 PNG,
+JPEG or WebP Library images, its button saying how many generations can run,
+and copies the chain once per image, each in
 its own group below the original named after the image (keeping the pixel
 density its groups gave each image), then runs every copy. A chain doesn't
 write text, so neither Regenerate from here nor Run with several images is
@@ -175,7 +177,9 @@ Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
 connections supply source material to AI generation. Connecting an image to a
 Document adds a generation reference; use Insert image to put it in the Markdown.
 Generation saves the current board and documents first, then reads the referenced
-nodes' saved text, Markdown and actual image output from the workspace. Image
+nodes' saved text, Markdown and actual image output from the workspace. A run
+starts unless what its own node reads changed during the request; edits elsewhere
+on the board don't stop it, so parallel chains don't stop each other. Image
 references require a language model that accepts images. A node cannot reference
 itself or, for Document nodes, another node pointing to the same document.
 

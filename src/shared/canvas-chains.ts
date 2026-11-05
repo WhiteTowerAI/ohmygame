@@ -75,6 +75,12 @@ export function canvasNodeRuns(node: Pick<AssetCanvasNode, "type" | "data">): bo
   return ["video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene", "plugin"].includes(node.type) || (node.type === "image" && !(node.data as { sourceInput?: boolean }).sourceInput);
 }
 
+/** How many generations regenerating from `id` can run: the node, if it makes something, and what runs after it. */
+export function canvasChainRuns(nodes: readonly AssetCanvasNode[], id: string): number {
+  const start = nodes.find((node) => node.id === id);
+  return start ? [start, ...canvasDownstream(nodes, id)].filter(canvasNodeRuns).length : 0;
+}
+
 /**
  * A Text or Document node after `id` that something run after it reads. A
  * chain doesn't write text, so the nodes after it would run on its old words.

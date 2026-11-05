@@ -4,6 +4,7 @@ import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/
 import { MAX_TEXT_NODE_REFERENCES } from "../src/shared/asset-canvas-schema.js";
 import { connectCanvasNodes, disconnectCanvasReference, connectionRelation, removeNodesAndReferences, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 import { createCanvasClipboard, duplicateCanvasSelection, parseCanvasClipboard } from "../src/renderer/asset-canvas-clipboard.js";
+import { canvasChainRuns } from "../src/shared/canvas-chains.js";
 import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
 import { imageModelsForProvider } from "../src/daemon/image-models.js";
 
@@ -93,6 +94,15 @@ describe("Image node reference capacity", () => {
       expect(connectionRelation(candidate, target, "out", [], [], models)).toBe(accepted ? "image-reference" : undefined);
     },
   );
+});
+
+it("counts the generations a chain can run, leaving out what makes nothing", () => {
+  const later: AssetCanvasNode = { ...image, id: "later", data: { ...image.data, images: [ref(image.id)] } };
+  const nodes = [source, { ...image, data: { ...image.data, images: [ref(source.id)] } }, later];
+  expect(canvasChainRuns(nodes, image.id)).toBe(2);
+  expect(canvasChainRuns(nodes, source.id)).toBe(2);
+  expect(canvasChainRuns(nodes, later.id)).toBe(1);
+  expect(canvasChainRuns(nodes, "gone")).toBe(0);
 });
 
 it("disconnects only the chosen semantic reference and preserves library inputs and unrelated links", () => {

@@ -123,7 +123,7 @@ import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
 import { isDesktopClosing } from "./desktop-save.js";
-import { Button } from "./ui/index.js";
+import { Button, Dialog } from "./ui/index.js";
 import { CanvasInteractions, CANVAS_REFERENCE_EDGE_TYPES, CANVAS_CONNECTION_DRAG_THRESHOLD, type CanvasPortType } from "./canvas-node-interactions.js";
 import { CanvasTextarea } from "./canvas-text-composer.js";
 import { videoReferenceLimit } from "../shared/video-references.js";
@@ -136,7 +136,7 @@ import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
-import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
+import { canvasChainHasCycle, canvasChainRuns, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -391,6 +391,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   )) : [];
   const [batchExecuting, setBatchExecuting] = useState(false);
   const batchRun = useRef<AbortController | undefined>(undefined);
+  const [regenerateConfirm, setRegenerateConfirm] = useState<{ nodeId: string; runs: number }>();
   useEffect(() => () => { batchRun.current?.abort(); }, [storage, closing]);
   const selectedMediaNodes = selectedNodes.filter((node) => {
     const mediaType = node.type === "asset" ? node.data.mediaType : node.type;
@@ -2064,7 +2065,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: nodeLabel, description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: localizedTemplateText(original.type === "group" ? original.data.name ?? "" : original.title ?? ""), description: localizedTemplateText(original.description ?? "") }),
-      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted || !canRegenerateFrom(boardNodes, original.id) ? {} : { regenerate: () => void regenerateFrom(original.id) }) } } : {}),
+      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted || !canRegenerateFrom(boardNodes, original.id) ? {} : { regenerate: () => setRegenerateConfirm({ nodeId: original.id, runs: canvasChainRuns(boardNodes, original.id) }) }) } } : {}),
     } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
@@ -2546,8 +2547,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       {folderPrompt ? createPortal(<FolderImportDialog folders={folderPrompt.folders} onAnswer={folderPrompt.answer} />, window.document.body) : null}
       {batchSourceId ? <LibraryAssetPicker title={t("assetCanvas.batchTitle")} projectId={project.id} project={project}
         assets={libraryAssets.filter((asset) => asset.mediaType === "image" && BATCH_IMAGE_TYPES.has(asset.contentType ?? ""))}
-        multiple={{ min: 2, max: 10, action: (count) => t("assetCanvas.batchAction", { count }), onSubmit: (picked) => { const source = batchSourceId; setBatchSourceId(undefined); void runWithImages(source, picked); } }}
+        multiple={{ min: 2, max: 10, action: (count) => t("assetCanvas.batchAction", { count, runs: count * canvasDownstream(boardNodes, batchSourceId).filter(canvasNodeRuns).length }), onSubmit: (picked) => { const source = batchSourceId; setBatchSourceId(undefined); void runWithImages(source, picked); } }}
         onClose={() => setBatchSourceId(undefined)} /> : null}
+      {/* "Out of date" reads as a label, so it asks before it spends anything. */}
+      <Dialog open={Boolean(regenerateConfirm)} onClose={() => setRegenerateConfirm(undefined)} size="sm"
+        title={t("assetCanvas.regenerateTitle")} description={t("assetCanvas.regenerateDescription", { count: regenerateConfirm?.runs ?? 0 })}
+        footer={<>
+          <Button onClick={() => setRegenerateConfirm(undefined)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={() => { const nodeId = regenerateConfirm?.nodeId; setRegenerateConfirm(undefined); if (nodeId) void regenerateFrom(nodeId); }}>{t("assetCanvas.regenerateAction")}</Button>
+        </>} />
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
         <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
@@ -3881,7 +3889,7 @@ function pluginSourceMedia(node: AssetCanvasFlowNode, libraryAssets: LibraryAsse
 /** Whether the daemon runs this node, or anything after it. */
 function canRegenerateFrom(nodes: readonly AssetCanvasNode[], id: string): boolean {
   const node = nodes.find((candidate) => candidate.id === id);
-  return Boolean(node && (canvasNodeRuns(node) || canvasDownstream(nodes, id).some(canvasNodeRuns)) && !canvasChainTextStep(nodes, id) && !canvasChainHasCycle(nodes, id));
+  return Boolean(node && canvasChainRuns(nodes, id) && !canvasChainTextStep(nodes, id) && !canvasChainHasCycle(nodes, id));
 }
 
 /** Images the batch run takes; the ones every image node and plugin reads. */
