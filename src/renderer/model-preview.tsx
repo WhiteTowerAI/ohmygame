@@ -1,7 +1,8 @@
 import { LoaderCircle, Pause, Play } from "./icons.js";
-import { createElement, useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { IconButton } from "./ui/button.js";
+import { useSeenOnScreen } from "./use-seen-on-screen.js";
 
 type ModelViewerElement = HTMLElement & {
   loaded: boolean;
@@ -22,6 +23,27 @@ type ModelViewerProgress = CustomEvent<{
   totalProgress?: number;
 }>;
 
+/**
+ * A model parses and reaches the GPU on the main thread, so a board or chat of
+ * them loading at once stalls the window. Viewers on screen take turns.
+ */
+const MODEL_LOADS_AT_ONCE = 2;
+let modelLoads = 0;
+const waitingModels: Array<() => void> = [];
+
+/** Calls `start` when this model may load; the returned function ends its turn, or leaves the queue. */
+function takeModelLoadTurn(start: () => void): () => void {
+  let state: "waiting" | "loading" | "done" = "waiting";
+  const begin = () => { state = "loading"; modelLoads++; start(); };
+  if (modelLoads < MODEL_LOADS_AT_ONCE) begin();
+  else waitingModels.push(begin);
+  return () => {
+    if (state === "waiting") waitingModels.splice(waitingModels.indexOf(begin), 1);
+    else if (state === "loading") { modelLoads--; waitingModels.shift()?.(); }
+    state = "done";
+  };
+}
+
 export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
@@ -32,6 +54,12 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string>();
   const [playing, setPlaying] = useState(false);
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const seen = useSeenOnScreen(frame);
+  // The source whose turn it is: a new source must wait for its own.
+  const [turnSource, setTurnSource] = useState<string>();
+  const turn = turnSource === source;
+  const endTurn = useRef(() => {});
 
   useEffect(() => {
     if (componentReady) return;
@@ -55,10 +83,20 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   }, [source]);
 
   useEffect(() => {
+    if (!seen) return;
+    const end = takeModelLoadTurn(() => setTurnSource(source));
+    endTurn.current = end;
+    return () => { end(); setTurnSource(undefined); };
+  }, [seen, source]);
+
+  // Listen as the viewer is put in the page, before it can fail: a missed
+  // error would keep its turn from every other model.
+  useLayoutEffect(() => {
     const viewer = viewerRef.current;
     if (!componentReady || !viewer) return;
 
     const handleLoad = () => {
+      endTurn.current();
       setProgress(1);
       setLoaded(true);
       // Rigged models carry one clip per move; let the person choose which to play.
@@ -69,6 +107,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       if (typeof nextProgress === "number") setProgress(nextProgress);
     };
     const handleError = (event: Event) => {
+      endTurn.current();
       const detail = (event as ModelViewerError).detail;
       console.error("3D preview failed", detail?.sourceError);
       const type = detail?.type;
@@ -87,7 +126,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       viewer.removeEventListener("progress", handleProgress);
       viewer.removeEventListener("error", handleError);
     };
-  }, [componentReady, source]);
+  }, [componentReady, source, turn]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -111,7 +150,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       viewer.autoRotate = false;
       viewer.pause();
     };
-  }, [componentReady, source, controls, playing, modelError]);
+  }, [componentReady, source, controls, playing, modelError, turn]);
 
   if (!componentReady) {
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
@@ -121,13 +160,14 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   }
 
   return (
-    <div className="model-preview" style={{ minHeight: `${minHeight}px` }}>
-      {createElement("model-viewer", {
+    <div ref={setFrame} className="model-preview" style={{ minHeight: `${minHeight}px` }}>
+      {turn ? createElement("model-viewer", {
         key: source,
         ref: (element: ModelViewerElement | null) => { viewerRef.current = element; },
         src: source,
         alt: label,
-        loading: "lazy",
+        // Its turn already waited for the screen.
+        loading: "eager",
         "camera-controls": interactive || undefined,
         // The default interaction hint wiggles the camera forever, even paused.
         "interaction-prompt": "none",
@@ -135,7 +175,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         "shadow-intensity": "1",
         tabIndex: interactive ? undefined : -1,
         "aria-hidden": interactive ? undefined : true,
-      })}
+      }) : null}
       {!loaded && !modelError ? (
         <span className="model-preview-state">
           <LoaderCircle className="spin" size={16} />
