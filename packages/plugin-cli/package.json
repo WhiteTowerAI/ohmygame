@@ -1,0 +1,27 @@
+{
+  "name": "@ohmygame/plugin-cli",
+  "version": "2.2.0",
+  "description": "Checks and packs OhMyGame plugins with the app's own rules.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteTowerAI/ohmygame.git",
+    "directory": "packages/plugin-cli"
+  },
+  "type": "module",
+  "bin": {
+    "ohmygame-plugin": "dist/cli.mjs"
+  },
+  "exports": {
+    "./plugin.schema.json": "./dist/plugin.schema.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepack": "node --import tsx ../../scripts/build-plugin-packages.ts"
+  }
+}

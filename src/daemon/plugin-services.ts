@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -146,7 +146,6 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 }
 
 /** Publishers whose names only the app and the Plugin Builder can give out. */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 export function assertAddablePlugin(id: string): void {
   const publisher = id.slice(0, id.indexOf("/"));

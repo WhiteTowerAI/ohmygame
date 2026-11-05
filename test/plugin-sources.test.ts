@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -443,6 +443,24 @@ describe("PluginSources", () => {
     expect(services.index.get("acme/maker")?.root).toContain(path.join("plugin-store", "packages"));
     await expect(sources.inspect({ type: "directory", path: path.join(directory, "absent") }, "en")).rejects.toThrow("no folder");
     await expect(sources.inspect({ type: "directory", path: "relative" }, "en")).rejects.toThrow("full path");
+    await close();
+  });
+
+  it("adds only what npm would publish from a folder", async () => {
+    const { sources, services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    await writeFile(path.join(folder, "package.json"), JSON.stringify({ name: "@acme/maker", version: "1.0.0", files: [".ohmygame-plugin", "skills"] }));
+    await mkdir(path.join(folder, "node_modules", ".bin"), { recursive: true });
+    await writeFile(path.join(folder, "node_modules", "dependency.js"), "");
+    if (process.platform !== "win32") await symlink("../dependency.js", path.join(folder, "node_modules", ".bin", "tool"));
+    await mkdir(path.join(folder, ".git"));
+    await writeFile(path.join(folder, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(folder, "notes.md"), "Not published");
+    await writeFile(path.join(folder, "skills", "make", "draft.md.orig"), "");
+    const source = { type: "directory", path: folder } as const;
+    await sources.install(source, (await sources.inspect(source, "en")).digest);
+    const { root } = services.index.get("acme/maker")!;
+    expect((await readdir(root, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "package.json", "skills", "skills/make", "skills/make/SKILL.md"]);
     await close();
   });
 

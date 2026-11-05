@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
-import { extractTarball } from "./archive-extraction.js";
+import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
+import { PluginPackError, stagePublished, unpackPlugin } from "./plugin-pack.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
@@ -41,8 +41,6 @@ const NPM_REGISTRIES = {
 const METADATA_MAX_BYTES = 20 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-/** npm drops `.gitignore` from what it publishes, so a template ships `gitignore`. */
-const PUBLISHED_GITIGNORE = "gitignore";
 
 export interface PluginSourceNetwork {
   /** Fetches metadata. */
@@ -173,14 +171,14 @@ export class PluginSources {
     const real = await realpath(source.path).catch(() => undefined);
     const info = real ? await stat(real).catch(() => undefined) : undefined;
     if (!real || !info?.isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
-    // Checked in place first, so a huge folder stops at the package limits.
-    await validPackage(real);
-    // A private copy can't change between the review's checks and the install.
+    // What npm would publish from it, in a private copy that can't change
+    // between the review's checks and the install.
     return this.#inTemporaryFolder(async (folder) => {
       const root = path.join(folder, "package");
-      await cp(real, root, { recursive: true, verbatimSymlinks: true });
-      // Checks follow a link at the top of a package, so it can't be one.
-      if (!(await lstat(root)).isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
+      await stagePublished(real, root).catch((cause: unknown) => {
+        if (cause instanceof PluginPackError) throw new PluginSourceError(`This isn't a valid plugin: ${cause.message}`);
+        throw cause;
+      });
       return { root, source };
     });
   }
@@ -189,7 +187,7 @@ export class PluginSources {
     return this.#inTemporaryFolder(async (folder) => {
       const archive = path.join(folder, "package.tgz");
       await writeFile(archive, file, { flag: "wx" });
-      return { root: await unpack(archive, folder, { published: true }) };
+      return { root: await unpack(archive, folder, true) };
     });
   }
 
@@ -254,12 +252,12 @@ export class PluginSources {
       }
       if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
       return {
-        root: await unpack(archive, folder, { published: true }),
+        root: await unpack(archive, folder, true),
         source: { type: "npm", name: fullName, registry: used!, version, ...(market ? { market } : {}) },
         origin: { type: "npm", package: fullName, version, registry: used! },
         check: (entry) => {
           // The scope is what npm vouches for, so it has to be the plugin's publisher.
-          const allowed = [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
+          const allowed = npmPackagePluginIds(fullName)!;
           if (!allowed.includes(entry.id)) throw new PluginSourceError(`${fullName} holds the plugin ${entry.id}. It should hold ${allowed.at(-1)}.`);
           if (entry.version !== version) throw new PluginSourceError(`${fullName} ${version} holds version ${entry.version} of the plugin.`);
         },
@@ -275,7 +273,7 @@ export class PluginSources {
       const archive = path.join(folder, "package.tgz");
       await this.network.download(`https://codeload.github.com/${repository}/tar.gz/${commit}`, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)).catch(downloadFailed);
       return {
-        root: await unpack(archive, folder, { published: false }),
+        root: await unpack(archive, folder, false),
         source: { type: "github", url: source.url, commit },
         origin: { type: "github", repository, commit },
       };
@@ -442,36 +440,6 @@ function downloadFailed(cause: unknown): never {
   throw new PluginSourceError(`The download failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 }
 
-/** Unpacks into `folder`, returning the package's root: the one folder an archive wraps it in. */
-async function unpack(archive: string, folder: string, { published }: { published: boolean }): Promise<string> {
-  const destination = path.join(folder, "package");
-  await mkdir(destination);
-  await extractTarball(archive, destination, {
-    maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
-    maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
-    error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`),
-  });
-  const items = await readdir(destination, { withFileTypes: true });
-  const root = items.length === 1 && items[0]!.isDirectory() && items[0]!.name !== ".ohmygame-plugin"
-    ? path.join(destination, items[0]!.name)
-    : destination;
-  if (published) await restoreTemplateGitignores(root);
-  return root;
-}
-
-async function restoreTemplateGitignores(root: string): Promise<void> {
-  const checked = await indexPluginPackage(root);
-  if (!checked.ok) return;
-  for (const projectType of checked.entry.manifest.contributes?.projectTypes ?? [])
-    if (projectType.template) await renameGitignores(path.join(root, projectType.template));
-}
-
-async function renameGitignores(directory: string): Promise<void> {
-  const items = await readdir(directory, { withFileTypes: true }).catch(() => []);
-  const names = new Set(items.map((item) => item.name));
-  for (const item of items) {
-    if (item.isDirectory()) await renameGitignores(path.join(directory, item.name));
-    else if (item.name === PUBLISHED_GITIGNORE && !names.has(".gitignore"))
-      await rename(path.join(directory, item.name), path.join(directory, ".gitignore"));
-  }
+function unpack(archive: string, folder: string, published: boolean): Promise<string> {
+  return unpackPlugin(archive, folder, { published, error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`) });
 }
