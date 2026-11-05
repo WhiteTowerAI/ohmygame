@@ -168,7 +168,8 @@ separate popup, which reload the game on switching.
 The view is drawn above the editor's whole page, so no editor or plugin UI can
 appear over the game, and it can only be hidden whole. When a menu, dialog or
 alert would cover it, a JPEG still of the game stands in and the view hides,
-pausing the game. The still is taken as the person presses a control that may
+which mutes it and stops its animation frames (its timers keep running,
+throttled). The still is taken as the person presses a control that may
 open one; switching or closing a tab takes none, because it hides or keeps the
 game (`src/renderer/desktop-game-preview.tsx`). Capture encodes on Electron's
 main process, which stalls every window while it runs. Anything meant to be
