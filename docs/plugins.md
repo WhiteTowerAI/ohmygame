@@ -107,7 +107,7 @@ shows it in the call's progress.
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
@@ -737,7 +737,11 @@ for that plugin.
   its plugins and approves it for its folder.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
-  look in `GODOT_PATH`, the PATH and the usual install folders;
+  look in `GODOT_PATH`, the PATH and the usual install folders. On Windows
+  that includes Godot's release names (`Godot_v4.3-stable_win64.exe`, never
+  its `_console` wrapper, newest first), WinGet and Scoop folders, and Godot
+  Engine in every Steam library, on any drive. A download unpacked elsewhere
+  still needs the setting.
   `native/godot.mjs` does that lookup for both the tools and the MCP server,
   which `native/mcp.mjs` starts through `npx` (Node.js with npx is needed).
   Check the actual engine version and import/run logs
