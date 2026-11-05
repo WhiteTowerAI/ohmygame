@@ -14279,6 +14279,8 @@ summary.work-summary:hover {
 :is(.agent-account-trigger-usage, .agent-account-row-usage):is(.is-warning, .is-danger) { color: var(--usage-color); }
 
 .agent-account-heading > span { flex: 1; }
+/* Tracks dark enough that an empty ring or bar still reads. */
+:is(.agent-account-menu, .agent-account-peek) { --agent-account-track: color-mix(in srgb, var(--color-text-tertiary) 35%, transparent); }
 .ui-popover.agent-account-menu {
   width: 300px;
   max-height: min(560px, calc(100vh - 16px));
@@ -14289,8 +14291,8 @@ summary.work-summary:hover {
 .agent-account-window-head { display: flex; justify-content: space-between; gap: 8px; font-size: var(--text-sm); }
 .agent-account-window-head > span:first-child { color: var(--color-text-secondary); }
 .agent-account-window-head > span:last-child { color: var(--usage-color, var(--color-text)); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
-.agent-account-bar { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--color-hover); }
-.agent-account-bar > span { display: block; min-width: 3px; height: 100%; border-radius: inherit; background: var(--usage-color, var(--color-ink)); transition: width var(--duration-base) var(--ease-out); }
+.agent-account-window .agent-usage-meter { height: 6px; border-radius: 3px; background: var(--agent-account-track); }
+.agent-account-window .agent-usage-meter > span { background: var(--usage-color, var(--color-ink)); }
 .agent-account-window > small { color: var(--color-text-tertiary); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
 .agent-account-heading { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
@@ -14320,7 +14322,7 @@ summary.work-summary:hover {
 /* A ring per window, so both read at a glance without opening the card. */
 .agent-account-rings { display: inline-flex; flex: none; gap: 4px; }
 .agent-account-ring { flex: none; }
-.agent-account-ring circle { fill: none; stroke: var(--color-hover); stroke-width: 2.5; }
+.agent-account-ring circle { fill: none; stroke: var(--agent-account-track); stroke-width: 2.5; }
 .agent-account-ring circle + circle { stroke: var(--color-text-secondary); stroke-linecap: round; }
 .agent-account-ring.is-warning circle + circle { stroke: var(--warning); }
 .agent-account-ring.is-danger circle + circle { stroke: var(--danger); }

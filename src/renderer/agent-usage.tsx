@@ -50,7 +50,7 @@ export function usageLevel(percent: number): string {
   return percent >= 95 ? " is-danger" : percent >= 80 ? " is-warning" : "";
 }
 
-function Meter({ limit }: { limit: AgentUsageLimit }) {
+export function Meter({ limit }: { limit: AgentUsageLimit }) {
   const percent = Math.round(limit.usedPercent);
   return (
     <span

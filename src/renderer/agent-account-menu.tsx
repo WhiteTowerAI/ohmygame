@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from "react-dom";
 import type { AccountRuntimeId, AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import type { AgentUsageLimit } from "../shared/contracts.js";
-import { currentUsage, usageLevel, usageResetLabel, usageWindowLabel } from "./agent-usage.js";
+import { currentUsage, Meter, usageLevel, usageResetLabel, usageWindowLabel } from "./agent-usage.js";
 import { Check, ChevronDown, RefreshCw, Settings, UserRound } from "./icons.js";
 import { t } from "./i18n.js";
 import { settingsHash } from "./routes.js";
@@ -40,8 +40,7 @@ function UsageWindows({ limits, now }: { limits: readonly AgentUsageLimit[]; now
       const reset = usageResetLabel(limit, now);
       return <div className={`agent-account-window${usageLevel(percent)}`} key={limit.id}>
         <span className="agent-account-window-head"><span>{usageWindowLabel(limit)}</span><span>{percent}%</span></span>
-        <span className="agent-account-bar" role="meter" aria-label={usageWindowLabel(limit)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-          aria-valuetext={t("agentUsage.used", { percent })}><span style={{ width: `${percent}%` }} /></span>
+        <Meter limit={limit} />
         {reset ? <small>{reset}</small> : null}
       </div>;
     })}
