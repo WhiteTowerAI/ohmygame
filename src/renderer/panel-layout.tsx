@@ -174,7 +174,7 @@ export function visiblePanels(layout: Layout, known: ReadonlySet<string>): strin
   });
 }
 
-export function PanelLayout({ layout, panels, onChange, onActivate, overlay, empty }: {
+export function PanelLayout({ layout, panels, onChange, onActivate, overlay, empty, locked = false }: {
   layout: Layout;
   /** Every panel that can be shown; ids in the layout without one are skipped. */
   panels: readonly PanelDef[];
@@ -185,6 +185,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   overlay?: ReactNode;
   /** What the center shows with no panels in it. */
   empty: ReactNode;
+  /** Its panels stay where they are: they can't be moved or closed, only resized. */
+  locked?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const resizeDrag = useRef<{ area: (typeof SIDES)[number]; bounds: DOMRect; size: number }>(null);
@@ -300,10 +302,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                 const panel = byId.get(id)!;
                 const moves = (["left", "center", "right", "bottom"] as const).filter((to) => to !== area)
                   .map((to) => ({ label: t("panels.moveTo", { area: areaLabel(to) }), onSelect: () => { onChange(movePanel(layout, id, to)); onActivate?.(id); } }));
-                return (
-                  <ContextMenu key={id} items={[...moves, "separator", { label: t("common.close"), onSelect: () => close(id) }]}>
-                    <div className={`dock-tab${id === active ? " is-active" : ""}${dragging === id ? " is-dragged" : ""}${target?.area === area && target.before === id ? " is-drop-before" : ""}`}
-                      draggable title={panel.source ? t("panels.fromPlugin", { title: panel.title, plugin: panel.source }) : panel.title}
+                const tab = (
+                    <div key={id} className={`dock-tab${id === active ? " is-active" : ""}${dragging === id ? " is-dragged" : ""}${target?.area === area && target.before === id ? " is-drop-before" : ""}`}
+                      draggable={!locked} title={panel.source ? t("panels.fromPlugin", { title: panel.title, plugin: panel.source }) : panel.title}
                       onDragStart={(event) => {
                         event.dataTransfer.setData("text/plain", panel.title);
                         event.dataTransfer.effectAllowed = "move";
@@ -316,11 +317,13 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                         <span className="dock-tab-label">{panel.title}</span>
                         {panel.badge ? <span className="dock-tab-badge">{panel.badge}</span> : null}
                       </button>
-                      <button type="button" className="dock-tab-close" aria-label={t("panels.close", { title: panel.title })} onClick={() => close(id)}>
+                      {locked ? null : <button type="button" className="dock-tab-close" aria-label={t("panels.close", { title: panel.title })} onClick={() => close(id)}>
                         <X size={12} />
-                      </button>
+                      </button>}
                     </div>
-                  </ContextMenu>
+                );
+                return locked ? tab : (
+                  <ContextMenu key={id} items={[...moves, "separator", { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
                 );
               })}
               {closed.length ? (

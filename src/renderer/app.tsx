@@ -85,7 +85,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       ? <OnboardingLoadError error={onboarding.error} onRetry={onboarding.retry} />
       : <PageFrame active="home" onNavigate={navigateToSidebarPage}><OnboardingLoading /></PageFrame>;
   }
-  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
+  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} onNavigate={navigateToSidebarPage} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }

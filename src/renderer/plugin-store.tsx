@@ -7,7 +7,7 @@ import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
-import { hookLabel } from "./plugin-hook-labels.js";
+import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
@@ -355,35 +355,19 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     for (const version of unused) await uninstallStorePlugin(plugin.id, version.version);
     setUsage(undefined);
   });
-  const adds = [
-    ...plugin.adds.projectTypes.map((title) => ({ kind: t("pluginStore.addsType"), title })),
-    ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
-    ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
-    ...plugin.adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
-    ...(plugin.adds.hooks ?? []).map((hook) => ({ kind: t("pluginStore.addsHook"), title: hookLabel(hook) })),
-    ...plugin.adds.modelProviders.map((title) => ({ kind: t("pluginStore.addsModelProvider"), title })),
-    ...plugin.adds.agents.map((title) => ({ kind: t("pluginStore.addsAgent"), title })),
-    ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
-    ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
-  ];
+  const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
-    <header className="plugin-head">
-      <StoreTile plugin={plugin} large />
-      <div className="plugin-head-copy">
-        <h1>
-          <span>{plugin.displayName}</span>
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-          {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
-        </h1>
-        <p>{plugin.description}</p>
-      </div>
+    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
+      {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
+      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
+    </>}>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
         <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
         {tryIt.popover}
       </div> : null}
-    </header>
+    </PluginHead>
     {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && plugin.quarantined ? <Alert tone="danger" title={t("pluginLog.quarantined")} action={<>
@@ -411,9 +395,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </section> : null}
           {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
             <h2>{t("pluginStore.adds")}</h2>
-            <ul className="plugin-store-adds">
-              {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
-            </ul>
+            <PluginAddsList rows={adds} />
           </section> : null}
           {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
             <h2>{t("pluginStore.asksFor")}</h2>

@@ -95,12 +95,12 @@ describe("Plugin Builder", () => {
     const skillsOnly = await setup.create();
     expect(await setup.prepare(skillsOnly.id, await writeDraft(directory, skillsOnly.id))).toMatchObject({
       errors: [],
-      plugin: { id: ID, version: "0.1.0", displayName: "Design Review", appWide: true, asks: [], settings: false, mcpServers: [], skills: [{ id: "skills/review/SKILL.md", name: "review" }] },
+      plugin: { id: ID, version: "0.1.0", displayName: "Design Review", appWide: true, asks: [], settings: false, mcpServers: [], skills: [{ id: "skills/review/SKILL.md", name: "review" }], adds: { skills: 1, mcpServers: [] } },
     });
     const withServer = await setup.create();
     const draft = await setup.prepare(withServer.id, await writeDraft(directory, withServer.id, true));
     expect(draft.errors).toEqual([]);
-    expect(draft.plugin).toMatchObject({ appWide: false, settings: true, mcpServers: [{ id: "api", title: "API" }] });
+    expect(draft.plugin).toMatchObject({ appWide: false, settings: true, mcpServers: [{ id: "api", title: "API" }], adds: { mcpServers: ["API"] } });
     expect(draft.plugin?.asks.length).toBeGreaterThan(0);
   });
 

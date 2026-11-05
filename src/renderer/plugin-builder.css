@@ -1,52 +1,199 @@
-.plugin-builder-shell { min-width: 0; }
-.plugin-builder-shell .composer > :is(.plugin-builder-notice, .plugin-builder-error) { margin: 0 2px 8px; padding: 0; background: transparent; font-size: 10px; line-height: 1.5; }
-.plugin-builder-working { display: flex; align-items: center; gap: 8px; margin: 18px 0; color: var(--color-text-secondary); font-size: 12px; }
-.plugin-builder-error { padding: 12px; margin: 12px 0; border-radius: 6px; background: color-mix(in srgb, var(--color-danger) 7%, transparent); color: var(--color-danger); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.plugin-builder-error button { margin-left: 8px; }
-.plugin-builder-notice { margin: 12px 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
-.plugin-builder-service-check .ui-disclosure { margin-top: 8px; }
-.plugin-builder-preview { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.plugin-builder-preview-content { flex: 1; min-height: 0; overflow-y: auto; padding: 28px; }
-.plugin-builder-preview-content.is-files { display: flex; overflow: hidden; padding: 0; }
-.plugin-builder-preview-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-width: 0; width: 100%; min-height: 100%; }
-.plugin-builder-overview { max-width: 740px; margin: 0 auto; }
-.plugin-builder-overview-heading { display: flex; align-items: center; gap: 10px; }
-.plugin-builder-icon-button { padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
-.plugin-builder-icon-button:hover .plugin-row-icon { background: var(--color-selected); color: var(--color-ink); }
-.plugin-builder-overview-heading h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
-.plugin-builder-overview-heading small { color: var(--color-text-secondary); font-size: 10px; }
-.plugin-builder-overview > section { margin-top: 20px; }
-.plugin-builder-description { color: var(--color-text-secondary); font-size: 12px; line-height: 1.8; }
-.plugin-builder-file-markdown { font-size: 12px; line-height: 1.8; }
-.plugin-builder-section-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.plugin-builder-section-heading h3 { margin: 0; font-size: 12px; font-weight: 600; }
-.plugin-builder-section-heading > span { color: var(--color-text-secondary); font-size: 10px; }
-.plugin-builder-component { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 0; border: 0; border-bottom: 1px solid var(--color-border); background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
-.plugin-builder-component > svg { flex-shrink: 0; color: var(--color-text-secondary); }
-.plugin-builder-component > svg:last-child { margin-left: auto; }
-.plugin-builder-component strong { font-size: 12px; font-weight: 500; }
-.plugin-builder-component:hover { color: var(--color-ink); }
-.plugin-builder-file-markdown { padding: 20px 28px; overflow: auto; }
-.plugin-builder-config { padding: 0; margin: 0; border: 0; min-width: 0; }
-.plugin-builder-checks { max-width: 740px; margin: 0 auto; }
-.plugin-builder-check { display: flex; align-items: flex-start; gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--color-border); }
-.plugin-builder-check > svg { flex-shrink: 0; color: var(--color-text-secondary); }
-.plugin-builder-check.is-passed > svg { color: var(--color-success); }
-.plugin-builder-check.has-error > svg { color: var(--color-danger); }
-.plugin-builder-check > span { flex: 1; display: grid; gap: 7px; min-width: 0; }
-.plugin-builder-check strong { font-size: 12px; font-weight: 500; }
-.plugin-builder-check small { color: var(--color-text-secondary); font-size: 10px; line-height: 1.7; }
-.plugin-builder-check > small { white-space: nowrap; }
-@container workspace-header (min-width: 521px) {
-  .plugin-builder-preview[data-active-tab="overview"] .workspace-tabs { --workspace-active-tab-width: 88px; }
+/* the plugin workspace: a project's frame around the chat and the plugin */
+.plugin-builder-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
 }
-@media (max-width: 1000px) {
-  .plugin-builder-preview-content { padding: 24px; }
+
+.plugin-builder-start {
+  width: min(680px, 100%);
 }
-@media (max-width: 720px) {
-  .plugin-builder-preview-content { min-height: 0; padding: 20px; }
-  .plugin-builder-check { flex-wrap: wrap; }
-  .plugin-builder-check > button { margin-left: 30px; }
+
+.plugin-builder-start .composer {
+  position: static;
+  width: 100%;
+  padding: 0;
+  background: none;
+}
+
+.plugin-builder-start .prompt-box-home {
+  width: 100%;
+}
+
+.plugin-builder-working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.plugin-builder-chat {
+  height: 100%;
+}
+
+.composer > :is(.plugin-builder-notice, .plugin-builder-error) {
+  margin: 0 2px var(--space-2);
+  padding: 0;
+  background: transparent;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.plugin-builder-error {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 7%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.plugin-builder-notice {
+  margin: var(--space-3) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.plugin-builder-status-failed {
+  color: var(--color-danger);
+}
+
+/* an AI workspace in the rail: the plugin's icon, or its first letter */
+.plugin-builder-rail-item {
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.plugin-builder-rail-back {
+  text-decoration: none;
+}
+
+.project-rail a.sidebar-app-new {
+  display: grid;
+}
+
+/* the plugin, as its page will read */
+.plugin-builder-overview {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-2) var(--space-6);
+}
+
+.plugin-builder-icon-button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.plugin-builder-icon-button:hover .plugin-tile {
+  background: var(--color-selected);
+}
+
+.plugin-builder-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugin-builder-link:hover {
+  text-decoration: underline;
+}
+
+.plugin-builder-config {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.plugin-builder-check-result {
+  margin-left: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.plugin-builder-check-result.is-failed {
+  color: var(--color-danger);
+}
+
+.plugin-builder-checks pre {
+  overflow-x: auto;
+  font-size: var(--text-xs);
+}
+
+.plugin-builder-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  font-size: var(--text-md);
+}
+
+.plugin-builder-check > svg {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+.plugin-builder-check.is-passed > svg {
+  color: var(--color-success);
+}
+
+.plugin-builder-check.has-error > svg {
+  color: var(--color-danger);
+}
+
+.plugin-builder-check strong {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-builder-check small {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.plugin-builder-file-markdown {
+  padding: 20px 28px;
+  overflow: auto;
+  font-size: var(--text-md);
+  line-height: 1.8;
+}
+
+.plugin-builder-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
 }
 
 .plugin-install-dialog.plugin-icon-picker { gap: 0; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }

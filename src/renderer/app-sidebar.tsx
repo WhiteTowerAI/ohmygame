@@ -557,12 +557,42 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const latest = useRecentProjects();
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
-  const history = useHistoryState();
   const [creating, setCreating] = useState(false);
-  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
-    <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
+    <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
+      {recent.map((project) => (
+        <RailProject key={project.id} project={project} open={openHash}
+          conversations={project.id === projectId ? conversations : undefined} />
+      ))}
+      <Tooltip content={t("sidebar.newProject")} placement="right-start">
+        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
+          <CirclePlus size={16} />
+        </button>
+      </Tooltip>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
+    </AppRail>
+  );
+}
+
+/**
+ * The narrow rail of a full-window workspace: back and forward, the way home,
+ * the workspace's own items, then search and the account.
+ */
+export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }: {
+  label: string;
+  onNavigate: (page: AppNavigationTarget) => void;
+  onLeave?: (go: () => void) => void;
+  children: ReactNode;
+}) {
+  const history = useHistoryState();
+  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
+  return (
+    <nav className="sidebar project-rail" aria-label={label}>
       {/* Back and forward lead the title bar: here, over the rail, beside the
           macOS window controls or at the window's edge where the system draws
           the title bar. */}
@@ -577,22 +607,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
           </button>
         </Tooltip>
       </div>
-      <div className="sidebar-group sidebar-recent">
-        {recent.map((project) => (
-          <RailProject key={project.id} project={project} open={openHash}
-            conversations={project.id === projectId ? conversations : undefined} />
-        ))}
-        <Tooltip content={t("sidebar.newProject")} placement="right-start">
-          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
-            <CirclePlus size={16} />
-          </button>
-        </Tooltip>
-      </div>
-      {creating ? <ProjectCreateDialog
-        onClose={() => setCreating(false)}
-        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
-        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
-      /> : null}
+      <div className="sidebar-group sidebar-recent">{children}</div>
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />

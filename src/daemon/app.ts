@@ -120,10 +120,10 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
-import { HOOK_CHANGES_MAX, manifestHooks } from "../shared/plugin-hooks.js";
+import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -1492,7 +1492,6 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
-      const contributes = entry.manifest.contributes ?? {};
       const added = await pluginSources.origin(entry.id, entry.version);
       return {
         id: entry.id,
@@ -1524,17 +1523,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.required ? { required: true } : {}),
           ...(field.options ? { options: field.options } : {}),
         })),
-        adds: {
-          projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
-          panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
-          commands: (contributes.commands ?? []).map((command) => text(command.title)),
-          mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
-          modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
-          agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
-          tools: contributes.tools?.length ?? 0,
-          skills: entry.skills.length,
-          ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
-        },
+        adds: pluginAdds(entry, text),
       };
     }));
   });

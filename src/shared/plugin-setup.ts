@@ -1,11 +1,14 @@
 import type { AgentModelRef, AgentReasoningLevel, Turn } from "./contracts.js";
-import type { PluginMcpResult, PluginIcon } from "./plugins.js";
+import type { PluginMcpResult, PluginIcon, StorePlugin } from "./plugins.js";
 import type { PluginIconMediaType } from "./plugin-icons.js";
 export type PluginIconChange =
   | { icon: PluginIcon | null }
   | { image: { mediaType: PluginIconMediaType; data: string } };
 export type PluginIconUpdate = PluginIconChange & { revision: string };
 export type PluginSetupMode = "create" | "edit";
+/** A workspace's title until its first message names it. */
+export const NEW_PLUGIN_TITLE = "New plugin";
+
 export interface PluginSetupSummary {
   id: string;
   mode?: PluginSetupMode;
@@ -42,6 +45,7 @@ export interface PluginDraftPlugin {
   skills: Array<{ id: string; name: string; description: string }>;
   mcpServers: Array<{ id: string; title: string }>;
   settings: boolean;
+  adds: StorePlugin["adds"];
 }
 
 export interface PluginDraft {

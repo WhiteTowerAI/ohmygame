@@ -29,6 +29,7 @@ import type {
   PluginIconUpdate,
   PluginSetupMode,
 } from "../shared/plugin-setup.js";
+import { NEW_PLUGIN_TITLE } from "../shared/plugin-setup.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import { compatibleRuntimeModel, conversationItems, lastAssistantError } from "./agent.js";
 import type { ThreadItem, Turn } from "../shared/contracts.js";
@@ -86,7 +87,7 @@ export class PluginSetupManager {
       mode,
       pluginId,
       busy: false,
-      title: editing ? localizePluginString(editing, editing.manifest.displayName, "en") : "New plugin",
+      title: editing ? localizePluginString(editing, editing.manifest.displayName, "en") : NEW_PLUGIN_TITLE,
       createdAt: Date.now(), updatedAt: Date.now(), status: "idle",
     };
     await mkdir(this.#directory(state.id), { recursive: true });
@@ -404,7 +405,7 @@ export class PluginSetupManager {
     state.model = input.model;
     state.reasoningLevel = input.reasoningLevel;
     state.updatedAt = Date.now();
-    if (state.title === "New plugin") state.title = input.prompt.trim().slice(0, 64);
+    if (state.title === NEW_PLUGIN_TITLE) state.title = input.prompt.trim().slice(0, 64);
     this.#aborted.delete(id);
     state.error = undefined;
     const initialWrite = this.#save(state);

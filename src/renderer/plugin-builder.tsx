@@ -1,29 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import type { PluginDraft, PluginDraftPlugin, PluginSetupState, PluginSetupSummary } from "../shared/plugin-setup.js";
+import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginSetupState, type PluginSetupSummary } from "../shared/plugin-setup.js";
+import type { StorePlugin } from "../shared/plugins.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, promptPluginSetup, readPluginDraft,
   readPluginDraftFile, readPluginSetup, testPluginDraft, uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
-import { PluginIcon } from "./plugin-icons.js";
+import { AppRail } from "./app-sidebar.js";
+import type { AppNavigationTarget } from "./routes.js";
+import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
-import { groupStorePlugins, StorePluginSettings, storePluginEnabled, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, useEveryProjectSwitch } from "./plugin-store.js";
+import { draftCheck, draftCheckLabel, PluginOverview } from "./plugin-builder-overview.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { useAgentModels } from "./model-selector.js";
 import { PromptBox, type PromptInput } from "./prompt-box.js";
-import { PluginUninstallButton, PluginEveryProjectSwitch } from "./plugin-controls.js";
 import { WorkspaceFileBrowser } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent } from "./markdown-content.js";
-import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
-import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
+import { PanelLayout, PanelToolbar, type Layout } from "./panel-layout.js";
+import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ComposerActions } from "./composer-actions.js";
 import { pluginBuilderHash, pluginHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInput } from "./plugin-builder-drafts.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ArrowLeft, Check, ChevronRight, FileCode2, FileText, LoaderCircle, Package, MessageSquarePlus, PanelToggle,
-  MoreHorizontal, Plug, RefreshCw, Settings, Sparkles, Trash2 } from "./icons.js";
-import { Alert, Button, Dialog, Disclosure, DropdownMenu, Empty, IconButton } from "./ui/index.js";
+import { ArrowLeft, Check, CirclePlus, ExternalLink, FileCode2, FileText, LayoutGrid, LoaderCircle, MessageCircle, MessageSquarePlus, MoreHorizontal, Package,
+  Pencil, Plug, RefreshCw, Sparkles, Trash2, Wrench } from "./icons.js";
+import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
+import "./home.css";
 import "./plugin-builder.css";
 import { t } from "./i18n.js";
 
@@ -71,19 +75,19 @@ function PluginBuilderSessionCard({ session, onDeleted, onError }: {
     <a className="plugin-card-link" href={pluginBuilderHash(session.id)}>
       <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}</span>
       <span className="plugin-card-text">
-        <strong className="plugin-card-name">{session.title}</strong>
+        <strong className="plugin-card-name">{workspaceTitle(session.title)}</strong>
         <small>{t(`pluginBuilder.mode.${session.mode ?? "create"}`)} · {statusLabel(session.status)}</small>
       </span>
     </a>
     <DropdownMenu placement="bottom-end" items={[
       { label: t("common.delete"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },
     ]} trigger={(props) => (
-      <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: session.title })}>
+      <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: workspaceTitle(session.title) })}>
         <MoreHorizontal size={16} />
       </IconButton>
     )} />
     <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
-      title={t("pluginBuilder.deleteTitle", { title: session.title })} description={t("pluginBuilder.deleteDescription")}
+      title={t("pluginBuilder.deleteTitle", { title: workspaceTitle(session.title) })} description={t("pluginBuilder.deleteDescription")}
       footer={<>
         <Button onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={remove}>{t("common.delete")}</Button>
@@ -96,11 +100,95 @@ async function deletePluginWorkspace(sessionId: string): Promise<void> {
   removePluginBuilderInput(sessionId, window.localStorage);
 }
 
-type BuilderView = "overview" | "files" | "configuration" | "checks";
-const TABS: WorkspaceTabOption<BuilderView>[] = [
-  { id: "overview", label: t("pluginBuilder.tab.overview"), icon: Package }, { id: "files", label: t("pluginBuilder.tab.files"), icon: FileCode2 },
-  { id: "configuration", label: t("pluginBuilder.tab.setup"), icon: Settings }, { id: "checks", label: t("pluginBuilder.tab.checks"), icon: Check },
-];
+/** A new workspace is unnamed, and the daemon's name for that is English. */
+function workspaceTitle(title: string): string {
+  return title === NEW_PLUGIN_TITLE ? t("pluginBuilder.newPlugin") : title;
+}
+
+const CHAT_WIDTH_KEY = "ohmygame-agent-width";
+const DEFAULT_CHAT_WIDTH = 430;
+const MIN_CHAT_WIDTH = 320;
+
+function readChatWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(CHAT_WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= MIN_CHAT_WIDTH ? stored : DEFAULT_CHAT_WIDTH;
+  } catch { return DEFAULT_CHAT_WIDTH; }
+}
+function saveChatWidth(width: number) {
+  try { localStorage.setItem(CHAT_WIDTH_KEY, String(width)); } catch { /* Layout still works without storage. */ }
+}
+
+/** The chat beside the plugin, in the project's panels. They stay in place. */
+function builderLayout(): Layout {
+  return {
+    left: { panels: ["chat"], size: readChatWidth() },
+    center: { panels: ["overview", "files"], active: "overview", size: 0 },
+    right: { panels: [], size: 0 },
+    bottom: { panels: [], size: 0 },
+  };
+}
+
+/** Ways to start, each the opening of a prompt to finish. */
+const STARTERS = [
+  { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Wrench }, { id: "mcp", icon: Plug },
+] as const;
+
+const RAIL_LIMIT = 12;
+
+// What the rail last showed: opening another workspace remounts the page, and
+// the rail shouldn't empty and refill.
+let railCache: { sessions: PluginSetupSummary[]; plugins: StorePlugin[] } = { sessions: [], plugins: [] };
+
+/** The rail: back to Plugins, the recent AI workspaces, and a new plugin. The rest are on the Plugins page. */
+function BuilderRail({ sessionId, title, status, plugin, onNavigate, onError }: {
+  sessionId: string;
+  /** The open workspace's name and status, which load the list again when they change. */
+  title?: string;
+  status?: string;
+  plugin?: Parameters<typeof PluginGlyph>[0]["plugin"];
+  onNavigate: (page: AppNavigationTarget) => void;
+  onError: (cause: unknown) => void;
+}) {
+  const generation = useReadyRuntimeGeneration();
+  const [{ sessions, plugins }, setRail] = useState(railCache);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void waitForRuntime().then(() => Promise.all([listPluginSetups(), listStorePlugins()]))
+      .then(([sessions, plugins]) => {
+        railCache = { sessions, plugins };
+        if (active) setRail(railCache);
+      }).catch(() => { /* The rail keeps what it has; the page reports a daemon it can't reach. */ });
+    return () => { active = false; };
+  }, [generation, sessionId, title, status]);
+  const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAIL_LIMIT);
+  const listed = recent.some(session => session.id === sessionId) ? recent
+    : [...recent.slice(0, RAIL_LIMIT - 1), ...sessions.filter(session => session.id === sessionId)];
+  return <AppRail label={t("pluginBuilder.workspaces")} onNavigate={onNavigate}>
+    <Tooltip content={t("pluginBuilder.backToPlugins")} placement="right-start">
+      <a className="sidebar-app sidebar-app-new plugin-builder-rail-back" href={pluginHash()} aria-label={t("pluginBuilder.backToPlugins")}><ArrowLeft size={16} /></a>
+    </Tooltip>
+    {listed.map(session => {
+      const current = session.id === sessionId;
+      const name = workspaceTitle(current ? title ?? session.title : session.title);
+      const icon = current ? plugin : plugins.find(item => item.id === session.pluginId);
+      return <Tooltip key={session.id} content={name} placement="right-start">
+        <a className={`sidebar-app plugin-builder-rail-item${current ? " is-active" : ""}`} href={pluginBuilderHash(session.id)} aria-label={name} aria-current={current ? "page" : undefined}>
+          {session.status === "working" ? <LoaderCircle className="spin" size={16} />
+            : icon?.icon ? <PluginGlyph plugin={icon} size={20} setupId={current ? sessionId : undefined} />
+              : <span aria-hidden="true">{[...name][0]}</span>}
+        </a>
+      </Tooltip>;
+    })}
+    <Tooltip content={t("pluginBuilder.newPlugin")} placement="right-start">
+      <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} disabled={creating} onClick={() => {
+        setCreating(true);
+        void openPluginBuilder().catch(onError).finally(() => setCreating(false));
+      }}>{creating ? <LoaderCircle className="spin" size={16} /> : <CirclePlus size={16} />}</button>
+    </Tooltip>
+  </AppRail>;
+}
 
 async function loadBuilderSnapshot(sessionId: string, state?: PluginSetupState) {
   state ??= await readPluginSetup(sessionId);
@@ -111,20 +199,19 @@ async function loadBuilderSnapshot(sessionId: string, state?: PluginSetupState) 
   return { state, draft, stored };
 }
 
-export function PluginBuilder({ sessionId }: { sessionId: string }) {
+export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; onNavigate: (page: AppNavigationTarget) => void }) {
   const generation = useReadyRuntimeGeneration();
   const catalog = useAgentModels();
   const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof loadBuilderSnapshot>>>();
   const { state, draft } = snapshot ?? {};
   const [input, setInput] = useState(() => readPluginBuilderInput(sessionId, typeof window === "undefined" ? undefined : window.localStorage));
-  const [view, setView] = useState<BuilderView>("overview");
+  const [layout, setLayout] = useState(builderLayout);
   const [iconEditing, setIconEditing] = useState(false);
   const [error, setError] = useState<string>();
   const [operation, setOperation] = useState<string>();
   const [retry, setRetry] = useState(0);
   const [fileRequest, updateFileRequest] = useState<{ path: string; id: number }>();
-  const [agentCollapsed, setAgentCollapsed] = useState(false);
-  const [confirming, setConfirming] = useState<"conversation" | "workspace">();
+  const [confirming, setConfirming] = useState<"conversation" | "workspace" | "uninstall">();
   const promptInput = useRef<PromptInput>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -134,6 +221,8 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   const disabled = Boolean(state?.busy || operation);
   const stored = snapshot?.stored;
   const upToDate = Boolean(stored && draft?.revision && draft.revision === draft.installedRevision);
+  // A workspace starts as one prompt; its first message opens the chat beside the plugin.
+  const starting = Boolean(state && !state.busy && !state.turns.length && !draft?.path);
 
   useEffect(() => { savePluginBuilderInput(sessionId, input, window.localStorage); }, [sessionId, input]);
   useEffect(() => {
@@ -193,139 +282,139 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
     });
   }
   function prefill(prompt: string) {
-    setAgentCollapsed(false);
     setInput(current => ({ ...current, prompt: current.prompt.trim() ? `${current.prompt.trimEnd()}\n\n${prompt}` : prompt }));
     requestAnimationFrame(() => promptInput.current?.focus());
   }
-  function setFileRequest(file: string) { updateFileRequest({ path: file, id: Date.now() }); }
-  function previewContent() {
-    switch (view) {
-      case "overview":
-        return <>
-          {draft?.errors.length ? <p className="plugin-builder-error" role="alert">{draft.errors.join(" ")}</p> : null}
-          {draftPlugin ? <PluginOverview plugin={draftPlugin} setupId={sessionId} disabled={disabled} onEditIcon={draftPlugin && !draft?.errors.length ? () => setIconEditing(true) : undefined} onChooseView={setView} onChooseFile={file => { setView("files"); setFileRequest(file); }} /> : <EmptyView label={t("pluginBuilder.noDraft")} description={t("pluginBuilder.noDraftHint")} />}
-          {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)} onSave={async change => {
-            setOperation("saving-icon");
-            try {
-              const nextDraft = await updatePluginDraftIcon(sessionId, { ...change, revision: draft.revision! });
-              const nextState = await readPluginSetup(sessionId);
-              setSnapshot(current => current ? { ...current, draft: nextDraft, state: nextState } : current);
-            }
-            finally { setOperation(undefined); }
-          }} /> : null}
-        </>;
-      case "files":
-        return <PluginFiles sessionId={sessionId} draft={draft} request={fileRequest} />;
-      case "configuration": {
-        if (stored?.plugin.settings.length) return <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={stored.plugin.revision} plugin={stored.plugin} /></fieldset>;
-        return <EmptyView label={t(draftPlugin?.settings ? "pluginBuilder.settingsAfterInstall" : "pluginBuilder.noConfiguration")} />;
-      }
-      case "checks":
-        return <PluginChecks draft={draft} disabled={disabled} operation={operation} onTest={server => void action(`test:${server}`, async () => {
-          if (!draft?.revision) return;
-          await testPluginDraft(sessionId, server, draft.revision);
-          await refresh();
-        })} />;
-    }
+  function openFile(file: string) {
+    setLayout(current => ({ ...current, center: { ...current.center, active: "files" } }));
+    updateFileRequest({ path: file, id: Date.now() });
   }
-
   const goToPlugins = () => { window.location.hash = pluginHash(); };
-  return <WorkspaceShell className="plugin-builder-shell" agentCollapsed={agentCollapsed}
-    onHome={goToPlugins} homeLabel={t("pluginBuilder.backToPlugins")} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
-    agent={<WorkspaceAgentPane label={t("pluginBuilder.assistant")}
-      actions={<>
-        <button className="icon-button pane-header-action" type="button" disabled={disabled} title={t(state?.mode === "edit" ? "pluginBuilder.newConversation" : "pluginBuilder.newPlugin")} aria-label={t(state?.mode === "edit" ? "pluginBuilder.newConversation" : "pluginBuilder.newPlugin")}
-          onClick={() => void action("creating", () => state?.mode === "edit" ? openPluginBuilder(state.pluginId, state.mode, true) : openPluginBuilder())}>
-          {operation === "creating" ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
-        </button>
-        <button className="icon-button pane-header-action" type="button" disabled={disabled || !state?.turns.length}
-          title={t("pluginBuilder.deleteConversation")} aria-label={t("pluginBuilder.deleteConversation")} onClick={() => setConfirming("conversation")}><Trash2 size={14} /></button>
-        <button className="icon-button pane-header-action" type="button" onClick={() => setAgentCollapsed(true)} title={t("projectShell.hideAgent")} aria-label={t("projectShell.hideAgent")}><PanelToggle size={14} /></button>
-      </>}
-      bodyRef={timeline} onScroll={event => {
+
+  const check = draft?.path ? draftCheck(draft) : undefined;
+  const unsaved = Boolean(stored && draft?.revision && !upToDate);
+  const status = state?.busy ? t("pluginBuilder.status.working") : check ? <>
+    <span className={check === "failed" ? "plugin-builder-status-failed" : undefined}>{draftCheckLabel(check)}</span>
+    {unsaved ? ` · ${t("pluginBuilder.uninstalledChanges")}` : null}
+  </> : undefined;
+  const menu: MenuEntry[] = state ? [
+    ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
+    ...(stored ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(state.pluginId!); } }] : []),
+    ...(draftPlugin || stored ? ["separator" as const] : []),
+    ...(state.mode === "edit" ? [{ label: t("pluginBuilder.newConversation"), icon: <MessageSquarePlus size={14} />, disabled,
+      onSelect: () => void action("creating", () => openPluginBuilder(state.pluginId, state.mode, true)) }] : []),
+    { label: t("pluginBuilder.deleteConversation"), icon: <MessageCircle size={14} />, disabled: disabled || !state.turns.length, onSelect: () => setConfirming("conversation") },
+    "separator",
+    ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size={14} />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
+    { label: t(draft?.path ? "pluginBuilder.deleteDraft" : "pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled, onSelect: () => setConfirming("workspace") },
+  ] : [];
+
+  const composer = <div className="composer">
+    {error || everyProject.error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? everyProject.error ?? state?.error}</p> : null}
+    <PromptBox value={input.prompt} onChange={prompt => setInput(current => ({ ...current, prompt }))} onSubmit={() => void send()}
+      inputRef={promptInput} variant={starting ? "home" : "project"} disabled={!state} placeholder={t(state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
+      actions={<ComposerActions models={catalog.models} status={catalog.status} value={model} reasoningLevel={reasoning} disabled={disabled}
+        onChange={(selected, level) => setInput(current => ({ ...current, model: { provider: selected.provider, id: selected.id }, reasoningLevel: level }))}
+        onReasoningChange={level => setInput(current => ({ ...current, reasoningLevel: level }))}
+        showStop={Boolean(state?.busy)} sendLabel={t("pluginBuilder.send")} stopLabel={t("pluginBuilder.stop")}
+        sendDisabled={!state || !model || !input.prompt.trim() || disabled}
+        onStop={() => { void abortPluginSetup(sessionId).catch(cause => setError(message(cause))); }}
+      />} />
+  </div>;
+  const refreshButton = <PanelToolbar>
+    <IconButton size="sm" label={t("pluginBuilder.refresh")} disabled={disabled} onClick={() => void action("refreshing", refresh)}><RefreshCw size={14} /></IconButton>
+  </PanelToolbar>;
+  const panels = [{
+    id: "chat", title: t("pluginBuilder.tab.chat"), icon: <MessageCircle size={14} />, home: "left" as const,
+    content: <section className="agent-pane plugin-builder-chat" aria-label={t("pluginBuilder.assistant")}>
+      <div className="agent-body" ref={timeline} onScroll={event => {
         const element = event.currentTarget;
         following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}>
         <div className="timeline" aria-live="polite">
-          {!state && !error ? <p className="plugin-builder-working" role="status"><LoaderCircle className="spin" size={13} />{t("pluginBuilder.opening")}</p> : null}
-          {state ? <AgentTimeline turns={state.turns} onAddToChat={prefill} onOpenWorkspaceFile={file => { setView("files"); setFileRequest(file); }} /> : null}
+          {state ? <AgentTimeline turns={state.turns} onAddToChat={prefill} onOpenWorkspaceFile={openFile} /> : null}
           {state?.status === "interrupted" ? <p className="plugin-builder-notice" role="status">{t("pluginBuilder.interrupted")}</p> : null}
         </div>
-        <div className="composer">
-          {error || everyProject.error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? everyProject.error ?? state?.error}{!state ? <button type="button" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</button> : null}</p> : null}
-          <PromptBox value={input.prompt} onChange={prompt => setInput(current => ({ ...current, prompt }))} onSubmit={() => void send()}
-            inputRef={promptInput} variant="project" disabled={!state} placeholder={t(state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
-            actions={<ComposerActions models={catalog.models} status={catalog.status} value={model} reasoningLevel={reasoning} disabled={disabled}
-              onChange={(selected, level) => setInput(current => ({ ...current, model: { provider: selected.provider, id: selected.id }, reasoningLevel: level }))}
-              onReasoningChange={level => setInput(current => ({ ...current, reasoningLevel: level }))}
-              showStop={Boolean(state?.busy)} sendLabel={t("pluginBuilder.send")} stopLabel={t("pluginBuilder.stop")}
-              sendDisabled={!state || !model || !input.prompt.trim() || disabled}
-              onStop={() => { void abortPluginSetup(sessionId).catch(cause => setError(message(cause))); }}
-            />} />
-        </div>
-    </WorkspaceAgentPane>}
-  >
-      <section className="viewer-pane plugin-builder-preview" aria-label={t("pluginBuilder.preview")} data-active-tab={view === "files" ? "code" : view}>
-        <header className="pane-header viewer-header window-drag-handle">
-          <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-          <div className="viewer-navigation">
-            <WorkspaceTabs tabs={TABS} active={view} onChange={setView} label={t("pluginBuilder.views")} />
-          </div>
-          <div className="viewer-publish">
-            <button className="icon-button pane-header-action" aria-label={t("pluginBuilder.refresh")} title={t("pluginBuilder.refresh")} type="button" disabled={disabled} onClick={() => void action("refreshing", refresh)}><RefreshCw size={14} /></button>
-            {state?.pluginId ? <button className="icon-button pane-header-action" type="button" title={t("pluginBuilder.open")} aria-label={t("pluginBuilder.open")} onClick={() => { window.location.hash = pluginHash(state.pluginId!); }}><ChevronRight size={14} /></button> : null}
-            {stored && storePluginEnabled(stored.plugin) ? <PluginEveryProjectSwitch plugin={stored.plugin} disabled={disabled || Boolean(everyProject.busy)}
-              onToggle={on => everyProject.toggle(stored.plugin, on)} /> : null}
-            {everyProject.dialog}
-            {stored ? <PluginUninstallButton plugin={stored.plugin} disabled={disabled} compact onUninstall={() => void action("uninstalling", async () => {
-              for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
-              await refresh();
-            })} /> : null}
-            {state ? <button className="icon-button pane-header-action" type="button" disabled={disabled}
-              title={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")} aria-label={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")}
-              onClick={() => setConfirming("workspace")}><Trash2 size={14} /></button> : null}
-            {draftPlugin ? <button className="publish-button workspace-publish-button" type="button" disabled={disabled || Boolean(draft?.errors.length) || upToDate} onClick={() => void action("installing", async () => {
-              if (!draft?.revision) return;
-              try { await installPluginDraft(sessionId, draft.revision); }
-              finally { await refresh(); }
-            })}>{operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}<span>{upToDate ? t("pluginBuilder.installed") : state?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</span></button> : null}
-          </div>
-        </header>
-        <div className={`plugin-builder-preview-content is-${view}`}>{previewContent()}</div>
-      </section>
-      <Dialog open={confirming !== undefined} onClose={() => setConfirming(undefined)} size="sm"
-        title={confirming === "workspace" ? t("pluginBuilder.deleteTitle", { title: state?.title ?? "" }) : t("pluginBuilder.deleteConversationTitle")}
-        description={confirming === "workspace" ? t("pluginBuilder.deleteDescription") : t("pluginBuilder.deleteConversationDescription")}
-        footer={<>
-          <Button onClick={() => setConfirming(undefined)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => {
-            const target = confirming;
-            setConfirming(undefined);
-            if (target === "workspace") void action("deleting", async () => {
-              await deletePluginWorkspace(sessionId);
-              goToPlugins();
-            });
-            else void action("clearing", async () => {
-              const next = await clearPluginSetupConversation(sessionId);
-              setInput(current => ({ ...current, prompt: "" }));
-              setSnapshot(current => current ? { ...current, state: next } : current);
-            });
-          }}>{t("common.delete")}</Button>
-        </>} />
-  </WorkspaceShell>;
-}
+        {composer}
+      </div>
+    </section>,
+  }, {
+    id: "overview", title: t("pluginBuilder.tab.overview"), icon: <Package size={14} />, home: "center" as const, padded: true,
+    content: <>
+      {refreshButton}
+      {draft?.path ? <PluginOverview draft={draft} setupId={sessionId} stored={stored?.plugin} disabled={disabled} operation={operation} everyProject={everyProject}
+        onEditIcon={draftPlugin && !draft.errors.length ? () => setIconEditing(true) : undefined} onOpenFile={openFile}
+        onTest={server => void action(`test:${server}`, async () => {
+          if (!draft.revision) return;
+          await testPluginDraft(sessionId, server, draft.revision);
+          await refresh();
+        })} /> : <EmptyView label={t("pluginBuilder.noDraft")} description={t("pluginBuilder.noDraftHint")} />}
+    </>,
+  }, {
+    id: "files", title: t("pluginBuilder.tab.files"), icon: <FileCode2 size={14} />, home: "center" as const,
+    content: <>{refreshButton}<PluginFiles sessionId={sessionId} draft={draft} request={fileRequest} /></>,
+  }];
 
-function PluginOverview({ plugin, setupId, disabled, onEditIcon, onChooseView, onChooseFile }: {
-  plugin: PluginDraftPlugin; setupId: string; disabled: boolean; onEditIcon?: () => void; onChooseView: (view: BuilderView) => void; onChooseFile: (file: string) => void;
-}) {
-  return <div className="plugin-builder-overview">
-    <div className="plugin-builder-overview-heading">{onEditIcon ? <button className="plugin-builder-icon-button" type="button" aria-label={t("pluginIconPicker.change")} title={t("pluginIconPicker.change")} disabled={disabled} onClick={onEditIcon}><PluginIcon plugin={plugin} setupId={setupId} /></button> : <PluginIcon plugin={plugin} setupId={setupId} />}<h2>{plugin.displayName}</h2>{plugin.version ? <small>v{plugin.version}</small> : null}</div>
-    {plugin.description ? <p className="plugin-builder-description">{plugin.description}</p> : null}
-    <p className="plugin-builder-description">{t(plugin.appWide ? "pluginBuilder.scopeAppWide" : "pluginBuilder.scopePerProject")}</p>
-    {plugin.asks.length ? <section><div className="plugin-builder-section-heading"><h3>{t("pluginBuilder.asksFor")}</h3><span>{plugin.asks.length}</span></div>{plugin.asks.map(ask => <p className="plugin-builder-description" key={ask}><code>{ask}</code></p>)}</section> : null}
-    {plugin.skills.length ? <section><div className="plugin-builder-section-heading"><h3>{t("plugins.skills")}</h3><span>{plugin.skills.length}</span></div>{plugin.skills.map(skill => <button className="plugin-builder-component" type="button" key={skill.id} title={skill.description} onClick={() => onChooseFile(skill.id)}><FileText size={15} /><strong>{skill.name}</strong><ChevronRight size={14} /></button>)}</section> : null}
-    {plugin.mcpServers?.length ? <section><div className="plugin-builder-section-heading"><h3>{t("pluginControls.mcpServices")}</h3><span>{plugin.mcpServers.length}</span></div>{plugin.mcpServers.map(server => <button className="plugin-builder-component" type="button" key={server.id} onClick={() => onChooseView("checks")}><Plug size={15} /><strong>{server.title}</strong><ChevronRight size={14} /></button>)}</section> : null}
-  </div>;
+  return <ProjectFrame
+    rail={<BuilderRail sessionId={sessionId} title={state?.title} status={state?.status} plugin={draftPlugin} onNavigate={onNavigate} onError={cause => setError(message(cause))} />}
+    top={<ProjectTop name={state ? workspaceTitle(state.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined} menu={menu} status={status}>
+      {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
+        icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
+        onClick={() => void action("installing", async () => {
+          if (!draft?.revision) return;
+          try { await installPluginDraft(sessionId, draft.revision); }
+          finally { await refresh(); }
+        })}>{upToDate ? t("pluginBuilder.installed") : state?.pluginId ? t("pluginBuilder.update") : t("pluginBuilder.install")}</Button> : null}
+    </ProjectTop>}>
+    {!state ? <div className="plugin-builder-card">
+      {error ? <Alert tone="danger" title={error} action={<Button size="sm" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</Button>} />
+        : <p className="plugin-builder-working" role="status"><LoaderCircle className="spin" size={13} />{t("pluginBuilder.opening")}</p>}
+    </div> : starting ? <div className="plugin-builder-card">
+      <div className="home-hero plugin-builder-start">
+        <h1>{t("pluginBuilder.startTitle")}</h1>
+        {composer}
+        <div className="home-starts">
+          {STARTERS.map(({ id, icon: Icon }) => <Button key={id} variant="ghost" size="sm" icon={<Icon size={14} />} onClick={() => prefill(t(`pluginBuilder.starter.${id}.prompt`))}>{t(`pluginBuilder.starter.${id}.label`)}</Button>)}
+        </div>
+      </div>
+    </div> : <PanelLayout locked layout={layout} panels={panels} empty={null} onChange={next => {
+      if (next.left.size !== layout.left.size) saveChatWidth(next.left.size);
+      setLayout(next);
+    }} />}
+    {everyProject.dialog}
+    {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)} onSave={async change => {
+      setOperation("saving-icon");
+      try {
+        const nextDraft = await updatePluginDraftIcon(sessionId, { ...change, revision: draft.revision! });
+        const nextState = await readPluginSetup(sessionId);
+        setSnapshot(current => current ? { ...current, draft: nextDraft, state: nextState } : current);
+      }
+      finally { setOperation(undefined); }
+    }} /> : null}
+    <Dialog open={confirming !== undefined} onClose={() => setConfirming(undefined)} size="sm"
+      title={confirming === "workspace" ? t("pluginBuilder.deleteTitle", { title: workspaceTitle(state?.title ?? "") }) : confirming === "uninstall" ? t("pluginControls.uninstall") : t("pluginBuilder.deleteConversationTitle")}
+      description={confirming === "workspace" ? t("pluginBuilder.deleteDescription") : confirming === "uninstall" ? t("pluginControls.confirmUninstall", { name: stored?.plugin.displayName ?? "" }) : t("pluginBuilder.deleteConversationDescription")}
+      footer={<>
+        <Button onClick={() => setConfirming(undefined)}>{t("common.cancel")}</Button>
+        <Button variant="primary" onClick={() => {
+          const target = confirming;
+          setConfirming(undefined);
+          if (target === "workspace") void action("deleting", async () => {
+            await deletePluginWorkspace(sessionId);
+            goToPlugins();
+          });
+          else if (target === "uninstall") void action("uninstalling", async () => {
+            if (stored) for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
+            await refresh();
+          });
+          else void action("clearing", async () => {
+            const next = await clearPluginSetupConversation(sessionId);
+            setInput(current => ({ ...current, prompt: "" }));
+            setSnapshot(current => current ? { ...current, state: next } : current);
+          });
+        }}>{confirming === "uninstall" ? t("pluginControls.uninstallShort") : t("common.delete")}</Button>
+      </>} />
+  </ProjectFrame>;
 }
 
 function PluginFiles({ sessionId, draft, request }: { sessionId: string; draft?: PluginDraft; request?: { path: string; id: number } }) {
@@ -356,22 +445,6 @@ function PluginFiles({ sessionId, draft, request }: { sessionId: string; draft?:
       ? <div className="plugin-builder-file-markdown"><MarkdownContent text={(file.content ?? "").replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")} /></div>
       : <HighlightedCode path={file.path} content={file.content ?? ""} />}
   />;
-}
-
-function PluginChecks({ draft, disabled, operation, onTest }: {
-  draft?: PluginDraft; disabled: boolean; operation?: string; onTest: (server: string) => void;
-}) {
-  if (!draft?.path) return <EmptyView label={t("pluginBuilder.noChecks")} />;
-  return <div className="plugin-builder-checks">
-    <div className={`plugin-builder-check ${draft.errors.length ? "has-error" : "is-passed"}`}><Check size={18} /><span><strong>{t("pluginBuilder.packageStructure")}</strong></span><small>{draft.errors.length ? t("pluginBuilder.needsChanges") : t("pluginBuilder.passed")}</small></div>
-    {draft.errors.map(error => <p className="plugin-builder-error" role="alert" key={error}>{error}</p>)}
-    {draft.plugin?.mcpServers?.map(server => {
-      const check = draft.checks?.[server.id];
-      const current = check?.revision === draft.revision;
-      const result = current ? check?.result : undefined;
-      return <div className="plugin-builder-service-check" key={server.id}><div className="plugin-builder-check"><Plug size={18} /><span><strong>{server.title}</strong><small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : check ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small></span><button className="plugin-detail-secondary" type="button" aria-label={t("pluginBuilder.testServer", { name: server.title })} disabled={disabled || Boolean(draft.errors.length)} onClick={() => onTest(server.id)}>{operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : null}{t("pluginControls.test")}</button></div>{result?.message && result.status !== "connected" ? <Disclosure summary={t("common.details")}><pre>{result.message}</pre></Disclosure> : null}</div>;
-    })}
-  </div>;
 }
 
 function EmptyView({ label, description }: { label: string; description?: string }) {
