@@ -396,19 +396,19 @@ Motion rhythm: quick appearance, gradual expansion, brief dense peak, then loose
 
 Additional direction:
 Frame 1: a single tiny gray smoke particle appears at the center.
-Frame 2: a small three-lobed gray smoke puff forms.
-Frame 3: the smoke puff grows slightly with several rounded smoke blobs.
-Frame 4: more gray smoke blobs gather into a compact cluster.
-Frame 5: the smoke becomes larger and denser with overlapping rounded puffs.
-Frame 6: the smoke cluster reaches its maximum size and density.
-Frame 7: the outer smoke blobs begin separating from the main cluster.
-Frame 8: several gray smoke chunks drift outward in different directions.
-Frame 9: the smoke breaks into smaller scattered fragments.
+Frame 2: a small three-lobed smoke curl forms with a rolled rim and a dark inner fold.
+Frame 3: several compact smoke ribbons coil together, with cool gray-blue lit ridges and slate shadow pockets.
+Frame 4: the vapor gathers into a dense twisting cluster of overlapping curled lobes, hollow openings, and tapered tails.
+Frame 5: the smoke becomes larger and volumetric, with layered billows, deep occlusion pockets, and bright stepped highlights on the upper curls.
+Frame 6: the smoke cluster reaches maximum size and density as a coherent spiraling mass, not a collection of flat circles.
+Frame 7: outer curls peel away from the main mass into readable wisps while the core remains dense.
+Frame 8: several thick smoke ribbons drift outward and taper into hooked fragments, preserving their rolled edges and internal folds.
+Frame 9: the smoke breaks into smaller curled wisps and clustered fragments with decreasing density.
 Frame 10: only a few small gray smoke particles remain.
 Frame 11: sparse tiny particles fade around the center.
 Frame 12: the final smoke particles disappear completely.
 
-Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Softly rounded pixel clusters. No blur, scenery, characters, text, borders, grid lines, or UI. Keep the smoke centered inside each cell. Do not move the entire effect across the cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the smoke within the central 70% of each cell. No smoke blob or particle may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, and center point in every frame.`;
+Transparent background. Crisp 2D fantasy game pixel art. Use a cool gray-blue palette with near-white lit ridges, slate midtones, and deep blue-gray occlusion. Construct every curl from connected hard-edged pixel clusters with stepped contours, layered folds, hollow openings, rolled rims, and tapered tails. No blur, airbrush, smooth gradients, random noise, flat circular blobs, scenery, characters, text, borders, grid lines, or UI. Keep the smoke centered inside each cell. Do not move the entire effect across the cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the smoke within the central 70% of each cell. No smoke blob or particle may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, and center point in every frame.`;
 
 const EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT = `Requested action: a green energy wave charging, expanding, and dissipating animation in a 4-column by 3-row Sprite Sheet (12 frames)
 

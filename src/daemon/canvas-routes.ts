@@ -1,5 +1,6 @@
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
@@ -13,6 +14,7 @@ import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFram
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
+import { fixPixelArtBytes } from "./pixel-art-fixer.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
@@ -213,6 +215,10 @@ async function runCanvasMedia(
       if (first.contentType !== "image/gif") throw new CanvasError("GIF extraction requires a GIF asset", 400);
       outputs = await extractGifFrames({ inputPath: first.absolutePath });
     }
+  } else if (request.operation === "fix-pixel-art") {
+    requireMedia(first.contentType, "image");
+    const fixed = await fixPixelArtBytes(await readFile(first.absolutePath));
+    output = { name: "pixel-art-fixed.png", bytes: fixed.bytes, mediaType: fixed.mediaType };
   } else if (request.operation === "compose-gif") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("GIF composition requires image frame assets", 400);
     output = await composeGif(sources.map((source) => source.absolutePath), input.fps);

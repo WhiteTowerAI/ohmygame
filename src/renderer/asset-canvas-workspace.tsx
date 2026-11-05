@@ -1528,6 +1528,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       return;
     }
     if (operation === "crop-image") { setCropNodeId(targets[0]!.id); return; }
+    if (operation === "fix-pixel-art") {
+      void executeMediaTool(operation, ids.slice(0, 1), {});
+      return;
+    }
     setCropNodeId(undefined);
     if (operation === "split-image-grid" || operation === "extract-gif-frames") {
       void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
@@ -1612,8 +1616,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         const sourceAt = source ? canvasAbsolutePosition(source, nodesRef.current) : { x: 0, y: 0 };
         const columns = Math.min(3, created.length);
         const block = { width: columns * 480 - 40, height: Math.ceil(created.length / columns) * 560 - 40 };
-        // Place the results as one block in empty canvas space nearest to the source.
-        const start = snapCanvasPosition(findCanvasFreeArea(nodesRef.current, block, { x: sourceAt.x + (source?.measured?.width ?? 440) + 60, y: sourceAt.y }));
+        // Keep generated results close to their source, while still avoiding
+        // overlap with neighboring nodes. A compact gap makes one-click
+        // processing feel like a nearby duplicate instead of a new island.
+        const start = snapCanvasPosition(findCanvasFreeArea(
+          nodesRef.current,
+          block,
+          { x: sourceAt.x + (source?.measured?.width ?? 440) + 20, y: sourceAt.y },
+          20,
+        ));
         const createdNodes = created.map((asset, index) => assetFlowNode(asset, { x: start.x + (index % columns) * 480, y: start.y + Math.floor(index / columns) * 560 }));
         flushSync(() => setNodes((current) => [
           ...current.map((node) => ({ ...node, selected: false })),
@@ -1631,7 +1642,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const message = errorMessage(error);
       const detail = message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message;
       setMediaToolError(detail);
-      if (operation === "split-image-grid" || operation === "extract-gif-frames") setNotice({ kind: "action", message: detail });
+      // Some tools (including fix-pixel-art) do not open a dialog, so the
+      // inline error state is otherwise invisible after the toolbar closes.
+      setNotice({ kind: "action", message: detail });
     } finally {
       setMediaToolBusy(false);
     }
@@ -2362,7 +2375,7 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
       {extra}
     </div> : null}
   </div>;
-  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
+  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : id === "fix-pixel-art" ? t("assetCanvas.mediaTools.fixPixelArtHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
     {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}

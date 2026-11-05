@@ -2452,9 +2452,9 @@ const zhCN: typeof en = {
       animationStep3Body: "切分完成后，按帧顺序选中全部 12 张帧图片，在图片上方的工具栏中打开「帧动画」，点击「合并 GIF」，即可合成动图。下方是不同像素密度的效果示例。",
       gifPreviewTitle: "{{level}} · 效果示例",
       levelDescriptions: {
-        coarse: "超大像素块、极简五官，主体最多使用 8 种颜色。",
+        coarse: "更粗大的像素块、醒目的轮廓、极简五官，主体最多使用 8 种颜色。",
         classic: "中等像素簇、少量点缀，主体最多使用 16 种颜色。",
-        detailed: "细小方形像素与受控次级细节，主体最多使用 48 种颜色。",
+        detailed: "更细密的方形像素、更强的材质纹理与分层明暗，主体最多使用 64 种颜色。",
       },
       search: "搜索当前分类",
       categoriesLabel: "像素素材分类",
@@ -2551,7 +2551,9 @@ const zhCN: typeof en = {
     characterTools: {
       characterPlaceholder: "描述角色外观、服饰、配色和画风",
     },
-    mediaTools: {
+      mediaTools: {
+        "fix-pixel-art": "修正像素画",
+      fixPixelArtHint: "检测并对齐已有像素网格，生成一个新的 PNG 副本（不会修改原图）。",
       "cropConfirm": "确认裁剪",
       "cropOriginal": "原图比例",
       "cropFree": "自由裁剪",

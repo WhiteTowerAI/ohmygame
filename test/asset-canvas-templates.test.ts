@@ -59,7 +59,7 @@ describe("pixel asset workflows", () => {
     expect(classic).toContain("64×64 pixels");
     expect(classic).not.toContain("Use no more than 8 colors");
     expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("256×256 pixels");
+    expect(detailed).toContain("128×128 pixels");
     expect(detailed).toContain("Use no more than 48 colors");
     expect(detailed).toContain("Never reuse coarse or classic block sizes for detailed output");
     expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
@@ -74,7 +74,7 @@ describe("pixel asset workflows", () => {
     const crescent = effectLibraryPrompt(effectPresetById("blue-white-crescent-slash").prompt, "original", "sample", "", "detailed");
     for (const prompt of [fire, trail, crescent]) {
       expect(prompt).toContain("DETAILED EFFECT PIXEL RULES");
-      expect(prompt).toContain("full 15% transparent margin");
+      expect(prompt).toContain("clear transparent margin");
     }
     expect(fire).toContain("separately articulated narrow yellow and gold inner flame tongues");
     expect(trail).toContain("hairline white-cyan lightning core");
@@ -222,7 +222,7 @@ describe("pixel asset workflows", () => {
 
   it("keeps distinct size, palette, and shading budgets without output-width examples", () => {
     const settings = [
-      ["coarse", 32, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 192, 48, "4–6"],
+      ["coarse", 32, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 128, 48, "4–6"],
     ] as const;
     for (const [level, size, colors, tones] of settings) {
       const prompt = withPixelArtLevel("USER REQUEST: wizard", level);
@@ -237,7 +237,7 @@ describe("pixel asset workflows", () => {
 
   it("separates whole reference-sheet dimensions from full-body sprite budgets", () => {
     for (const [level, size, width, height] of [
-      ["coarse", 32, 128, 72], ["classic", 64, 256, 144], ["detailed", 192, 768, 432],
+      ["coarse", 32, 128, 72], ["classic", 64, 256, 144], ["detailed", 128, 512, 288],
     ] as const) {
       const prompt = canvasImagePresetPrompt("character-sheet", "blue-haired wizard", "pixel", 1, level);
       expect(prompt).toContain(`entire 16:9 reference sheet on a ${width}×${height} logical pixel canvas`);
@@ -301,7 +301,7 @@ describe("pixel asset workflows", () => {
   });
 
   it.each([
-    ["coarse", 32, 96, 16], ["classic", 64, 160, 32], ["detailed", 192, 480, 128],
+    ["coarse", 32, 96, 16], ["classic", 64, 160, 32], ["detailed", 128, 320, 96],
   ] as const)("computes per-cell and complete-sheet dimensions for %s layouts", (level, sprite, scene, tile) => {
     const actions = actionSheetPrompt("walk", "", level);
     expect(actions).toContain(`per frame: ${sprite}×${sprite} pixels`);

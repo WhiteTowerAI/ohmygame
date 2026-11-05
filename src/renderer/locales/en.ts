@@ -2520,9 +2520,9 @@ const en = {
       animationStep3Body: "After splitting, select all 12 frame images in frame order, open \"Frame Animation\" in the toolbar above the images, and choose \"Compose GIF\". Examples at each pixel density are shown below.",
       gifPreviewTitle: "{{level}} · Example",
       levelDescriptions: {
-        coarse: "Oversized pixel blocks, minimal facial features, and up to 8 subject colors.",
+        coarse: "Extra-chunky oversized pixel blocks, bold silhouettes, minimal facial features, and up to 8 subject colors.",
         classic: "Medium pixel clusters, compact accents, and up to 16 subject colors.",
-        detailed: "Fine square pixels, controlled secondary detail, and up to 48 subject colors.",
+        detailed: "Much finer square pixels, stronger material texture and layered shading, and up to 64 subject colors.",
       },
       search: "Search this category",
       categoriesLabel: "Pixel asset categories",
@@ -2619,7 +2619,9 @@ const en = {
     characterTools: {
       characterPlaceholder: "Describe the character, outfit, colors, and art style",
     },
-    mediaTools: {
+      mediaTools: {
+        "fix-pixel-art": "Fix pixel art",
+      fixPixelArtHint: "Detect and align an existing pixel grid, then create a new PNG copy (the original is unchanged).",
       "cropConfirm": "Apply crop",
       "cropOriginal": "Original ratio",
       "cropFree": "Freeform",
