@@ -23,6 +23,8 @@ export interface AgentRuntimeDefault {
 export interface AgentRuntimeSettings {
   enabled: boolean;
   autoContinue: boolean;
+  /** Claude Code only; see `CLAUDE_CODE_ENTRYPOINT` in the service. */
+  identifyAsOhMyGame: boolean;
   permissionMode: AgentPermissionMode;
   binaryPath?: string;
   defaultProfileId?: string;
@@ -30,7 +32,7 @@ export interface AgentRuntimeSettings {
 
 /** Every runtime is off until enabled, and asks nothing once it is, as OhMyGame's own agent does. */
 function defaults(id: AgentRuntimeId): AgentRuntimeSettings {
-  return { enabled: false, autoContinue: true, permissionMode: FULL_ACCESS_PERMISSION_MODES[id] };
+  return { enabled: false, autoContinue: true, identifyAsOhMyGame: true, permissionMode: FULL_ACCESS_PERMISSION_MODES[id] };
 }
 
 /**
@@ -129,6 +131,7 @@ export class AgentRuntimeSettingsStore {
             ? stored.enabled
             : defaults(id).enabled,
         autoContinue: stored.autoContinue !== false,
+        identifyAsOhMyGame: stored.identifyAsOhMyGame !== false,
         ...(isAccountRuntimeId(id) && typeof stored.defaultProfileId === "string" && this.profiles(id).some((profile) => profile.id === stored.defaultProfileId) ? { defaultProfileId: stored.defaultProfileId } : {}),
         permissionMode: storedPermissionMode(
           id,

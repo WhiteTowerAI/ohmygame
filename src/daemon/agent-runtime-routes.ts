@@ -15,6 +15,7 @@ const updateAgentRuntimeSchema = {
       enabled: { type: "boolean" },
       // Each agent's own modes; the service checks the mode belongs to the agent.
       autoContinue: { type: "boolean" },
+      identifyAsOhMyGame: { type: "boolean" },
       permissionMode: { enum: [...new Set(Object.values(AGENT_PERMISSION_MODES).flat())] },
       binaryPath: { type: "string", maxLength: 4_096 },
       defaultProfileId: { type: "string", minLength: 1, maxLength: 80 },
@@ -71,7 +72,7 @@ export function registerAgentRuntimeRoutes(app: FastifyInstance, { agentRuntimes
     try {
       const status = await agentRuntimes.update(request.params.runtimeId, request.body);
       // Open conversations pick up how the agent runs with their next message.
-      if (request.body.permissionMode !== undefined || request.body.binaryPath !== undefined) agents.releaseRuntimeSessions(request.params.runtimeId);
+      if (request.body.permissionMode !== undefined || request.body.binaryPath !== undefined || request.body.identifyAsOhMyGame !== undefined) agents.releaseRuntimeSessions(request.params.runtimeId);
       return status;
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });

@@ -71,6 +71,8 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
   expect(store.get("codex-cli").enabled).toBe(false);
   expect(store.get("codex-cli").permissionMode).toBe(":danger-full-access");
   expect(store.get("codex-cli").autoContinue).toBe(true);
+  expect(store.get("claude-code-cli").identifyAsOhMyGame).toBe(true);
+  await store.update("claude-code-cli", { identifyAsOhMyGame: false });
   await store.update("codex-cli", {
     enabled: true,
     autoContinue: false,
@@ -90,6 +92,7 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
   expect(restarted.get("codex-cli").enabled).toBe(true);
   expect(restarted.get("codex-cli").autoContinue).toBe(false);
   expect(restarted.get("claude-code-cli").autoContinue).toBe(true);
+  expect(restarted.get("claude-code-cli").identifyAsOhMyGame).toBe(false);
   // A choice saved after the move to asking nothing is kept.
   expect(restarted.get("codex-cli").permissionMode).toBe(":workspace");
   expect(restarted.get("opencode-cli").enabled).toBe(false);

@@ -15,6 +15,7 @@ const agent = (
   name,
   enabled,
   autoContinue: true,
+  ...(id === "claude-code-cli" ? { identifyAsOhMyGame: true } : {}),
   installed: true,
   version: "1.0.0",
   auth: { status: "signed-in", billing: "subscription" },
@@ -257,6 +258,13 @@ it("offers each agent's own permission modes and says what the chosen one means"
   expect(bypass.checked).toBe(true);
   expect(host.textContent).toContain(trust);
   expect(host.textContent).not.toContain("Command sandbox");
+  const identify = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Report OhMyGame as the client"]')!;
+  expect(identify.getAttribute("aria-checked")).toBe("true");
+  await act(async () => identify.click());
+  expect(api.updateAgentRuntime).toHaveBeenCalledWith("claude-code-cli", { identifyAsOhMyGame: false });
+  // Only Claude Code reports which client runs it.
+  await detail("codex-cli");
+  expect(host.querySelector('[aria-label="Report OhMyGame as the client"]')).toBeNull();
 });
 
 it("refreshes account limits when the model probe finishes after the first status read", async () => {

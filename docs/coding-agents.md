@@ -124,6 +124,16 @@ message waits for it. A turn in a plan, or a compaction, does not continue by
 itself. The card's switch, or the one on the agent's settings page, turns it off
 for that agent.
 
+Claude Code run with `-p` reports itself as `sdk-cli`, and subscription
+measurements show that label using the 5-hour limit about twice as fast as the
+interactive CLI for the same work
+([anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074);
+Anthropic has not confirmed it). **Report OhMyGame as the client**, on by default
+on Claude Code's settings page, sets `CLAUDE_CODE_ENTRYPOINT=ohmygame` for
+conversations: OhMyGame's own name, never another client's. Sign-in and model
+checks keep the CLI's default. Open conversations follow a change with their
+next message, as they do for a permission change.
+
 ![Claude Code and Codex quotas labeled as used (sample data)](assets/agent-usage-used-label.png)
 
 ![Compact quota percentages in the slash menu (sample data)](assets/agent-usage-compact.png)
@@ -504,7 +514,8 @@ protocol compatibility and model catalogs; they do not send inference prompts.
 ## Settings and API
 
 `agent-runtimes.json` in the data directory stores, per agent, `enabled`
-(default off), `permissionMode` (one of the
+(default off), `autoContinue` and, for Claude Code, `identifyAsOhMyGame` (both
+default on), `permissionMode` (one of the
 agent's own modes, default the one that asks nothing), an optional absolute
 `binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
@@ -512,7 +523,7 @@ back to the defaults. Credentials remain in the CLI's own store.
 | Route                                                     | Purpose                                                                |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |
-| `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `permissionMode`, `binaryPath` |
+| `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `identifyAsOhMyGame` (Claude Code), `permissionMode`, `binaryPath` |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
 | `GET /agent-runtimes/:id/profiles`, `POST /agent-runtimes/:id/profiles` | List or add Claude Code/Codex account configurations |
 | `DELETE /agent-runtimes/:id/profiles/:profileId` | Remove an account; managed files are deleted, imported files kept |

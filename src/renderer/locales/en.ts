@@ -1919,6 +1919,8 @@ const en = {
     permissions: "Permissions",
     autoContinue: "Continue after a usage limit resets",
     autoContinueHint: "When {{name}} stops at its usage limit, send one message to carry on once the limit resets. OhMyGame must stay open.",
+    identifyAsOhMyGame: "Report OhMyGame as the client",
+    identifyAsOhMyGameHint: "Claude Code counts conversations it runs for other apps against the 5-hour limit about twice as fast. With this on, it reports OhMyGame instead. Anthropic has not confirmed this weighting. Open conversations follow a change with their next message.",
     permissionModesHint: "These are {{name}}’s own permission modes. What it asks appears in the conversation. Planning is always read-only.",
     permissionMode: {
       claudeDefault: "Manual",

@@ -1898,6 +1898,8 @@ const zhCN: typeof en = {
     permissions: "权限",
     autoContinue: "用量上限重置后自动继续",
     autoContinueHint: "{{name}} 因用量上限停下时，在上限重置后发送一条消息让它接着做。需要保持 OhMyGame 打开。",
+    identifyAsOhMyGame: "将客户端报告为 OhMyGame",
+    identifyAsOhMyGameHint: "Claude Code 为其他应用运行的对话，消耗 5 小时额度约快一倍。开启后它会报告客户端为 OhMyGame。Anthropic 尚未确认这一计算方式。修改后，已打开的对话从下一条消息起生效。",
     permissionModesHint: "这些是 {{name}} 自己的权限模式。它的询问会显示在对话中。规划始终只读。",
     permissionMode: {
       claudeDefault: "手动",
