@@ -95,6 +95,7 @@ describe("renderer routes", () => {
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
     expect(parseAppRoute("#/settings/agents/claude-code-cli")).toEqual({ page: "settings", section: "agents", agent: "claude-code-cli" });
+    expect(parseAppRoute("#/settings/agents/agent.acme.fake-acp.fake")).toEqual({ page: "settings", section: "agents", agent: "agent.acme.fake-acp.fake" });
     expect(settingsHash("agents", "ohmygame")).toBe("#/settings/agents/ohmygame");
     expect(settingsHash("providers", "ohmygame")).toBe("#/settings/providers");
     expect(parseAppRoute("#/settings/usage")).toEqual({ page: "home" });

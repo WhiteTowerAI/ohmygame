@@ -10,6 +10,7 @@ import {
   ACCOUNT_RUNTIME_IDS,
   AGENT_RUNTIME_IDS,
   isAccountRuntimeId,
+  isBuiltInAgentRuntimeId,
   isAgentRuntimeId,
   type AccountRuntimeId,
   type AccountProfileIds,
@@ -24,7 +25,12 @@ import {
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
 import type { EffectiveMcpConfig, McpGuard, PluginMcpHost } from "../plugin-mcp-host.js";
-import { AGENT_RUNTIME_DEFINITIONS } from "./definitions.js";
+import {
+  agentRuntimeDefinition,
+  agentRuntimeIds,
+  findAgentRuntimeDefinition,
+} from "./definitions.js";
+import { AcpDriver } from "./acp.js";
 import {
   AgentRuntimeCompatibilityError,
   checkRuntimeVersionRequirement,
@@ -153,6 +159,7 @@ export class AgentRuntimeService {
   #deleting = new Set<string>();
   #logins = new Map<string, () => Promise<void>>();
   #limitWrites: Promise<void> = Promise.resolve();
+  #pluginAgents: Promise<void> = Promise.resolve();
   readonly #root: string;
 
   constructor(
@@ -205,7 +212,34 @@ export class AgentRuntimeService {
   }
 
   async statuses(recheck = false): Promise<AgentRuntimeStatus[]> {
-    return Promise.all(AGENT_RUNTIME_IDS.map((id) => this.status(id, recheck)));
+    // Built-in agents start now, pinning their accounts; plugin agents once they are known.
+    const builtIn = AGENT_RUNTIME_IDS.map((id) => this.status(id, recheck));
+    await this.#pluginAgents;
+    const plugins = agentRuntimeIds()
+      .filter((id) => !isBuiltInAgentRuntimeId(id))
+      .map((id) => this.status(id, recheck));
+    return Promise.all([...builtIn, ...plugins]);
+  }
+
+  /** Agents read the plugins' agents once this settles, as after startup or a plugin change. */
+  pluginAgentsChanging(work: Promise<void>): void {
+    this.#pluginAgents = work;
+  }
+
+  /** Whether the agent exists, once the plugins' agents are known. */
+  async known(id: AgentRuntimeId): Promise<boolean> {
+    await this.#pluginAgents;
+    return this.has(id);
+  }
+
+  /** Forgets what was checked about an agent, as when its plugin changes how it starts. */
+  forget(id: AgentRuntimeId): void {
+    this.#invalidate(id);
+  }
+
+  /** Whether the agent is built in, or added by a plugin that is installed and on. */
+  has(id: AgentRuntimeId): boolean {
+    return !!findAgentRuntimeDefinition(id);
   }
 
   /** Media can use Codex's sign-in without enabling it as a conversation agent. */
@@ -230,7 +264,7 @@ export class AgentRuntimeService {
     const cacheKey = this.#key(id, profileId);
     if (recheck) this.#invalidate(id);
     const revision = this.#revisions.get(cacheKey);
-    const definition = AGENT_RUNTIME_DEFINITIONS[id];
+    const definition = agentRuntimeDefinition(id);
     const settings = this.settings.get(id);
     const binary = await resolveBinary(id, settings.binaryPath, recheck);
     if (this.#revisions.get(cacheKey) !== revision) return this.status(id, false, profileId);
@@ -238,7 +272,10 @@ export class AgentRuntimeService {
     const base = {
       id,
       name: definition.name,
-      testedVersion: definition.testedVersion,
+      ...(definition.testedVersion
+        ? { testedVersion: definition.testedVersion }
+        : {}),
+      ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       permissionMode: settings.permissionMode,
@@ -259,7 +296,9 @@ export class AgentRuntimeService {
             message: settings.binaryPath
               ? `The configured executable is missing or not executable: ${settings.binaryPath}`
               : `${definition.name} was not found on PATH or in the usual install folders`,
-            ...(!settings.binaryPath ? { command: definition.installUrl } : {}),
+            ...(!settings.binaryPath && definition.installUrl
+              ? { command: definition.installUrl }
+              : {}),
           },
         ],
       };
@@ -342,17 +381,22 @@ export class AgentRuntimeService {
   /** Models of the enabled agents that are installed. One that is slow to answer is left out this time, not waited for. */
   async models(profileIds: AccountProfileIds = {}): Promise<{ models: AgentModel[]; loading: AgentRuntimeId[] }> {
     const loading: AgentRuntimeId[] = [];
-    const lists = await Promise.all(
-      AGENT_RUNTIME_IDS.map(async (id) => {
-        if (!this.settings.get(id).enabled) return [];
-        const result = await withinModelsWait(
-          this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]),
-        );
-        if (result) return result;
-        loading.push(id);
-        return [];
-      }),
-    );
+    const load = async (id: AgentRuntimeId) => {
+      if (!this.settings.get(id).enabled) return [];
+      const result = await withinModelsWait(
+        this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]),
+      );
+      if (result) return result;
+      loading.push(id);
+      return [];
+    };
+    // Built-in agents start now, pinning their accounts; plugin agents once they are known.
+    const builtIn = AGENT_RUNTIME_IDS.map(load);
+    await this.#pluginAgents;
+    const lists = await Promise.all([
+      ...builtIn,
+      ...agentRuntimeIds().filter((id) => !isBuiltInAgentRuntimeId(id)).map(load),
+    ]);
     return { models: lists.flat(), loading };
   }
 
@@ -381,7 +425,7 @@ export class AgentRuntimeService {
 
   /** Starts the CLI's own sign-in. A browser page comes back when the CLI hands one out; otherwise the command to run. */
   async login(id: AgentRuntimeId, profileId?: string): Promise<AgentRuntimeLoginResponse> {
-    const definition = AGENT_RUNTIME_DEFINITIONS[id];
+    const definition = agentRuntimeDefinition(id);
     const binary = await resolveBinary(id, this.settings.get(id).binaryPath);
     if (!binary) throw new Error(`${definition.name} is not installed`);
     const loginProfileId = isAccountRuntimeId(id) ? this.#profileId(id, profileId) : undefined;
@@ -461,9 +505,10 @@ export class AgentRuntimeService {
     request: NativeSessionRequest,
   ): Promise<NativeCodingSession> {
     request = { ...request, profileId: isAccountRuntimeId(request.runtime) ? this.#profileId(request.runtime, request.profileId) : undefined };
+    if (!isBuiltInAgentRuntimeId(request.runtime)) await this.#pluginAgents;
     const settings = this.settings.get(request.runtime);
     const cacheKey = this.#key(request.runtime, request.profileId);
-    const definition = AGENT_RUNTIME_DEFINITIONS[request.runtime];
+    const definition = agentRuntimeDefinition(request.runtime);
     if (!settings.enabled)
       throw new Error(
         `${definition.name} is turned off. Turn it on in Settings → Agents to continue.`,
@@ -571,6 +616,14 @@ export class AgentRuntimeService {
         return new ClaudeCodeDriver(driverContext);
       if (request.runtime === "codex-cli")
         return new CodexDriver(driverContext);
+      if (definition.acp)
+        return new AcpDriver(driverContext, {
+          name: definition.name,
+          args: definition.acp.args,
+          ...(definition.loginCommand
+            ? { loginCommand: definition.loginCommand }
+            : {}),
+        });
       return new OpenCodeDriver(driverContext);
     };
     return new NativeCodingSession({
@@ -644,7 +697,8 @@ export class AgentRuntimeService {
           if (!entry.handlers.signal.aborted && entry.handlers.active())
             entry.handlers.observe(call, outcome);
         },
-        entry.handlers.signal,
+        entry.handlers.callSignal?.() ?? entry.handlers.signal,
+        entry.handlers.listAll ? "all" : "active",
       );
       if (answer) answers.push(answer);
     }
@@ -867,7 +921,7 @@ export class AgentRuntimeService {
     if (running) return running;
     const revision = this.#revisions.get(cacheKey);
     const work = (async () => {
-      const definition = AGENT_RUNTIME_DEFINITIONS[id];
+      const definition = agentRuntimeDefinition(id);
       const env = await this.#environment(id, binary.path, profileId);
       const diagnostics: AgentRuntimeDiagnostic[] = [];
       let version: string | undefined;
@@ -961,7 +1015,7 @@ export class AgentRuntimeService {
       });
       const folder = await privateFolder(path.join(this.#root, "probes"), id);
       try {
-        const { models, account, limits } = await probeModels(
+        const { models, account, limits, signedOut } = await probeModels(
           binary.path,
           id,
           env,
@@ -974,13 +1028,26 @@ export class AgentRuntimeService {
           at: Date.now(),
         });
         this.#modelErrors.delete(cacheKey);
-        if (!models.length)
+        const name = agentRuntimeDefinition(id).name;
+        if (signedOut) {
+          const probe = this.#probes.get(cacheKey);
+          if (probe) probe.auth = { status: "signed-out", billing: probe.auth.billing };
+          this.#modelErrors.set(cacheKey, {
+            signature: binary.signature,
+            at: Date.now(),
+            diagnostic: {
+              code: "signed-out",
+              message: `${name} is not signed in`,
+              command: signInCommand(id, binary.path, env),
+            },
+          });
+        } else if (!models.length)
           this.#modelErrors.set(cacheKey, {
             signature: binary.signature,
             at: Date.now(),
             diagnostic: {
               code: "models-unavailable",
-              message: `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`,
+              message: `${name} returned an empty model catalog. Check sign-in and CLI protocol support.`,
             },
           });
         if (limits) this.#recordLimits(cacheKey, limits);
@@ -1023,9 +1090,23 @@ export class AgentRuntimeService {
  * folder. System default clears the variable, which the person's terminal may
  * set even when OhMyGame was launched without it.
  */
+/** A command line for the person to read: a part that isn't plain is quoted, so spaces and line breaks show. */
+function commandLine(parts: readonly string[]): string {
+  return parts.map((part) => /^[\w@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part)).join(" ");
+}
+
 function signInCommand(id: AgentRuntimeId, binaryPath: string, env: Record<string, string>): string {
   const variable = id === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : id === "codex-cli" ? "CODEX_HOME" : undefined;
-  if (!variable) return AGENT_RUNTIME_DEFINITIONS[id].loginCommand;
+  if (!variable) {
+    const definition = agentRuntimeDefinition(id);
+    // An agent that names no sign-in command signs in when it runs on its own.
+    return (
+      definition.loginCommand ??
+      (process.platform === "win32"
+        ? `& '${binaryPath.replaceAll("'", "''")}'`
+        : `'${binaryPath.replaceAll("'", "'\\''")}'`)
+    );
+  }
   const directory = env[variable];
   const args = id === "codex-cli" ? "login" : "auth login";
   if (process.platform === "win32") {

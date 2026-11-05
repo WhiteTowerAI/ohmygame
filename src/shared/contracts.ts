@@ -114,7 +114,18 @@ export interface ProviderSummary extends ModelProviderSummary {
   enabled?: boolean;
   custom?: boolean;
   preset?: CustomProviderPreset;
+  /** A provider an installed plugin adds; it is set up on the plugin's page. */
+  plugin?: PluginProviderInfo;
   error?: string;
+}
+
+export interface PluginProviderInfo {
+  /** The plugin's id, `publisher/name`. */
+  id: string;
+  name: string;
+  baseUrl: string;
+  /** The title of the plugin's setting that holds the key, when it needs one. */
+  keyField?: string;
 }
 
 export interface CustomProviderSettings {

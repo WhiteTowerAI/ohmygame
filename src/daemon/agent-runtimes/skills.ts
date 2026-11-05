@@ -1,9 +1,13 @@
 import { cp, mkdir, readdir, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import {
+  isBuiltInAgentRuntimeId,
+  type AgentRuntimeId,
+  type BuiltInAgentRuntimeId,
+} from "../../shared/agent-runtimes.js";
 import { skillMentionRanges } from "../../shared/skill-mentions.js";
 
-const STAGED_SKILLS: Record<AgentRuntimeId, string> = {
+const STAGED_SKILLS: Record<BuiltInAgentRuntimeId, string> = {
   // Claude Code reads Skills from a plugin of the session's own.
   "claude-code-cli": path.join("claude-plugin", "skills"),
   "codex-cli": "codex-skills",
@@ -15,7 +19,10 @@ export function stagedSkillsRoot(
   runtime: AgentRuntimeId,
   privateDirectory: string,
 ): string {
-  return path.join(privateDirectory, STAGED_SKILLS[runtime]);
+  return path.join(
+    privateDirectory,
+    isBuiltInAgentRuntimeId(runtime) ? STAGED_SKILLS[runtime] : "skills",
+  );
 }
 
 /**

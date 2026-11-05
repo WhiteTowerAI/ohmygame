@@ -1142,6 +1142,14 @@ body {
   overflow-wrap: anywhere;
 }
 
+.coding-agent-launch {
+  display: block;
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .coding-agent-command .icon-button {
   width: 22px;
   height: 22px;

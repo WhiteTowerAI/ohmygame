@@ -14,7 +14,9 @@ import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { OpenCodeDriver } from "../src/daemon/agent-runtimes/opencode.js";
 import { createServer, type ServerResponse } from "node:http";
-import type { DriverContext } from "../src/daemon/agent-runtimes/driver-context.js";
+import type { DriverContext, HttpBridgeHandlers } from "../src/daemon/agent-runtimes/driver-context.js";
+import { AcpDriver } from "../src/daemon/agent-runtimes/acp.js";
+import { setPluginAgentDefinitions } from "../src/daemon/agent-runtimes/definitions.js";
 import type {
   NativeToolResult,
   NativeTurnSink,
@@ -2843,4 +2845,417 @@ describe("OpenCode adapter", () => {
       expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
     },
   );
+});
+
+describe("ACP adapter", () => {
+  const PLUGIN_AGENT = "agent.acme.gem.gemini" as const;
+  afterEach(() => setPluginAgentDefinitions([]));
+
+  /** A fake agent speaking the Agent Client Protocol; `prompt` plays each turn. */
+  function acpAgent(
+    options: {
+      loadSession?: boolean;
+      authRequired?: boolean;
+      prompt?: (turn: {
+        message: Record<string, unknown>;
+        update: (update: Record<string, unknown>) => void;
+        ask: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        reply: (result: unknown) => void;
+      }) => void | Promise<void>;
+    } = {},
+  ) {
+    const received: Record<string, unknown>[] = [];
+    const waiting = new Map<number, (result: Record<string, unknown>) => void>();
+    let next = 1_000;
+    const clis = fakeCli(async (message, cli) => {
+      if (message.type === "spawned") return;
+      received.push(message);
+      const reply = (result: unknown) =>
+        cli.send({ jsonrpc: "2.0", id: message.id, result });
+      if (message.method === undefined && typeof message.id === "number") {
+        waiting.get(message.id)?.(message.result as Record<string, unknown>);
+        return;
+      }
+      const update = (value: Record<string, unknown>) =>
+        cli.send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "s1", update: value },
+        });
+      switch (message.method) {
+        case "initialize":
+          return reply({
+            protocolVersion: 1,
+            agentCapabilities: {
+              loadSession: options.loadSession === true,
+              promptCapabilities: { image: true },
+              mcpCapabilities: { http: true },
+            },
+            authMethods: [],
+          });
+        case "session/new":
+          if (options.authRequired)
+            return cli.send({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32000, message: "Authentication required" },
+            });
+          return reply({
+            sessionId: "s1",
+            modes: {
+              currentModeId: "default",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+            configOptions: [
+              {
+                id: "model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: "fast",
+                options: [
+                  { value: "fast", name: "Fast" },
+                  { group: "pro", name: "Pro", options: [{ value: "smart", name: "Smart" }] },
+                ],
+              },
+              {
+                id: "effort",
+                name: "Effort",
+                category: "thought_level",
+                type: "select",
+                currentValue: "low",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          });
+        case "session/load":
+          // Loading replays history, which the conversation already shows.
+          update({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "old reply" },
+          });
+          // A session last used for planning comes back in its plan mode.
+          return reply({
+            modes: {
+              currentModeId: "plan",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+          });
+        case "session/set_config_option":
+        case "session/set_mode":
+          return reply({});
+        case "session/prompt":
+          return options.prompt?.({
+            message,
+            update,
+            reply,
+            ask: (params) =>
+              new Promise((resolve) => {
+                const id = next++;
+                waiting.set(id, resolve);
+                cli.send({
+                  jsonrpc: "2.0",
+                  id,
+                  method: "session/request_permission",
+                  params: { sessionId: "s1", ...params },
+                });
+              }),
+          });
+      }
+    });
+    return { received, clis };
+  }
+
+  const permissionOptions = [
+    { optionId: "yes", name: "Allow", kind: "allow_once" },
+    // A label naming a folder called ohmygame grants nothing by itself.
+    { optionId: "always", name: "Always allow edits in ohmygame/", kind: "allow_always" },
+    { optionId: "no", name: "Reject", kind: "reject_once" },
+  ];
+
+  it("reads a plugin agent's models and reasoning levels, and whether it needs signing in", async () => {
+    setPluginAgentDefinitions([
+      {
+        id: PLUGIN_AGENT,
+        name: "Gemini",
+        binaries: ["gemini"],
+        versionArgs: ["--version"],
+        acp: { plugin: "acme/gem", args: ["--acp"] },
+      },
+    ]);
+    const { clis, received } = acpAgent();
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-acp-probe-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const probed = await discovery.probeModels("/bin/gemini", PLUGIN_AGENT, {}, directory);
+    expect(clis[0]!.args).toEqual(["--acp"]);
+    expect(received.find((message) => message.method === "session/new")?.params).toEqual({
+      cwd: directory,
+      mcpServers: [],
+    });
+    expect(probed.models.map((model) => [model.id, model.name, model.nativeReasoningLevels])).toEqual([
+      ["fast", "Fast", ["low", "high"]],
+      ["smart", "Smart", ["low", "high"]],
+    ]);
+    expect(probed.models[0]).toMatchObject({ provider: PLUGIN_AGENT, providerName: "Gemini" });
+    acpAgent({ authRequired: true });
+    await expect(
+      discovery.probeModels("/bin/gemini", PLUGIN_AGENT, {}, directory),
+    ).resolves.toEqual({ models: [], signedOut: true });
+  });
+
+  it("streams a turn, asks what the agent asks and shows OhMyGame's tools with their results", async () => {
+    let handlers: HttpBridgeHandlers | undefined;
+    const { received } = acpAgent({
+      prompt: async ({ update, ask, reply }) => {
+        expect(handlers!.active()).toBe(true);
+        // OhMyGame's tools stop with the turn, not with the agent's process.
+        expect(handlers!.callSignal!()).toBe(turnSignal);
+        update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello" } });
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Run tests",
+          kind: "execute",
+          status: "pending",
+          rawInput: { command: "npm test" },
+        });
+        const answer = await ask({ toolCall: { toolCallId: "t1" }, options: permissionOptions });
+        expect(answer).toEqual({ outcome: { outcome: "selected", optionId: "always" } });
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "t1",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "ok" } }],
+        });
+        // An OhMyGame tool, titled with its arguments as some agents do.
+        update({ sessionUpdate: "tool_call", toolCallId: "t2", title: '{"value":"hi"}', kind: "other", status: "in_progress" });
+        handlers!.observe(
+          { name: "echo_tool", args: { value: "hi" }, callId: "echo_tool:7" },
+          { result: { content: [{ type: "text", text: "echo hi" }] }, isError: false },
+        );
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: "completed" });
+        // One named the way MCP clients prefix tools needs no permission.
+        update({ sessionUpdate: "tool_call", toolCallId: "t3", title: "mcp__ohmygame__echo_tool", kind: "other" });
+        expect(await ask({ toolCall: { toolCallId: "t3" }, options: permissionOptions })).toEqual({
+          outcome: { outcome: "selected", optionId: "yes" },
+        });
+        update({ sessionUpdate: "usage_update", used: 1200, size: 200000 });
+        reply({
+          stopReason: "end_turn",
+          usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 2, cachedWriteTokens: 0, totalTokens: 17 },
+        });
+      },
+    });
+    const driver = new AcpDriver(
+      await context({
+        model: "smart",
+        permissionMode: "default",
+        httpBridge: async (registered) => {
+          handlers = registered;
+          return { url: "http://127.0.0.1:1/agent-runtime-bridge/mcp", token: "tok", revoke: () => {} };
+        },
+      }),
+      { name: "Gemini", args: ["--acp"] },
+    );
+    const recording = recordingSink(() => "allow-always");
+    const turnSignal = new AbortController().signal;
+    const outcome = await driver.runTurn(
+      { text: "Do it", images: [{ type: "image", mimeType: "image/png", data: "AAAA" }], readOnly: false },
+      recording.sink,
+      turnSignal,
+    );
+    expect(handlers!.callSignal!()).toBeUndefined();
+    expect(outcome).toEqual({ status: "completed" });
+    expect(handlers!.listAll).toBe(true);
+    expect(recording.sessionId()).toBe("s1");
+    expect(received.find((message) => message.method === "session/new")?.params).toEqual({
+      cwd: "/tmp/workspace",
+      mcpServers: [
+        {
+          type: "http",
+          name: "ohmygame",
+          url: "http://127.0.0.1:1/agent-runtime-bridge/mcp",
+          headers: [{ name: "Authorization", value: "Bearer tok" }],
+        },
+      ],
+    });
+    expect(
+      received
+        .filter((message) => message.method === "session/set_config_option")
+        .map((message) => message.params),
+    ).toEqual([
+      { sessionId: "s1", configId: "model", value: "smart" },
+      { sessionId: "s1", configId: "effort", value: "high" },
+    ]);
+    const prompt = (received.find((message) => message.method === "session/prompt")!.params as { prompt: Array<Record<string, unknown>> }).prompt;
+    expect(prompt[0]!.text).toContain("Project instructions");
+    expect(prompt.slice(1)).toEqual([
+      { type: "text", text: "Do it" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+    ]);
+    expect(recording.calls).toEqual([
+      "thinking:thought-0:Thinking",
+      "text:text-0:Hello",
+      "thinkingDone:thought-0",
+      "textDone:text-0",
+      'toolCall:t1:bash:{"command":"npm test","description":"Run tests"}',
+      "toolStarted:t1",
+      "toolResult:t1:false",
+      'toolCall:ohmygame:echo_tool:7:echo_tool:{"value":"hi"}',
+      "toolStarted:ohmygame:echo_tool:7",
+      "toolResult:ohmygame:echo_tool:7:false",
+      "usage:0:0:200000:1200",
+    ]);
+    expect(recording.results.get("t1")?.result.content).toEqual([{ type: "text", text: "ok" }]);
+    expect(recording.asked).toEqual([
+      expect.objectContaining({
+        kind: "command",
+        tool: "Run tests",
+        command: "npm test",
+        always: { scope: "saved", rules: ["Always allow edits in ohmygame/"] },
+      }),
+    ]);
+    expect(recording.spent).toEqual(["10:5:2:0"]);
+  });
+
+  it("plans in the agent's plan mode, refusing what it asks, then returns to its working mode", async () => {
+    const answers: unknown[] = [];
+    const { received } = acpAgent({
+      prompt: async ({ ask, reply }) => {
+        answers.push(await ask({ toolCall: { toolCallId: "w", title: "Write file", kind: "edit" }, options: permissionOptions }));
+        reply({ stopReason: "end_turn" });
+      },
+    });
+    const driver = new AcpDriver(await context({ permissionMode: "allow" }), { name: "Gemini", args: [] });
+    const recording = recordingSink(() => "allow");
+    for (const readOnly of [true, false])
+      expect(
+        await driver.runTurn({ text: "go", images: [], readOnly }, recording.sink, new AbortController().signal),
+      ).toEqual({ status: "completed" });
+    expect(
+      received.filter((message) => message.method === "session/set_mode").map((message) => message.params),
+    ).toEqual([
+      { sessionId: "s1", modeId: "plan" },
+      { sessionId: "s1", modeId: "default" },
+    ]);
+    // Planning refuses; Allow all allows without asking.
+    expect(answers).toEqual([
+      { outcome: { outcome: "selected", optionId: "no" } },
+      { outcome: { outcome: "selected", optionId: "yes" } },
+    ]);
+    expect(recording.asked).toEqual([]);
+    // Only a new session's first prompt carries the instructions.
+    const prompts = received.filter((message) => message.method === "session/prompt");
+    expect(JSON.stringify(prompts[1]!.params)).not.toContain("Project instructions");
+  });
+
+  it("loads the session it continues without showing its history again, or hands off when it cannot", async () => {
+    const { received } = acpAgent({
+      loadSession: true,
+      prompt: ({ update, reply }) => {
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "new reply" } });
+        reply({ stopReason: "end_turn" });
+      },
+    });
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-acp-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "# Skill\n");
+    const resumed = await context({ resume: "s1", skillDirectories: [skill] });
+    const driver = new AcpDriver(resumed, { name: "Gemini", args: [] });
+    const recording = recordingSink();
+    await driver.runTurn({ text: "again", images: [], readOnly: false }, recording.sink, new AbortController().signal);
+    expect(received.find((message) => message.method === "session/load")?.params).toMatchObject({
+      sessionId: "s1",
+      cwd: "/tmp/workspace",
+    });
+    expect(received.some((message) => message.method === "session/new")).toBe(false);
+    expect(received.find((message) => message.method === "session/set_mode")?.params).toEqual({
+      sessionId: "s1",
+      modeId: "default",
+    });
+    expect(recording.calls.filter((call) => call.startsWith("text:"))).toEqual(["text:text-0:new reply"]);
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).not.toContain(
+      "Project instructions",
+    );
+    // This process staged the Skills in its own folder, so the continued session hears where.
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
+      // As JSON writes it, with Windows backslashes escaped.
+      JSON.stringify(path.join(resumed.privateDirectory, "skills", path.basename(skill), "SKILL.md")).slice(1, -1),
+    );
+
+    acpAgent({ loadSession: false });
+    await expect(
+      new AcpDriver(await context({ resume: "s1" }), { name: "Gemini", args: [] }).runTurn(
+        { text: "again", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).rejects.toBeInstanceOf(NativeSessionExpiredError);
+  });
+
+  it("stops at once while the agent is still starting its session", async () => {
+    // This agent never answers session/new.
+    const stuck = fakeCli((message, cli) => {
+      if (message.method === "initialize")
+        cli.send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    });
+    const driver = new AcpDriver(await context(), { name: "Gemini", args: [] });
+    const turn = driver.runTurn({ text: "hi", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    await vi.waitFor(() => expect(stuck[0]).toBeDefined());
+    await vi.waitFor(() => expect(stuck[0]!.exited).not.toBe(true));
+    const started = Date.now();
+    await driver.dispose();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(await turn).toMatchObject({ status: "failed" });
+  });
+
+  it("says how to sign in when the agent needs it", async () => {
+    acpAgent({ authRequired: true });
+    const outcome = await new AcpDriver(await context(), {
+      name: "Gemini",
+      args: [],
+      loginCommand: "gemini auth",
+    }).runTurn({ text: "hi", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    expect(outcome).toEqual({
+      status: "failed",
+      error: expect.stringContaining("Gemini is not signed in. Run `gemini auth`"),
+    });
+  });
+
+  it("cancels a turn, answering what the agent was still asking as cancelled", async () => {
+    let answered: unknown;
+    let asked!: () => void;
+    const asking = new Promise<void>((resolve) => (asked = resolve));
+    const { received } = acpAgent({
+      prompt: async ({ ask, reply }) => {
+        const answer = ask({ toolCall: { toolCallId: "t", title: "Run", kind: "execute" }, options: permissionOptions });
+        asked();
+        answered = await answer;
+        reply({ stopReason: "cancelled" });
+      },
+    });
+    const driver = new AcpDriver(await context({ permissionMode: "default" }), { name: "Gemini", args: [] });
+    const controller = new AbortController();
+    const recording = recordingSink();
+    recording.sink.requestApproval = (_details, options) =>
+      new Promise((resolve) => options?.signal?.addEventListener("abort", () => resolve("deny")));
+    const turn = driver.runTurn({ text: "go", images: [], readOnly: false }, recording.sink, controller.signal);
+    await asking;
+    await vi.waitFor(() => expect(recording.calls).toContain('toolCall:t:bash:{"command":"Run","description":"Run"}'));
+    controller.abort();
+    await driver.interrupt();
+    expect(await turn).toEqual({ status: "aborted", resumable: true });
+    expect(received.some((message) => message.method === "session/cancel")).toBe(true);
+    expect(answered).toEqual({ outcome: { outcome: "cancelled" } });
+  });
 });
