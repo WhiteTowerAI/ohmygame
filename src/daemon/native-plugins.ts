@@ -7,6 +7,7 @@ import type {
 } from "../shared/extension-host-protocol.js";
 import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
 import { projectTypePlugin } from "../shared/project-file.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   ExtensionHostError,
   type ExtensionHosts,
@@ -81,6 +82,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
     ),
+    hooks: [...manifestHooks(manifest)],
   };
 }
 
@@ -206,6 +208,19 @@ export class NativePlugins {
     return this.#hosts.invoke({
       ...(await this.#call(key, entry, options)),
       projectType: `${typeId}:${hook}`,
+    });
+  }
+
+  /** Runs a plugin's handler for an event its manifest's `contributes.hooks` lists. */
+  async hook(id: string, event: string, options: PluginCallOptions): Promise<unknown> {
+    const { key, entry } = await this.#ready(options.folder, id);
+    if (options.version && options.version !== entry.version)
+      throw unavailable(`${id} is now ${entry.version}; this hook was for ${options.version}`);
+    if (!(manifestHooks(entry.manifest) as readonly string[]).includes(event))
+      throw unavailable(`${id} ${entry.version} doesn't hear ${event}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, options)),
+      hook: event,
     });
   }
 

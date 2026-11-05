@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames, pluginChangeNote, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
@@ -426,5 +426,15 @@ describe("agent tools", () => {
     expect(failing.details).toMatchObject({ playableCheck: { mode: "publish", ok: false } });
     expect(text).toMatch(/publish validation issue/);
     expect(text).toContain("missing");
+  });
+});
+
+describe("image plugin changes", () => {
+  it("tells the agent which plugins changed an image's request, and the prompt used", () => {
+    expect(pluginChangeNote({})).toBe("");
+    expect(pluginChangeNote({ prompt: "a cat, pixel art", pluginChanges: [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt", "aspectRatio"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/style 1.0.0 (prompt, aspectRatio). The prompt used was: a cat, pixel art");
+    expect(pluginChangeNote({ prompt: "a cat", pluginChanges: [{ plugin: "acme/size", version: "2.0.0", fields: ["size"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/size 2.0.0 (size).");
   });
 });

@@ -109,6 +109,46 @@ that means and what the person approves. Wherever `native` is allowed (adding a
 plugin, turning it on, creating a project that turns it on) the app warns that
 its code runs with the person's own access (`NativeCodeWarning`).
 
+### Hooks
+
+`contributes.hooks` lists the events a plugin's native code hears about in
+a project, and `context.registerHook(event, handler)` registers a handler
+for one; the entry can't register an event the manifest doesn't list.
+What each handler receives is `PluginHookInputs` in
+`src/shared/plugin-hooks.ts`, and `src/daemon/plugin-hooks.ts` runs them.
+Only plugins that are on in the project hear anything, in its extension
+host, and the add review and the plugin's page list the events.
+
+| Event | When | Input |
+| --- | --- | --- |
+| `asset.added` | A generated asset is saved in the project, or a Library asset is added to it | `path`, `origin` (`generated` or `imported`), `prompt` |
+| `turn.completed` | A run's turns are closed, however the run ended | `conversationId`, `status`, `changes` (each file once, at most 500) |
+| `build.started`, `build.completed` | Around packing the project for export or publishing | `purpose`, then `status` with `bytes` or `error` |
+| `files.changed` | Files changed, in OhMyGame or outside it | `paths` (at most 200 every half second), `truncated` |
+| `image.beforeGenerate` | Before an image is generated in the project, by an agent, the canvas or the app | `prompt`, `imageModel`, `size` or `resolution` and `aspectRatio`, `transparentBackground`, `references` |
+
+Every hook but `image.beforeGenerate` only hears: nothing waits for it,
+and it can't stop or change what happened. It may return
+`{ notice, tone }`, which the project shows as a toast under the plugin's
+id (at most 300 characters, five in ten seconds); `tone` is `default` or
+`danger`. A hook that fails or takes over 30 seconds goes in the plugin's
+[log](#when-a-plugin-misbehaves) and nothing else happens; so does an
+`image.beforeGenerate` answer the app can't use. `.git`, `node_modules`, `.data` and `.ohmygame` aren't
+watched, and a project's files are watched only while it is open and one
+of its plugins hears `files.changed` or has a page with `project.files`.
+
+`image.beforeGenerate` may return the fields it changes: `prompt` (at most
+8,000 characters), `imageModel` (`{ provider, id }`), `transparentBackground`,
+and `size`, or `resolution` and `aspectRatio`, in the kind the request
+already uses. It can't add or remove reference images. Plugins run in the
+project's order, each seeing the one before's changes, before the image's
+model is resolved; one that fails, takes over 10 seconds, or answers with
+a field or value it can't set changes nothing. The Library keeps the
+prompt as it was generated, with `requestedPrompt` and `pluginChanges`
+(which plugin and version changed which fields), and shows them on the
+asset; the agent's result says which plugins changed the request and the
+prompt used.
+
 ## When a plugin misbehaves
 
 - **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's
@@ -204,6 +244,7 @@ was opened.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
 | Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
@@ -736,7 +777,23 @@ The app also draws around and over a page, with what a page can't change:
   10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused. The page hears a
-  `files` event when the project's files may have changed.
+  `files` event when the project's files may have changed: after an agent's
+  turn or its own change, without `paths`, and when the app sees files
+  change, in OhMyGame or outside it, with the `paths` and `truncated` that
+  `files.changed` hooks get.
+- **Composer.** With `capabilities.composer`,
+  `host.request("composer.fill", { text, attachments })` puts text after
+  what the composer holds and adds up to ten files, each
+  `{ name, data, type }` with `data` a string or Blob, within the limits of
+  files the person attaches. The person sends it; no page can.
+- **History and usage.** Read-only, each with its own capability.
+  `capabilities["project.history"]` lets `host.request("history.list",
+  { limit })` read the project's latest turns that changed files, newest
+  first: the conversation, when and what the person asked (cut to 2,000
+  characters), the files and whether they were undone; `limit` is 1 to 100,
+  20 by default. `capabilities["project.usage"]` lets
+  `host.request("usage.get")` read the project's tokens, turns and time by
+  day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
 
 ### Page components
 

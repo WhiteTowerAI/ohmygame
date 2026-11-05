@@ -453,6 +453,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -532,6 +534,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -554,6 +558,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -636,6 +642,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -667,6 +675,13 @@ describe("plugins in the project shell", () => {
       expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
       await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
       await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
+      // Changes that arrive before one render reach the page together.
+      const { mergeFileChanges } = await import("../src/renderer/project-shell.js");
+      const both = mergeFileChanges(mergeFileChanges(undefined, { paths: ["src/b.ts"] }), { paths: ["src/a.ts", ".env"] });
+      expect(both).toEqual({ paths: [".env", "src/a.ts", "src/b.ts"] });
+      expect(mergeFileChanges({ paths: Array.from({ length: 200 }, (_, index) => `f${index}`) }, { paths: ["g"] })).toMatchObject({ truncated: true });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} fileChange={both} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files", paths: ["src/a.ts", "src/b.ts"] }));
       page!.close();
     } finally {
       post.mockRestore();

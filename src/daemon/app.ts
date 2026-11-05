@@ -118,6 +118,10 @@ import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
+import { PluginHooks } from "./plugin-hooks.js";
+import { HOOK_CHANGES_MAX, manifestHooks } from "../shared/plugin-hooks.js";
+import { ProjectFileWatches } from "./project-file-watch.js";
+import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
@@ -129,7 +133,7 @@ import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./pl
 import { capabilityGrants, missingGrants, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
-import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { ConnectionService } from "./connections.js";
@@ -1124,6 +1128,11 @@ export function createApp(options: AppOptions = {}) {
       void previews.automatic(project, true).catch(() => {});
       void pruneCheckpoints(project);
     },
+    onTurnEnded: (project, end) => void pluginHooks.notify(project.workspacePath, "turn.completed", {
+      conversationId: end.conversationId,
+      status: end.status,
+      changes: end.changes.slice(0, HOOK_CHANGES_MAX).map(({ path, kind }) => ({ path, kind })),
+    }),
   });
   const invalidatePluginSessions = () => {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
@@ -1178,6 +1187,60 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list())
       if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
   }));
+  // Plugins' hooks: what they hear about in a project, and the one change one
+  // can make, to an image's request before it is generated.
+  const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
+  const pluginHooks = new PluginHooks({
+    resolve: (folder) => pluginServices.resolve(folder),
+    native: pluginServices.native,
+    onNotice: (folder, notice) => {
+      const project = projectAt(folder);
+      if (project) events.publish(project.id, "plugin.notice", notice);
+    },
+    onError: (plugin, event, err) => {
+      app.log.warn({ err, plugin, event }, "A plugin hook failed");
+      // The extension host logs a hook that failed in it; an answer the app can't use is logged here.
+      if (!(err instanceof ExtensionHostError))
+        pluginServices.logs.add(plugin, { level: "error", source: "call", text: `Hook ${event} failed: ${err instanceof Error ? err.message : String(err)}` });
+    },
+  });
+  tools.setImageHook(async (input, projectId) => {
+    const project = projects.get(projectId);
+    return project ? pluginHooks.beforeImage(project.workspacePath, input) : input;
+  });
+  projects.onAssetAdded = (project, asset) => void pluginHooks.notify(project.workspacePath, "asset.added", asset);
+  const fileWatches = new ProjectFileWatches((folder, change) => {
+    const project = projectAt(folder);
+    if (!project) return;
+    events.publish(project.id, "project.files.changed", change);
+    void pluginHooks.notify(folder, "files.changed", change);
+  });
+  /** How many event streams each project has open: it is open in the app while it has one. */
+  const openStreams = new Map<string, number>();
+  /** Watches an open project's files while one of its plugins wants to know when they change. */
+  const syncFileWatch = async (folder: string) => {
+    const wanted = await pluginHooks.wantsFiles(folder);
+    const project = projectAt(folder);
+    if (project && openStreams.has(project.id)) fileWatches.set(folder, wanted);
+    else fileWatches.close(folder);
+  };
+  pluginServices.onChange((folder) => {
+    for (const project of projects.list())
+      if ((!folder || project.workspacePath === folder) && (fileWatches.watching(project.workspacePath) || folder))
+        void syncFileWatch(project.workspacePath);
+  });
+  /** Packs the project for export or publishing, and tells its plugins before and after. */
+  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+    void pluginHooks.notify(project.workspacePath, "build.started", { purpose });
+    try {
+      const artifact = await build();
+      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
+      return artifact;
+    } catch (cause) {
+      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+      throw cause;
+    }
+  };
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1414,6 +1477,7 @@ export function createApp(options: AppOptions = {}) {
           agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
           tools: contributes.tools?.length ?? 0,
           skills: entry.skills.length,
+          ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
         },
       };
     }));
@@ -1680,11 +1744,34 @@ export function createApp(options: AppOptions = {}) {
     return pluginUi;
   };
   const pageStorage = new PluginPageStorage();
+  const usageIndex = new UsageIndex(() => projects.list());
+  // What a plugin page may read about its project, each behind its own capability.
+  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage") => {
+    const project = projects.get(params.projectId);
+    if (!project) return undefined;
+    const id = `${params.publisher}/${params.name}`;
+    const panel = (await pluginServices.panels(project.workspacePath)).find((item) => item.plugin === id);
+    return panel?.capabilities[need] ? project : undefined;
+  };
+  app.get<{ Params: { projectId: string; publisher: string; name: string }; Querystring: { limit?: string } }>("/projects/:projectId/plugin-data/:publisher/:name/history", async (request, reply) => {
+    const project = await pagePluginData(request.params, "project.history");
+    if (!project) return reply.code(403).send({ error: "This plugin can't read this project's history" });
+    const limit = request.query.limit === undefined ? 20 : Number(request.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > PLUGIN_UI_HISTORY_MAX) return reply.code(400).send({ error: `limit is a whole number from 1 to ${PLUGIN_UI_HISTORY_MAX}` });
+    return { turns: await projectHistory(project, conversations, limit) };
+  });
+  app.get<{ Params: { projectId: string; publisher: string; name: string } }>("/projects/:projectId/plugin-data/:publisher/:name/usage", async (request, reply) => {
+    const project = await pagePluginData(request.params, "project.usage");
+    if (!project) return reply.code(403).send({ error: "This plugin can't read this project's usage" });
+    return { rows: projectUsage((await usageIndex.stats()).rows, project.id) };
+  });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-panels", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
+    // An open project reads its panels: from then on its files are watched if a plugin wants to know.
+    void syncFileWatch(project.workspacePath);
     if (!panels.length) return [];
     const server = await pluginUiServer();
     return panels.map((panel) => ({ ...panel, url: server.panelUrl(panel.plugin, panel.version, panel.id) }));
@@ -2639,6 +2726,7 @@ export function createApp(options: AppOptions = {}) {
     // A snapshot that is still being taken writes into the folder that is about to be removed.
     await checkpoints.settled(project);
     await pluginServices.closeProject(project.workspacePath).catch(() => {});
+    fileWatches.close(project.workspacePath);
     if (request.query.keep === "1") return reply.send({ movedTo: await projects.remove(project.id) });
     await projects.delete(project.id);
     return reply.code(204).send();
@@ -3103,7 +3191,7 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get<{ Querystring: { locale?: string } }>("/settings/providers", (request) => providerSummaries(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
-  registerUsageRoutes(app, new UsageIndex(() => projects.list()), () => providerSummaries());
+  registerUsageRoutes(app, usageIndex, () => providerSummaries());
   registerDiagnosticsRoutes(app, {
     logDirectory: options.logDirectory,
     summary: async () => {
@@ -4120,7 +4208,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projectCover(project.id)),
+          await buildArtifact(project, "publish", async () => artifacts.create(project, await projectCover(project.id))),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
@@ -4153,7 +4241,7 @@ export function createApp(options: AppOptions = {}) {
     if (building.has(project.id)) return reply.code(409).send({ error: "The web build is already being exported" });
     building.add(project.id);
     try {
-      const artifact = await artifacts.build(project);
+      const artifact = await buildArtifact(project, "export", () => artifacts.build(project));
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
@@ -4195,7 +4283,18 @@ export function createApp(options: AppOptions = {}) {
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
     for (const event of events.since(project.id, cursor)) send(event);
-    keepOpen(events.subscribe(project.id, send));
+    const unsubscribe = events.subscribe(project.id, send);
+    openStreams.set(project.id, (openStreams.get(project.id) ?? 0) + 1);
+    void syncFileWatch(project.workspacePath);
+    keepOpen(() => {
+      unsubscribe();
+      const left = (openStreams.get(project.id) ?? 1) - 1;
+      if (left > 0) openStreams.set(project.id, left);
+      else {
+        openStreams.delete(project.id);
+        fileWatches.close(project.workspacePath);
+      }
+    });
   });
 
   app.get<{ Params: { operationId: string }; Querystring: { cursor?: string } }>("/settings/model-auth/:operationId/events", async (request, reply) => {
@@ -4234,6 +4333,7 @@ export function createApp(options: AppOptions = {}) {
     codexImages.close();
     await projectNaming.close();
     await pluginMcpHost.close();
+    fileWatches.dispose();
     await pluginServices.close();
     await (await pluginUi?.catch(() => undefined))?.close();
     await cloudModels.setSession(null);

@@ -1,3 +1,4 @@
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -156,6 +157,7 @@ export class PluginSources {
       asks: capabilityGrants(entry.manifest),
       skills: entry.skills.length,
       mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => localizePluginString(entry, server.title, language)),
+      ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
       settings: Boolean(entry.manifest.configuration),
       installedVersions: this.services.index.versions(entry.id).map((installed) => installed.version),
       // What was allowed stays with the plugin, so a new version asks only for what it adds.

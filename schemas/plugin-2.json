@@ -178,6 +178,12 @@
         "composer": {
           "type": "boolean"
         },
+        "project.history": {
+          "type": "boolean"
+        },
+        "project.usage": {
+          "type": "boolean"
+        },
         "agent": {
           "type": "boolean"
         },
@@ -1222,6 +1228,39 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "asset.added"
+              },
+              {
+                "type": "string",
+                "const": "turn.completed"
+              },
+              {
+                "type": "string",
+                "const": "build.started"
+              },
+              {
+                "type": "string",
+                "const": "build.completed"
+              },
+              {
+                "type": "string",
+                "const": "files.changed"
+              },
+              {
+                "type": "string",
+                "const": "image.beforeGenerate"
+              }
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "canvasNodes": {
           "type": "array",

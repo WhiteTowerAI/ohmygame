@@ -4,6 +4,7 @@ import { CUSTOM_MODEL_APIS } from "./contracts.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
+import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -125,6 +126,10 @@ const Capabilities = Type.Object(
     "project.selection": Type.Optional(Type.Boolean()),
     "project.files": Type.Optional(Literals(["read", "write"])),
     composer: Type.Optional(Type.Boolean()),
+    /** Pages read the project's turns that changed files. */
+    "project.history": Type.Optional(Type.Boolean()),
+    /** Pages read what the project's conversations used. */
+    "project.usage": Type.Optional(Type.Boolean()),
     agent: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
@@ -630,6 +635,10 @@ export const PluginManifestV2Schema = Type.Object(
           agents: list(Agent),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          /** Events the native entry hears about; see `PluginHookInputs`. */
+          hooks: Type.Optional(
+            Type.Array(Literals(PLUGIN_HOOKS), { minItems: 1, uniqueItems: true }),
+          ),
           canvasNodes: list(CanvasNode),
           canvasPresets: list(CanvasPreset),
         },
@@ -758,6 +767,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
   if (contributes.tools && !native)
     issue("/contributes/tools", "tools run in the native entrypoint");
+  if (contributes.hooks && !native)
+    issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
     if (agentToolName(manifest.id, tool.name).length > AGENT_TOOL_NAME_MAX)
       issue(

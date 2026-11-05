@@ -91,10 +91,12 @@ export type InvokeOptions = {
    */
   check?: () => void | Promise<void>;
 } & (
-  | { tool: string; command?: never; projectType?: never }
-  | { command: string; tool?: never; projectType?: never }
+  | { tool: string; command?: never; projectType?: never; hook?: never }
+  | { command: string; tool?: never; projectType?: never; hook?: never }
   /** A project type hook, `<type>:<hook>`. */
-  | { projectType: string; tool?: never; command?: never }
+  | { projectType: string; tool?: never; command?: never; hook?: never }
+  /** An event hook from `contributes.hooks`. */
+  | { hook: string; tool?: never; command?: never; projectType?: never }
 );
 
 export interface ActivePlugin {
@@ -385,8 +387,10 @@ class ExtensionHost {
             ? "command"
             : options.projectType !== undefined
               ? "projectType"
-              : "tool",
-        name: (options.command ?? options.projectType ?? options.tool)!,
+              : options.hook !== undefined
+                ? "hook"
+                : "tool",
+        name: (options.command ?? options.projectType ?? options.hook ?? options.tool)!,
         input: options.input,
         ...(options.turn ? { turn: options.turn } : {}),
         ...(options.configuration ? { configuration: options.configuration } : {}),
@@ -704,7 +708,7 @@ export class ExtensionHosts {
       // Cancelled, or not on here, isn't the plugin's failure.
       const code = error instanceof ExtensionHostError ? error.code : "failed";
       if (code !== "cancelled" && code !== "unavailable") {
-        const kind = options.command !== undefined ? `Command ${options.command}` : options.projectType !== undefined ? `Project type hook ${options.projectType}` : `Tool ${options.tool}`;
+        const kind = options.command !== undefined ? `Command ${options.command}` : options.projectType !== undefined ? `Project type hook ${options.projectType}` : options.hook !== undefined ? `Hook ${options.hook}` : `Tool ${options.tool}`;
         this.#onLog?.(options.plugin.id, { level: "error", source: "call", text: `${kind} failed: ${error instanceof Error ? error.message : String(error)}` });
       }
       throw error;
