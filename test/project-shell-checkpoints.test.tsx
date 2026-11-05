@@ -321,6 +321,36 @@ describe("project shell layout", () => {
     ).toContain("history-entry");
   });
 
+  it("applies streamed text a frame at a time, before any later event", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const daemon = await openProject(() => undefined, detail("history"));
+    await act(async () => daemon.send(1, "agent.started", { prompt: "Continue" }, "conversation", "live"));
+    await act(async () => daemon.send(2, "item.started", {
+      item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft", status: "inProgress" },
+    }, "conversation", "live"));
+    await settle();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    await act(async () => {
+      daemon.send(3, "item.agentMessage.delta", { itemId: "live-answer", delta: " one" }, "conversation", "live");
+      daemon.send(4, "item.agentMessage.delta", { itemId: "live-answer", delta: " two" }, "conversation", "live");
+    });
+    // Both tokens wait for one frame.
+    expect(frames).toHaveLength(1);
+    expect(container.textContent).not.toContain("Draft one");
+    await act(async () => frames[0]!(performance.now()));
+    expect(container.textContent).toContain("Draft one two");
+    await act(async () => {
+      daemon.send(5, "item.agentMessage.delta", { itemId: "live-answer", delta: " three" }, "conversation", "live");
+      // The final text arrives before that frame and must not gain the token again.
+      daemon.send(6, "item.completed", {
+        item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft one two three", status: "completed" },
+      }, "conversation", "live");
+    });
+    expect(container.textContent).toContain("Draft one two three");
+    expect(container.textContent).not.toContain("three three");
+  });
+
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {

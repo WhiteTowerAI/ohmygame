@@ -43,7 +43,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -427,8 +427,27 @@ export function ProjectShell({
     unsubscribeEvents.current?.();
     let disposed = false;
     setGameTuning(undefined);
+    // Streamed text arrives a token per event, and applying one renders the
+    // whole project. Text waits for the next frame to go in together; any other
+    // event applies it first, so events still apply in order.
+    let text: RuntimeEvent[] = [];
+    let frame = 0;
+    const applyText = () => {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      const pending = text;
+      text = [];
+      for (const event of pending) dispatch({ type: "runtime-event", event });
+    };
+    const dropText = () => { cancelAnimationFrame(frame); frame = 0; text = []; };
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
+        if (event.type === "item.agentMessage.delta" || event.type === "item.reasoning.textDelta") {
+          text.push(event);
+          frame ||= requestAnimationFrame(applyText);
+          return;
+        }
+        applyText();
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
         if (event.type === "project.files.changed") {
@@ -497,6 +516,8 @@ export function ProjectShell({
       onReset: async () => {
         const [project, detail] = await Promise.all([getProject(projectId), getConversation(projectId, selectedConversationId, true)]);
         if (disposed) return detail.cursor;
+        // The reloaded conversation already holds the text still waiting.
+        dropText();
         setWorkspaceEpoch(workspaceVersion(projectId));
         void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         dispatch({ type: "initialized", project, detail });
@@ -504,7 +525,7 @@ export function ProjectShell({
         return detail.cursor;
       },
     });
-    unsubscribeEvents.current = () => { disposed = true; unsubscribe(); };
+    unsubscribeEvents.current = () => { disposed = true; dropText(); unsubscribe(); };
   }
 
   useEffect(() => {
