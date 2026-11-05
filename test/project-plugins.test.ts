@@ -502,6 +502,22 @@ describe("project plugins", () => {
     }
   });
 
+  it("keeps plugin settings it can't read rather than replace them", async () => {
+    const directory = await temporary();
+    const saved = JSON.stringify({ version: 2, plugins: { [UNREAL_PLUGIN]: { endpoint: { type: "text", value: "http://127.0.0.1:8000/mcp" } } } });
+    await writeFile(path.join(directory, "configuration.json"), saved);
+    const services = new PluginServices({ directory, bundled: BUNDLED });
+    try {
+      await services.ready();
+      const entry = services.index.get(UNREAL_PLUGIN)!;
+      expect(() => services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).toThrow("newer OhMyGame");
+      await services.values.forget(UNREAL_PLUGIN);
+      expect(await readFile(path.join(directory, "configuration.json"), "utf8")).toBe(saved);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("starts the MCP servers of plugins the project allows, once their settings are filled in", async () => {
     const services = new PluginServices({ directory: await temporary() });
     try {
