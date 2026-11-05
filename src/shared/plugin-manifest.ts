@@ -239,6 +239,12 @@ const CommandRun = Type.Union([
             "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo",
         }),
       ),
+      build: Type.Optional(
+        Type.Literal("web", {
+          description:
+            "The app builds the game's web package first and gives the command its folder, as for Export web build",
+        }),
+      ),
     },
     { additionalProperties: false },
   ),
@@ -260,6 +266,82 @@ const Command = Type.Object(
         { minItems: 1, maxItems: 10 },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/** What a canvas node's input accepts or its output makes. */
+export const CANVAS_NODE_MEDIA = ["image", "text", "audio", "video", "model"] as const;
+export const CANVAS_NODE_MAX_INPUTS = 8;
+export const CANVAS_NODE_MAX_PARAMS = 16;
+const CanvasNodeParam = Type.Object(
+  {
+    type: Literals(["text", "number", "boolean", "select"]),
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    default: Type.Optional(
+      Type.Union([Type.String({ maxLength: 4000 }), Type.Number(), Type.Boolean()]),
+    ),
+    options: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        minItems: 1,
+        maxItems: 50,
+        uniqueItems: true,
+      }),
+    ),
+    minimum: Type.Optional(Type.Number()),
+    maximum: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A node a plugin adds to Asset Canvas: what it takes, the settings it
+ * shows, and what its native code makes from them.
+ */
+const CanvasNode = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    inputs: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            id: CamelId,
+            title: Text(),
+            accepts: Literals(CANVAS_NODE_MEDIA),
+            multiple: Type.Optional(Type.Boolean()),
+            optional: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        { maxItems: CANVAS_NODE_MAX_INPUTS },
+      ),
+    ),
+    params: Type.Optional(
+      Type.Record(
+        Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
+        CanvasNodeParam,
+        { additionalProperties: false },
+      ),
+    ),
+    output: Literals(CANVAS_NODE_MEDIA),
+    run: Type.Object(
+      { native: CamelId, timeoutSeconds: Type.Optional(TimeoutSeconds) },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** A group of canvas nodes, in a JSON file of the package, to add to a board. */
+const CanvasPreset = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    board: RelativePath("\\.json"),
   },
   { additionalProperties: false },
 );
@@ -335,6 +417,28 @@ const Provider = Type.Object(
       ),
     ),
     discoverModels: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A coding agent the plugin adds, which speaks the Agent Client Protocol on
+ * its stdio. `command` is a program on the person's computer, found as the
+ * built-in agents are; it runs only once the person turns the agent on in
+ * Settings → Agents, as a built-in agent does.
+ */
+const Agent = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
+    /** What starts the protocol, such as `["--acp"]`. */
+    args: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { maxItems: 20 }),
+    ),
+    installUrl: Type.Optional(HttpsUrl),
+    /** What to run in a terminal to sign in. */
+    loginCommand: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
   },
   { additionalProperties: false },
 );
@@ -523,8 +627,11 @@ export const PluginManifestV2Schema = Type.Object(
           settings: Type.Optional(Settings),
           themes: list(Theme),
           providers: list(Provider),
+          agents: list(Agent),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          canvasNodes: list(CanvasNode),
+          canvasPresets: list(CanvasPreset),
         },
         { additionalProperties: false },
       ),
@@ -630,8 +737,11 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "commands",
     "themes",
     "providers",
+    "agents",
     "panels",
     "mcpServers",
+    "canvasNodes",
+    "canvasPresets",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -695,6 +805,40 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     }
   });
 
+  contributes.canvasNodes?.forEach((node, index) => {
+    const path = `/contributes/canvasNodes/${index}`;
+    if (!native) issue(`${path}/run/native`, "needs a native entrypoint");
+    const inputs = new Set<string>();
+    node.inputs?.forEach((input, inputIndex) => {
+      if (inputs.has(input.id))
+        issue(`${path}/inputs/${inputIndex}/id`, `duplicate input ${input.id}`);
+      // A board keeps inputs and settings in plain objects, where these names are already taken.
+      if (input.id in Object.prototype) issue(`${path}/inputs/${inputIndex}/id`, `${input.id} is a reserved name`);
+      inputs.add(input.id);
+    });
+    const params = Object.entries(node.params ?? {});
+    if (params.length > CANVAS_NODE_MAX_PARAMS)
+      issue(`${path}/params`, `at most ${CANVAS_NODE_MAX_PARAMS} settings`);
+    for (const [key, param] of params) {
+      if (key in Object.prototype) issue(`${path}/params/${key}`, `${key} is a reserved name`);
+      const at = `${path}/params/${key}`;
+      if (param.type === "select") {
+        if (!param.options) issue(`${at}/options`, "a select needs options");
+        else if (param.default !== undefined && !param.options.includes(String(param.default)))
+          issue(`${at}/default`, "must be one of the options");
+      } else if (param.options) issue(`${at}/options`, "only a select has options");
+      if ((param.minimum !== undefined || param.maximum !== undefined) && param.type !== "number")
+        issue(at, "only a number has a minimum or maximum");
+      if (param.minimum !== undefined && param.maximum !== undefined && param.minimum > param.maximum)
+        issue(`${at}/minimum`, "must not be more than the maximum");
+      const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
+      if (param.default !== undefined && typeof param.default !== expected)
+        issue(`${at}/default`, `must be a ${expected}`);
+      else if (typeof param.default === "number" && ((param.minimum !== undefined && param.default < param.minimum) || (param.maximum !== undefined && param.default > param.maximum)))
+        issue(`${at}/default`, "must be within the minimum and maximum");
+    }
+  });
+
   contributes.panels?.forEach((panel, index) => {
     const compiled = panel.when === undefined ? undefined : compileWhen(panel.when);
     if (compiled && !compiled.ok)
@@ -737,6 +881,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
 
   const processes = new Set(capabilities.processes);
+  contributes.agents?.forEach((agent, index) => {
+    if (!processes.has(agent.command))
+      issue(`/contributes/agents/${index}/command`, `${agent.command} must be listed in capabilities.processes`);
+  });
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
     if ("url" in server) {

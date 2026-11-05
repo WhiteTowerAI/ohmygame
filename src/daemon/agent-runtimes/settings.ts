@@ -2,16 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  AGENT_RUNTIME_IDS,
   ACCOUNT_RUNTIME_IDS,
   isAccountRuntimeId,
   type AccountRuntimeId,
   isAgentPermissionMode,
   isAgentRuntimeId,
-  FULL_ACCESS_PERMISSION_MODES,
+  fullAccessPermissionMode,
+  isBuiltInAgentRuntimeId,
   type AgentPermissionMode,
   type AgentRuntimeId,
   type AgentAccountProfile,
+  type BuiltInAgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 
 /** Conversation defaults live here; Pi's defaults also serve one-off generation. */
@@ -30,7 +31,7 @@ export interface AgentRuntimeSettings {
 
 /** Every runtime is off until enabled, and asks nothing once it is, as OhMyGame's own agent does. */
 function defaults(id: AgentRuntimeId): AgentRuntimeSettings {
-  return { enabled: false, autoContinue: true, permissionMode: FULL_ACCESS_PERMISSION_MODES[id] };
+  return { enabled: false, autoContinue: true, permissionMode: fullAccessPermissionMode(id) };
 }
 
 /**
@@ -41,7 +42,7 @@ const STANDARD_PERMISSION_MODES = {
   "claude-code-cli": "acceptEdits",
   "codex-cli": ":workspace",
   "opencode-cli": "default",
-} as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
+} as const satisfies Record<BuiltInAgentRuntimeId, AgentPermissionMode>;
 
 /**
  * Version 1 saved the former default, "standard", whenever any setting was
@@ -58,8 +59,9 @@ function storedPermissionMode(
   legacy: boolean,
 ): AgentPermissionMode {
   if (isAgentPermissionMode(id, value)) return value;
-  if (value === "standard" && !legacy) return STANDARD_PERMISSION_MODES[id];
-  return FULL_ACCESS_PERMISSION_MODES[id];
+  if (value === "standard" && !legacy && isBuiltInAgentRuntimeId(id))
+    return STANDARD_PERMISSION_MODES[id];
+  return fullAccessPermissionMode(id);
 }
 
 /**
@@ -206,9 +208,8 @@ export class AgentRuntimeSettingsStore {
 
   #persist(): Promise<void> {
     const snapshot = Object.fromEntries(
-      AGENT_RUNTIME_IDS.filter((runtime) => this.#settings.has(runtime)).map(
-        (runtime) => [runtime, this.#settings.get(runtime)],
-      ),
+      // Plugin agents keep their settings while their plugin is away.
+      this.#settings,
     );
     const defaults = this.#default;
     const accountProfiles = Object.fromEntries(this.#profiles);

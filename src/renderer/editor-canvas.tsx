@@ -84,6 +84,8 @@ export function EditorCanvas<N extends Node>({
   onNodeDragStart,
   onNodeDragStop,
   onNodeContextMenu,
+  onNodeClick,
+  onNodeDoubleClick,
   fitViewOnLoad = false,
   pickingReferences = false,
   onInitialFit,
@@ -100,6 +102,9 @@ export function EditorCanvas<N extends Node>({
   const needsInitialFit = fitViewOnLoad && nodes.some((node) => !node.hidden);
   const wrapper = useRef<HTMLDivElement>(null);
   const dragFrames = useRef<Map<string, AlignmentFrame>>(null);
+  const spacePanning = useSpacePan(wrapper);
+  const panning = mode === "pan" || spacePanning;
+  const selecting = !panning && !pickingReferences;
 
   function openMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
     event.preventDefault();
@@ -116,7 +121,7 @@ export function EditorCanvas<N extends Node>({
   return (
     <ReactFlow<N, Edge>
       ref={wrapper}
-      className={`story-canvas story-canvas-${mode}`}
+      className={`story-canvas story-canvas-${panning ? "pan" : "pointer"}`}
       nodes={nodes}
       edges={edges?.map((edge) => edge.selected ? { ...edge, ...SELECTED_EDGE_OPTIONS } : edge)}
       defaultEdgeOptions={EDGE_OPTIONS}
@@ -125,13 +130,15 @@ export function EditorCanvas<N extends Node>({
       maxZoom={2}
       snapToGrid
       snapGrid={SNAP_GRID}
-      nodesDraggable={mode === "pointer" && !pickingReferences}
-      elementsSelectable={mode === "pointer" && !pickingReferences}
-      // Dragging empty canvas pans in either mode, as on most whiteboards;
-      // Shift-drag draws a selection box in pointer mode.
-      selectionOnDrag={false}
-      selectionKeyCode={mode === "pointer" && !pickingReferences ? "Shift" : null}
-      panOnDrag={[0, 1, 2]}
+      nodesDraggable={selecting}
+      elementsSelectable={selecting}
+      nodesConnectable={selecting}
+      selectionOnDrag={selecting}
+      selectionKeyCode={null}
+      multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+      // Scope Space to this canvas and leave inputs and controls their own keys.
+      panActivationKeyCode={null}
+      panOnDrag={panning ? [0, 1] : [1]}
       panOnScroll
       zoomOnScroll={false}
       zoomOnPinch
@@ -168,9 +175,12 @@ export function EditorCanvas<N extends Node>({
         setGuides(undefined);
         onNodeDragStop?.(event, node, dragged);
       }}
+      // Keep a click handler in pan mode so React Flow still lets node controls receive pointer events.
+      onNodeClick={(event, node) => { if (!panning) onNodeClick?.(event, node); }}
+      onNodeDoubleClick={(event, node) => { if (!panning) onNodeDoubleClick?.(event, node); }}
       onPaneContextMenu={(event) => openMenu(event, "pane")}
       onDoubleClick={(event) => {
-        if (addOnDoubleClick && mode === "pointer" && (event.target as Element).classList.contains("react-flow__pane")) openMenu(event, "add");
+        if (addOnDoubleClick && !panning && (event.target as Element).classList.contains("react-flow__pane")) openMenu(event, "add");
       }}
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
@@ -362,6 +372,50 @@ const inSight = (element: Element) => element.isConnected && !element.closest("[
 export function ownsCanvasKeys(within: Element | null | undefined): boolean {
   if (!within || !inSight(within)) return false;
   return !lastCanvas || !inSight(lastCanvas) || within.contains(lastCanvas);
+}
+
+const SPACE_CONTROL_SELECTOR = 'input, textarea, select, [contenteditable], button, a, summary, video, audio, [role="button"], [role="slider"], [role="textbox"], .nokey';
+
+/** Temporarily use the hand tool without consuming Space from node controls. */
+function useSpacePan(canvas: RefObject<HTMLDivElement | null>): boolean {
+  const [pressed, setPressed] = useState(false);
+  useEffect(() => {
+    const reset = () => setPressed(false);
+    const keydown = (event: KeyboardEvent) => {
+      if ((event.code !== "Space" && event.key !== " ") || event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.composedPath()[0];
+      const within = canvas.current;
+      if (!ownsCanvasKeys(within) || !(target instanceof Element) || (target === document.body && !lastCanvas)) return;
+      if (target.closest(SPACE_CONTROL_SELECTOR)) return;
+      if (target !== document.body && !within?.contains(target) && target !== within?.closest(".interactive-story-canvas")) return;
+      if ([...document.querySelectorAll('[aria-modal="true"]')].some((modal) => inSight(modal) && !within?.contains(modal))) return;
+      // Capture before React Flow's Space-to-select and the editor's node activation.
+      event.preventDefault();
+      event.stopPropagation();
+      setPressed(true);
+    };
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code === "Space" || event.key === " ") reset();
+    };
+    const focus = () => {
+      const target = document.activeElement;
+      if (target?.closest(SPACE_CONTROL_SELECTOR)
+        || (!canvas.current?.contains(target) && target !== canvas.current?.closest(".interactive-story-canvas"))) reset();
+    };
+    window.addEventListener("keydown", keydown, true);
+    window.addEventListener("keyup", keyup, true);
+    window.addEventListener("blur", reset);
+    window.addEventListener("contextmenu", reset);
+    document.addEventListener("focusin", focus);
+    return () => {
+      window.removeEventListener("keydown", keydown, true);
+      window.removeEventListener("keyup", keyup, true);
+      window.removeEventListener("blur", reset);
+      window.removeEventListener("contextmenu", reset);
+      document.removeEventListener("focusin", focus);
+    };
+  }, [canvas]);
+  return pressed;
 }
 
 /** Deletes the selection on a delete key, as React Flow does, when the keys are this canvas's. */

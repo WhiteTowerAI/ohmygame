@@ -91,7 +91,12 @@ the daemon. `context.project.folder` is the project and
 type hooks the manifest declares can be registered. A tool, native command
 or MCP server may set `timeoutSeconds` (up to 3600) for calls that
 download or build. A native command with `changesFiles: false` runs
-without the project's write lock and leaves no change to undo.
+without the project's write lock and leaves no change to undo. One with
+`build: "web"` gets `build.folder`: the game's web build, made as Export web
+build makes it and under the same rules (not while the agent works, a web
+export or a publish runs, nor for a project without a web build), removed
+once the call ends. Only making the build holds up an export or a publish,
+not the plugin's own upload that follows.
 `progress(message, { url })` carries an https link the person needs, such
 as a device sign-in page; it is never dropped as frequent updates are. For a
 command the app runs, every message arrives as `plugin.command.progress`;
@@ -136,6 +141,62 @@ its code runs with the person's own access (`NativeCodeWarning`).
   Plugins page offers to restart normally. Electron can't tell a key held
   at launch without native code, so there is no Shift shortcut.
 
+## Canvas nodes
+
+`contributes.canvasNodes` adds nodes to the Asset Canvas add menu, under
+**Plugins**, one submenu per plugin with more than one node. A node lists up
+to 8 `inputs` (`{ id, title, accepts, multiple?, optional? }`, where
+`accepts` is `image`, `text`, `audio`, `video` or `model`), up to 16 `params`
+(`text`, `number` with `minimum`/`maximum`, `boolean`, or `select` with
+`options`, each with an optional `default`), one `output` of the same kinds,
+and `run.native`, a command the native entry registers with
+`registerCommand`. Canvas nodes came in API 2.3.0, so a plugin with them asks
+for `^2.3.0`. Titles take `%key%` locale strings.
+
+```json
+"canvasNodes": [{
+  "id": "pixelate",
+  "title": "%pixelate.title%",
+  "inputs": [{ "id": "image", "title": "%pixelate.image%", "accepts": "image" }],
+  "params": { "size": { "type": "number", "title": "%pixelate.size%", "default": 8, "minimum": 2, "maximum": 64 } },
+  "output": "image",
+  "run": { "native": "pixelate" }
+}]
+```
+
+On the board the node is `type: "plugin"` with `data.node`
+(`publisher/name:id`), `data.params`, and `data.inputs`, a list of references
+per input id. Each input has its own port; a drop elsewhere fills the first
+input that takes that kind and has room. Text and Document nodes give
+`text`, image, video, audio and 3D nodes and Library assets give their file,
+and another plugin node gives its output.
+
+Running the node starts a canvas job (`toolId: "plugin-node"`). The command
+gets `{ params, inputs, output }`: every param with its default filled in,
+each input as `[{ type: "text", text }]` or
+`[{ type, path, contentType }]`, and `output`, an empty folder for the
+result. It returns `{ text }` for a `text` output (up to 100,000
+characters), or `{ file }`, a regular file inside `output` whose kind
+matches the node's output, up to 512 MB. The app adds that file to the
+Library and sets `data.assetId`. A missing required input, a param that
+doesn't fit, or a plugin that is off fails the job with a message. Rerunning
+with the same params, inputs and output reuses the last result. A node whose
+plugin is off stays on the board with its links and last output, and says
+so; it runs again when the plugin is turned back on. Plugin nodes take part in
+[out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
+like the app's own nodes.
+
+`contributes.canvasPresets` offers ready-made groups of nodes under
+**Presets** in the same menu: `{ id, title, description?, board }`, where
+`board` is a JSON file in the package holding `{ nodes, edges }` in the
+board's own node format. A preset holds up to 200 nodes of the kinds that
+stand alone (text, image, video, audio, 3D, group and plugin nodes) and no
+outputs or Library assets (no `assetId` anywhere). Installing and
+`plugin:check` refuse one that breaks these rules or links to a node it
+doesn't hold. Adding a preset gives its nodes new ids, keeps the links
+between them, and puts them in a new group named after it where the menu
+was opened.
+
 ## Modules
 
 | Area | Code | Tests |
@@ -144,7 +205,7 @@ its code runs with the person's own access (`NativeCodeWarning`).
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
@@ -158,6 +219,7 @@ its code runs with the person's own access (`NativeCodeWarning`).
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
 
@@ -218,6 +280,11 @@ its code runs with the person's own access (`NativeCodeWarning`).
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
+- Canvas nodes: `GET /projects/:id/plugin-canvas?locale=` lists the
+  [canvas nodes](#canvas-nodes) and presets of the project's active plugins;
+  `GET /projects/:id/plugin-canvas/presets/:publisher/:name/:preset` gives a
+  preset's nodes and edges. A node runs through the canvas
+  `POST …/nodes/:nodeId/generate` route.
 - Pages: `GET /projects/:id/plugin-panels`,
   `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
   page's [project files](#plugin-pages) under
@@ -231,6 +298,8 @@ its code runs with the person's own access (`NativeCodeWarning`).
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
 - Market: `GET /plugin-market?locale=` gives the
   [listing](#the-plugin-market); installing uses the Adding routes.
+- Themes: `GET /plugin-themes?locale=` lists the themes of the plugins that
+  are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
   `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
@@ -318,6 +387,66 @@ same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
 removed, later releases included. Bundled plugins are indexed from `plugins/`
 and can't be uninstalled.
+
+## Model providers
+
+`contributes.providers` adds chat model providers to Settings → Providers.
+`PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
+the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
+installed, runs in this app and isn't disabled everywhere; projects' plugin
+switches don't apply. It follows installs, updates and setting changes.
+
+- `api` and `baseUrl` say how to reach it, as for a provider the person adds.
+- `apiKey` names a `secret` configuration field. The provider joins once the
+  person sets that field on the plugin's page, and leaves when it is cleared.
+  The app reads the key itself; the plugin's native code still gets secrets
+  only with `capabilities.secrets`. A provider without `apiKey` sends a
+  placeholder key, for services that need none.
+- `models` lists models; unless the app knows a model's id, it gets a 128K
+  context and 16K output. With `discoverModels`, refreshing the catalog also
+  reads the endpoint's model list, as adding a provider does, and skips models
+  that only make media.
+- Settings shows where the provider comes from, its base URL and whether the
+  key is set, with a link to the plugin's page. It can be turned off there
+  like any provider; signing in, removing it or adding models is refused.
+
+## Coding agents
+
+`contributes.agents` (plugin API 2.3.0) adds coding agents that speak the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP) to Settings →
+Agents, such as Gemini CLI (`gemini --acp`). The plugin says how to start the
+agent; OhMyGame starts it and drives it with one generic driver,
+`AcpDriver` (`src/daemon/agent-runtimes/acp.ts`). An agent is
+`agent.<publisher>.<name>.<id>` while its plugin is installed, runs in this
+app and isn't disabled everywhere; projects' plugin switches don't apply.
+`src/daemon/plugin-agents.ts` turns the manifest into the agent's definition.
+
+- `command` is the program, found on PATH and in the usual install folders as
+  the built-in agents are, and `args` start ACP on its stdio. `command` must
+  be listed in `capabilities.processes`, as an MCP server's is, so the add
+  review shows it; this covers only the program OhMyGame starts, not what the
+  agent runs afterwards, which its own permissions decide. Like a built-in
+  agent, it is off until the person turns it on in Settings → Agents, which
+  first shows the whole command line; only its `--version` runs before that.
+  `installUrl` and `loginCommand` are shown when it is missing or signed out.
+- Checking it runs `command --version`, then starts an ACP session in an empty
+  folder to read its models and reasoning levels from the session's config
+  options. An agent that answers `auth_required` shows as signed out. One
+  that offers no choice of model gets a single model named after it.
+- A conversation runs one process and one ACP session. OhMyGame offers no file
+  system or terminal of its own, so the agent uses its own tools. Its tools
+  reach the agent as an MCP server over HTTP when the agent supports one;
+  their token lasts as long as the process but answers only while a turn runs.
+  Its instructions go with the session's first prompt, with the Skills it can
+  read. A later process loads the session again (`session/load`, or
+  `session/resume`); an agent that can do neither starts a new session with a
+  summary of the conversation.
+- Its permission modes are **Its rules**, where what the agent asks becomes an
+  approval card, and **Allow all**. Planning turns switch to the agent's `plan`
+  or read-only mode when it has one and refuse whatever it asks.
+- Stop sends `session/cancel`. Tool calls show with Pi's names where the ACP
+  kind says which (`execute`, `read`, `edit`), and OhMyGame's own tools show
+  what they returned.
 
 ## Making a plugin
 
@@ -444,7 +573,17 @@ HTTP on this computer), there's no market and nothing is read.
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
 names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
-projects: uninstalling lists them and leaves them in place. `ui.preview` lets its pages
+projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
+values for the theme tokens (`THEME_TOKENS` in
+`src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
+syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
+themes of the plugins the person has on (`GET /plugin-themes`) beside the
+palettes; a chosen theme sets its values over the neutral greys, for the
+appearances it covers, and its plugin's pages get them with the other page
+tokens. The choice keeps the values, so it applies at launch, follows the
+plugin's updates and falls back to the neutral palette once the plugin is
+switched off or uninstalled. Themes set colours only: the app's own styles
+don't read font, radius or spacing tokens throughout yet. `ui.preview` lets its pages
 load page components still in preview, and `ui.major` says which major its
 pages use, so an app without it can say which way to go (see
 [Page components](#page-components)).
@@ -492,7 +631,10 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   it is offered and stays closed once the person closes it, like the
   built-in ones.
 - **Commands** show in the slots `composer.slash` (and every command with a
-  `slash` name), `composer.add` and `project.menu`. A prompt is sent, or
+  `slash` name), `composer.add`, `project.menu` and `project.publish`, the
+  Publish menu, after the app's own entries. The Publish button opens for a
+  project with no web build, such as a Maker game, once a plugin offers a way
+  to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
   put in the composer with `insert`; `openPanel` brings the panel forward;
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
@@ -807,7 +949,11 @@ for that plugin.
   its plugins and approves it for its folder.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
-  look in `GODOT_PATH`, the PATH and the usual install folders;
+  look in `GODOT_PATH`, the PATH and the usual install folders. On Windows
+  that includes Godot's release names (`Godot_v4.3-stable_win64.exe`, never
+  its `_console` wrapper, newest first), WinGet and Scoop folders, and Godot
+  Engine in every Steam library, on any drive. A download unpacked elsewhere
+  still needs the setting.
   `native/godot.mjs` does that lookup for both the tools and the MCP server,
   which `native/mcp.mjs` starts through `npx` (Node.js with npx is needed).
   Check the actual engine version and import/run logs
@@ -856,6 +1002,9 @@ the project has no web preview and isn't published to Community.
   Release Skill uses the person's signed-in `taptap-cli` for the store page,
   Spark version binding and review, and asks before installing it and before
   each approval-gated write.
+- **Publish menu:** in a Maker project, "Submit a build to Maker…" and
+  "Release on TapTap…" put the request in the composer with its Skill, for
+  the person to send.
 
 See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)

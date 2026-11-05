@@ -31,6 +31,8 @@ export const CanvasInteractions = createContext<
         nodeId: string,
         type: CanvasPortType,
         position: { x: number; y: number },
+        /** The port's own id, for a node with one port per input. */
+        handle?: string,
       ): void;
       pickReferences(nodeId: string): void;
       canPickReferences(nodeId: string): boolean;
@@ -63,7 +65,7 @@ export function CanvasPort({
   >(undefined);
   const disabled = actions?.portsDisabled ?? false;
   const open = (position: { x: number; y: number }) => {
-    if (nodeId && !disabled) actions?.openPort(nodeId, type, position);
+    if (nodeId && !disabled) actions?.openPort(nodeId, type, position, id);
   };
   const label = t(
     type === "target"

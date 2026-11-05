@@ -88,6 +88,16 @@ export class PluginValues {
       : undefined;
   }
 
+  /**
+   * A secret field's value, for the app's own use, such as the key of a
+   * model provider the plugin adds. The plugin's code never gets it this way.
+   */
+  secret(entry: PluginIndexEntry, name: string): string | undefined {
+    const field = entry.manifest.configuration?.[name];
+    const value = field?.type === "secret" ? this.#value(entry, name, field) : undefined;
+    return typeof value === "string" && value ? value : undefined;
+  }
+
   /** Whether the person set a field, rather than it falling back to its default. */
   isSet(entry: PluginIndexEntry, name: string): boolean {
     const field = entry.manifest.configuration?.[name];

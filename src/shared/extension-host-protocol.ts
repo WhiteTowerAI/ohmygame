@@ -52,6 +52,7 @@ export type HostRequest =
       input: unknown;
       turn?: string;
       configuration?: PluginConfigurationValues;
+      build?: PluginBuild;
     }
   | { type: "cancel"; id: number }
   | { type: "deactivate"; id: number; plugin: string }
@@ -103,6 +104,13 @@ export interface ToolCall {
   turn?: string;
   /** The plugin's configuration as it is for this call, defaults filled in. */
   configuration: Readonly<PluginConfigurationValues>;
+  /** For a command whose `run.build` is `"web"`: the game's web build, removed once the call ends. */
+  build?: PluginBuild;
+}
+
+/** A web build the app made for a command: the files a static host serves, `index.html` at the top. */
+export interface PluginBuild {
+  folder: string;
 }
 
 export type ToolHandler = (

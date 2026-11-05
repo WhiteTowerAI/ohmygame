@@ -14,5 +14,7 @@
   "command.create": "新建 Maker 项目",
   "command.bind": "连接 Maker 项目",
   "command.preview": "控制 Maker 预览",
+  "command.submitBuild": "向 Maker 提交构建…",
+  "command.release": "在 TapTap 上架…",
   "mcp.title": "TapTap Maker"
 }

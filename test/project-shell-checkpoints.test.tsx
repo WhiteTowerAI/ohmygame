@@ -1117,7 +1117,7 @@ describe("checkpoints in the project shell", () => {
       "2 files reapplied.",
     );
     const fileReads = daemon.requests.filter(
-      (request) => request.route === "/projects/project/files",
+      (request) => request.route === "/projects/project/files?directory=",
     ).length;
     await act(async () =>
       daemon.send(
@@ -1136,7 +1136,7 @@ describe("checkpoints in the project shell", () => {
     await settle();
     expect(
       daemon.requests.filter(
-        (request) => request.route === "/projects/project/files",
+        (request) => request.route === "/projects/project/files?directory=",
       ).length,
     ).toBeGreaterThan(fileReads);
     expect(

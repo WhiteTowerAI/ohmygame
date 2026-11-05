@@ -41,14 +41,17 @@ export function ProjectTop({ name, menu, status, children }: { name: string; men
 }
 
 /**
- * The top bar's Publish button: an asset canvas has nothing to publish, and
- * Godot and plugin projects can't publish yet. It waits while the agent works.
+ * The top bar's Publish button. The app publishes games that play as a web
+ * page (`builtIn`); plugins add their own ways (`plugins` of them). An asset
+ * canvas with none has nothing to publish, and Godot and plugin projects with
+ * none can't publish yet. It waits while the agent works.
  */
-export function publishAction(project: Pick<ProjectState, "type" | "pluginType">, { publishing, agentBusy }: { publishing: boolean; agentBusy: boolean }): { disabled: boolean; label: string } | undefined {
-  if (project.type === "asset-canvas") return undefined;
-  const unavailable = project.type === "godot-game" || project.pluginType?.preview === "native";
+export function publishAction(project: Pick<ProjectState, "type" | "pluginType">, { publishing, agentBusy, plugins = 0 }: { publishing: boolean; agentBusy: boolean; plugins?: number }): { disabled: boolean; label: string; builtIn: boolean } | undefined {
+  const builtIn = project.type !== "asset-canvas" && project.type !== "godot-game" && project.pluginType?.preview !== "native";
+  if (project.type === "asset-canvas" && !plugins) return undefined;
   return {
-    disabled: unavailable || publishing || agentBusy,
-    label: project.type === "godot-game" ? t("workspace.godotPublishing") : publishing ? t("workspace.publishing") : t("workspace.publish"),
+    disabled: (!builtIn && !plugins) || publishing || agentBusy,
+    label: project.type === "godot-game" && !plugins ? t("workspace.godotPublishing") : publishing ? t("workspace.publishing") : t("workspace.publish"),
+    builtIn,
   };
 }

@@ -291,7 +291,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -302,6 +302,16 @@ export type StorePluginConfiguration = Record<
 >;
 
 /** A plugin command a project offers (GET /projects/:id/plugin-commands). */
+/** A theme a plugin adds: values for the theme tokens, in dark, light or both. */
+export interface PluginTheme {
+  /** `publisher/name:theme`. */
+  id: string;
+  plugin: string;
+  title: string;
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+}
+
 export interface ProjectPluginCommand {
   /** `publisher/name:command`. */
   id: string;
@@ -315,7 +325,48 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    | { native: string };
+    /** `build: "web"`: the app builds the game for the command first. */
+    | { native: string; build?: "web" };
+}
+
+/** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */
+export interface ProjectCanvasNode {
+  /** `publisher/name:node`. */
+  id: string;
+  plugin: string;
+  /** The plugin's name, in the asked language. */
+  pluginName: string;
+  title: string;
+  description?: string;
+  inputs: Array<{ id: string; title: string; accepts: CanvasNodeMedia; multiple?: boolean; optional?: boolean }>;
+  params: Array<{
+    key: string;
+    type: "text" | "number" | "boolean" | "select";
+    title: string;
+    description?: string;
+    default?: string | number | boolean;
+    options?: string[];
+    minimum?: number;
+    maximum?: number;
+  }>;
+  output: CanvasNodeMedia;
+}
+export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
+
+/** What a project's plugins add to Asset Canvas. */
+export interface ProjectPluginCanvas {
+  nodes: ProjectCanvasNode[];
+  presets: ProjectCanvasPreset[];
+}
+
+/** A group of nodes a plugin offers to add to a board (GET …/plugin-canvas/presets/:publisher/:name/:preset). */
+export interface ProjectCanvasPreset {
+  /** `publisher/name:preset`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

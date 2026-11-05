@@ -17,7 +17,7 @@ import {
   MessageCircle,
   PanelToggle,
   Plug,
-  RefreshCircle,
+  RefreshCw,
   Search,
   Settings,
   UserRound,
@@ -309,7 +309,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const projects = useRecentProjects(active);
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
-  const showWindowsHistory = hasWindowsWindowControls() && (history.back || history.forward);
+  // The Windows frame always shows them, disabled when there is nowhere to go,
+  // so the top row keeps its shape from the first launch on.
+  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
@@ -666,7 +668,7 @@ function UpdatePill() {
   const action = status.type === "available"
     ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
     : status.type === "ready"
-      ? { icon: <RefreshCircle size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      ? { icon: <RefreshCw size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
       : status.type === "error"
         ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;
