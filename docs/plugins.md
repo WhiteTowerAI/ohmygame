@@ -1010,12 +1010,13 @@ type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
 plugin SVG text is never inserted into the renderer DOM.
 
 In Plugin Builder's Overview, click the icon beside the plugin name to upload an
-image, choose a package image path, or restore the default. This editor is available
+image, pick one of the PNG, WebP or SVG images already in the package, or restore
+the default (`src/renderer/plugin-icon-picker.tsx`). This editor is available
 after a valid draft has been prepared. Changes save to the draft; use Install plugin
 or Update plugin to apply them. Uploads use content-addressed filenames under
 `assets/` and preserve existing package files. Icon edits refresh the content
 revision and clear saved checks; stale icon saves and installations are rejected.
-Image path previews only read valid PNG/WebP/SVG files from that draft.
+The package's thumbnails only read valid PNG/WebP/SVG files from that draft.
 
 ## Connections
 

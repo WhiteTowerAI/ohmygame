@@ -52,6 +52,8 @@ let installationFailed: boolean;
 let requests: string[];
 let everyProject: boolean;
 let draftIcon: PluginIcon | undefined;
+/** The package's files: two images an icon can be, and others it can't. */
+const draftFiles = [{ path: "SKILL.md" }, { path: "assets/logo.svg" }, { path: "media/cover.png" }, { path: "media/clip.gif" }];
 let iconChanged: boolean;
 let savedIcon: unknown;
 let hasSettings: boolean;
@@ -109,7 +111,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: [], errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: draftFiles, errors: [] });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -281,64 +283,65 @@ describe("Plugin Builder layout", () => {
 describe("Plugin Builder icons", () => {
   const input = (label: string) => document.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
   const modalButton = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(element => element.textContent === text)!;
-  async function fill(element: HTMLInputElement, value: string) {
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(element, value); element.dispatchEvent(new Event("input", { bubbles: true })); });
+  const tiles = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] .plugin-icon-tile[aria-pressed]')];
+  const tile = (name: string) => tiles().find(element => element.textContent === name)!;
+  async function upload(file: File, label = "Plugin icon image") {
+    await act(async () => {
+      Object.defineProperty(input(label), "files", { value: [file], configurable: true });
+      input(label).dispatchEvent(new Event("change", { bubbles: true }));
+    });
   }
   it("translates picker labels and validation notices into Chinese", async () => {
     await i18next.changeLanguage("zh-CN");
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("更改插件图标").click());
     expect(document.querySelector('[role="dialog"] h2')?.textContent).toBe("插件图标");
-    await act(async () => {
-      Object.defineProperty(input("插件图标图片"), "files", { value: [new File(["image"], "icon.gif")] });
-      input("插件图标图片").dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await upload(new File(["image"], "icon.gif"), "插件图标图片");
     expect(document.querySelector('[role="alert"]')?.textContent).toBe("请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片");
   });
-  it("saves a path in the package and makes the changed draft updateable", async () => {
+  it("offers the package's images as tiles and saves the one picked", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
-    await act(async () => modalButton("Package image").click());
-    await fill(input("Plugin icon path"), "./assets/logo.svg");
+    // Only images an icon can be, with no path to type.
+    expect(tiles().map(element => element.textContent)).toEqual(["logo.svg", "cover.png"]);
+    expect(document.querySelector('[aria-label="Plugin icon path"]')).toBeNull();
+    expect(modalButton("Save icon").disabled).toBe(true);
+    await act(async () => tile("logo.svg").click());
+    expect(tile("logo.svg").getAttribute("aria-pressed")).toBe("true");
     await act(async () => modalButton("Save icon").click());
     expect(savedIcon).toEqual({ revision, icon: { type: "asset", path: "./assets/logo.svg" } });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === "Update plugin")?.disabled).toBe(false);
     expect(requests.filter(request => request === `GET /plugins/setup-sessions/${sessionId}/draft`)).toHaveLength(1);
   });
-  it("validates package paths and restores the default icon", async () => {
+  it("starts on the current icon and restores the default", async () => {
+    draftIcon = { type: "asset", path: "./media/cover.png" };
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
-    await act(async () => modalButton("Package image").click());
-    await fill(input("Plugin icon path"), "https://example.com/logo.png");
-    expect(modalButton("Save icon").disabled).toBe(true);
-    await fill(input("Plugin icon path"), "./assets/logo.svg");
-    expect(modalButton("Save icon").disabled).toBe(false);
+    expect(tile("cover.png").getAttribute("aria-pressed")).toBe("true");
     await act(async () => modalButton("Use default").click());
     expect(savedIcon).toEqual({ revision, icon: null });
   });
   it("uploads a chosen image", async () => {
     const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:icon-preview");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
-    expect(modalButton("Choose file")).not.toBeNull();
-    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("No file selected");
-    const file = new File(["test-image"], "logo.svg", { type: "image/svg+xml" });
-    await act(async () => { Object.defineProperty(input("Plugin icon image"), "files", { value: [file] }); input("Plugin icon image").dispatchEvent(new Event("change", { bubbles: true })); });
-    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("logo.svg");
+    const file = new File(["test-image"], "logo-upload.svg", { type: "image/svg+xml" });
+    await upload(file);
     expect(createUrl).toHaveBeenCalledWith(file);
+    // The upload is a tile of its own, picked.
+    expect(tile("logo-upload.svg").getAttribute("aria-pressed")).toBe("true");
+    expect(tile("logo-upload.svg").querySelector("img")?.getAttribute("src")).toBe("blob:icon-preview");
     await act(async () => { modalButton("Save icon").click(); await vi.waitFor(() => expect(savedIcon).toBeDefined()); });
     expect(savedIcon).toEqual({ revision, image: { mediaType: "image/svg+xml", data: btoa("test-image") } });
-    expect(log.mock.calls.flat().join(" ")).not.toContain("controlled input");
   });
 
   it("closes on Escape and returns focus to the edit button", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     button("Change plugin icon").focus();
     await act(async () => button("Change plugin icon").click());
-    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(button("Change plugin icon"));
   });

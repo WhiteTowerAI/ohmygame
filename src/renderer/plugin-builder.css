@@ -153,24 +153,19 @@
   font-size: var(--text-sm);
 }
 
-.plugin-install-dialog.plugin-icon-picker { gap: 0; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
-.plugin-icon-picker > .plugin-icon-picker-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-.plugin-icon-picker-heading h2 { margin: 0 0 5px; }
-.plugin-icon-picker-heading p { margin: 0; color: var(--color-text-secondary); font-size: 11px; }
-.plugin-icon-modes { display: flex; gap: 4px; margin-bottom: 18px; padding: 3px; background: var(--color-hover); border-radius: 7px; }
-.plugin-icon-modes button { flex: 1; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-secondary); font: inherit; font-size: 11px; cursor: pointer; }
-.plugin-icon-modes button[aria-pressed="true"] { color: var(--color-text); background: var(--color-selected); }
-.plugin-icon-picker fieldset { display: grid; gap: 14px; min-width: 0; padding: 0; margin: 0; border: 0; }
-.plugin-icon-picker label { display: grid; gap: 6px; }
-.plugin-icon-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
-.plugin-icon-grid button { display: grid; justify-items: center; gap: 8px; min-width: 0; padding: 10px 2px; border: 1px solid transparent; border-radius: 6px; background: var(--color-hover); color: var(--color-text-secondary); cursor: pointer; }
-.plugin-icon-grid button:hover { background: var(--color-selected); }
-.plugin-icon-grid button[aria-pressed="true"] { border-color: var(--color-ink); color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 8%, transparent); }
-.plugin-icon-grid button span { font-size: 9px; }
-.plugin-icon-help { margin: 0; color: var(--color-text-secondary); font-size: 11px; line-height: 1.6; }
-.plugin-icon-picker footer { display: flex; gap: 8px; margin-top: 22px; }
-.plugin-icon-picker footer > button:first-child { margin-right: auto; }
-@media (max-width: 480px) { .plugin-icon-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.plugin-icon-picker { display: grid; gap: var(--space-3); }
+.plugin-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: var(--space-2); max-height: 280px; overflow-y: auto; }
+.plugin-icon-tile { display: grid; justify-items: center; gap: 6px; min-width: 0; padding: 10px 4px 8px; border: 1px solid transparent; border-radius: var(--radius-md); background: var(--color-hover); color: var(--color-text-secondary); font: inherit; cursor: pointer; }
+.plugin-icon-tile:hover:not(:disabled):not(.is-disabled) { background: var(--color-selected); }
+.plugin-icon-tile[aria-pressed="true"] { border-color: var(--color-ink); color: var(--color-text); background: color-mix(in srgb, var(--color-ink) 8%, transparent); }
+.plugin-icon-tile:disabled, .plugin-icon-tile.is-disabled { cursor: default; opacity: 0.6; }
+.plugin-icon-upload { border-style: dashed; border-color: var(--color-border); background: transparent; }
+.plugin-icon-upload:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.plugin-icon-tile-image { display: grid; place-items: center; width: 36px; height: 36px; }
+.plugin-icon-tile-image .plugin-icon-image { width: 32px; height: 32px; object-fit: contain; }
+.plugin-icon-tile-name { max-width: 100%; overflow: hidden; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.plugin-icon-help { margin: 0; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.6; }
+.plugin-icon-default { margin-right: auto; }
 
 /* An AI workspace is a link styled as a plugin card. */
 .plugin-builder-session-card .plugin-card-link { color: inherit; text-decoration: none; }

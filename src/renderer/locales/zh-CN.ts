@@ -2739,17 +2739,11 @@ const zhCN: typeof en = {
   pluginIconPicker: {
     title: "插件图标",
     change: "更改插件图标",
-    source: "图标来源",
-    preview: "图标预览",
+    source: "可选图标",
     upload: "上传图片",
-    path: "插件包图片",
-    imageFile: "图片文件",
     imageInput: "插件图标图片",
     fileHelp:
       "支持 PNG、WebP 或静态 SVG，最大 1 MB，尺寸不超过 2048 × 2048。SVG 需有 viewBox，使用图形表现属性，不含脚本、样式或外部资源。",
-    imagePath: "图片路径",
-    pathInput: "插件图标路径",
-    pathHelp: "选择此插件包内的 PNG、WebP 或静态 SVG 文件。",
     useDefault: "恢复默认",
     save: "保存图标",
     readFailed: "无法读取图片",
