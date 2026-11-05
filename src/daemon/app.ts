@@ -1320,6 +1320,7 @@ export function createApp(options: AppOptions = {}) {
     get: (projectId) => projects.get(projectId),
     remove: (project) => removeProject(project),
     busy: (projectId) => agents.isProjectBusy(projectId),
+    exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
   registerPluginSetupRoutes(app, pluginSetup);
   registerPluginIconRoutes(app, async (id) => {

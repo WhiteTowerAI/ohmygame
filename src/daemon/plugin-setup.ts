@@ -48,6 +48,8 @@ export interface PluginWorkspaceProjects {
   get(projectId: string): ProjectState | undefined;
   remove(project: ProjectState): Promise<void>;
   busy(projectId: string): boolean;
+  /** Runs while the project takes no turns, so the agent can't change what is being installed. */
+  exclusive<T>(projectId: string, operation: () => Promise<T>): Promise<T>;
 }
 
 export class PluginSetupManager {
@@ -214,7 +216,12 @@ export class PluginSetupManager {
   async draft(id: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);
     if (!state.draftPath) return { files: [], errors: [] };
-    const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
+    // Undoing the turn that made the draft takes its folder away, and with it the draft.
+    const root = await pluginDraftPath(this.#workspace(id), state.draftPath).catch((cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw cause;
+    });
+    if (!root) return { files: [], errors: [] };
     const draft = await inspectPluginDraft(root, state.installedRevision);
     if (draft.plugin && state.pluginId && draft.plugin.id !== state.pluginId) {
       draft.errors.push(`This draft updates ${state.pluginId}, so it must keep that id`);
@@ -330,23 +337,26 @@ export class PluginSetupManager {
     this.#hold(state, "Wait for the builder to finish before installing");
     let packageInstalled = false;
     try {
-      const draft = await this.draft(id);
-      if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
-      if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
-      const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
-      // Workspaces install one at a time, so none passes these checks while another replaces the package.
-      const entry = await this.#oneInstallAtATime(async () => {
-        await this.services.ready();
-        const current = this.services.index.get(draft.plugin!.id);
-        if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
-        if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
-        return this.services.installPersonal(root, { consent: true });
+      // No turn starts meanwhile, so what is installed is what was reviewed.
+      await this.projects.exclusive(state.projectId, async () => {
+        const draft = await this.draft(id);
+        if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
+        if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
+        const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
+        // Workspaces install one at a time, so none passes these checks while another replaces the package.
+        const entry = await this.#oneInstallAtATime(async () => {
+          await this.services.ready();
+          const current = this.services.index.get(draft.plugin!.id);
+          if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
+          if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
+          return this.services.installPersonal(root, { consent: true });
+        });
+        packageInstalled = true;
+        state.pluginId = entry.id;
+        state.baseRevision = entry.digest;
+        state.installedRevision = revision;
+        state.updatedAt = Date.now();
       });
-      packageInstalled = true;
-      state.pluginId = entry.id;
-      state.baseRevision = entry.digest;
-      state.installedRevision = revision;
-      state.updatedAt = Date.now();
     } finally {
       if (packageInstalled) this.invalidate();
       state.busy = false;

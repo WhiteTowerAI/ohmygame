@@ -37,8 +37,10 @@ async function environment() {
 function workspaceProjects(directory: string) {
   const all = new Map<string, ProjectState>();
   const working = new Set<string>();
+  /** Projects held from taking turns, as the app's workspace lock does. */
+  const held: string[] = [];
   return {
-    all, working,
+    all, working, held,
     async create(name: string | undefined, workspacePath: string): Promise<ProjectState> {
       const id = randomUUID();
       const project: ProjectState = { id, name: name ?? "Untitled project", nameSource: name ? "manual" : "default", type: "plugin", updatedAt: new Date(0).toISOString(),
@@ -49,6 +51,10 @@ function workspaceProjects(directory: string) {
     get: (id: string) => all.get(id),
     async remove(project: ProjectState) { all.delete(project.id); },
     busy: (id: string) => working.has(id),
+    async exclusive<T>(id: string, operation: () => Promise<T>) {
+      held.push(id);
+      try { return await operation(); } finally { held.splice(held.indexOf(id), 1); }
+    },
   } satisfies PluginWorkspaceProjects & Record<string, unknown>;
 }
 const ID = "personal/design-review";
@@ -309,7 +315,7 @@ describe("Plugin Builder", () => {
   });
 
   it("previews and validates an uninstalled draft, rejects a stale revision, and installs the reviewed version", async () => {
-    const { setup, directory, services, app, invalidate } = await environment();
+    const { setup, directory, services, app, invalidate, projects } = await environment();
     const state = await setup.create();
     const root = await writeDraft(directory, state.id);
     const draft = await setup.prepare(state.id, root);
@@ -321,9 +327,15 @@ describe("Plugin Builder", () => {
     expect(stale.statusCode).toBe(409);
     const updated = await setup.draft(state.id);
     expect(updated.revision).not.toBe(draft.revision);
+    // The project takes no turn while it installs, so the agent can't change the reviewed draft.
+    const install = services.installPersonal.bind(services);
+    let heldWhileInstalling: string[] = [];
+    vi.spyOn(services, "installPersonal").mockImplementation(async (...args) => { heldWhileInstalling = [...projects.held]; return install(...args); });
     const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/install`, payload: { revision: updated.revision } });
     expect(installed.statusCode, installed.body).toBe(200);
     expect(installed.json()).toMatchObject({ status: "installed", pluginId: ID });
+    expect(heldWhileInstalling).toEqual([state.projectId]);
+    expect(projects.held).toEqual([]);
     expect(invalidate).toHaveBeenCalledOnce();
     expect((await setup.draft(state.id)).installedRevision).toBe(updated.revision);
     expect(services.index.versions(ID)).toHaveLength(1);
@@ -369,6 +381,15 @@ describe("Plugin Builder", () => {
     expect(preview.installedRevision).toBeUndefined();
     expect(preview.files).toEqual(draft.files);
     expect(await resumed.installDraft(state.id, preview.revision!)).toMatchObject({ status: "installed", pluginId: ID });
+  });
+
+  it("has no draft once undo takes away the folder the draft was made in", async () => {
+    const { setup, directory } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await setup.prepare(state.id, root);
+    await rm(root, { recursive: true, force: true });
+    expect(await setup.draft(state.id)).toEqual({ files: [], errors: [] });
   });
 
   it("deletes a draft workspace and only that one", async () => {
