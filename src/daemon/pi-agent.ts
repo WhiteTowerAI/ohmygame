@@ -46,14 +46,6 @@ export function ensureOhMyGamePiEnvironment(agentDir: string): Promise<void> {
 
 async function configure(agentDir: string): Promise<void> {
   await mkdir(agentDir, { recursive: true });
-  const settings = SettingsManager.create(agentDir, agentDir);
-  const packages = settings.getGlobalSettings().packages ?? [];
-  // compat: since beta.1, remove from beta.3 and 2026-10-31. Drops Pi packages OhMyGame used to manage.
-  const migratedPackages = withoutOhMyGameManagedPiPackages(packages);
-  if (migratedPackages !== packages) {
-    settings.setPackages(migratedPackages);
-    await settings.flush();
-  }
   await ensurePluginCreatorSkill(agentDir);
 }
 

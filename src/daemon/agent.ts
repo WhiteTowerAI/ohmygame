@@ -2627,29 +2627,7 @@ function parseLocalAttachments(value: string): { visible: string; attachments: C
       return { visible: `${value.slice(0, index)}${value.slice(closingIndex + closing.length)}`, attachments: [], context: value.slice(index, closingIndex + closing.length) };
     }
   }
-  return parseLegacyLocalAttachments(value);
-}
-
-// compat: since alpha.4, remove from beta.1 and 2026-10-21. Without it, old messages show their attachment list as text.
-function parseLegacyLocalAttachments(value: string): { visible: string; attachments: ConversationAttachment[]; context: string } | undefined {
-  const marker = "\n\n[Attached local files]\n";
-  const index = value.lastIndexOf(marker);
-  if (index < 0) return undefined;
-  const attachments = value.slice(index + marker.length)
-    .split("\n")
-    .flatMap((line) => legacyAttachment(line));
-  return { visible: value.slice(0, index), attachments, context: value.slice(index) };
-}
-
-function legacyAttachment(line: string): ConversationAttachment[] {
-  const match = line.match(/^- (.+) \((image|text|document|audio|video|model|archive|binary), ([\d.]+) (B|KB|MB)\): /);
-  if (!match) return [];
-  const [, rawRelativePath, kind, amount, unit] = match;
-  const relativePath = rawRelativePath.replaceAll("\\_", "_");
-  const multiplier = unit === "MB" ? 1024 * 1024 : unit === "KB" ? 1024 : 1;
-  const size = Number(amount) * multiplier;
-  if (!Number.isFinite(size)) return [];
-  return [{ name: path.posix.basename(relativePath), relativePath, kind: kind as ConversationAttachment["kind"], size }];
+  return undefined;
 }
 
 function isConversationAttachment(value: unknown): value is ConversationAttachment {

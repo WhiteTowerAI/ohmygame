@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,24 +20,6 @@ describe("OhMyGame Pi environment", () => {
     ]);
     const userPackages = ["npm:pi-web-access"];
     expect(withoutOhMyGameManagedPiPackages(userPackages)).toBe(userPackages);
-  });
-
-  it("migrates the legacy adapter setting while preserving user packages", async () => {
-    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-pi-agent-"));
-    await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-      packages: [
-        "npm:pi-web-access",
-        "npm:pi-mcp-adapter@2.27.0",
-        { source: "github:example/custom-extension", extensions: [] },
-      ],
-    }));
-
-    await ensureOhMyGamePiEnvironment(agentDir);
-
-    expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).packages).toEqual([
-      "npm:pi-web-access",
-      { source: "github:example/custom-extension", extensions: [] },
-    ]);
   });
 
   it("creates the plugin creator skill without writing ambient MCP configuration", async () => {
