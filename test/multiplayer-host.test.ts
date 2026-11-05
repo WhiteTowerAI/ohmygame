@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
-import { compileGame, defineGame } from "@ohmygame/server";
+import { describe, expect, it, vi } from "vitest";
+import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
+import { Predictor } from "../packages/sdk/src/prediction.js";
+import { compileGame, defineGame, defineRealtimeGame } from "@ohmygame/server";
 import type { MultiplayerGameState } from "@ohmygame/sdk/protocol";
 
 function room(phase: MultiplayerGameState["phase"]): MultiplayerGameState {
@@ -74,5 +75,68 @@ describe("hosted rules", () => {
       now: 0,
     }, false);
     expect(late).toEqual({ requestId: "3", error: "It is another player's turn." });
+  });
+
+  it("shows each tick of its loop at once and makes up ticks a held-back timer missed", () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = compileGame(defineRealtimeGame({
+        players: { min: 1, max: 2 },
+        tickMs: 100,
+        setup: () => ({ ticks: 0 }),
+        input: (value) => ({ go: value.go === true }),
+        tick: (G: { ticks: number }) => void G.ticks++,
+      }));
+      const sent: number[] = [];
+      const shown: number[] = [];
+      const ticks = (state: MultiplayerGameState) => (state.game as { ticks: number }).ticks;
+      const loop = new HostLoop(adapter, 100, false, (state) => sent.push(ticks(state)), (state) => shown.push(ticks(state)));
+      loop.start({ ...room("playing"), game: { ticks: 0 } });
+      expect(shown).toEqual([0]);
+      vi.advanceTimersByTime(200);
+      expect(sent).toEqual([1, 2]);
+      // The page's timer slept for most of a second, as a hidden page's does: the next
+      // wake-up makes up the ticks, at most five, and sends only the result.
+      vi.setSystemTime(Date.now() + 700);
+      vi.advanceTimersByTime(100);
+      expect(sent).toEqual([1, 2, 7]);
+      expect(shown).toEqual([0, 1, 2, 7]);
+      vi.advanceTimersByTime(100);
+      expect(sent.at(-1)).toBe(8);
+      loop.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs the host's rules ahead for another player, so their own input shows at once", () => {
+    const adapter = compileGame(defineRealtimeGame({
+      players: { min: 2, max: 2 },
+      tickMs: 100,
+      setup: () => ({ x: {} as Record<string, number> }),
+      input: (value) => ({ dx: Number(value.dx) }),
+      tick(G: { x: Record<string, number> }, ctx, inputs) {
+        for (const id of ctx.players) G.x[id] = (G.x[id] ?? 0) + (inputs[id]?.dx ?? 0);
+      },
+    }));
+    const predictor = new Predictor(adapter, 100, () => "b");
+    const at = (x: Record<string, number>) => ({ ...room("playing"), players: room("playing").players.map((player) => ({ ...player, playerId: player.playerId })), game: { x } });
+    const x = (state: MultiplayerGameState) => (state.game as { x: Record<string, number> }).x;
+    // Before a round trip is measured there is nothing to predict with.
+    expect(x(predictor.receive(at({ a: 0, b: 0 }), { inputs: {}, acks: {} }, 0))).toEqual({ a: 0, b: 0 });
+    predictor.sentInput(0, { dx: 1 }, 0);
+    // The host read input 0 in a state that took 300 ms to come back: the page shows three
+    // ticks further on, with its own input and the other player's last one.
+    const shown = predictor.receive(at({ a: 3, b: 2 }), { inputs: { a: { dx: 1 }, b: { dx: 1 } }, acks: { b: 0 } }, 300);
+    expect(predictor.latency).toBe(300);
+    expect(x(shown)).toEqual({ a: 6, b: 5 });
+    expect(x(predictor.advance(400)!)).toEqual({ a: 7, b: 6 });
+    // A new input counts from the next tick shown, not a round trip later.
+    predictor.sentInput(1, { dx: -1 }, 400);
+    expect(x(predictor.advance(400)!)).toEqual({ a: 7, b: 4 });
+    // Unchanged, it shows nothing new; after the round, nothing at all.
+    expect(predictor.advance(400)).toBeUndefined();
+    expect(predictor.receive({ ...at({ a: 9, b: 9 }), phase: "finished" }, { inputs: {}, acks: {} }, 500).phase).toBe("finished");
+    expect(predictor.advance(600)).toBeUndefined();
   });
 });

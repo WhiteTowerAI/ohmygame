@@ -29,9 +29,12 @@ import {
   hasPlayerView,
   HOST_ADAPTER_ID,
   HostLoop,
+  mergeHostState,
   runHostRequest,
+  startTicker,
   type HostRequest,
 } from "./host.js";
+import { Predictor } from "./prediction.js";
 import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
@@ -122,6 +125,8 @@ export class MultiplayerClient<Game = unknown> {
   private room?: Room;
   private saved?: SavedRoom;
   private current?: MultiplayerSnapshot;
+  /** The service's latest snapshot, which a hosting player's own ticks build on. */
+  private fromService?: MultiplayerSnapshot;
   private lastEventSequence = -1;
   /** Whether this connection has already reported a snapshot it could not read. */
   private reportedUnreadable = false;
@@ -142,6 +147,9 @@ export class MultiplayerClient<Game = unknown> {
   private readonly hostRules?: { adapter: GameAdapter; playerView: boolean };
   private hostLoop?: HostLoop;
   private hostingRoom = false;
+  /** Runs hosted realtime rules ahead of the host's state while another player hosts. */
+  private readonly predictor?: Predictor;
+  private stopPredicting?: () => void;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -177,6 +185,9 @@ export class MultiplayerClient<Game = unknown> {
       if (adapter.mode !== options.manifest.mode)
         throw new OhMyGameError("invalid_option", `The game's rules are ${adapter.mode}, but the deployment is ${options.manifest.mode}. Run multiplayer_setup again.`);
       this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
+      // With playerView a player sees only their view, too little to run the rules on.
+      if (adapter.mode === "realtime" && !this.hostRules.playerView)
+        this.predictor = new Predictor(adapter, tickMsOf(adapter), () => this.saved?.playerId);
     }
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
@@ -360,6 +371,17 @@ export class MultiplayerClient<Game = unknown> {
     if (!isRealtimeAction(action))
       throw new OhMyGameError("invalid_option", "An action must be a small plain object of JSON data.");
     if (!this.room || this.status !== "connected") return false;
+    const local = this.localLoop();
+    if (local) {
+      try {
+        if (!this.hostRules!.adapter.validateAction) throw new Error("This game takes no actions.");
+        this.hostRules!.adapter.validateAction(action, local.playerId);
+        local.loop.action(local.playerId, action);
+      } catch (cause) {
+        this.error(new OhMyGameError("request_failed", cause instanceof Error ? cause.message : "The action is invalid."));
+      }
+      return true;
+    }
     this.room.send("action", action);
     return true;
   }
@@ -367,7 +389,46 @@ export class MultiplayerClient<Game = unknown> {
     const input = this.latestInput;
     this.latestInput = undefined;
     if (!input || !this.room || this.status !== "connected") return;
-    this.room.send("input", { ...input, inputId: this.inputId++ });
+    const local = this.localLoop();
+    if (local) {
+      try {
+        this.hostRules!.adapter.validateInput?.(input, local.playerId);
+        local.loop.input(local.playerId, input);
+      } catch (cause) {
+        this.error(new OhMyGameError("request_failed", cause instanceof Error ? cause.message : "The input is invalid."));
+      }
+      return;
+    }
+    const inputId = this.inputId++;
+    this.room.send("input", { ...input, inputId });
+    this.predictor?.sentInput(inputId, input);
+  }
+  /**
+   * The loop this player runs for the room while they host a round: their own input and
+   * actions go straight to it, as the service would only pass them back. Between rounds
+   * they go to the service, which explains why it refuses them.
+   */
+  private localLoop(): { loop: HostLoop; playerId: string } | undefined {
+    const playerId = this.saved?.playerId;
+    return this.hostingRoom && this.hostLoop?.phase === "playing" && playerId ? { loop: this.hostLoop, playerId } : undefined;
+  }
+  /**
+   * Shows a tick of this player's own loop at once, as the service will once the tick has
+   * made the trip: the room's part from the service, the game's from the rules, in this
+   * player's view.
+   */
+  private showHosted(room: Room, state: MultiplayerSnapshot["state"]): void {
+    const base = this.fromService;
+    // A round starts when the service says so; until then the game shows the service's room.
+    if (this.room !== room || !base || base.state.phase !== "playing" || !this.hostRules) return;
+    let shown = mergeHostState(state, base.state);
+    const { viewFor } = this.hostRules.adapter;
+    if (this.hostRules.playerView && viewFor) {
+      const view = viewFor(shown, this.saved?.playerId);
+      shown = { ...shown, game: view.game ?? {} };
+    }
+    this.current = { ...base, state: shown };
+    this.callbacks.onSnapshot?.(this.current);
   }
   /**
    * Quick play only places a player when they arrive, so two players can end up alone
@@ -429,6 +490,23 @@ export class MultiplayerClient<Game = unknown> {
       this.merging = false;
     }
   }
+  private stopPrediction(): void {
+    this.stopPredicting?.();
+    this.stopPredicting = undefined;
+    this.predictor?.reset();
+  }
+  /** Shows the predictor's state each tick between states from the host. */
+  private keepPredicting(room: Room): void {
+    const predictor = this.predictor;
+    if (!predictor || this.stopPredicting) return;
+    this.stopPredicting = startTicker(tickMsOf(this.hostRules!.adapter), () => {
+      const state = predictor.advance();
+      const base = this.fromService;
+      if (!state || !base || this.room !== room) return;
+      this.current = { ...base, state };
+      this.callbacks.onSnapshot?.(this.current);
+    });
+  }
   private stopInput(): void {
     clearInterval(this.inputTimer);
     this.inputTimer = undefined;
@@ -457,12 +535,14 @@ export class MultiplayerClient<Game = unknown> {
   private async leaveRoom(): Promise<void> {
     this.stopHosting();
     this.stopInput();
+    this.stopPrediction();
     this.stopMerge();
     this.generation++;
     const room = this.room;
     this.room = undefined;
     this.saved = undefined;
     this.current = undefined;
+    this.fromService = undefined;
     this.persist();
     room?.removeAllListeners();
     if (room) {
@@ -473,6 +553,7 @@ export class MultiplayerClient<Game = unknown> {
   dispose(): void {
     this.stopHosting();
     this.stopInput();
+    this.stopPrediction();
     this.stopMerge();
     this.disposed = true;
     this.generation++;
@@ -533,6 +614,7 @@ export class MultiplayerClient<Game = unknown> {
       };
       this.room = room;
       this.current = undefined;
+      this.fromService = undefined;
       this.lastEventSequence = -1;
       this.reportedUnreadable = false;
       this.inputId = 0;
@@ -561,10 +643,17 @@ export class MultiplayerClient<Game = unknown> {
     const active = value.active === true;
     this.hostLoop?.stop();
     this.hostLoop = undefined;
+    if (active) this.stopPrediction();
     if (active && rules.adapter.mode === "realtime" && isRecord(value.state)) {
-      this.hostLoop = new HostLoop(rules.adapter, tickMsOf(rules.adapter), rules.playerView, (state, views) => {
-        if (this.room === room) room.send("host.state", { state, ...(views ? { views } : {}) });
-      });
+      this.hostLoop = new HostLoop(
+        rules.adapter,
+        tickMsOf(rules.adapter),
+        rules.playerView,
+        (state, views, frame) => {
+          if (this.room === room) room.send("host.state", { state, ...(views ? { views } : {}), ...(frame ? { frame } : {}) });
+        },
+        (state) => this.showHosted(room, state),
+      );
       this.hostLoop.start(value.state as unknown as MultiplayerSnapshot["state"]);
     }
     if (active !== this.hostingRoom) {
@@ -598,7 +687,7 @@ export class MultiplayerClient<Game = unknown> {
       if (!this.hostLoop || !isRecord(value) || typeof value.playerId !== "string" || !isRecord(value.input)) return;
       try {
         rules.adapter.validateInput?.(value.input, value.playerId);
-        this.hostLoop.input(value.playerId, value.input);
+        this.hostLoop.input(value.playerId, value.input, typeof value.inputId === "number" ? value.inputId : undefined);
       } catch (cause) {
         room.send("host.inputError", { playerId: value.playerId, message: cause instanceof Error ? cause.message : "The input is invalid." });
       }
@@ -661,8 +750,10 @@ export class MultiplayerClient<Game = unknown> {
     room.onDrop(() => {
       this.stopHosting();
       this.stopInput();
+      this.stopPrediction();
       this.aloneSince = undefined;
       this.current = undefined;
+      this.fromService = undefined;
       this.setStatus("reconnecting");
     });
     room.onReconnect(() => {
@@ -686,9 +777,11 @@ export class MultiplayerClient<Game = unknown> {
       if (this.room !== room) return;
       this.stopHosting();
       this.stopInput();
+      this.stopPrediction();
       this.stopMerge();
       this.room = undefined;
       this.current = undefined;
+      this.fromService = undefined;
       if (code === 1000 || code >= 4000) {
         this.saved = undefined;
         this.persist();
@@ -721,10 +814,22 @@ export class MultiplayerClient<Game = unknown> {
       }
       return;
     }
-    if (value.sequence < (this.current?.sequence ?? -1)) return;
+    if (value.sequence < (this.fromService?.sequence ?? -1)) return;
+    this.fromService = value;
     const first = !this.current;
-    this.current = value;
-    this.callbacks.onSnapshot?.(value);
+    // While this player runs a round for the room, their own ticks are newer than any the
+    // service sends back, about a round trip later, so the game keeps showing those. That
+    // includes a round their rules just ended, which a late tick must not seem to reopen.
+    const shown = this.current?.state.phase;
+    if (!first && value.state.phase === "playing" && this.hostingRoom && this.hostLoop?.phase === shown && (shown === "playing" || shown === "finished")) return;
+    if (this.predictor && this.room && !this.hostingRoom && value.frame && value.state.phase === "playing") {
+      this.current = { ...value, state: this.predictor.receive(value.state, value.frame) };
+      this.keepPredicting(this.room);
+    } else {
+      this.stopPrediction();
+      this.current = value;
+    }
+    this.callbacks.onSnapshot?.(this.current);
     if (first)
       for (const command of this.saved?.pending ?? [])
         this.room?.send("command", command);

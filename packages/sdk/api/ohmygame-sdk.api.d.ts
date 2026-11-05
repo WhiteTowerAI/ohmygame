@@ -472,7 +472,7 @@ export {};
  * to apply the rules; it accepts only the game's part of the answer. docs/multiplayer.md
  * describes the exchange.
  */
-import { type MultiplayerGameState, type RealtimeAction, type RealtimeInput, type TurnCommand } from "./multiplayer-protocol.js";
+import { type MultiplayerGameState, type RealtimeAction, type RealtimeFrame, type RealtimeInput, type TurnCommand } from "./multiplayer-protocol.js";
 import { type GameAdapter } from "./rules.js";
 /** The adapterId of deployments whose rules run on a player's browser. */
 export declare const HOST_ADAPTER_ID = "host";
@@ -525,25 +525,40 @@ export declare function runHostRequest(adapter: GameAdapter, request: HostReques
  */
 export declare function mergeHostState(host: MultiplayerGameState, room: MultiplayerGameState, base?: MultiplayerGameState): MultiplayerGameState;
 /**
+ * Calls tick every ms. In a browser the timer runs in a worker: browsers slow a hidden
+ * page's own timers to about once a second, which would slow the whole room while the
+ * hosting player looks at another tab or window. Falls back to the page's timer.
+ */
+export declare function startTicker(ms: number, tick: () => void): () => void;
+/**
  * The realtime loop a hosting player's browser runs: every tick it steps the rules with the
- * players' latest inputs and the actions since the last tick, and sends the new state.
+ * players' latest inputs and the actions since the last tick, and sends the new state. The
+ * hosting player's own input goes straight to the loop, and show lets their game draw each
+ * tick at once instead of after a trip through the service.
  */
 export declare class HostLoop {
     private readonly adapter;
     private readonly tickMs;
     private readonly playerView;
     private readonly send;
+    private readonly show?;
     private state?;
     private readonly inputs;
     private actions;
-    private timer?;
-    constructor(adapter: GameAdapter, tickMs: number, playerView: boolean, send: (state: MultiplayerGameState, views?: HostViews) => void);
+    private stopTicker?;
+    /** When the next tick is due. */
+    private due;
+    constructor(adapter: GameAdapter, tickMs: number, playerView: boolean, send: (state: MultiplayerGameState, views?: HostViews, frame?: RealtimeFrame) => void, show?: (state: MultiplayerGameState) => void);
+    /** The phase of the loop's state, which runs ahead of the service's while a round plays. */
+    get phase(): MultiplayerGameState["phase"] | undefined;
     start(state: MultiplayerGameState): void;
     /** The room changed without this player's rules, for example a seat was taken. */
     sync(state: MultiplayerGameState): void;
-    input(playerId: string, input: RealtimeInput): void;
+    input(playerId: string, input: RealtimeInput, id?: number): void;
     action(playerId: string, action: RealtimeAction): void;
     stop(): void;
+    /** What the last tick read, so other players can run the rules ahead of it. */
+    private frame;
     private tick;
 }
 
@@ -613,6 +628,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private room?;
     private saved?;
     private current?;
+    /** The service's latest snapshot, which a hosting player's own ticks build on. */
+    private fromService?;
     private lastEventSequence;
     /** Whether this connection has already reported a snapshot it could not read. */
     private reportedUnreadable;
@@ -633,6 +650,9 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly hostRules?;
     private hostLoop?;
     private hostingRoom;
+    /** Runs hosted realtime rules ahead of the host's state while another player hosts. */
+    private readonly predictor?;
+    private stopPredicting?;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     get status(): MultiplayerConnectionStatus;
     get roomId(): string | undefined;
@@ -679,6 +699,18 @@ export declare class MultiplayerClient<Game = unknown> {
     sendAction(action: ClientAction<Game>): boolean;
     private flushInput;
     /**
+     * The loop this player runs for the room while they host a round: their own input and
+     * actions go straight to it, as the service would only pass them back. Between rounds
+     * they go to the service, which explains why it refuses them.
+     */
+    private localLoop;
+    /**
+     * Shows a tick of this player's own loop at once, as the service will once the tick has
+     * made the trip: the room's part from the service, the game's from the rules, in this
+     * player's view.
+     */
+    private showHosted;
+    /**
      * Quick play only places a player when they arrive, so two players can end up alone
      * in separate rooms, for example after one returns to a held seat. A drop-in player
      * who stays alone moves to the busiest room that has others and a free seat.
@@ -689,6 +721,9 @@ export declare class MultiplayerClient<Game = unknown> {
     private stopMerge;
     private alone;
     private checkMerge;
+    private stopPrediction;
+    /** Shows the predictor's state each tick between states from the host. */
+    private keepPredicting;
     private stopInput;
     publicRooms(): Promise<PublicMultiplayerRoom[]>;
     leave(): Promise<void>;
@@ -969,7 +1004,21 @@ export interface MultiplayerSnapshot {
     sequence: number;
     state: MultiplayerGameState;
     serverTime: string;
+    /**
+     * In a realtime room whose rules a player's browser runs, the tick that made this state:
+     * so other players can run the same rules ahead of it and see their own input at once.
+     * Absent with playerView, which keeps each player's view to themselves.
+     */
+    frame?: RealtimeFrame;
 }
+/** The inputs a tick of hosted realtime rules read, and each player's last input it read. */
+export interface RealtimeFrame {
+    /** Each player's input that the tick read. */
+    inputs: Record<string, RealtimeInput>;
+    /** Each player's latest inputId that reached the rules by that tick. */
+    acks: Record<string, number>;
+}
+export declare function isRealtimeFrame(value: unknown): value is RealtimeFrame;
 export interface PublicMultiplayerRoom {
     roomId: string;
     clients: number;

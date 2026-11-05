@@ -1393,9 +1393,19 @@ export default defineRealtimeGame({
       await second.quickPlay();
       expect(second.roomId).toBe(first.roomId);
       await wait(() => expect(ticks(second)).toBeGreaterThan(ticks(first) - 5));
+      // The host's own action goes straight to its rules, and its game shows each tick
+      // before the service sends it back; the guest sees it too, once.
+      first.sendAction({ boost: true });
+      await wait(() => expect((second.snapshot!.state.game as { boosts: number }).boosts).toBe(1));
+      expect(ticks(first)).toBeGreaterThanOrEqual(ticks(second));
+      // Each state the guest gets tells which of its inputs the host's rules read, so its
+      // page can run the rules ahead and show its own input at once.
+      second.sendInput({ go: true });
+      await wait(() => expect(second.snapshot!.frame?.acks[second.playerId!]).toBe(0));
+      expect(second.snapshot!.frame!.inputs[second.playerId!]).toEqual({ go: true });
       // The guest's action reaches the host's rules once, and a bad one comes back as an error.
       second.sendAction({ boost: true });
-      await wait(() => expect((first.snapshot!.state.game as { boosts: number }).boosts).toBe(1));
+      await wait(() => expect((first.snapshot!.state.game as { boosts: number }).boosts).toBe(2));
       second.sendAction({ boost: false } as never);
       await wait(() => expect(errors).toContain("Send { boost: true }."));
 
@@ -1403,7 +1413,7 @@ export default defineRealtimeGame({
       await wait(() => expect(second.hosting).toBe(true));
       const before = ticks(second);
       await wait(() => expect(ticks(second)).toBeGreaterThan(before + 3));
-      expect((second.snapshot!.state.game as { boosts: number }).boosts).toBe(1);
+      expect((second.snapshot!.state.game as { boosts: number }).boosts).toBe(2);
     } finally {
       first.dispose();
       second.dispose();

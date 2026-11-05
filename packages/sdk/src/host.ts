@@ -9,6 +9,7 @@ import {
   isRecord,
   type MultiplayerGameState,
   type RealtimeAction,
+  type RealtimeFrame,
   type RealtimeInput,
   type TurnCommand,
 } from "./multiplayer-protocol.js";
@@ -144,28 +145,78 @@ export function mergeHostState(
 interface HeldInput {
   input: RealtimeInput;
   at: number;
+  /** The player's inputId, for inputs that came through the service. */
+  id?: number;
+}
+
+/** The most ticks the loop makes up at once after its timer was held back. */
+const MAX_CATCH_UP_TICKS = 5;
+
+/**
+ * Calls tick every ms. In a browser the timer runs in a worker: browsers slow a hidden
+ * page's own timers to about once a second, which would slow the whole room while the
+ * hosting player looks at another tab or window. Falls back to the page's timer.
+ */
+export function startTicker(ms: number, tick: () => void): () => void {
+  if (typeof document !== "undefined" && typeof Worker === "function" && typeof Blob === "function" && typeof URL.createObjectURL === "function") {
+    let url: string | undefined;
+    try {
+      url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms});`], { type: "text/javascript" }));
+      const worker = new Worker(url);
+      let fallback: (() => void) | undefined;
+      worker.onmessage = () => tick();
+      worker.onerror = () => {
+        worker.terminate();
+        fallback ??= startPageTicker(ms, tick);
+      };
+      const created = url;
+      return () => {
+        worker.terminate();
+        fallback?.();
+        URL.revokeObjectURL(created);
+      };
+    } catch {
+      if (url) URL.revokeObjectURL(url);
+    }
+  }
+  return startPageTicker(ms, tick);
+}
+function startPageTicker(ms: number, tick: () => void): () => void {
+  const timer = setInterval(tick, ms);
+  return () => clearInterval(timer);
 }
 
 /**
  * The realtime loop a hosting player's browser runs: every tick it steps the rules with the
- * players' latest inputs and the actions since the last tick, and sends the new state.
+ * players' latest inputs and the actions since the last tick, and sends the new state. The
+ * hosting player's own input goes straight to the loop, and show lets their game draw each
+ * tick at once instead of after a trip through the service.
  */
 export class HostLoop {
   private state?: MultiplayerGameState;
   private readonly inputs = new Map<string, HeldInput>();
   private actions: { playerId: string; action: RealtimeAction }[] = [];
-  private timer?: ReturnType<typeof setInterval>;
+  private stopTicker?: () => void;
+  /** When the next tick is due. */
+  private due = 0;
 
   constructor(
     private readonly adapter: GameAdapter,
     private readonly tickMs: number,
     private readonly playerView: boolean,
-    private readonly send: (state: MultiplayerGameState, views?: HostViews) => void,
+    private readonly send: (state: MultiplayerGameState, views?: HostViews, frame?: RealtimeFrame) => void,
+    private readonly show?: (state: MultiplayerGameState) => void,
   ) {}
 
+  /** The phase of the loop's state, which runs ahead of the service's while a round plays. */
+  get phase(): MultiplayerGameState["phase"] | undefined {
+    return this.state?.phase;
+  }
   start(state: MultiplayerGameState): void {
     this.state = state;
-    this.timer ??= setInterval(() => this.tick(), this.tickMs);
+    this.due = Date.now() + this.tickMs;
+    this.stopTicker ??= startTicker(this.tickMs, () => this.tick());
+    if (state.phase === "playing") this.show?.(state);
   }
   /** The room changed without this player's rules, for example a seat was taken. */
   sync(state: MultiplayerGameState): void {
@@ -174,34 +225,54 @@ export class HostLoop {
     if (state.phase !== "playing") {
       this.inputs.clear();
       this.actions = [];
-    }
+    } else this.show?.(this.state);
   }
-  input(playerId: string, input: RealtimeInput): void {
-    this.inputs.set(playerId, { input, at: Date.now() });
+  input(playerId: string, input: RealtimeInput, id?: number): void {
+    this.inputs.set(playerId, { input, at: Date.now(), ...(id === undefined ? {} : { id }) });
   }
   action(playerId: string, action: RealtimeAction): void {
     this.actions.push({ playerId, action });
   }
   stop(): void {
-    clearInterval(this.timer);
-    this.timer = undefined;
+    this.stopTicker?.();
+    this.stopTicker = undefined;
     this.state = undefined;
     this.inputs.clear();
     this.actions = [];
   }
 
+  /** What the last tick read, so other players can run the rules ahead of it. */
+  private frame(): RealtimeFrame {
+    const frame: RealtimeFrame = { inputs: {}, acks: {} };
+    for (const [id, held] of this.inputs) {
+      frame.inputs[id] = held.input;
+      if (held.id !== undefined) frame.acks[id] = held.id;
+    }
+    return frame;
+  }
   private tick(): void {
-    const state = this.state;
-    if (!state || state.phase !== "playing" || !this.adapter.step) return;
+    const start = this.state;
+    if (!start || start.phase !== "playing" || !this.adapter.step) return;
     const now = Date.now();
     // An input counts until the player has missed five ticks, as on the service.
     const lifetime = Math.max(250, 5 * this.tickMs);
     for (const [id, held] of this.inputs) if (now - held.at > lifetime) this.inputs.delete(id);
-    const actions = this.actions;
-    this.actions = [];
-    const next = this.adapter.step(state, this.inputs, now, this.tickMs / 1000, actions);
-    if (JSON.stringify(next) === JSON.stringify(state)) return;
-    this.state = next;
-    this.send(next, this.playerView ? hostViews(this.adapter, next) : undefined);
+    // A timer fires a little early or late; a tick is due within half a tick of its time.
+    // A held-back timer makes up missed ticks, up to a few, so the round keeps its pace.
+    let state = start;
+    let ticks = 0;
+    while (now >= this.due - this.tickMs / 2 && ticks < MAX_CATCH_UP_TICKS && state.phase === "playing") {
+      const actions = ticks === 0 ? this.actions : [];
+      if (ticks === 0) this.actions = [];
+      state = this.adapter.step(state, this.inputs, now, this.tickMs / 1000, actions);
+      this.due += this.tickMs;
+      ticks++;
+    }
+    if (now >= this.due) this.due = now + this.tickMs;
+    if (JSON.stringify(state) === JSON.stringify(start)) return;
+    this.state = state;
+    this.show?.(state);
+    if (this.playerView) this.send(state, hostViews(this.adapter, state));
+    else this.send(state, undefined, this.frame());
   }
 }
