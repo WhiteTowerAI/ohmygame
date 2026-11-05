@@ -391,7 +391,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   )) : [];
   const [batchExecuting, setBatchExecuting] = useState(false);
   const batchRun = useRef<AbortController | undefined>(undefined);
-  const [regenerateConfirm, setRegenerateConfirm] = useState<{ nodeId: string; runs: number }>();
+  const [regenerateConfirm, setRegenerateConfirm] = useState<string>();
   useEffect(() => () => { batchRun.current?.abort(); }, [storage, closing]);
   const selectedMediaNodes = selectedNodes.filter((node) => {
     const mediaType = node.type === "asset" ? node.data.mediaType : node.type;
@@ -2065,7 +2065,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: nodeLabel, description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: localizedTemplateText(original.type === "group" ? original.data.name ?? "" : original.title ?? ""), description: localizedTemplateText(original.description ?? "") }),
-      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted || !canRegenerateFrom(boardNodes, original.id) ? {} : { regenerate: () => setRegenerateConfirm({ nodeId: original.id, runs: canvasChainRuns(boardNodes, original.id) }) }) } } : {}),
+      ...(staleIds.has(original.id) ? { stale: { ...(nodeBusy(original.id) || hidden || conflicted || !canRegenerateFrom(boardNodes, original.id) ? {} : { regenerate: () => setRegenerateConfirm(original.id) }) } } : {}),
     } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
@@ -2551,10 +2551,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         onClose={() => setBatchSourceId(undefined)} /> : null}
       {/* "Out of date" reads as a label, so it asks before it spends anything. */}
       <Dialog open={Boolean(regenerateConfirm)} onClose={() => setRegenerateConfirm(undefined)} size="sm"
-        title={t("assetCanvas.regenerateTitle")} description={t("assetCanvas.regenerateDescription", { count: regenerateConfirm?.runs ?? 0 })}
+        title={t("assetCanvas.regenerateTitle")} description={t("assetCanvas.regenerateDescription", { count: regenerateConfirm ? canvasChainRuns(boardNodes, regenerateConfirm) : 0 })}
         footer={<>
           <Button onClick={() => setRegenerateConfirm(undefined)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => { const nodeId = regenerateConfirm?.nodeId; setRegenerateConfirm(undefined); if (nodeId) void regenerateFrom(nodeId); }}>{t("assetCanvas.regenerateAction")}</Button>
+          <Button variant="primary" onClick={() => { const nodeId = regenerateConfirm; setRegenerateConfirm(undefined); if (nodeId) void regenerateFrom(nodeId); }}>{t("assetCanvas.regenerateAction")}</Button>
         </>} />
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
