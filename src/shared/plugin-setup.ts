@@ -14,6 +14,8 @@ export interface PluginSetupSummary {
   mode?: PluginSetupMode;
   pluginId?: string;
   title: string;
+  /** Its draft's icon, in the list of workspaces. */
+  icon?: PluginIcon;
   createdAt: number;
   updatedAt: number;
   status: "idle" | "working" | "ready" | "installed" | "interrupted" | "error";

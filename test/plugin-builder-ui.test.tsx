@@ -279,6 +279,7 @@ describe("Plugin Builder layout", () => {
     expect(items.map(item => item.getAttribute("aria-label"))).toEqual(["Review", "Older"]);
     expect(items[0]?.getAttribute("aria-current")).toBe("page");
     expect(items[1]?.getAttribute("href")).toBe("#/plugins/builder/other");
+    expect(container.querySelectorAll(".project-rail .sidebar-recent a")).toHaveLength(2);
   });
 
   it("opens a workspace nothing was said in for a new plugin, and only then makes one", async () => {

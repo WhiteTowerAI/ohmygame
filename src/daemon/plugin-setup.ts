@@ -174,8 +174,12 @@ export class PluginSetupManager {
       throw cause;
     });
     const results = await Promise.allSettled(entries.filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => this.#loadState(id)));
-    return results.flatMap(result => result.status === "fulfilled" ? [summary(result.value)] : [])
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const states = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    return Promise.all(states.sort((a, b) => b.updatedAt - a.updatedAt).map(async state => {
+      // The agent may be midway through writing the manifest; the icon then just waits.
+      const icon = await this.#draftIcon(state).catch(() => undefined);
+      return { ...summary(state), ...(icon ? { icon: { type: "asset" as const, path: icon } } : {}) };
+    }));
   }
   async remove(id: string): Promise<void> {
     const state = await this.#loadState(id);
@@ -267,10 +271,16 @@ export class PluginSetupManager {
     const state = await this.#loadState(id);
     if (!state.draftPath) return undefined;
     const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-    if (requested) return readPluginIconAsset(root, { type: "asset", path: requested });
+    const icon = requested ?? await this.#draftIcon(state);
+    return readPluginIconAsset(root, icon ? { type: "asset", path: icon } : undefined);
+  }
+  /** The icon the draft's manifest names, as it stands on disk. */
+  async #draftIcon(state: SetupRuntimeState): Promise<string | undefined> {
+    if (!state.draftPath) return undefined;
+    const root = await pluginDraftPath(path.join(this.#directory(state.id), "workspace"), state.draftPath);
     const { content } = await readPluginDraftFile(root, PLUGIN_MANIFEST_PATH);
     const { icon } = JSON.parse(content) as { icon?: unknown };
-    return readPluginIconAsset(root, typeof icon === "string" ? { type: "asset", path: icon } : undefined);
+    return typeof icon === "string" ? icon : undefined;
   }
   async updateIcon(id: string, input: PluginIconUpdate): Promise<PluginDraft> {
     const state = await this.#loadState(id);
@@ -484,7 +494,10 @@ export class PluginSetupManager {
         this.#sessions.delete(state.id);
         throw cause;
       }
-    } else await session.setModel(compatibleRuntimeModel(selected.model));
+    } else if (session.model?.provider !== selected.model.provider || session.model?.id !== selected.model.id) {
+      // Each setModel writes a change the chat shows, so only a real change gets one.
+      await session.setModel(compatibleRuntimeModel(selected.model));
+    }
     if (state.reasoningLevel) session.setThinkingLevel(state.reasoningLevel);
     if (this.#closed || this.#aborted.has(state.id)) {
       state.busy = false;

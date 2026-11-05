@@ -2790,7 +2790,6 @@ const zhCN: typeof en = {
     scopePerProject: "它默认关闭：在项目里开启，或设为所有项目开启，并由你批准它请求的权限。",
     asksFor: "请求的权限",
     settingsAfterInstall: "安装后可以在这里填写设置。",
-    backToPlugins: "返回插件",
     assistant: "插件助手",
     newPlugin: "新插件",
     opening: "正在打开工作区…",

@@ -2839,7 +2839,6 @@ const en = {
     scopePerProject: "It starts off: turn it on in a project, or in every project, and approve what it asks for.",
     asksFor: "Asks for",
     settingsAfterInstall: "Install it, then fill in its settings here.",
-    backToPlugins: "Back to plugins",
     assistant: "Plugin assistant",
     newPlugin: "New plugin",
     opening: "Opening your workspace…",

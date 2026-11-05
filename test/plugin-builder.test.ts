@@ -11,6 +11,12 @@ import { PluginServices } from "../src/daemon/plugin-services.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
 
+const agentSession = vi.hoisted(() => ({ create: undefined as undefined | ((options: { model: unknown }) => unknown) }));
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
+  return { ...actual, createAgentSession: (options: Parameters<typeof actual.createAgentSession>[0]) => agentSession.create ? { session: agentSession.create(options as { model: unknown }) } : actual.createAgentSession(options) };
+});
+
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function environment() {
@@ -32,6 +38,31 @@ async function environment() {
   return { directory, agentDir, host, services, setup, manager, app, invalidate };
 }
 const ID = "personal/design-review";
+describe("plugin builder model", () => {
+  it("records a model change only when the model changes", async () => {
+    const { directory, agentDir, host, services, invalidate } = await environment();
+    const models: Record<string, { provider: string; id: string }> = { one: { provider: "test", id: "one" }, two: { provider: "test", id: "two" } };
+    const setModel = vi.fn(async (model: unknown) => { session.model = model; });
+    const session = { model: undefined as unknown, messages: [], setModel, setThinkingLevel: vi.fn(), bindExtensions: vi.fn(async () => {}), subscribe: () => () => {}, prompt: vi.fn(async () => {}), abort: vi.fn(async () => {}), dispose: vi.fn() };
+    agentSession.create = ({ model }) => { session.model = model; return session; };
+    cleanup.push(async () => { agentSession.create = undefined; });
+    const setup = new PluginSetupManager(directory, agentDir, host, services, invalidate, (async (ref: { id: string }) => ({ runtime: {}, model: models[ref.id] })) as never);
+    cleanup.push(() => setup.close());
+    const { id } = await setup.create();
+    const turn = async (model: string, count: number) => {
+      await setup.prompt(id, { prompt: "Go", model: models[model]! });
+      await vi.waitFor(async () => {
+        expect(session.prompt).toHaveBeenCalledTimes(count);
+        expect((await setup.read(id)).busy).toBe(false);
+      });
+    };
+    await turn("one", 1);
+    await turn("one", 2);
+    expect(setModel).not.toHaveBeenCalled();
+    await turn("two", 3);
+    expect(setModel).toHaveBeenCalledOnce();
+  });
+});
 async function writeDraft(directory: string, sessionId: string, mcp = false) {
   const root = path.join(directory, "plugin-setup", sessionId, "workspace", "design-review");
   await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
@@ -168,6 +199,7 @@ describe("Plugin Builder", () => {
     expect(services.index.get(ID)?.manifest.icon).toBe("./assets/icon.svg");
     const resumed = manager(); cleanup.push(() => resumed.close());
     expect((await resumed.draft(state.id)).plugin?.icon).toEqual(asset);
+    expect((await resumed.list()).find(session => session.id === state.id)?.icon).toEqual(preview.plugin?.icon);
     const reset = await resumed.updateIcon(state.id, { revision: preview.revision, icon: null });
     expect(reset.plugin?.icon).toBeUndefined();
     expect(services.index.get(ID)?.manifest.icon).toBe("./assets/icon.svg");

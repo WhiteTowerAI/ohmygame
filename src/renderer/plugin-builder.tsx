@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginDraftPlugin, type PluginSetupState, type PluginSetupSummary } from "../shared/plugin-setup.js";
-import type { StorePlugin } from "../shared/plugins.js";
+import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginSetupState, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, promptPluginSetup, readPluginDraft,
@@ -24,7 +23,7 @@ import { pluginBuilderHash, pluginHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInput } from "./plugin-builder-drafts.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ArrowLeft, Check, CirclePlus, ExternalLink, FileCode2, FileText, LayoutGrid, LoaderCircle, MessageCircle, MessageSquarePlus, MoreHorizontal, Package,
+import { Check, CirclePlus, ExternalLink, FileCode2, FileText, LayoutGrid, LoaderCircle, MessageCircle, MessageSquarePlus, MoreHorizontal, Package,
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./home.css";
@@ -133,44 +132,35 @@ const STARTERS = [
 
 // What the rail last showed: opening another workspace remounts the page, and
 // the rail shouldn't empty and refill.
-let railCache: { sessions: PluginSetupSummary[]; plugins: StorePlugin[] } = { sessions: [], plugins: [] };
+let railSessions: PluginSetupSummary[] = [];
 
-/** The rail: back to Plugins, the recent AI workspaces, and a new plugin. The rest are on the Plugins page. */
-function BuilderRail({ sessionId, title, status, plugin, onNavigate, onError }: {
+/** The rail: the recent AI workspaces and a new plugin. The rest are on the Plugins page. */
+function BuilderRail({ sessionId, revision, onNavigate, onError }: {
   sessionId: string;
-  /** The open workspace's name and status: the list loads again when they change. */
-  title?: string;
-  status?: string;
-  plugin?: PluginDraftPlugin;
+  /** What the rail shows of the open workspace: the list loads again when it changes. */
+  revision: string;
   onNavigate: (page: AppNavigationTarget) => void;
   onError: (cause: unknown) => void;
 }) {
   const generation = useReadyRuntimeGeneration();
-  const [{ sessions, plugins }, setRail] = useState(railCache);
+  const [sessions, setSessions] = useState(railSessions);
   useEffect(() => {
     let active = true;
-    void waitForRuntime().then(() => Promise.all([listPluginSetups(), listStorePlugins()]))
-      .then(([sessions, plugins]) => {
-        railCache = { sessions, plugins };
-        if (active) setRail(railCache);
-      }).catch(() => { /* The rail keeps what it has; the page reports a daemon it can't reach. */ });
+    void waitForRuntime().then(listPluginSetups).then(next => {
+      railSessions = next;
+      if (active) setSessions(next);
+    }).catch(() => { /* The rail keeps what it has; the page reports a daemon it can't reach. */ });
     return () => { active = false; };
-  }, [generation, sessionId, title, status]);
+  }, [generation, sessionId, revision]);
   // The list comes newest first; the open workspace stays on it however old.
   const listed = sessions.filter((session, index) => index < RECENT_LIMIT || session.id === sessionId);
   return <AppRail label={t("pluginBuilder.workspaces")} onNavigate={onNavigate}>
-    <Tooltip content={t("pluginBuilder.backToPlugins")} placement="right-start">
-      <a className="sidebar-app sidebar-app-new" href={pluginHash()} aria-label={t("pluginBuilder.backToPlugins")}><ArrowLeft size={16} /></a>
-    </Tooltip>
     {listed.map(session => {
       const current = session.id === sessionId;
       const name = workspaceTitle(session.title);
-      const icon = current ? plugin : plugins.find(item => item.id === session.pluginId);
       return <Tooltip key={session.id} content={name} placement="right-start">
         <a className={`sidebar-app plugin-builder-rail-item${current ? " is-active" : ""}`} href={pluginBuilderHash(session.id)} aria-label={name} aria-current={current ? "page" : undefined}>
-          {session.status === "working" ? <LoaderCircle className="spin" size={16} />
-            : icon?.icon ? <PluginGlyph plugin={icon} size={20} setupId={current ? sessionId : undefined} />
-              : <span aria-hidden="true">{[...name][0]}</span>}
+          {session.status === "working" ? <LoaderCircle className="spin" size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
         </a>
       </Tooltip>;
     })}
@@ -348,7 +338,7 @@ export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; on
   }];
 
   return <ProjectFrame
-    rail={<BuilderRail sessionId={sessionId} title={state?.title} status={state?.status} plugin={draftPlugin} onNavigate={onNavigate} onError={cause => setError(message(cause))} />}
+    rail={<BuilderRail sessionId={sessionId} revision={`${state?.title}:${state?.status}:${draftPlugin?.icon?.path}`} onNavigate={onNavigate} onError={cause => setError(message(cause))} />}
     top={<ProjectTop name={state ? workspaceTitle(state.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined} menu={menu} status={status}>
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
         icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
