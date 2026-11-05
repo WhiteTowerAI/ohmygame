@@ -1,10 +1,14 @@
 import { mkdir } from "node:fs/promises";
+import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
   ExtensionHostPlugin,
+  PluginBuild,
   PluginConfigurationValues,
   ProjectTypeHook,
 } from "../shared/extension-host-protocol.js";
+import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
 import { projectTypePlugin } from "../shared/project-file.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   ExtensionHostError,
   type ExtensionHosts,
@@ -37,6 +41,8 @@ export interface PluginCallOptions {
   turn?: string;
   /** The version the caller expects; the call is refused if the project moved on. */
   version?: string;
+  /** The web build a command asked for. */
+  build?: PluginBuild;
 }
 
 export interface NativePluginStatus {
@@ -67,12 +73,18 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     dataFolder,
     entry: manifest.entrypoints!.native!,
     tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
-    commands: (manifest.contributes?.commands ?? []).flatMap((command) =>
-      "native" in command.run ? [command.run.native] : [],
-    ),
+    // A canvas node's code is a command handler too.
+    commands: [...new Set([
+      ...(manifest.contributes?.commands ?? []).flatMap((command) =>
+        "native" in command.run ? [command.run.native] : [],
+      ),
+      ...(manifest.contributes?.canvasNodes ?? []).map((node) => node.run.native),
+    ])],
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
     ),
+    game: manifest.capabilities?.game === true,
+    hooks: [...manifestHooks(manifest)],
   };
 }
 
@@ -142,6 +154,43 @@ export class NativePlugins {
     });
   }
 
+  /**
+   * Runs a canvas node, `publisher/name:node`, in the version the project
+   * uses: `prepare` checks the call against the node's definition there and
+   * returns what its code gets.
+   */
+  async runCanvasNode<T>(
+    node: string,
+    options: Omit<PluginCallOptions, "input"> & {
+      prepare: (definition: CanvasNodeDefinition, entry: PluginIndexEntry) => Promise<unknown>;
+      result: (value: unknown, definition: CanvasNodeDefinition) => Promise<T>;
+    },
+  ): Promise<T> {
+    const [id, nodeId] = qualified(node);
+    const { key, entry } = await this.#ready(options.folder, id);
+    const definition = entry.manifest.contributes?.canvasNodes?.find(
+      (item) => item.id === nodeId,
+    );
+    if (!definition) throw unavailable(`${id} ${entry.version} has no canvas node ${nodeId}`);
+    const input = await options.prepare(definition, entry);
+    const value = await this.#hosts.invoke({
+      ...(await this.#call(key, entry, { ...options, input, timeoutMs: options.timeoutMs ?? seconds(definition.run.timeoutSeconds) })),
+      command: definition.run.native,
+    });
+    return options.result(value, definition);
+  }
+
+  /**
+   * The package a project's canvas node runs from, so one release's output
+   * isn't taken for another's, and the inputs that release declares.
+   */
+  async canvasNodePackage(folder: string, node: string): Promise<{ package: string; inputs: string[] }> {
+    const [id, nodeId] = qualified(node);
+    const entry = await this.#active(await projectFolderKey(folder), id);
+    const definition = entry.manifest.contributes?.canvasNodes?.find((item) => item.id === nodeId);
+    return { package: `${entry.version}:${entry.digest}`, inputs: definition?.inputs?.map((input) => input.id) ?? [] };
+  }
+
   /** Runs a hook of a project type, `publisher/name:type`, that the project's plugin contributes. */
   async projectTypeHook(
     type: string,
@@ -161,6 +210,19 @@ export class NativePlugins {
     return this.#hosts.invoke({
       ...(await this.#call(key, entry, options)),
       projectType: `${typeId}:${hook}`,
+    });
+  }
+
+  /** Runs a plugin's handler for an event its manifest's `contributes.hooks` lists. */
+  async hook(id: string, event: string, options: PluginCallOptions): Promise<unknown> {
+    const { key, entry } = await this.#ready(options.folder, id);
+    if (options.version && options.version !== entry.version)
+      throw unavailable(`${id} is now ${entry.version}; this hook was for ${options.version}`);
+    if (!(manifestHooks(entry.manifest) as readonly string[]).includes(event))
+      throw unavailable(`${id} ${entry.version} doesn't hear ${event}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, options)),
+      hook: event,
     });
   }
 
@@ -210,9 +272,42 @@ export class NativePlugins {
     );
   }
 
+  /** Which start of the project's running host this is; undefined when none runs. */
+  async hostGeneration(folder: string): Promise<number | undefined> {
+    return this.#hosts.generation(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /** Keeps the project's running host from stopping while idle; see `ExtensionHosts.hold`. */
+  async holdHost(folder: string): Promise<(() => void) | undefined> {
+    return this.#hosts.hold(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /**
+   * Answers project plugins' `context.game`: only a plugin on in the project
+   * that asks for `game`, checked on every request.
+   */
+  serveGame(bridge: Pick<PluginGameBridge, "handle" | "release">): void {
+    this.#hosts.serveGame({
+      handle: async ({ scope, project, generation, plugin }, request, signal) => {
+        if (scope === "app" || !project) throw unavailable("Only a project's plugins can play its game");
+        const entry = await this.#active(scope, plugin);
+        if (entry.manifest.capabilities?.game !== true)
+          throw unavailable(`${plugin} doesn't ask to play the game`);
+        return bridge.handle({ folder: scope, plugin, generation }, request, signal);
+      },
+      release: ({ scope, generation, plugin }) => {
+        if (scope !== "app") bridge.release({ folder: scope, generation, ...(plugin ? { plugin } : {}) });
+      },
+    });
+  }
+
   /** Stops a project's host, as when the project is closed. */
   async closeProject(folder: string): Promise<void> {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  quarantined(id: string): boolean {
+    return this.#hosts.quarantined(id);
   }
 
   /** Lets a quarantined plugin run again, as when the person turns it back on. */
@@ -258,6 +353,7 @@ export class NativePlugins {
       timeoutMs: options.timeoutMs,
       onProgress: options.onProgress,
       turn: options.turn,
+      build: options.build,
       configuration: this.#configuration?.(entry) ?? {},
       // Activation can take a while; the person may have revoked the plugin
       // or the project moved on meanwhile.

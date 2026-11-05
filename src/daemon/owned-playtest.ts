@@ -10,6 +10,9 @@ export class OwnedPlaytestDriver implements GameRuntimeAdapter {
   get available() { return this.driver.available; }
   get capabilities() { return this.driver.capabilities; }
 
+  /** Whether this restricts that runtime. */
+  wraps(driver: GameRuntimeAdapter): boolean { return this.driver === driver; }
+
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     if (request.operation === "closeAll") {
       await this.cleanup();

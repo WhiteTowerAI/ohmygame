@@ -44,6 +44,8 @@ export interface StoredNativeSession {
   profileId?: string;
   /** The person stopped the turn that ended here, and the next message has not said so yet. */
   interrupted?: true;
+  /** First user message whose delivery has not been confirmed. */
+  pendingUserMessageId?: string;
 }
 
 /** What the agent is told when it continues after the person stopped its turn. */
@@ -82,11 +84,11 @@ export interface NativeToolResult {
 export type NativeTurnOutcome =
   | { status: "completed" }
   /**
-   * `resumable` says the CLI itself reported that the stopped turn ended, so
-   * nothing is still running and its native session can take the next message.
+   * `resumable` says the adapter confirmed the native session can take the
+   * next message without a history handoff.
    */
   | { status: "aborted"; resumable?: boolean }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string; resumable?: boolean; inputAccepted?: false };
 
 export interface NativeUsage {
   input: number;
@@ -225,6 +227,7 @@ export class NativeCodingSession implements CodingSession {
   #nativeSessionId?: string;
   /** The next message must say the turn before it was stopped. */
   #interrupted: boolean;
+  #pendingUserMessageId?: string;
   /** The adapter of a stopped turn was closed because it did not stop in time. */
   #usage?: AgentContextUsage;
   #checkpointFailure?: { cause: unknown };
@@ -248,6 +251,7 @@ export class NativeCodingSession implements CodingSession {
     );
     this.#nativeSessionId = stored?.sessionId;
     this.#interrupted = stored?.interrupted === true;
+    this.#pendingUserMessageId = stored?.pendingUserMessageId;
     // A branch with messages and no native session of this agent was held by another agent, or by this one before
     // an edit or a restore went back past where its session began.
     this.#handoff = !stored && hasMessages(this.sessionManager.getBranch());
@@ -538,20 +542,34 @@ export class NativeCodingSession implements CodingSession {
   ): Promise<boolean> {
     const history = this.sessionManager.getBranch();
     if (!(await this.#storeUserMessage(text, images))) return true;
+    const userMessageId = this.sessionManager.getLeafId()!;
     if (signal.aborted) return true;
     const notice = await this.options.turnNotice?.().catch(() => undefined);
+    const interrupted = this.#interrupted;
+    const pendingUserMessageId = this.#pendingUserMessageId ?? userMessageId;
     let wire = notice
       ? `${text}\n\nWorkspace restore notice (inspect current files before continuing):\n${notice}`
       : text;
     if (this.#interrupted) wire = `${INTERRUPTED_NOTICE}\n\n${wire}`;
-    this.#interrupted = false;
+    let wireImages = images;
+    if (this.#pendingUserMessageId) {
+      const start = history.findIndex((entry) => entry.id === this.#pendingUserMessageId);
+      const pending = start < 0 ? [] : history.slice(start).flatMap((entry) =>
+        entry.type === "message" && entry.message.role === "user" ? [entry.message] : []);
+      if (pending.length) {
+        wire = `These earlier user requests could not be confirmed as received. Read them as conversation history; the current message takes precedence:\n\n${pending.map((message) => contentText(message.content)).join("\n\n")}\n\nCurrent message:\n${wire}`;
+        wireImages = [...pending.flatMap((message) => Array.isArray(message.content)
+          ? message.content.filter((part): part is PromptImage => part.type === "image")
+          : []), ...images];
+      }
+    }
     const currentPrompt = wire;
     if (this.#handoff) {
       const summary = handoffSummary(history);
       if (summary) wire = `${summary}\n\n${wire}`;
       this.#handoff = false;
     }
-    const skills = invokedSkills(text, this.getSkills().map((skill) => skill.name));
+    const skills = invokedSkills(this.#pendingUserMessageId ? wire : text, this.getSkills().map((skill) => skill.name));
     // A crash or interrupted write must never leave an earlier ready marker
     // claiming that this native context still matches the branch.
     this.#storeNativeState("active");
@@ -560,7 +578,7 @@ export class NativeCodingSession implements CodingSession {
     try {
       try {
         outcome = await this.#driver.runTurn(
-          { text: wire, images, readOnly: this.#readOnly, ...(skills.length ? { skills } : {}) },
+          { text: wire, images: wireImages, readOnly: this.#readOnly, ...(skills.length ? { skills } : {}) },
           turn.sink(),
           signal,
         );
@@ -572,7 +590,7 @@ export class NativeCodingSession implements CodingSession {
         outcome = await this.#driver.runTurn(
           {
             text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
-            images,
+            images: wireImages,
             readOnly: this.#readOnly,
             ...(skills.length ? { skills } : {}),
           },
@@ -592,22 +610,23 @@ export class NativeCodingSession implements CodingSession {
     if (signal.aborted && outcome.status === "completed")
       outcome = { status: "aborted" };
     turn.finish(outcome);
+    const unaccepted = outcome.status === "failed" && outcome.inputAccepted === false;
+    this.#pendingUserMessageId = unaccepted ? pendingUserMessageId : undefined;
+    this.#interrupted = outcome.status === "aborted" || (unaccepted && interrupted);
     if (outcome.status === "completed") this.#storeNativeState("ready");
     else if (this.#canContinueAfter(outcome)) {
-      this.#interrupted = true;
       this.#storeNativeState("ready");
     } else await this.#resetContext();
     return outcome.status !== "completed";
   }
 
   /**
-   * A stopped turn keeps its native session only when the CLI reported its end
-   * and is still the adapter this session holds. Anything else may still be
-   * running, or may have left a session the CLI cannot continue.
+   * An adapter may retain context after a stop or failure only when it knows
+   * the session can take another turn. A forced stop still invalidates it.
    */
   #canContinueAfter(outcome: NativeTurnOutcome): boolean {
     return (
-      outcome.status === "aborted" &&
+      outcome.status !== "completed" &&
       outcome.resumable === true &&
       !this.#running?.forced &&
       !this.#disposed &&
@@ -661,6 +680,9 @@ export class NativeCodingSession implements CodingSession {
       ...(state === "ready" && this.#interrupted
         ? { interrupted: true as const }
         : {}),
+      ...(state === "ready" && this.#pendingUserMessageId
+        ? { pendingUserMessageId: this.#pendingUserMessageId }
+        : {}),
     } satisfies StoredNativeSession);
   }
 
@@ -668,6 +690,7 @@ export class NativeCodingSession implements CodingSession {
     this.#storeNativeState("invalid");
     this.#nativeSessionId = undefined;
     this.#interrupted = false;
+    this.#pendingUserMessageId = undefined;
     await this.#driver.dispose();
     this.#driver = this.options.createDriver(undefined, {
       model: this.options.model,
@@ -1122,7 +1145,7 @@ export function latestNativeSession(
 ): StoredNativeSession | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
-    // Only a completed turn anchors resumable context. A later Pi/native
+    // Only a ready turn anchors resumable context. A later Pi/native
     // message, compaction or model switch means that anchor is stale.
     if (
       entry?.type === "message" ||
@@ -1148,6 +1171,9 @@ export function latestNativeSession(
           state: "ready",
           sessionId: data.sessionId,
           ...(data.interrupted === true ? { interrupted: true as const } : {}),
+          ...(typeof data.pendingUserMessageId === "string"
+            ? { pendingUserMessageId: data.pendingUserMessageId }
+            : {}),
         }
       : undefined;
   }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames, pluginChangeNote, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
@@ -12,6 +12,7 @@ import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
+import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
 import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 import sharp from "sharp";
 
@@ -82,6 +83,14 @@ describe("agent tools", () => {
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
+      // A native type's plugin runs its game whatever the web preview does; the app only makes its runtime for such a type.
+      const plugin = {
+        driver: { ...driver, capabilities: pluginGameCapabilities({ operations: ["captureFrame"], maxFrame: 600 }) },
+        resolveOpenTarget: async () => ({ runtime: "plugin" as const, provider: "a/b:c", projectPath: project.workspacePath }),
+        maxFrame: 600,
+      };
+      const gameUse = createAgentTools(project, runner, projects, undefined, undefined, plugin).find(({ name }) => name === "game_use");
+      expect((gameUse?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties?.frame).toMatchObject({ maximum: 600 });
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
     expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
@@ -426,5 +435,15 @@ describe("agent tools", () => {
     expect(failing.details).toMatchObject({ playableCheck: { mode: "publish", ok: false } });
     expect(text).toMatch(/publish validation issue/);
     expect(text).toContain("missing");
+  });
+});
+
+describe("image plugin changes", () => {
+  it("tells the agent which plugins changed an image's request, and the prompt used", () => {
+    expect(pluginChangeNote({})).toBe("");
+    expect(pluginChangeNote({ prompt: "a cat, pixel art", pluginChanges: [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt", "aspectRatio"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/style 1.0.0 (prompt, aspectRatio). The prompt used was: a cat, pixel art");
+    expect(pluginChangeNote({ prompt: "a cat", pluginChanges: [{ plugin: "acme/size", version: "2.0.0", fields: ["size"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/size 2.0.0 (size).");
   });
 });

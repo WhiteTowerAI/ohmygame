@@ -383,7 +383,7 @@ describe("PluginSources", () => {
     const { sources, close } = await setup({
       "https://api.github.com/repos/acme/maker/git/ref/heads/release/1.0": () => Response.json({ object: { type: "commit", sha: commit } }),
     }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
-    expect((await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/release/1.0" }, "en")).origin).toEqual({ type: "github", repository: "acme/maker", commit });
+    expect((await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/release/1.0" }, "en")).origin).toEqual({ type: "github", repository: "acme/maker", commit, ref: "release/1.0" });
     await close();
   });
 
@@ -396,7 +396,7 @@ describe("PluginSources", () => {
       [`${base}/git/tags/${tagObject}`]: () => Response.json({ object: { type: "commit", sha: commit } }),
     }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
     const preview = await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/v1.0" }, "en");
-    expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit });
+    expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit, ref: "v1.0" });
     await close();
   });
 
@@ -586,10 +586,19 @@ describe("PluginSources", () => {
     await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "2.0.0")), "en")).rejects.toThrow(message);
     await expect(sources.inspect({ type: "directory", path: await folderPackage(directory, "2.0.0") }, "en")).rejects.toThrow(message);
 
-    // Uninstalling clears what it held, so the plugin can then come from anywhere.
-    await services.uninstall("acme/maker");
+    // What's kept at uninstall goes back to the same source only; a package from elsewhere that takes the id starts empty.
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    expect(await readFile(kept, "utf8")).toBe("s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
     const elsewhere = await sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en");
     expect(elsewhere.installedVersions).toEqual([]);
+    await sources.install(elsewhere.source!, elsewhere.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
     await close();
   });
 
@@ -625,6 +634,46 @@ describe("PluginSources", () => {
     await add(second);
     // It only adds Skills, so the new version takes over from the old.
     expect(services.index.versions("acme/maker").map((entry) => entry.version)).toEqual(["1.1.0"]);
+    await close();
+  });
+
+  it("finds newer packages where plugins came from, and asks again only for what a new version adds", async () => {
+    const bytes = tgz(...pluginEntries("package/", "acme/maker", "1.0.0", { capabilities: { network: ["api.example.com"] }, contributes: { mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } }));
+    const npmFirst = npmPackage("@acme/maker", bytes);
+    const commit = "a".repeat(40);
+    const newer = "b".repeat(40);
+    const branch = "https://api.github.com/repos/acme/tiles/git/ref/heads/stable";
+    let branchAt = commit;
+    const latest = { version: "1.0.0" };
+    const { services, sources, close } = await setup({
+      ...npmFirst.routes,
+      "https://registry.npmjs.org/@acme%2Fmaker": () => Response.json({ "dist-tags": { latest: latest.version }, versions: { "1.0.0": { dist: { tarball: Object.keys(npmFirst.files)[0], integrity: integrity(bytes) } } } }),
+      [branch]: () => Response.json({ object: { type: "commit", sha: branchAt } }),
+    }, {
+      ...npmFirst.files,
+      [`https://codeload.github.com/acme/tiles/tar.gz/${commit}`]: tgz(...pluginEntries("tiles/", "acme/tiles")),
+    });
+    const preview = await sources.inspect(npm, "en");
+    // Nothing is installed yet, so there is nothing to compare with.
+    expect(preview.newAsks).toBeUndefined();
+    await sources.install(preview.source!, preview.digest);
+    const tiles = { type: "github", url: "https://github.com/acme/tiles/tree/stable" } as const;
+    await sources.install((await sources.inspect(tiles, "en")).source!, (await sources.inspect(tiles, "en")).digest);
+    // A package from this computer has nowhere to look.
+    const local = tgz(...pluginEntries("package/", "acme/local"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    expect(await sources.updates()).toEqual([]);
+
+    latest.version = "1.1.0";
+    branchAt = newer;
+    expect(await sources.updates()).toEqual([
+      { id: "acme/maker", version: "1.1.0", source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.1.0" } },
+      { id: "acme/tiles", commit: newer, source: { type: "github", url: "https://github.com/acme/tiles/tree/stable", commit: newer } },
+    ].sort((a, b) => a.id.localeCompare(b.id)));
+    // With a version installed, the review says what isn't allowed yet; once allowed, nothing is new.
+    expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual(["network:api.example.com"]);
+    await services.consent("acme/maker", ["network:api.example.com"]);
+    expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual([]);
     await close();
   });
 
@@ -665,6 +714,24 @@ describe("PluginSources", () => {
     await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
     expect(await sources.origin("acme/maker", "1.0.0")).toBeUndefined();
     await expect(sources.inspect(npm, "en")).rejects.toThrow("another package on this computer");
+    await close();
+  });
+
+  it("hands what a package from this computer kept to no source that had the id before it", async () => {
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, close } = await setup(pack.routes, pack.files);
+    const preview = await sources.inspect(npm, "en");
+    await sources.install(preview.source!, preview.digest);
+    await services.uninstall("acme/maker");
+    const local = tgz(...pluginEntries("package/", "acme/maker", "2.0.0"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "local");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
     await close();
   });
 

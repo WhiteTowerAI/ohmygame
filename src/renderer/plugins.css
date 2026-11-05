@@ -13,6 +13,19 @@
   padding-bottom: 0;
 }
 
+/* Safe mode's notice comes first, with the page's top space above it instead of below. */
+.plugins-safe-mode {
+  margin-top: var(--space-6);
+}
+
+.plugins-safe-mode + .sidebar-page-header {
+  padding-top: 0;
+}
+
+.plugins-safe-mode + .plugins-back {
+  margin-top: 0;
+}
+
 .plugins-toolbar {
   display: flex;
   min-width: 0;
@@ -516,6 +529,21 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+/* What uninstalling removes and leaves (plugin-store.tsx). */
+.plugin-uninstall {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.plugin-uninstall p,
+.plugin-uninstall ul {
+  margin: 0;
+}
+
+.plugin-uninstall ul {
+  padding-left: var(--space-6);
 }
 
 .plugin-store-capabilities {

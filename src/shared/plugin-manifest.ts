@@ -1,9 +1,13 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { CUSTOM_MODEL_APIS } from "./contracts.js";
+import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
+import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
+import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -13,7 +17,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.2.0";
+export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -125,7 +129,17 @@ const Capabilities = Type.Object(
     "project.selection": Type.Optional(Type.Boolean()),
     "project.files": Type.Optional(Literals(["read", "write"])),
     composer: Type.Optional(Type.Boolean()),
+    /** Pages read the project's turns that changed files. */
+    "project.history": Type.Optional(Type.Boolean()),
+    /** Pages read what the project's conversations used. */
+    "project.usage": Type.Optional(Type.Boolean()),
     agent: Type.Optional(Type.Boolean()),
+    /**
+     * Native code may play the project's game as the agent's game_use does
+     * (API 2.3.0). Native code is trusted; this asks the person, it doesn't
+     * contain a plugin that ignores it.
+     */
+    game: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),
@@ -170,6 +184,30 @@ const ProjectType = Type.Object(
     ),
     preview: Literals(["web", "web-build", "native"]),
     playtest: Type.Optional(Literals(["web"])),
+    gameUse: Type.Optional(
+      Type.Object(
+        {
+          operations: Type.Array(Literals<PluginGameUseOperation>(PLUGIN_GAME_USE_OPERATIONS), {
+            minItems: 1,
+            uniqueItems: true,
+          }),
+          input: Type.Optional(
+            Type.Array(Literals<PluginGameUseInput>(PLUGIN_GAME_USE_INPUT), {
+              minItems: 1,
+              uniqueItems: true,
+            }),
+          ),
+          maxFrame: Type.Optional(
+            Type.Integer({ minimum: 1, maximum: MAX_CAPTURE_FRAME }),
+          ),
+        },
+        {
+          additionalProperties: false,
+          description:
+            "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for",
+        },
+      ),
+    ),
     ready: Type.Optional(
       Type.Object(
         {
@@ -239,6 +277,12 @@ const CommandRun = Type.Union([
             "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo",
         }),
       ),
+      build: Type.Optional(
+        Type.Literal("web", {
+          description:
+            "The app builds the game's web package first and gives the command its folder, as for Export web build",
+        }),
+      ),
     },
     { additionalProperties: false },
   ),
@@ -260,6 +304,82 @@ const Command = Type.Object(
         { minItems: 1, maxItems: 10 },
       ),
     ),
+  },
+  { additionalProperties: false },
+);
+
+/** What a canvas node's input accepts or its output makes. */
+export const CANVAS_NODE_MEDIA = ["image", "text", "audio", "video", "model"] as const;
+export const CANVAS_NODE_MAX_INPUTS = 8;
+export const CANVAS_NODE_MAX_PARAMS = 16;
+const CanvasNodeParam = Type.Object(
+  {
+    type: Literals(["text", "number", "boolean", "select"]),
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    default: Type.Optional(
+      Type.Union([Type.String({ maxLength: 4000 }), Type.Number(), Type.Boolean()]),
+    ),
+    options: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        minItems: 1,
+        maxItems: 50,
+        uniqueItems: true,
+      }),
+    ),
+    minimum: Type.Optional(Type.Number()),
+    maximum: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A node a plugin adds to Asset Canvas: what it takes, the settings it
+ * shows, and what its native code makes from them.
+ */
+const CanvasNode = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    inputs: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            id: CamelId,
+            title: Text(),
+            accepts: Literals(CANVAS_NODE_MEDIA),
+            multiple: Type.Optional(Type.Boolean()),
+            optional: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        { maxItems: CANVAS_NODE_MAX_INPUTS },
+      ),
+    ),
+    params: Type.Optional(
+      Type.Record(
+        Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
+        CanvasNodeParam,
+        { additionalProperties: false },
+      ),
+    ),
+    output: Literals(CANVAS_NODE_MEDIA),
+    run: Type.Object(
+      { native: CamelId, timeoutSeconds: Type.Optional(TimeoutSeconds) },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** A group of canvas nodes, in a JSON file of the package, to add to a board. */
+const CanvasPreset = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    description: Type.Optional(Text(500)),
+    board: RelativePath("\\.json"),
   },
   { additionalProperties: false },
 );
@@ -339,6 +459,28 @@ const Provider = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * A coding agent the plugin adds, which speaks the Agent Client Protocol on
+ * its stdio. `command` is a program on the person's computer, found as the
+ * built-in agents are; it runs only once the person turns the agent on in
+ * Settings → Agents, as a built-in agent does.
+ */
+const Agent = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
+    /** What starts the protocol, such as `["--acp"]`. */
+    args: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { maxItems: 20 }),
+    ),
+    installUrl: Type.Optional(HttpsUrl),
+    /** What to run in a terminal to sign in. */
+    loginCommand: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
+  },
+  { additionalProperties: false },
+);
+
 /** A string that may name configuration values as `${config.field}`. */
 const Template = (maxLength = 2000) => Type.String({ maxLength });
 
@@ -400,6 +542,67 @@ const Panel = Type.Object(
     area: Literals(["left", "center", "right", "bottom"]),
     entry: RelativePath("\\.html"),
     when: Type.Optional(When),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A size the preview can show the game at, beside the built-in ones. It sets
+ * the game's viewport only; it doesn't emulate the device. Its size limits
+ * are game_use's.
+ */
+const PreviewDevice = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    width: Type.Integer({ minimum: 240, maximum: 4096 }),
+    height: Type.Integer({ minimum: 240, maximum: 4096 }),
+  },
+  { additionalProperties: false },
+);
+
+const FilterRow = (limit: number) =>
+  Type.Array(Type.Number({ minimum: -limit, maximum: limit }), { minItems: 3, maxItems: 3 });
+
+/**
+ * A colour matrix over the game as the person sees it. It changes red, green
+ * and blue only, keeps alpha, and names the colour space its coefficients are
+ * for and where they come from.
+ */
+const PreviewFilter = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    /** Where the coefficients come from, such as a paper, deficiency and severity. */
+    source: Text(300),
+    colorSpace: Literals(PREVIEW_FILTER_COLOR_SPACES),
+    matrix: Type.Array(FilterRow(PREVIEW_FILTER_MAX_COEFFICIENT), { minItems: 3, maxItems: 3 }),
+    offset: Type.Optional(FilterRow(1)),
+  },
+  { additionalProperties: false },
+);
+
+const KeyCode = Type.String({ pattern: KEY_CODE_PATTERN });
+const keyRecord = (names: readonly string[]) =>
+  Type.Object(Object.fromEntries(names.map((name) => [name, Type.Optional(KeyCode)])), { additionalProperties: false });
+
+/**
+ * A standard gamepad's buttons and sticks pressed as keys (`KeyboardEvent.code`),
+ * for a game that only reads the keyboard. Off until the person picks it.
+ */
+const InputMap = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    buttons: Type.Optional(keyRecord(GAMEPAD_BUTTONS)),
+    sticks: Type.Optional(
+      Type.Object(
+        Object.fromEntries(GAMEPAD_STICKS.map((stick) => [stick, Type.Optional(keyRecord(STICK_DIRECTIONS))])),
+        { additionalProperties: false },
+      ),
+    ),
+    /** How far a stick goes before it presses its key, from 0.1 to 0.9; 0.5 by default. */
+    deadZone: Type.Optional(Type.Number({ minimum: 0.1, maximum: 0.9 })),
   },
   { additionalProperties: false },
 );
@@ -478,6 +681,13 @@ export const PluginManifestV2Schema = Type.Object(
     ),
     capabilities: Type.Optional(Capabilities),
     /**
+     * Files or folders, such as `./.maker/`, the plugin leaves in a project.
+     * Uninstalling lists them and leaves them, since they're the project's.
+     */
+    projectFiles: Type.Optional(
+      Type.Array(RelativePath(), { minItems: 1, maxItems: 20, uniqueItems: true }),
+    ),
+    /**
      * The plugin's pages: `major` is the version of the page components they
      * use, `preview` lets them load one still in preview, and `accent` is its
      * brand colour, used for progress, selection and links where it stands out
@@ -518,8 +728,18 @@ export const PluginManifestV2Schema = Type.Object(
           settings: Type.Optional(Settings),
           themes: list(Theme),
           providers: list(Provider),
+          agents: list(Agent),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          previewDevices: list(PreviewDevice),
+          previewFilters: list(PreviewFilter),
+          inputMaps: list(InputMap),
+          /** Events the native entry hears about; see `PluginHookInputs`. */
+          hooks: Type.Optional(
+            Type.Array(Literals(PLUGIN_HOOKS), { minItems: 1, uniqueItems: true }),
+          ),
+          canvasNodes: list(CanvasNode),
+          canvasPresets: list(CanvasPreset),
         },
         { additionalProperties: false },
       ),
@@ -596,6 +816,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         ? "a native entrypoint needs the native capability"
         : "the native capability needs a native entrypoint",
     );
+  if (capabilities.game && !native)
+    issue("/capabilities/game", "only native code plays the game");
 
   for (const [id, field] of Object.entries(manifest.configuration ?? {})) {
     const path = `/configuration/${id}`;
@@ -625,8 +847,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "commands",
     "themes",
     "providers",
+    "agents",
     "panels",
     "mcpServers",
+    "previewDevices",
+    "previewFilters",
+    "inputMaps",
+    "canvasNodes",
+    "canvasPresets",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -643,6 +871,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
   if (contributes.tools && !native)
     issue("/contributes/tools", "tools run in the native entrypoint");
+  if (contributes.hooks && !native)
+    issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
     if (agentToolName(manifest.id, tool.name).length > AGENT_TOOL_NAME_MAX)
       issue(
@@ -654,6 +884,23 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
   const commands = new Set(contributes.commands?.map((command) => command.id));
+  contributes.projectTypes?.forEach((type, index) => {
+    // Literal unions read as never in the inferred types, so the declaration is read as written.
+    const gameUse = type.gameUse as PluginGameUseSpec | undefined;
+    if (!gameUse) return;
+    const path = `/contributes/projectTypes/${index}/gameUse`;
+    if ((type.preview as string) !== "native")
+      issue(path, "only a \"native\" type runs its game through its plugin");
+    if (!native) issue(path, "needs a native entrypoint");
+    const acts = gameUse.operations.includes("act");
+    if (acts && !gameUse.input) issue(`${path}/input`, "act needs the input it takes");
+    if (!acts && gameUse.input) issue(`${path}/input`, "only act takes input");
+    const frames = gameUse.operations.includes("captureFrame");
+    if (frames && gameUse.maxFrame === undefined)
+      issue(`${path}/maxFrame`, "captureFrame needs the highest frame it can capture");
+    if (!frames && gameUse.maxFrame !== undefined)
+      issue(`${path}/maxFrame`, "only captureFrame takes a frame");
+  });
   contributes.projectTypes?.forEach((type, index) => {
     if (!type.ready) return;
     const path = `/contributes/projectTypes/${index}/ready`;
@@ -687,6 +934,45 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       if (slashes.has(command.slash))
         issue(`${path}/slash`, `duplicate slash command ${command.slash}`);
       slashes.add(command.slash);
+    }
+  });
+
+  contributes.inputMaps?.forEach((map, index) => {
+    const keys = [...Object.values(map.buttons ?? {}), ...Object.values(map.sticks ?? {}).flatMap((stick) => Object.values(stick ?? {}))];
+    if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
+  });
+
+  contributes.canvasNodes?.forEach((node, index) => {
+    const path = `/contributes/canvasNodes/${index}`;
+    if (!native) issue(`${path}/run/native`, "needs a native entrypoint");
+    const inputs = new Set<string>();
+    node.inputs?.forEach((input, inputIndex) => {
+      if (inputs.has(input.id))
+        issue(`${path}/inputs/${inputIndex}/id`, `duplicate input ${input.id}`);
+      // A board keeps inputs and settings in plain objects, where these names are already taken.
+      if (input.id in Object.prototype) issue(`${path}/inputs/${inputIndex}/id`, `${input.id} is a reserved name`);
+      inputs.add(input.id);
+    });
+    const params = Object.entries(node.params ?? {});
+    if (params.length > CANVAS_NODE_MAX_PARAMS)
+      issue(`${path}/params`, `at most ${CANVAS_NODE_MAX_PARAMS} settings`);
+    for (const [key, param] of params) {
+      if (key in Object.prototype) issue(`${path}/params/${key}`, `${key} is a reserved name`);
+      const at = `${path}/params/${key}`;
+      if (param.type === "select") {
+        if (!param.options) issue(`${at}/options`, "a select needs options");
+        else if (param.default !== undefined && !param.options.includes(String(param.default)))
+          issue(`${at}/default`, "must be one of the options");
+      } else if (param.options) issue(`${at}/options`, "only a select has options");
+      if ((param.minimum !== undefined || param.maximum !== undefined) && param.type !== "number")
+        issue(at, "only a number has a minimum or maximum");
+      if (param.minimum !== undefined && param.maximum !== undefined && param.minimum > param.maximum)
+        issue(`${at}/minimum`, "must not be more than the maximum");
+      const expected = param.type === "boolean" ? "boolean" : param.type === "number" ? "number" : "string";
+      if (param.default !== undefined && typeof param.default !== expected)
+        issue(`${at}/default`, `must be a ${expected}`);
+      else if (typeof param.default === "number" && ((param.minimum !== undefined && param.default < param.minimum) || (param.maximum !== undefined && param.default > param.maximum)))
+        issue(`${at}/default`, "must be within the minimum and maximum");
     }
   });
 
@@ -732,6 +1018,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
 
   const processes = new Set(capabilities.processes);
+  contributes.agents?.forEach((agent, index) => {
+    if (!processes.has(agent.command))
+      issue(`/contributes/agents/${index}/command`, `${agent.command} must be listed in capabilities.processes`);
+  });
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
     if ("url" in server) {

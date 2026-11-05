@@ -146,6 +146,7 @@ const save = vi.fn(async (value: AssetCanvasDocument) => value);
 const generate = vi.fn();
 const jobs = vi.fn<CanvasBoardStorage["jobs"]>();
 const refresh = vi.fn<CanvasBoardStorage["refresh"]>();
+const regenerate = vi.fn<NonNullable<CanvasBoardStorage["regenerate"]>>();
 const mediaJob = (nodeId: string, status: ToolJob["status"] = "succeeded"): ToolJob => ({
   id: `job-${nodeId}`, toolId: "generate-image", createdAt: "2026-10-26T00:00:00Z",
   title: nodeId, status, context: { projectId: "p", boardId: "b", nodeId },
@@ -163,6 +164,7 @@ async function mount(board: AssetCanvasDocument) {
     resolveConflict: async (_version, value) => value,
     jobs,
     generate,
+    regenerate,
     cancel: vi.fn(),
   };
   container = document.createElement("div");
@@ -198,6 +200,7 @@ beforeEach(async () => {
   generateText.mockReset();
   jobs.mockReset().mockResolvedValue([]);
   refresh.mockReset().mockResolvedValue(undefined);
+  regenerate.mockReset().mockImplementation(async (id: string) => ({ nodes: [id], job: mediaJob(id) }));
   await mount(connectedBoard());
 });
 afterEach(async () => {
@@ -527,6 +530,29 @@ it.each([0, 1])(
     expect(flowNode("image").position).toEqual({ x: 500, y: 0 });
   },
 );
+
+it("asks how many generations to run before Out of date runs a chain", async () => {
+  await unmount();
+  const image = (id: string, assetId: string, images: Array<{ type: "node"; nodeId: string }>): AssetCanvasNode => ({ id, type: "image", position: { x: 0, y: 0 }, data: { prompt: id, resolution: "1K", aspectRatio: "1:1", images, assetId } });
+  const board = createAssetCanvasDocument();
+  board.nodes = [image("source", "new", []), image("hero", "hero-output", [{ type: "node", nodeId: "source" }]), image("poster", "poster-output", [{ type: "node", nodeId: "hero" }])];
+  board.editorLayout.nodes = Object.fromEntries(board.nodes.map((node) => [node.id, node.position]));
+  jobs.mockResolvedValue([{ ...mediaJob("hero"), upstream: { source: "asset:old" } }]);
+  await mount(board);
+  await act(async () => { canvasChanged(["jobs"]); });
+  await settle();
+
+  const stale = (flowNode("hero").data as { nodeDetails?: { stale?: { regenerate?: () => void } } }).nodeDetails?.stale;
+  await act(async () => { stale?.regenerate?.(); });
+  expect(regenerate).not.toHaveBeenCalled();
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  expect(dialog?.textContent).toContain("up to 2");
+  const run = [...dialog!.querySelectorAll("button")].find((button) => button.textContent === "Run");
+  await act(async () => { run?.click(); });
+  await settle();
+  expect(regenerate).toHaveBeenCalledExactlyOnceWith("hero");
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
 
 describe("undo and redo pressed mid-drag", () => {
   // An earlier edit with its own history step.

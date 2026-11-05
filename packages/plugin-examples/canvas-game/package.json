@@ -16,7 +16,7 @@
     "pack": "ohmygame-plugin pack"
   },
   "devDependencies": {
-    "@ohmygame/plugin-cli": "^2.2.0"
+    "@ohmygame/plugin-cli": "^2.3.0"
   },
   "publishConfig": {
     "access": "public"

@@ -1,6 +1,10 @@
-import type {
-  AgentRuntimeBinarySource,
-  AgentRuntimeId,
+import {
+  AGENT_RUNTIME_IDS,
+  isBuiltInAgentRuntimeId,
+  type AgentRuntimeBinarySource,
+  type AgentRuntimeId,
+  type BuiltInAgentRuntimeId,
+  type PluginAgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 
 /**
@@ -30,14 +34,16 @@ export interface AgentRuntimeDefinition {
   >;
   versionArgs: readonly string[];
   /** A real acceptance run, not a minimum version or a guarantee about later releases. */
-  testedVersion: string;
+  testedVersion?: string;
   /** What to run in a terminal to sign in, when OhMyGame cannot start it itself. */
-  loginCommand: string;
-  installUrl: string;
+  loginCommand?: string;
+  installUrl?: string;
+  /** An agent a plugin adds: the plugin, and the arguments that start the Agent Client Protocol on stdio. */
+  acp?: { plugin: string; args: readonly string[] };
 }
 
 export const AGENT_RUNTIME_DEFINITIONS: Record<
-  AgentRuntimeId,
+  BuiltInAgentRuntimeId,
   AgentRuntimeDefinition
 > = {
   "claude-code-cli": {
@@ -79,6 +85,46 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     installUrl: "https://opencode.ai/v2/docs/",
   },
 };
+
+const pluginAgents = new Map<PluginAgentRuntimeId, AgentRuntimeDefinition>();
+
+/** Replaces the agents that installed plugins add; returns those added, changed or removed. */
+export function setPluginAgentDefinitions(
+  definitions: readonly (AgentRuntimeDefinition & { id: PluginAgentRuntimeId })[],
+): PluginAgentRuntimeId[] {
+  const next = new Map(definitions.map((definition) => [definition.id, definition]));
+  const changed = [...new Set([...pluginAgents.keys(), ...next.keys()])].filter(
+    (id) => JSON.stringify(pluginAgents.get(id)) !== JSON.stringify(next.get(id)),
+  );
+  pluginAgents.clear();
+  for (const [id, definition] of next) pluginAgents.set(id, definition);
+  return changed;
+}
+
+/** The built-in agents, then those installed plugins add. */
+export function agentRuntimeIds(): AgentRuntimeId[] {
+  return [...AGENT_RUNTIME_IDS, ...pluginAgents.keys()];
+}
+
+/** An agent's definition, or undefined for a plugin agent whose plugin is gone. */
+export function findAgentRuntimeDefinition(
+  id: AgentRuntimeId,
+): AgentRuntimeDefinition | undefined {
+  return isBuiltInAgentRuntimeId(id)
+    ? AGENT_RUNTIME_DEFINITIONS[id]
+    : pluginAgents.get(id);
+}
+
+export function agentRuntimeDefinition(
+  id: AgentRuntimeId,
+): AgentRuntimeDefinition {
+  const definition = findAgentRuntimeDefinition(id);
+  if (!definition)
+    throw new Error(
+      "The plugin that adds this coding agent is not installed or is turned off",
+    );
+  return definition;
+}
 
 /** The first dotted version number a CLI prints, such as `2.1.301` from `2.1.301 (Claude Code)`. */
 export function parseVersion(output: string): string | undefined {

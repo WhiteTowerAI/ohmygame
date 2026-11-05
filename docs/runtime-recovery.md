@@ -30,7 +30,9 @@ available when the bridge cannot run.
 ## Desktop recovery
 
 Electron supervises its own daemon. It permits two automatic restarts in a
-rolling 60-second window, then shows a manual **Restart service** action.
+rolling 60-second window, then shows a manual **Restart service** action,
+and **Restart with plugins off**, which starts it in
+[safe mode](plugins.md#when-a-plugin-misbehaves) until it is restarted normally.
 Concurrent restart requests share a launch. Normal application shutdown does
 not restart the service. This handles process exits; it does not detect a daemon
 that remains alive but stops responding.

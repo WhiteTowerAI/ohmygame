@@ -42,6 +42,7 @@ const explicitTestGroups = {
   "desktop-installer-process.test.ts": "desktop",
   "desktop-update-ranges.test.ts": "desktop",
   "taptap-maker.test.ts": "daemon",
+  "godot-plugin.test.ts": "daemon",
 };
 // These skip without a local Blender or a platform-specific process feature.
 // Cloud contract tests are not listed: skipping them means the cloud root is

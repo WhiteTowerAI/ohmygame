@@ -16,6 +16,7 @@ import type {
 } from "./native-session.js";
 import {
   CodexAppServer,
+  CodexRequestError,
   codexLimits,
   requireCodexPermissionProfile,
 } from "./codex-app-server.js";
@@ -53,6 +54,11 @@ interface CodexTurn {
   images: Map<string, Promise<void>>;
   imageError?: string;
   finishing?: boolean;
+  /** Events may arrive before turn/start's response identifies their turn. */
+  pending?: Array<{ method: string; params: Record<string, unknown> }>;
+  ready?: Promise<void>;
+  identified?: () => void;
+  bridged: BridgeResults;
 }
 
 /**
@@ -74,7 +80,8 @@ export class CodexDriver implements NativeDriver {
   /** The thread's running total at the last report, to tell what each request spent. */
   #countedTotal?: { threadId?: string; usage: NativeUsage };
   #turn?: CodexTurn;
-  #bridged = new BridgeResults();
+  /** Manual compaction identifies its new turn by an event, so exclude earlier turns. */
+  #endedTurns = new Set<string>();
 
   constructor(private readonly context: DriverContext) {
     this.#threadId = context.resume;
@@ -106,16 +113,21 @@ export class CodexDriver implements NativeDriver {
       return {
         status: "failed",
         error: runtimeStartupError(cause).message,
+        resumable: Boolean(this.#threadId),
+        inputAccepted: false,
       };
     }
-    return new Promise<NativeTurnOutcome>((resolve) => {
+    return new Promise<NativeTurnOutcome>((resolve, reject) => {
       const turn: CodexTurn = {
         sink,
         signal,
         resolve,
         readOnly: input.readOnly,
         images: new Map(),
+        pending: [],
+        bridged: new BridgeResults(),
       };
+      turn.ready = new Promise<void>((ready) => { turn.identified = ready; });
       this.#turn = turn;
       server
         .request<{ turn?: { id?: string } }>("turn/start", {
@@ -129,14 +141,36 @@ export class CodexDriver implements NativeDriver {
         })
         .then(
           (response) => {
-            turn.turnId ??= response.turn?.id;
+            if (this.#turn !== turn) {
+              if (response.turn?.id && (this.#disposed || signal.aborted))
+                void interruptTurn(server, threadId, response.turn.id);
+              return;
+            }
+            turn.turnId = response.turn?.id;
+            const pending = turn.pending!;
+            turn.pending = undefined;
+            turn.identified?.();
+            if (!turn.turnId) {
+              this.#turn = undefined;
+              resolve({ status: "failed", error: "Codex did not identify the turn" });
+              return;
+            }
+            for (const event of pending) this.#notification(event.method, event.params);
           },
           (cause) => {
             if (this.#turn !== turn) return;
             this.#turn = undefined;
+            turn.identified?.();
+            if (expiredThread(cause)) {
+              reject(new NativeSessionExpiredError(String(cause)));
+              return;
+            }
             resolve({
               status: "failed",
               error: cause instanceof Error ? cause.message : String(cause),
+              ...(cause instanceof CodexRequestError
+                ? { resumable: true, inputAccepted: false as const }
+                : {}),
             });
           },
         );
@@ -145,14 +179,10 @@ export class CodexDriver implements NativeDriver {
 
   async interrupt(): Promise<void> {
     const turn = this.#turn;
+    await turn?.ready;
+    if (this.#turn !== turn) return;
     if (!turn?.turnId || !this.#lease || !this.#threadId) return;
-    await this.#lease.server
-      .request(
-        "turn/interrupt",
-        { threadId: this.#threadId, turnId: turn.turnId },
-        INTERRUPT_TIMEOUT_MS,
-      )
-      .catch(() => {});
+    await interruptTurn(this.#lease.server, this.#threadId, turn.turnId);
   }
 
   async compact(sink: NativeTurnSink, signal: AbortSignal): Promise<void> {
@@ -160,7 +190,7 @@ export class CodexDriver implements NativeDriver {
     const threadId = await this.#thread(server, sink);
     sink.compaction("start");
     const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
-      const turn: CodexTurn = { sink, signal, resolve, images: new Map() };
+      const turn: CodexTurn = { sink, signal, resolve, images: new Map(), bridged: new BridgeResults() };
       this.#turn = turn;
       server.request("thread/compact/start", { threadId }).catch((cause) => {
         if (this.#turn !== turn) return;
@@ -185,6 +215,7 @@ export class CodexDriver implements NativeDriver {
    */
   async dispose(): Promise<void> {
     this.#disposed = true;
+    this.#turn?.identified?.();
     await this.interrupt();
     const turn = this.#turn;
     this.#turn = undefined;
@@ -219,10 +250,14 @@ export class CodexDriver implements NativeDriver {
               this.#lease = undefined;
               const turn = this.#turn;
               this.#turn = undefined;
+              turn?.identified?.();
               turn?.resolve(
                 turn.signal.aborted
                   ? { status: "aborted" }
-                  : { status: "failed", error: failure },
+                  : {
+                      status: "failed", error: failure, resumable: Boolean(this.#threadId),
+                      ...(turn.pending ? { inputAccepted: false as const } : {}),
+                    },
               );
             },
           },
@@ -268,11 +303,7 @@ export class CodexDriver implements NativeDriver {
         sink.nativeSession(id);
         return id;
       } catch (cause) {
-        if (
-          /thread (?:not found|.*does not exist)|no rollout found|failed to (?:load|find).*rollout|not found.*thread/i.test(
-            String(cause),
-          )
-        )
+        if (expiredThread(cause))
           throw new NativeSessionExpiredError(String(cause));
         throw cause;
       }
@@ -304,18 +335,29 @@ export class CodexDriver implements NativeDriver {
       this.#turn?.sink.limits?.(this.#limits);
       return;
     }
+    if (params.threadId !== this.#threadId) return;
+    const turn = this.#turn;
+    if (turn?.pending) {
+      turn.pending.push({ method, params });
+      return;
+    }
+    const nestedTurnId = record(params.turn)?.id;
+    const turnId = typeof params.turnId === "string"
+      ? params.turnId
+      : nestedTurnId;
+    if (typeof nestedTurnId === "string" && nestedTurnId !== turnId) return;
+    if (typeof turnId === "string" && this.#endedTurns.has(turnId)) return;
+    // Manual compaction identifies its turn by turn/started rather than an RPC response.
+    if (turn && !turn.turnId && method === "turn/started" && typeof turnId === "string")
+      turn.turnId = turnId;
+    if (turn && (turn.finishing || !turn.turnId || turnId !== turn.turnId)) return;
     // A resumed thread reports its total before any turn; it is the baseline
     // the next turn's spending is measured from, not spending of its own.
     if (method === "thread/tokenUsage/updated")
       this.#countSpent(params, this.#turn?.sink);
-    const turn = this.#turn;
     if (!turn) return;
-    if (typeof params.turnId === "string") turn.turnId ??= params.turnId;
     const sink = turn.sink;
     switch (method) {
-      case "turn/started":
-        turn.turnId ??= String(record(params.turn)?.id ?? "");
-        return;
       case "item/agentMessage/delta":
         if (
           typeof params.itemId === "string" &&
@@ -361,10 +403,6 @@ export class CodexDriver implements NativeDriver {
         }
         return;
       }
-      case "thread/started":
-        if (typeof record(params.thread)?.id === "string")
-          sink.nativeSession(String(record(params.thread)!.id));
-        return;
       case "error": {
         const error = record(params.error);
         if (params.willRetry !== true) turn.error = codexError(error?.message);
@@ -390,8 +428,9 @@ export class CodexDriver implements NativeDriver {
     await Promise.all(turn.images.values());
     if (this.#turn !== turn) return;
     this.#turn = undefined;
+    if (turn.turnId) this.#endedTurns.add(turn.turnId);
     if (completed.status === "interrupted" || turn.signal.aborted)
-      turn.resolve({ status: "aborted" });
+      turn.resolve({ status: "aborted", resumable: true });
     else if (completed.status === "failed" || turn.imageError)
       turn.resolve({
         status: "failed",
@@ -400,6 +439,7 @@ export class CodexDriver implements NativeDriver {
           codexError(record(completed.error)?.message) ||
           turn.error ||
           "Codex could not finish the turn",
+        resumable: true,
       });
     else turn.resolve({ status: "completed" });
   }
@@ -584,7 +624,7 @@ export class CodexDriver implements NativeDriver {
         return;
       }
       case "dynamicToolCall": {
-        const stored = this.#bridged.take(id);
+        const stored = this.#turn?.bridged.take(id);
         sink.toolResult(
           id,
           stored?.result ?? dynamicResult(item.contentItems),
@@ -633,16 +673,22 @@ export class CodexDriver implements NativeDriver {
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const turn = this.#turn;
+    await turn?.ready;
+    const matches = turn && !this.#disposed && this.#turn === turn && !turn.finishing &&
+      !turn.signal.aborted && typeof turn.turnId === "string" &&
+      params.threadId === this.#threadId && params.turnId === turn.turnId;
     if (method === "item/tool/call") {
-      if (!turn || turn.signal.aborted) throw new Error("No turn is running");
+      if (!matches) throw new Error("No matching turn is running");
       const callId = String(params.callId ?? "");
       const outcome = await this.context.bridge.call(
         this.#bridgeToolName(params.tool),
         params.arguments,
         callId,
-        turn?.signal,
+        turn.signal,
       );
-      this.#bridged.record(callId, outcome);
+      if (this.#turn !== turn || turn.finishing || turn.signal.aborted)
+        throw new Error("The tool's turn ended");
+      turn.bridged.record(callId, outcome);
       return {
         contentItems: outcome.result.content.map((part) =>
           part.type === "text"
@@ -655,7 +701,7 @@ export class CodexDriver implements NativeDriver {
         success: !outcome.isError,
       };
     }
-    if (!turn || turn.signal.aborted || this.#turn !== turn)
+    if (!matches)
       return refusal(method);
     const approval = codexApproval(method, params);
     if (approval) {
@@ -665,7 +711,7 @@ export class CodexDriver implements NativeDriver {
         ...(typeof params.itemId === "string" ? { callId: params.itemId } : {}),
         signal: turn.signal,
       });
-      if (turn.signal.aborted || this.#turn !== turn) return refusal(method);
+      if (turn.signal.aborted || turn.finishing || this.#turn !== turn) return refusal(method);
       return codexAnswer(method, params, decision);
     }
     if (method === "item/tool/requestUserInput") return { answers: {} };
@@ -673,6 +719,15 @@ export class CodexDriver implements NativeDriver {
       return { action: "decline" };
     throw new Error(`Unsupported request ${method}`);
   }
+}
+
+function expiredThread(cause: unknown): boolean {
+  return /thread (?:not found|.*does not exist)|no rollout found|failed to (?:load|find).*rollout|not found.*thread/i.test(String(cause));
+}
+
+function interruptTurn(server: CodexAppServer, threadId: string, turnId: string): Promise<void> {
+  return server.request("turn/interrupt", { threadId, turnId }, INTERRUPT_TIMEOUT_MS)
+    .then(() => {}, () => {});
 }
 
 /** Named Skills go as Codex's own Skill items; one that was not staged is asked for in words. */

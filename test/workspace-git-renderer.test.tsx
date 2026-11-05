@@ -3,7 +3,9 @@ import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../src/renderer/api.js";
-import { WorkspaceFileBrowser } from "../src/renderer/coding-workspace.js";
+import { WorkspaceCodeView, WorkspaceFileBrowser } from "../src/renderer/coding-workspace.js";
+import { useWorkspaceFiles } from "../src/renderer/use-workspace-files.js";
+import type { WorkspaceFile } from "../src/shared/contracts.js";
 import type {
   WorkspaceGitChanges,
   WorkspaceGitFileView,
@@ -72,6 +74,126 @@ const button = (name: string) =>
       item.textContent === name || item.getAttribute("aria-label") === name,
   )!;
 const click = (name: string) => act(async () => button(name).click());
+
+describe("Code directory loading", () => {
+  const directory = (path: string): WorkspaceFile => ({ path, size: 0, directory: true });
+  let entries: Record<string, WorkspaceFile[]>;
+  beforeEach(() => {
+    entries = {
+      "": [directory("src"), directory("assets")],
+      src: [directory("src/deep"), { path: "src/main.ts", size: 4 }],
+      "src/deep": [{ path: "src/deep/secret.ts", size: 6 }],
+      assets: [{ path: "assets/hero.png", size: 5, mediaType: "image" }],
+    };
+    vi.spyOn(api, "listWorkspaceFiles").mockImplementation(async (_project, folder) => {
+      if (folder === undefined) return Object.values(entries).flat().filter((file) => !file.directory);
+      if (!(folder in entries)) throw new api.ApiError("Folder removed", 404);
+      return entries[folder]!;
+    });
+    vi.spyOn(api, "getWorkspaceFile").mockImplementation(async (_project, path) => ({ path, size: 4, binary: false, content: "game source" }));
+  });
+  function Harness({ revision = 0, enabled = true, projectId = "project", selectedPath }: { revision?: number; enabled?: boolean; projectId?: string; selectedPath?: string }) {
+    const listing = useWorkspaceFiles(projectId, revision, selectedPath, enabled);
+    return <>
+      <output>{listing.files.map((file) => file.path).join(",")}</output>
+      <span role="status">{listing.loading ? "loading" : listing.error ?? "ready"}</span>
+      <button onClick={() => listing.toggle("src", true)}>Open src</button>
+      <button onClick={() => listing.toggle("src", false)}>Close src</button>
+      <button onClick={() => listing.toggle("src/deep", true)}>Open deep</button>
+      <button onClick={() => listing.search("secret")}>Search all</button>
+      <button onClick={() => listing.search("")}>Clear search</button>
+      <button onClick={listing.refresh}>Refresh</button>
+    </>;
+  }
+  const show = (props: Parameters<typeof Harness>[0] = {}) => act(async () => root.render(<Harness {...props} />));
+  const requested = () => vi.mocked(api.listWorkspaceFiles).mock.calls.map((call) => call[1]);
+
+  it("loads only open folders, reuses requests, and stops refreshing collapsed descendants", async () => {
+    await show();
+    expect(requested()).toEqual([""]);
+    await click("Open src");
+    await click("Open deep");
+    expect(requested()).toEqual(["", "src", "src/deep"]);
+    await click("Close src");
+    await show({ revision: 1 });
+    expect(requested()).toEqual(["", "src", "src/deep", ""]);
+    entries.src = [{ path: "src/new.ts", size: 3 }];
+    await click("Open src");
+    expect(container.querySelector("output")?.textContent).toContain("src/new.ts");
+    expect(container.querySelector("output")?.textContent).not.toContain("secret.ts");
+    expect(requested().filter((folder) => folder === undefined)).toHaveLength(0);
+  });
+
+  it("searches unopened folders and returns to directory listings when cleared", async () => {
+    await show();
+    expect(container.querySelector("output")?.textContent).not.toContain("secret.ts");
+    await click("Search all");
+    expect(container.querySelector("output")?.textContent).toContain("src/deep/secret.ts");
+    expect(requested()).toEqual(["", undefined]);
+    await click("Clear search");
+    expect(requested()).toEqual(["", undefined]);
+    expect(container.querySelector("output")?.textContent).not.toContain("secret.ts");
+  });
+
+  it("loads only the ancestors of a deep link and removes stale children after a deletion", async () => {
+    await show({ selectedPath: "src/deep/secret.ts" });
+    expect(requested()).toEqual(["", "src", "src/deep"]);
+    expect(container.querySelector("output")?.textContent).toContain("secret.ts");
+    entries[""] = [directory("assets")];
+    delete entries.src;
+    delete entries["src/deep"];
+    await show({ revision: 1, selectedPath: "src/deep/secret.ts" });
+    expect(container.querySelector("output")?.textContent).toBe("assets");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("ready");
+  });
+
+  it("refreshes external changes on request and retains the previous list on failure", async () => {
+    await show();
+    entries[""] = [directory("src"), { path: "external.ts", size: 1 }];
+    await click("Refresh");
+    expect(container.querySelector("output")?.textContent).toContain("external.ts");
+    vi.mocked(api.listWorkspaceFiles).mockRejectedValueOnce(new Error("Disk unavailable"));
+    await click("Refresh");
+    expect(container.querySelector("output")?.textContent).toContain("external.ts");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Disk unavailable");
+    await click("Refresh");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("ready");
+  });
+
+  it("waits while hidden, and discards late responses from a different project", async () => {
+    await show({ enabled: false });
+    expect(api.listWorkspaceFiles).not.toHaveBeenCalled();
+    let resolve!: (files: WorkspaceFile[]) => void;
+    vi.mocked(api.listWorkspaceFiles).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await show();
+    await show({ projectId: "other" });
+    await act(async () => resolve([{ path: "old-project.ts", size: 1 }]));
+    expect(container.querySelector("output")?.textContent).not.toContain("old-project.ts");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("ready");
+    await show({ projectId: "other", enabled: false });
+    entries[""] = [{ path: "added-while-hidden.ts", size: 1 }];
+    await show({ projectId: "other" });
+    expect(container.querySelector("output")?.textContent).toBe("added-while-hidden.ts");
+  });
+
+  it("connects tree expansion, direct file opening, refresh and deep search in the Code view", async () => {
+    vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { queueMicrotask(callback); } observe() {} disconnect() {} });
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(320);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(320);
+    await act(async () => root.render(<WorkspaceCodeView projectId="project" revision={0} />));
+    expect(requested()).toEqual([""]);
+    await click("Expand src");
+    expect(requested()).toEqual(["", "src"]);
+    expect(container.querySelector('.file-tree-node[title="src/main.ts"]')).not.toBeNull();
+    await act(async () => root.render(<WorkspaceCodeView projectId="project" revision={0} openFileRequest={{ path: "src/deep/secret.ts", id: 1 }} />));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(container.querySelector(".file-content-path")?.textContent).toBe("src/deep/secret.ts");
+    expect(container.querySelector('.file-tree-node[title="src/deep/secret.ts"]')).not.toBeNull();
+    await click("Refresh files");
+    expect(requested().filter((folder) => folder === "")).toHaveLength(2);
+    expect(requested()).not.toContain(undefined);
+  });
+});
 
 describe("Code file browser refresh", () => {
   const files = () => [{ path: "src/deep/saved.ts", size: 1 }, { path: "other.ts", size: 1 }];

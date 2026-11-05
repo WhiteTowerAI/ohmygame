@@ -2324,6 +2324,34 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("tells how a run ended and which files its turns changed, each file once", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => {
+      userMessage("1", "a".repeat(40));
+      userMessage("2", "b".repeat(40));
+    });
+    const items = (from: string) => from === "a".repeat(40)
+      ? [{ path: "src/a.js", kind: "added" as const }, { path: "src/b.js", kind: "modified" as const }]
+      : [{ path: "src/b.js", kind: "removed" as const }];
+    const onTurnEnded = vi.fn();
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      onTurnEnded,
+      checkpoints: { snapshot: async () => "e".repeat(40), changed: async (_project, from) => ({ files: items(from).length, items: items(from) }) },
+    });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Build").result;
+    expect(onTurnEnded).toHaveBeenCalledTimes(1);
+    expect(onTurnEnded).toHaveBeenCalledWith(project, {
+      conversationId: conversation.summary.id,
+      status: "completed",
+      changes: [{ path: "src/a.js", kind: "added" }, { path: "src/b.js", kind: "removed" }],
+    });
+    await manager.close();
+  });
+
   it("ends the run all the same when the snapshot that closes it cannot be taken", async () => {
     const { session, entries, userMessage } = checkpointSession();
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));

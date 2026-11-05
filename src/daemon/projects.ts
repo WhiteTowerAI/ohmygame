@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import { isPreviewViewport } from "../shared/contracts.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -100,6 +100,9 @@ export class ProjectManager {
   readonly #locationFile: string;
   readonly #removedDirectory: string;
   #location?: string;
+
+  /** Told when a generated asset is saved in a project, or one from the Library is added to it. */
+  onAssetAdded?: (project: ProjectState, asset: { path: string; origin: "generated" | "imported"; prompt?: string }) => void;
 
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
@@ -598,6 +601,8 @@ export class ProjectManager {
     const relativePath = path.join("assets", "generated", fileName);
     const destination = path.join(generatedDirectory, fileName);
     const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
+    // The same asset saved again, as when an image is imported twice, is nothing new to hear about.
+    const unchanged = await readFile(destination).then((existing) => Buffer.from(contents).equals(existing), () => false);
     try {
       await writeFile(temporary, contents, { flag: "wx" });
       await rename(temporary, destination);
@@ -639,7 +644,16 @@ export class ProjectManager {
       ...(libraryAssetId ? { libraryAssetId } : {}),
     }));
     await this.touch(id);
-    return relativePath.split(path.sep).join("/");
+    if (!unchanged) this.#assetAdded(project, { path: assetPath, origin: "generated", ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}) });
+    return assetPath;
+  }
+
+  #assetAdded(project: ProjectState, asset: Parameters<NonNullable<ProjectManager["onAssetAdded"]>>[1]): void {
+    try {
+      this.onAssetAdded?.(project, asset);
+    } catch {
+      // Listeners only hear about it; the asset is saved either way.
+    }
   }
 
   async generatedAssetPrompt(id: string, assetPath: string): Promise<string | undefined> {
@@ -648,19 +662,20 @@ export class ProjectManager {
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
   }
 
-  async materializeLibraryAsset(id: string, assetId: string): Promise<{ path: string; assetId: string }> {
+  /** `origin`: what plugins hear the asset's copy came from; Canvas generations pass "generated". */
+  async materializeLibraryAsset(id: string, assetId: string, origin: "generated" | "imported" = "imported"): Promise<{ path: string; assetId: string }> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
     const { asset, absolutePath } = await this.assetLibrary.content(assetId);
-    return this.#writeAssetMetadata(id, async () => {
+    const added = await this.#writeAssetMetadata(id, async () => {
       const metadata = await readAssetMetadata(project.workspacePath);
       const stalePaths: string[] = [];
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;
         try {
           await getWorkspaceMedia(project.workspacePath, assetPath);
-          return { path: assetPath, assetId };
+          return { path: assetPath, assetId, existed: true };
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           stalePaths.push(assetPath);
@@ -670,8 +685,10 @@ export class ProjectManager {
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
-      return { path: assetPath, assetId };
+      return { path: assetPath, assetId, existed: false };
     });
+    if (!added.existed) this.#assetAdded(project, { path: added.path, origin, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    return { path: added.path, assetId: added.assetId };
   }
 
   /**
@@ -1192,10 +1209,6 @@ function normalizePreviewPath(value: unknown): string | undefined {
   return `/${normalized.replace(/^\/+/, "")}`;
 }
 
-function isPreviewViewport(value: unknown): value is PreviewViewport {
-  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
-}
-
 function projectRunSettings(project: ProjectState): ProjectRunSettings {
   return {
     ...previewSettings(project),
@@ -1332,9 +1345,13 @@ async function bindCanvasHistory(workspacePath: string, projectId: string): Prom
     return;
   }
   if (!Array.isArray(jobs)) return;
-  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => (
-    job?.context && typeof job.context === "object" ? { ...job, context: { ...job.context, projectId } } : job
-  )));
+  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => {
+    if (!job?.context || typeof job.context !== "object") return job;
+    // A retry trusts its input's record of what plugins changed; a copied one can't bring its own.
+    const input = (job as { input?: unknown }).input;
+    const { requestedPrompt: _, pluginChanges: __, ...asked } = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    return { ...job, context: { ...job.context, projectId }, ...(input && typeof input === "object" ? { input: asked } : {}) };
+  }));
 }
 
 async function exists(target: string): Promise<boolean> {

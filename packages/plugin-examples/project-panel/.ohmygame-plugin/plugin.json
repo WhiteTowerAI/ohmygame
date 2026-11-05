@@ -3,7 +3,7 @@
   "id": "example/project-panel",
   "version": "0.1.0",
   "engines": {
-    "ohmygame-api": "^2.2.0"
+    "ohmygame-api": "^2.3.0"
   },
   "displayName": "%plugin.name%",
   "description": "%plugin.description%",

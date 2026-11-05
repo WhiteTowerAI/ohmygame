@@ -40,6 +40,7 @@ import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/p
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
+import { isPreviewColorFilter } from "../shared/preview-filter.js";
 
 ignoreBrokenStdio();
 
@@ -468,6 +469,11 @@ handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.capture(projectId);
 });
+handle("ohmygame:filter-web-game-player", (event, projectId: unknown, filter: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (filter !== null && !isPreviewColorFilter(filter)) throw new Error("Invalid game filter");
+  webGamePlayers.setFilter(projectId, filter ?? undefined);
+});
 handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unknown) => {
   requirePlayerSource(event.sender, projectId);
   const input = request as Partial<WebGamePlayerRequest> | null;
@@ -501,9 +507,9 @@ handle("ohmygame:runtime-state", (event) => {
   if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
   return daemon.state();
 });
-handle("ohmygame:restart-runtime", (event) => {
+handle("ohmygame:restart-runtime", (event, options: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
-  return daemon.restart();
+  return daemon.restart({ safeMode: (options as { safeMode?: unknown } | undefined)?.safeMode === true });
 });
 
 async function startGameRecording(projectId: string): Promise<void> {
@@ -513,8 +519,11 @@ async function startGameRecording(projectId: string): Promise<void> {
   let outcome: Promise<GameRecordingSaved>;
   try {
     const { contents, title } = await webGamePlayers.recordingTarget(projectId);
+    // The filter is off before the first frame is captured.
+    await webGamePlayers.setRecording(projectId, true);
     ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
   } catch (cause) {
+    void webGamePlayers.setRecording(projectId, false);
     if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
     throw cause;
   } finally {
@@ -523,11 +532,10 @@ async function startGameRecording(projectId: string): Promise<void> {
   if (gameRecordings.get(projectId)?.status !== "saving") {
     publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
   }
-  webGamePlayers.setRecording(projectId, true);
   void outcome.then(
     (saved) => publishGameRecording({ projectId, status: "idle", saved }),
     (cause: unknown) => publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) }),
-  ).finally(() => webGamePlayers.setRecording(projectId, false));
+  ).finally(() => void webGamePlayers.setRecording(projectId, false));
 }
 
 function publishGameRecording(state: GameRecordingState): void {
@@ -778,6 +786,8 @@ try {
   }).catch((error) => { console.warn("Could not install the OhMyGame MCP launcher", error); return undefined; });
   clearExternalMcpApp = await markExternalMcpApp(dataDirectory).catch(() => undefined);
   daemon = new DaemonSupervisor({
+    // `--safe-mode` starts with no plugins running, for a plugin that breaks the app.
+    safeMode: process.argv.includes("--safe-mode"),
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
     dataDirectory,
     token: randomBytes(32).toString("base64url"),

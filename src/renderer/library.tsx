@@ -16,6 +16,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { saveTrimmedVideo, VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
 import { t, tNodes } from "./i18n.js";
+import { pluginChangeLines } from "./plugin-hook-labels.js";
 import "./library.css";
 
 interface LibraryPageProps {
@@ -273,6 +274,14 @@ function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFr
         }}>{copied ? t("common.copied") : t("common.copy")}</Button>
       </header>
       <p>{asset.prompt}</p>
+    </section> : null}
+    {asset.pluginChanges?.length ? <section className="library-sheet-section">
+      <header><h3>{t("pluginHooks.changedBy")}</h3></header>
+      {pluginChangeLines(asset.pluginChanges).map((line) => <p key={line}>{line}</p>)}
+    </section> : null}
+    {asset.pluginChanges?.length && asset.requestedPrompt !== undefined && asset.requestedPrompt !== asset.prompt ? <section className="library-sheet-section">
+      <header><h3>{t("pluginHooks.requestedPrompt")}</h3></header>
+      <p>{asset.requestedPrompt}</p>
     </section> : null}
   </>;
 }

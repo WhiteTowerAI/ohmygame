@@ -3,9 +3,11 @@ import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, typ
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
+import { NativeCodeWarning } from "./plugin-consent-dialog.js";
+import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
-import { Alert, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
+import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
 
@@ -24,7 +26,14 @@ const preferredRegistry = (): PluginNpmRegistry => language === "zh-CN" ? "npmmi
  * One place to add a plugin from outside the app: read the package, show what it
  * does, then add it. Given a plugin from the market, it starts with that review.
  */
-export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketPlugin; onClose: () => void; onAdded: (id: string) => void }) {
+export function PluginAddDialog({ listed, source, onClose, onAdded }: {
+  listed?: MarketPlugin;
+  /** Starts with the review of this package, as for an update from where a plugin came from. */
+  source?: PluginAddSource;
+  onClose: () => void;
+  onAdded: (id: string) => void;
+}) {
+  const started = Boolean(listed ?? source);
   const [kind, setKind] = useState<SourceKind>("npm");
   const [name, setName] = useState("");
   const [registry, setRegistry] = useState<PluginNpmRegistry>(preferredRegistry);
@@ -60,6 +69,7 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
   });
   useEffect(() => {
     if (listed) void readSource({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry(), market: true });
+    else if (source) void readSource(source);
   }, []);
   const readFile = (selected: File) => run(async () => {
     if (selected.size > PLUGIN_ARCHIVE_MAX_BYTES) throw new Error(t("pluginAdd.tooLarge"));
@@ -91,14 +101,14 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
     title={review ? t("pluginAdd.reviewTitle", { name: review.preview.displayName }) : t("pluginAdd.title")}
-    description={review || listed ? undefined : t("pluginAdd.description")}
+    description={review || started ? undefined : t("pluginAdd.description")}
     footer={<>
-      <Button disabled={busy} onClick={() => { if (review && !listed) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !listed ? t("pluginAdd.back") : t("common.cancel")}</Button>
-      {listed && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
+      <Button disabled={busy} onClick={() => { if (review && !started) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !started ? t("pluginAdd.back") : t("common.cancel")}</Button>
+      {started && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
         icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t("pluginAdd.add") : t("pluginAdd.continue")}</Button>}
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
-      {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : listed ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>
+      {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : started ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>
         <Tabs<SourceKind> variant="pills" label={t("pluginAdd.source")} value={kind} onChange={(next) => { if (busy) return; setKind(next); setError(undefined); }} tabs={[
           { value: "npm", label: "npm" },
           { value: "github", label: "GitHub" },
@@ -135,9 +145,16 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
       {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}</a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
     <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnPerProject")}</p>
-    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}><code>{ask}</code></li>)}</ul></section> : null}
+    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}>
+      <code>{ask}</code>{preview.newAsks && !preview.newAsks.includes(ask) ? <span className="plugins-note"> · {t("pluginAdd.allowedBefore")}</span> : null}
+      {preview.newAsks?.includes(ask) ? <Badge tone="outline">{t("pluginAdd.newAsk")}</Badge> : null}
+    </li>)}</ul>
+      {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
+    </section> : null}
+    <NativeCodeWarning asks={preview.asks} />
     {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
     {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
+    {preview.hooks?.length ? <section><h3>{t("pluginHooks.heading")}</h3><ul>{preview.hooks.map((hook) => <li key={hook}>{hookLabel(hook)}</li>)}</ul></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
     {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}

@@ -65,6 +65,11 @@ not a playtest.
 3. `capture` for screenshots of canvas or WebGL games.
 4. `close` the session when finished.
 
+A game a plugin runs outside OhMyGame, such as a TapTap Maker project, may
+only offer `captureFrame`: it runs the game again from its start and captures
+the frame you name. Pick a frame after the game has loaded, and a later one
+when the capture is blank or still loading.
+
 It needs the OhMyGame desktop app and a project with a game preview.
 
 ## Interactive Story projects

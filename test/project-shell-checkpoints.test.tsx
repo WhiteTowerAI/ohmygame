@@ -453,15 +453,27 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
     // The page's bridge says once it has applied the theme it was sent.
     let page: MessagePort | undefined;
     const ready = vi.fn();
-    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready);
+    // It also answers pings, and passes on errors the page didn't catch, cut to length.
+    const onPong = vi.fn();
+    const onError = vi.fn();
+    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready, { onPong, onError });
     page!.postMessage({ event: "ready" });
     await vi.waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
+    page!.postMessage({ event: "pong" });
+    page!.postMessage({ event: "error", message: `TypeError: ${"x".repeat(5000)}` });
+    page!.postMessage({ event: "error", message: { not: "text" } });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+    expect(onPong).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]![0]).toHaveLength(4000);
+    expect(onError.mock.calls[1]![0]).toBe("Error");
     connection.close();
     page!.close();
 
@@ -522,6 +534,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -544,6 +558,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -626,6 +642,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -657,6 +675,13 @@ describe("plugins in the project shell", () => {
       expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
       await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
       await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
+      // Changes that arrive before one render reach the page together.
+      const { mergeFileChanges } = await import("../src/renderer/project-shell.js");
+      const both = mergeFileChanges(mergeFileChanges(undefined, { paths: ["src/b.ts"] }), { paths: ["src/a.ts", ".env"] });
+      expect(both).toEqual({ paths: [".env", "src/a.ts", "src/b.ts"] });
+      expect(mergeFileChanges({ paths: Array.from({ length: 200 }, (_, index) => `f${index}`) }, { paths: ["g"] })).toMatchObject({ truncated: true });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} fileChange={both} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files", paths: ["src/a.ts", "src/b.ts"] }));
       page!.close();
     } finally {
       post.mockRestore();
@@ -1107,7 +1132,7 @@ describe("checkpoints in the project shell", () => {
       "2 files reapplied.",
     );
     const fileReads = daemon.requests.filter(
-      (request) => request.route === "/projects/project/files",
+      (request) => request.route === "/projects/project/files?directory=",
     ).length;
     await act(async () =>
       daemon.send(
@@ -1126,7 +1151,7 @@ describe("checkpoints in the project shell", () => {
     await settle();
     expect(
       daemon.requests.filter(
-        (request) => request.route === "/projects/project/files",
+        (request) => request.route === "/projects/project/files?directory=",
       ).length,
     ).toBeGreaterThan(fileReads);
     expect(

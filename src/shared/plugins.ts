@@ -2,9 +2,12 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
+import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
-  | { type: "github"; repository: string; commit: string; release?: string }
+  /** `ref`: the branch or tag it was added from; without one, the default branch. */
+  | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
   | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
   /** A folder on this computer being developed: it's added again whenever its files change. */
   | { type: "development"; folder: string };
@@ -69,9 +72,13 @@ export interface PluginAddPreview {
   asks: string[];
   skills: number;
   mcpServers: string[];
+  /** Events the plugin's code hears about, from `contributes.hooks`. */
+  hooks?: string[];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
+  /** With a version installed: what it asks that the person hasn't allowed yet, the only part asked again. */
+  newAsks?: string[];
   origin?: PluginOrigin;
 }
 
@@ -287,6 +294,8 @@ export interface StorePlugin {
   developmentError?: string;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
+  /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
+  quarantined?: true;
   categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
@@ -303,7 +312,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -314,6 +323,16 @@ export type StorePluginConfiguration = Record<
 >;
 
 /** A plugin command a project offers (GET /projects/:id/plugin-commands). */
+/** A theme a plugin adds: values for the theme tokens, in dark, light or both. */
+export interface PluginTheme {
+  /** `publisher/name:theme`. */
+  id: string;
+  plugin: string;
+  title: string;
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+}
+
 export interface ProjectPluginCommand {
   /** `publisher/name:command`. */
   id: string;
@@ -327,7 +346,84 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    | { native: string };
+    /** `build: "web"`: the app builds the game for the command first. */
+    | { native: string; build?: "web" };
+}
+
+/** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */
+export interface ProjectCanvasNode {
+  /** `publisher/name:node`. */
+  id: string;
+  plugin: string;
+  /** The plugin's name, in the asked language. */
+  pluginName: string;
+  title: string;
+  description?: string;
+  inputs: Array<{ id: string; title: string; accepts: CanvasNodeMedia; multiple?: boolean; optional?: boolean }>;
+  params: Array<{
+    key: string;
+    type: "text" | "number" | "boolean" | "select";
+    title: string;
+    description?: string;
+    default?: string | number | boolean;
+    options?: string[];
+    minimum?: number;
+    maximum?: number;
+  }>;
+  output: CanvasNodeMedia;
+}
+export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
+
+/** What a project's plugins add to Asset Canvas. */
+export interface ProjectPluginCanvas {
+  nodes: ProjectCanvasNode[];
+  presets: ProjectCanvasPreset[];
+}
+
+/** A group of nodes a plugin offers to add to a board (GET …/plugin-canvas/presets/:publisher/:name/:preset). */
+export interface ProjectCanvasPreset {
+  /** `publisher/name:preset`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
+}
+
+/** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */
+export interface ProjectPreviewDevice {
+  /** `publisher/name:device`, as a project's `previewViewport` names it. */
+  id: `${string}/${string}:${string}`;
+  plugin: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** A preview filter a project's plugin adds. */
+export interface ProjectPreviewFilter extends PreviewColorFilter {
+  /** `publisher/name:filter`. */
+  id: string;
+  plugin: string;
+  title: string;
+  /** Where its coefficients come from. */
+  source: string;
+}
+
+/** A gamepad input map a project's plugin adds, ready for the preview's bridge. */
+export interface ProjectInputMap {
+  /** `publisher/name:map`. */
+  id: string;
+  plugin: string;
+  title: string;
+  map: GamepadKeyMap;
+}
+
+/** What a project's plugins add to its preview. */
+export interface ProjectPluginPreview {
+  devices: ProjectPreviewDevice[];
+  filters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
@@ -346,6 +442,47 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
+/** A newer package where an installed plugin came from: npm's `latest`, or a new commit on its GitHub branch or tag. */
+export interface PluginSourceUpdate {
+  id: string;
+  /** The npm version, or for GitHub the commit, it would read. */
+  version?: string;
+  commit?: string;
+  /** Read and reviewed in the Add plugin dialog, like any package. */
+  source: PluginAddSource;
+}
+
+/** One line of a plugin's log: what its native code printed, or something of its that failed. */
+export interface PluginLogEntry {
+  /** ISO time. */
+  at: string;
+  level: "info" | "warn" | "error";
+  /** `native`: its code printed it; `call`: a tool, command or hook failed; `host`: its extension host stopped; `mcp`: an MCP service failed; `panel`: a page hit an uncaught error. */
+  source: "native" | "call" | "host" | "mcp" | "panel";
+  text: string;
+}
+
+/** A plugin's log, credentials redacted, and whether it is quarantined. */
+export interface PluginLogView {
+  entries: PluginLogEntry[];
+  /** It stopped its extension host too often; it stays off until it is turned on again or OhMyGame restarts. */
+  quarantined: boolean;
+}
+
+/** What uninstalling a version, or a plugin's every version, removes and leaves. */
+export interface PluginUninstallPreview {
+  /** No version is left after it, so its permissions go too. */
+  last: boolean;
+  /** Saved settings and sign-ins removed with the last version, unless kept. */
+  settings: number;
+  /** The size of its data folder, removed with the last version unless kept. */
+  dataBytes: number;
+  /** Files its manifest says it leaves in projects; uninstalling doesn't touch them. */
+  projectFiles: string[];
+  /** Projects that use the removed version, which stop running it. */
+  projects: string[];
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;
@@ -355,6 +492,8 @@ export interface ProjectPluginItem {
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
+  /** Installed versions that work in the project, newest first, to update or go back to. */
+  versions: string[];
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */
