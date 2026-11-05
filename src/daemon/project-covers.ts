@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectCoverMode, ProjectCoverState } from "../shared/contracts.js";
 import { AUTOMATIC_COVER_FILE } from "../shared/project-layout.js";
@@ -40,10 +40,10 @@ export class ProjectCovers {
   set(directory: string, contents: Uint8Array, source: ProjectCoverMode): Promise<void> {
     return this.#serial(directory, async () => {
       if (source === "auto" && await coverMode(directory) === "custom") return;
-      await replaceFile(path.join(directory, source === "custom" ? CUSTOM_COVER : AUTOMATIC_COVER), contents);
+      await replaceFile(directory, source === "custom" ? CUSTOM_COVER : AUTOMATIC_COVER, contents);
       if (source === "custom") {
-        await replaceFile(path.join(directory, COVER_STATE), Buffer.from(`${JSON.stringify({ mode: source })}\n`));
-        await rm(path.join(directory, FROZEN_COVER), { force: true });
+        await replaceFile(directory, COVER_STATE, Buffer.from(`${JSON.stringify({ mode: source })}\n`));
+        await removeFile(directory, FROZEN_COVER);
       }
     });
   }
@@ -52,12 +52,12 @@ export class ProjectCovers {
     return this.#serial(directory, async () => {
       if (await coverMode(directory) === mode) return;
       if (mode === "auto") {
-        await rm(path.join(directory, FROZEN_COVER), { force: true });
+        await removeFile(directory, FROZEN_COVER);
       } else if (!await hasCustomCover(directory)) {
         const current = await readOptional(path.join(directory, AUTOMATIC_COVER)) ?? fallback;
-        if (current) await replaceFile(path.join(directory, FROZEN_COVER), current);
+        if (current) await replaceFile(directory, FROZEN_COVER, current);
       }
-      await replaceFile(path.join(directory, COVER_STATE), Buffer.from(`${JSON.stringify({ mode })}\n`));
+      await replaceFile(directory, COVER_STATE, Buffer.from(`${JSON.stringify({ mode })}\n`));
     });
   }
 
@@ -67,8 +67,8 @@ export class ProjectCovers {
 
   setLogo(directory: string, contents: Uint8Array | undefined): Promise<void> {
     return this.#serial(directory, async () => {
-      if (contents) await replaceFile(path.join(directory, LOGO), contents);
-      else await rm(path.join(directory, LOGO), { force: true });
+      if (contents) await replaceFile(directory, LOGO, contents);
+      else await removeFile(directory, LOGO);
     });
   }
 
@@ -81,13 +81,16 @@ export class ProjectCovers {
     return this.#serial(directory, async () => {
       for (const file of [CUSTOM_COVER, AUTOMATIC_COVER, FROZEN_COVER, COVER_STATE, LOGO]) {
         const source = path.join(storage, path.basename(file));
-        const destination = path.join(directory, file);
         if (!(await exists(source))) continue;
-        await mkdir(path.dirname(destination), { recursive: true });
-        // A copy, since the workspace can be on another drive than the storage.
-        await copyFile(source, destination, constants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== "EEXIST") throw error;
-        });
+        await ensureFolders(directory, file);
+        // A copy, since the workspace can be on another drive than the storage. One already in the folder is kept,
+        // and so is the old copy then.
+        try {
+          await copyFile(source, path.join(directory, file), constants.COPYFILE_EXCL);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+          throw error;
+        }
         await rm(source, { force: true });
       }
     });
@@ -141,8 +144,25 @@ async function readOptional(file: string): Promise<Buffer | undefined> {
   }
 }
 
-async function replaceFile(destination: string, contents: Uint8Array): Promise<void> {
-  await mkdir(path.dirname(destination), { recursive: true });
+/** Makes the folders `file` goes in below `directory`, refusing any that is a symbolic link or not a folder. */
+async function ensureFolders(directory: string, file: string): Promise<void> {
+  for (const folder of new Set([directory, path.dirname(path.join(directory, file))])) {
+    await mkdir(folder).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    const stats = await lstat(folder);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error(`Unsafe project cover path: ${folder}`);
+  }
+}
+
+async function removeFile(directory: string, file: string): Promise<void> {
+  await ensureFolders(directory, file);
+  await rm(path.join(directory, file), { force: true });
+}
+
+async function replaceFile(directory: string, file: string, contents: Uint8Array): Promise<void> {
+  await ensureFolders(directory, file);
+  const destination = path.join(directory, file);
   const temporary = `${destination}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, contents, { flag: "wx" });

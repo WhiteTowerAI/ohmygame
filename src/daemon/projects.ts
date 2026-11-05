@@ -23,7 +23,7 @@ import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_ARCHIVE_SETTING_KEYS, projectSettingsFileText, type ProjectArchiveSettings } from "../shared/project-archive.js";
 import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
-import { migrateProjectLayout } from "./project-layout.js";
+import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
 // Imports assemble a project here, next to the projects, and then move it into place.
@@ -252,6 +252,8 @@ export class ProjectManager {
     }
     await migrateProjectLayout(workspacePath);
     await writeMetadata(projectDirectory, metadata);
+    // A folder that is empty stays so until its type or example fills it.
+    if (hasExternalWorkspace && (await readdir(workspacePath)).some((item) => item !== ".DS_Store")) await writeFolderSettings(workspacePath, metadata);
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
     this.onListChange?.();
@@ -485,7 +487,7 @@ export class ProjectManager {
     let movedTo: string | undefined;
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external") {
-        await rm(path.join(project.workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
+        await removeLocalFiles(project.workspacePath);
       } else {
         const target = path.join(this.#removedDirectory, id, folderName(project.name));
         await mkdir(path.dirname(target), { recursive: true });
@@ -517,7 +519,7 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external" && !registrationOnly) {
-        await rm(path.join(project.workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
+        await removeLocalFiles(project.workspacePath);
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
@@ -1470,6 +1472,12 @@ async function importDirectory(workspacePath: string, folder: readonly string[])
     await ensureDirectory(directory, true);
   }
   return directory;
+}
+
+/** Removes what a folder kept for this computer, when the project leaves OhMyGame but the folder stays. */
+async function removeLocalFiles(workspacePath: string): Promise<void> {
+  if (!(await realFolders(workspacePath, PROJECT_LOCAL_DIRECTORY))) return;
+  await rm(path.join(workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
 }
 
 /** Where a project's cover and logo are: its `.ohmygame/` folder, so they go wherever the folder goes. */

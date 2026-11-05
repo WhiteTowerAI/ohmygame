@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -331,6 +331,32 @@ describe("Web Game project codebase", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
       await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  // Creating symbolic links needs extra privileges on Windows.
+  it.skipIf(process.platform === "win32")("never moves or removes OhMyGame's files through a symbolic link", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-links-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-outside-"));
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-linked-folder-"));
+    try {
+      await mkdir(path.join(outside, "asset-previews"));
+      await writeFile(path.join(outside, "assets.json"), JSON.stringify({ version: 1, prompts: {}, previews: {}, libraryAssets: {} }));
+      await mkdir(path.join(outside, "local"));
+      await writeFile(path.join(outside, "local", "keep.txt"), "outside");
+      await symlink(outside, path.join(folder, ".data"));
+      const manager = new ProjectManager(directory);
+      const project = await manager.create("Linked", "general", folder);
+      expect((await readdir(outside)).sort()).toEqual(["asset-previews", "assets.json", "local"]);
+
+      await rm(path.join(folder, ".data"));
+      await rm(path.join(folder, ".ohmygame"), { recursive: true, force: true });
+      await symlink(outside, path.join(folder, ".ohmygame"));
+      await expect(manager.setCover(project.id, Buffer.from("cover"))).rejects.toThrow("Unsafe project cover path");
+      await manager.remove(project.id);
+      expect(await readFile(path.join(outside, "local", "keep.txt"), "utf8")).toBe("outside");
+    } finally {
+      for (const folderPath of [directory, outside, folder]) await rm(folderPath, { recursive: true, force: true });
     }
   });
 });

@@ -35,15 +35,37 @@ export async function migrateProjectLayout(workspacePath: string): Promise<void>
     || await exists(path.join(dataDirectory, "story-runtime"));
   if (legacy) {
     if (!(await ensureRealDirectory(dataDirectory)) || !(await ensureRealDirectory(path.join(workspacePath, PROJECT_LOCAL_DIRECTORY)))) return;
-    for (const [from, to] of LEGACY_MOVES) await moveDirectory(path.join(workspacePath, from), path.join(workspacePath, to));
-    await migrateLegacyAssetMetadata(workspacePath);
-    await rmdir(path.join(workspacePath, LEGACY_DATA_DIRECTORY)).catch(() => {});
+    // `.data/` behind a symbolic link is someone else's folder: nothing in it is moved.
+    const legacyData = await realFolders(workspacePath, LEGACY_DATA_DIRECTORY);
+    for (const [from, to] of LEGACY_MOVES) {
+      if (legacyData || !from.startsWith(`${LEGACY_DATA_DIRECTORY}/`)) await moveDirectory(path.join(workspacePath, from), path.join(workspacePath, to));
+    }
+    if (legacyData) {
+      await migrateLegacyAssetMetadata(workspacePath);
+      await rmdir(path.join(workspacePath, LEGACY_DATA_DIRECTORY)).catch(() => {});
+    }
   }
   const data = await lstat(dataDirectory).catch(() => undefined);
   if (!data?.isDirectory()) return;
   await writeFile(path.join(dataDirectory, ".gitignore"), PROJECT_DATA_GITIGNORE, { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "EEXIST") throw error;
   });
+}
+
+/**
+ * Whether every folder on the way from the workspace to `relative` that is
+ * there is a folder of its own rather than a symbolic link, so removing or
+ * reading what is below it stays in the workspace.
+ */
+export async function realFolders(workspacePath: string, relative: string): Promise<boolean> {
+  let folder = workspacePath;
+  for (const segment of relative.split("/")) {
+    folder = path.join(folder, segment);
+    const stats = await lstat(folder).catch(() => undefined);
+    if (!stats) return true;
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+  }
+  return true;
 }
 
 /** Moves a folder, or, when the destination is there already, each entry it does not have yet. */

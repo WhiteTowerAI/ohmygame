@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -38,6 +38,7 @@ import {
 import { sniffImageType } from "./image-format.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
+import { realFolders } from "./project-layout.js";
 import type { ProjectManager } from "./projects.js";
 import {
   AUTOMATIC_COVER_FILE,
@@ -191,8 +192,12 @@ export async function exportProjectArchive(
           : path.join(project.workspacePath, ...file.split("/")),
     });
   }
+  // Like every other file, it goes only when it and the folders it is in are no symbolic links.
   const automaticCover = path.join(project.workspacePath, ...AUTOMATIC_COVER_FILE.split("/"));
-  if (await stat(automaticCover).then((stats) => stats.isFile(), () => false)) {
+  if (
+    (await realFolders(project.workspacePath, path.posix.dirname(AUTOMATIC_COVER_FILE))) &&
+    (await lstat(automaticCover).then((stats) => stats.isFile(), () => false))
+  ) {
     entries.push({ path: AUTOMATIC_COVER_FILE, source: automaticCover });
   }
   for (const copy of copies) {
@@ -392,9 +397,10 @@ export async function importProjectArchive(
         ),
     });
     await rm(archivePath);
+    // A folder's own `ohmygame-project.json` is one of its files when it has `.ohmygame/settings.json`.
     const manifest =
-      (await readManifest(root)) ??
       (await readFolderManifest(root)) ??
+      (await readManifest(root)) ??
       (await legacyStoryManifest(root, options.name));
     const workspace = manifest.rootIsWorkspace
       ? root

@@ -90,6 +90,12 @@ describe("project archive export", () => {
         path.join(project.workspacePath, "index.html"),
         path.join(project.workspacePath, "link.html"),
       );
+      // Not even the automatic cover, which goes along otherwise.
+      await mkdir(path.join(project.workspacePath, ".ohmygame/local/thumbnails"), { recursive: true });
+      await symlink(
+        path.join(project.workspacePath, "index.html"),
+        path.join(project.workspacePath, ".ohmygame/local/cover-auto.webp"),
+      );
     }
 
     await projects.setCover(project.id, webp("cover"));
