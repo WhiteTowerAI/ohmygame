@@ -334,7 +334,7 @@ export class AgentRuntimeService {
         "Choose the program itself (.exe); Windows command scripts cannot be started directly",
       );
     if (request.identifyAsOhMyGame !== undefined && id !== "claude-code-cli")
-      throw new Error("Only Claude Code reports which client runs it");
+      throw new Error("This setting is only available for Claude Code");
     if (request.defaultProfileId !== undefined && (!isAccountRuntimeId(id) || !this.settings.profiles(id).some((profile) => profile.id === request.defaultProfileId)))
       throw new Error("Choose an existing account configuration");
     await this.settings.update(id, {

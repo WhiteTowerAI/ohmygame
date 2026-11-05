@@ -262,7 +262,7 @@ it("offers each agent's own permission modes and says what the chosen one means"
   expect(identify.getAttribute("aria-checked")).toBe("true");
   await act(async () => identify.click());
   expect(api.updateAgentRuntime).toHaveBeenCalledWith("claude-code-cli", { identifyAsOhMyGame: false });
-  // Only Claude Code reports which client runs it.
+  // The switch is only on Claude Code's page.
   await detail("codex-cli");
   expect(host.querySelector('[aria-label="Report OhMyGame as the client"]')).toBeNull();
 });
