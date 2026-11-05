@@ -109,6 +109,17 @@ describe("plugin template", () => {
 });
 
 describe("plugin packages for authors", () => {
+  it("include examples that pass the app's checks as npm would publish them", async () => {
+    const examples = (await readdir("packages/plugin-examples", { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
+    expect(examples.sort()).toEqual(["canvas-game", "echo-server", "hello-tools", "level-ideas", "project-panel"]);
+    for (const example of examples) {
+      const folder = path.join("packages/plugin-examples", example);
+      expect(await checkFolder(folder), example).toEqual([]);
+      if (npm) expect(await publishedFiles(folder), example).toEqual(npmPack(folder));
+    }
+  });
+
+
   it("version with the plugin API they check for", async () => {
     for (const name of ["plugin-cli", "create-ohmygame-plugin", "plugin-ui"])
       expect(JSON.parse(await readFile(path.join("packages", name, "package.json"), "utf8")).version, name).toBe(PLUGIN_HOST_API_VERSION);

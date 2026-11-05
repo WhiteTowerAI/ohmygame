@@ -1,0 +1,36 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "example/hello-tools",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.2.0"
+  },
+  "displayName": "%plugin.name%",
+  "description": "%plugin.description%",
+  "icon": "./assets/icon.svg",
+  "entrypoints": {
+    "native": "./native/index.mjs"
+  },
+  "capabilities": {
+    "native": true
+  },
+  "contributes": {
+    "tools": [
+      {
+        "name": "hello",
+        "description": "Says hello from Hello tools. Replace it with what the plugin does.",
+        "input": "./tools/hello.input.json"
+      }
+    ],
+    "commands": [
+      {
+        "id": "hello",
+        "title": "%command.hello%",
+        "run": {
+          "native": "hello",
+          "changesFiles": false
+        }
+      }
+    ]
+  }
+}

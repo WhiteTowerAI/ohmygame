@@ -1,0 +1,24 @@
+{
+  "name": "@example/canvas-game",
+  "version": "0.1.0",
+  "description": "A project type whose new projects start from a canvas game template.",
+  "keywords": [
+    "ohmygame-plugin"
+  ],
+  "files": [
+    ".ohmygame-plugin",
+    "assets",
+    "locales",
+    "template"
+  ],
+  "scripts": {
+    "check": "ohmygame-plugin check",
+    "pack": "ohmygame-plugin pack"
+  },
+  "devDependencies": {
+    "@ohmygame/plugin-cli": "^2.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

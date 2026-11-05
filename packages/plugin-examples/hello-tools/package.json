@@ -1,0 +1,25 @@
+{
+  "name": "@example/hello-tools",
+  "version": "0.1.0",
+  "description": "Native code that adds a tool for the agent and a command.",
+  "keywords": [
+    "ohmygame-plugin"
+  ],
+  "files": [
+    ".ohmygame-plugin",
+    "assets",
+    "locales",
+    "native",
+    "tools"
+  ],
+  "scripts": {
+    "check": "ohmygame-plugin check",
+    "pack": "ohmygame-plugin pack"
+  },
+  "devDependencies": {
+    "@ohmygame/plugin-cli": "^2.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
