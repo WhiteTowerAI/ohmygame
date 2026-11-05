@@ -6461,6 +6461,16 @@ button {
   cursor: grab;
 }
 
+/* Let the hand tool drag through the group selection and connection handles. */
+.story-canvas.story-canvas-pan .react-flow__nodesselection-rect,
+.story-canvas.story-canvas-pan .react-flow__handle {
+  pointer-events: none;
+}
+
+.story-canvas.story-canvas-pan .react-flow__node {
+  cursor: grab;
+}
+
 .story-canvas .react-flow__pane.dragging {
   cursor: grabbing;
 }
