@@ -299,6 +299,7 @@ export interface CustomProviderModel {
   thinkingLevelMap?: CustomThinkingLevelMap;
   reasoningCapabilities?: CustomReasoningCapabilities;
   supportsImages: boolean;
+  // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Custom providers before modelConfigurationVersion 2.
   /** Undefined is a legacy language model; an empty object is explicitly unassigned. */
   usages?: CustomModelUsages;
 }
@@ -596,6 +597,7 @@ export type AssetCanvasNode = (
     sourceInput?: boolean;
     sourceInputLabel?: string;
     quickReskinMode?: "person-clothing";
+    // compat: since beta.5.3, remove from beta.7 and 2026-12-04. Read only by normalizeLegacyCharacterModes.
     /** Legacy drafts only; new nodes store the expanded prompt. */
     generationMode?: "character-asset" | "continuous-actions" | "all-actions";
     promptSource?: AssetCanvasTextReference;

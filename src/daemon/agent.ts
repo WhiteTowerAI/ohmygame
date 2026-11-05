@@ -2630,6 +2630,7 @@ function parseLocalAttachments(value: string): { visible: string; attachments: C
   return parseLegacyLocalAttachments(value);
 }
 
+// compat: since alpha.4, remove from beta.1 and 2026-10-21. Without it, old messages show their attachment list as text.
 function parseLegacyLocalAttachments(value: string): { visible: string; attachments: ConversationAttachment[]; context: string } | undefined {
   const marker = "\n\n[Attached local files]\n";
   const index = value.lastIndexOf(marker);

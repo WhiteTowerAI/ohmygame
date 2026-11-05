@@ -146,6 +146,7 @@ export function Composer({
   const latestPrompt = useRef(prompt);
   latestPrompt.current = prompt;
   useEffect(() => {
+    // compat: since beta.5.1, remove from beta.7 and 2026-12-03. Drafts with selectedPlugin.
     // A draft saved when a plugin sat in a slot before the text gets it back in the text, after its Skill as it was sent.
     const legacy = draftSession.getSnapshot().selectedPlugin;
     if (legacy) updateDraft((current) => {

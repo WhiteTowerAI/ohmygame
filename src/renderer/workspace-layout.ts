@@ -105,6 +105,7 @@ export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes): 
   const saved = readLayout();
   if (saved) return saved;
   const layout = presetLayout("default", offered, homes);
+  // compat: since beta.5.1, remove from beta.7 and 2026-12-03. The ohmygame:chat-layout setting.
   // The chat-side setting this replaced still decides where the chat first opens.
   if (!legacyChatRight() || !layout.left.panels.includes("chat")) return { layout, known: [] };
   const moved = movePanel(layout, "chat", "right");

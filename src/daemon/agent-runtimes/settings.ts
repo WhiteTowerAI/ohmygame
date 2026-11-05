@@ -50,6 +50,7 @@ const STANDARD_PERMISSION_MODES = {
  * permission modes replaced OhMyGame's and asking nothing became the
  * default, those files move to it; a later choice is kept.
  */
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Version 1 used OhMyGame's own two permission modes.
 const SETTINGS_VERSION = 2;
 
 /** A saved mode in the CLI's own words; OhMyGame's former two modes become the CLI's. */

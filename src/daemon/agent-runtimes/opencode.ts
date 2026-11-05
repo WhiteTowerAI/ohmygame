@@ -110,6 +110,7 @@ export class OpenCodeDriver implements NativeDriver {
   #sessionId?: string;
   /** The session rules last applied, so a turn changes them only when its mode differs. */
   #sessionRules?: string;
+  // compat: since beta.4.14, remove from beta.6 and 2026-11-25. OpenCode v1 sessions.
   #legacyResume = false;
   #turn?: OpenCodeTurn;
   #bridge?: { url: string; token: string; revoke: () => void };
