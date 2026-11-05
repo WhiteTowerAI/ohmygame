@@ -9311,13 +9311,16 @@ summary.work-summary:hover {
   margin: 12px 0 16px;
 }
 
-.tool-artifact-image {
+.tool-generated-image {
+  min-height: 96px;
+}
+
+.tool-generated-image img {
   display: block;
-  width: min(100%, 360px);
-  max-height: 360px;
-  margin: 0 0 12px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .tool-artifact-video {
