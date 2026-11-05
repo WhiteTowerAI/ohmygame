@@ -65,6 +65,13 @@ describe("finding Godot", () => {
       "Godot_v4.10-stable_win64.exe",
     );
     expect(await findGodot(undefined, windows({ PATH: folder }))).toBe(newest);
+
+    const arm = path.join(root, "arm");
+    const forArm = await executable(
+      "arm",
+      "Godot_v4.4-stable_windows_arm64.exe",
+    );
+    expect(await findGodot(undefined, windows({ PATH: arm }))).toBe(forArm);
   });
 
   it("finds Godot in a Steam library on another drive and in package manager folders", async () => {

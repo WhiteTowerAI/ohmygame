@@ -9,11 +9,11 @@ import path from "node:path";
 
 /**
  * Godot's own Windows file names: the downloads, such as
- * `Godot_v4.3-stable_win64.exe`, and the Steam build, such as
+ * `Godot_v4.3-stable_win64.exe` or `Godot_v4.4-stable_windows_arm64.exe`, and the Steam build, such as
  * `godot.windows.editor.x86_64.exe`. The `_console` companion only wraps the
  * editor, so it is not chosen.
  */
-const WINDOWS_RELEASE = /^godot_v\d[^\\/]*_win(?:32|64)\.exe$/i;
+const WINDOWS_RELEASE = /^godot_v\d[^\\/]*_(?:win32|win64|windows_arm64)\.exe$/i;
 const WINDOWS_STEAM = /^godot\.windows\.(?:editor|opt\.tools)\.(?:x86_64|64|arm64)\.exe$/i;
 
 /** A variable read case-insensitively, as Windows names them. */
