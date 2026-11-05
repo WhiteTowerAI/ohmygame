@@ -411,18 +411,55 @@ a system Chrome dependency to generated games.
 
 `game_use` is backed by a typed runtime adapter. The adapter advertises its
 runtime, supported project types, input methods, observations, deterministic
-operations, and whether it can be shown in watch mode. The daemon registers
-the tool only when the current project's type is included in those capabilities
-and, for General Game, its Web preview switch is enabled.
+operations, the operations it supports, and whether it can be shown in watch
+mode. The daemon registers the tool only when the current project's type is
+included in those capabilities and, for General Game, its Web preview switch
+is enabled, or when the project's plugin type brings a runtime of its own
+(below).
 
 The shipped adapter is `web` for `web-game`, `interactive-story` (the story
 opens its own page through the preview; one made before web stories is
 refused until the Story editor upgrades it), and configured Web previews in `general` projects
-and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
-their runtime bridges are added, they should implement the same adapter
-contract for launch or attach, input, screenshots, state, reset or stepping,
-and shutdown. An editor MCP connection alone is not a runtime adapter and
+and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. Their
+runtime bridges can come as [plugin game runtimes](#plugin-game-runtimes),
+for launch or attach, input, screenshots, state and shutdown. An editor MCP connection alone is not a runtime adapter and
 must not be presented as gameplay verification.
+
+### Plugin game runtimes
+
+A plugin's `native` project type that declares
+[`gameUse`](plugins.md#routes) gets `game_use` through its plugin
+(`src/daemon/plugin-game-runtime.ts`). The daemon makes one runtime per
+project, shared by its conversations, from the type the version pinned in
+`ohmygame.json` declares, while the plugin is on and allowed there. It makes
+the runtime again, closing its sessions, when the project moves to another
+version or that declaration changes. The tool then offers only
+the operations and input the type declares, with clicks at a point, no
+bridge and no `path`; each call checks again that the project's version
+still declares it. `captureFrame` runs the game again from its start and
+captures frame N. The result says `source: "fresh-run"` and the frame the
+plugin kept, which may be later than asked while the game loads. Two runs
+are not promised to match.
+
+- **Sessions.** The agent sees ids the daemon gives, never the plugin's own.
+  Each is tied to the host process that opened it: once that host stops, the
+  session ends without asking the new host about it. While one is open, the
+  host doesn't stop for being idle. A session unused for 10 minutes closes,
+  at most four are open per project, and one's requests run in order. An
+  open given up on still waits for the plugin, then closes what it opened;
+  closing a session that already ended succeeds.
+  As with the web runtime, a conversation reaches only the sessions it opened
+  and closes them when its run ends.
+- **Images.** For each capture the daemon makes a temporary folder and names
+  the file the plugin writes. It reads that file without following a link:
+  a regular file of at most 32 MiB, PNG or JPEG of at most 8192² pixels. It
+  scales the image to fit 1568 pixels and sends it on as JPEG, with the
+  source size when it was scaled down and the web runtime's blank check. The
+  folder is removed whatever happens. Native code is trusted, so these checks
+  catch mistakes, not a plugin set on harm.
+
+Plugins with the `game` capability play the same game from their native code
+(`context.game`, see [native code](plugins.md#native-code)).
 
 ### Optional game bridge
 

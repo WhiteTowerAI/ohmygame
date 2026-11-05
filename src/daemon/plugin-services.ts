@@ -10,7 +10,8 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas } from "../shared/plugins.js";
+import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -467,6 +468,47 @@ export class PluginServices {
         });
     }
     return commands;
+  }
+
+  /** What a project's active plugins add to its preview. */
+  async preview(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginPreview> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const preview: ProjectPluginPreview = { devices: [], filters: [], inputMaps: [] };
+    if (!resolved?.ok) return preview;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      for (const device of entry.manifest.contributes?.previewDevices ?? [])
+        preview.devices.push({
+          id: `${entry.id}:${device.id}` as ProjectPreviewDevice["id"],
+          plugin: entry.id,
+          title: localizePluginString(entry, device.title, locale),
+          width: device.width,
+          height: device.height,
+        });
+      for (const filter of entry.manifest.contributes?.previewFilters ?? [])
+        preview.filters.push({
+          id: `${entry.id}:${filter.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, filter.title, locale),
+          source: localizePluginString(entry, filter.source, locale),
+          colorSpace: filter.colorSpace,
+          matrix: filter.matrix,
+          ...(filter.offset ? { offset: filter.offset } : {}),
+        });
+      for (const map of entry.manifest.contributes?.inputMaps ?? [])
+        preview.inputMaps.push({
+          id: `${entry.id}:${map.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, map.title, locale),
+          map: compileInputMap(map),
+        });
+    }
+    return preview;
   }
 
   /** What a project's active plugins add to Asset Canvas, in `locale`. */

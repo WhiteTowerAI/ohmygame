@@ -2,6 +2,8 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
+import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
   /** `ref`: the branch or tag it was added from; without one, the default branch. */
@@ -369,6 +371,42 @@ export interface ProjectCanvasPreset {
   pluginName: string;
   title: string;
   description?: string;
+}
+
+/** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */
+export interface ProjectPreviewDevice {
+  /** `publisher/name:device`, as a project's `previewViewport` names it. */
+  id: `${string}/${string}:${string}`;
+  plugin: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** A preview filter a project's plugin adds. */
+export interface ProjectPreviewFilter extends PreviewColorFilter {
+  /** `publisher/name:filter`. */
+  id: string;
+  plugin: string;
+  title: string;
+  /** Where its coefficients come from. */
+  source: string;
+}
+
+/** A gamepad input map a project's plugin adds, ready for the preview's bridge. */
+export interface ProjectInputMap {
+  /** `publisher/name:map`. */
+  id: string;
+  plugin: string;
+  title: string;
+  map: GamepadKeyMap;
+}
+
+/** What a project's plugins add to its preview. */
+export interface ProjectPluginPreview {
+  devices: ProjectPreviewDevice[];
+  filters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

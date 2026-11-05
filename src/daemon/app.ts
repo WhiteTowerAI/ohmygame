@@ -35,7 +35,8 @@ import { ActivityLog } from "./activity-log.js";
 import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { isGamepadKeyMap } from "../shared/preview-input.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -47,7 +48,7 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
-import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
+import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
@@ -130,12 +131,14 @@ import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, missingGrants, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, projectFolderKey, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
+import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
+import { PluginGameRuntime } from "./plugin-game-runtime.js";
+import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
 import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
@@ -297,7 +300,7 @@ const runSettingsSchema = {
       startupScript: { type: "string", minLength: 1, maxLength: 200 },
       packageManager: { enum: ["npm", "pnpm", "yarn", "bun"] },
       previewPath: { type: "string", maxLength: 1_000 },
-      previewViewport: { enum: PREVIEW_VIEWPORTS },
+      previewViewport: { anyOf: [{ enum: PREVIEW_VIEWPORTS }, { type: "string", maxLength: 200, pattern: PLUGIN_PREVIEW_DEVICE_PATTERN }] },
       webPreviewEnabled: { type: "boolean" },
       previewAutoStart: { type: "boolean" },
       previewMode: { enum: ["auto", "script", "static", "command"] },
@@ -905,14 +908,75 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
     }
   };
-  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
-  const projectAgentTools = (project: ProjectState, conversation: StoredConversation) => {
-    const playtestKey = `${project.id}:${conversation.summary.id}`;
-    let playtest = agentPlaytests.get(playtestKey);
-    if (!playtest && options.playtestDriver) {
-      playtest = new OwnedPlaytestDriver(options.playtestDriver);
-      agentPlaytests.set(playtestKey, playtest);
+  /** Each project's plugin game runtime, while its type declares one; its conversations share it. */
+  const pluginGames = new Map<string, PluginGameRuntime>();
+  const closePluginGame = (projectId: string) => {
+    pluginGames.get(projectId)?.close();
+    pluginGames.delete(projectId);
+  };
+  /** The runtime of a `"native"` type's plugin for `game_use`, made again when the project's type changes what it declares. */
+  const pluginGameRuntime = async (project: ProjectState): Promise<PluginGameRuntime | undefined> => {
+    const found = project.pluginType?.preview === "native"
+      ? await projectGameUse(project.workspacePath, pluginServices).catch(() => undefined)
+      : undefined;
+    const existing = pluginGames.get(project.id);
+    if (existing && found && existing.provider === found.provider && existing.version === found.version && isDeepStrictEqual(existing.spec, found.spec)) return existing;
+    closePluginGame(project.id);
+    if (!found) return undefined;
+    const runtime = new PluginGameRuntime({
+      ...found,
+      hooks: projectGameHooks(project.workspacePath, pluginServices, found),
+    });
+    pluginGames.set(project.id, runtime);
+    return runtime;
+  };
+  /**
+   * A conversation's or outside session's own view of the project's game
+   * runtime: its type's plugin's when it declares one, else the app's.
+   */
+  const ownedPlaytest = async (project: ProjectState, key: string) => {
+    const plugin = await pluginGameRuntime(project);
+    const runtime = plugin ?? options.playtestDriver;
+    let owned = agentPlaytests.get(key);
+    if (owned && (!runtime || !owned.wraps(runtime))) {
+      agentPlaytests.delete(key);
+      await owned.cleanup();
+      owned = undefined;
     }
+    if (!runtime) return undefined;
+    if (!owned) {
+      owned = new OwnedPlaytestDriver(runtime);
+      agentPlaytests.set(key, owned);
+    }
+    return {
+      driver: owned,
+      resolveOpenTarget: plugin
+        ? async (): Promise<GameUseOpenTarget> => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath })
+        : (signal?: AbortSignal) => playtestTarget(project, signal),
+      maxFrame: plugin?.spec.maxFrame,
+    };
+  };
+  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
+  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+    const keys = await Promise.all(projects.list().map(async (project) => ({
+      project,
+      key: await projectFolderKey(project.workspacePath).catch(() => project.workspacePath),
+    })));
+    const project = keys.find((item) => item.key === folder)?.project;
+    if (!project) return undefined;
+    const plugin = await pluginGameRuntime(project);
+    if (plugin) return {
+      runtime: plugin,
+      provider: plugin.provider,
+      target: async () => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath }),
+    };
+    const web = options.playtestDriver;
+    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
+  });
+  pluginServices.native.serveGame(pluginGamesForPlugins);
+  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
+  const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
+    const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
     return [...createAgentTools(
       project,
       tools,
@@ -924,7 +988,7 @@ export function createApp(options: AppOptions = {}) {
         invalidatePluginSessions();
         return installed;
       },
-      playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
+      playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
     )];
@@ -942,19 +1006,11 @@ export function createApp(options: AppOptions = {}) {
   const externalMcp = new ExternalMcpService({
     dataDirectory,
     projects: () => projects.list(),
-    tools: (project, sessionId) => {
-      const playtestKey = `${project.id}:external:${sessionId}`;
-      let playtest = agentPlaytests.get(playtestKey);
-      if (!playtest && options.playtestDriver) {
-        playtest = new OwnedPlaytestDriver(options.playtestDriver);
-        agentPlaytests.set(playtestKey, playtest);
-      }
-      return createAgentTools(
-        project, tools, projects, undefined, undefined,
-        playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
-        undefined, canvasStore,
-      );
-    },
+    tools: async (project, sessionId) => createAgentTools(
+      project, tools, projects, undefined, undefined,
+      await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
+      undefined, canvasStore,
+    ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
       ...tool,
@@ -965,12 +1021,12 @@ export function createApp(options: AppOptions = {}) {
       )).result,
     })),
     catalog: () => {
-      // Only the schemas are read. A story project has every project tool, and the
-      // full game_use input is listed; a story's own game_use accepts a subset.
+      // Only the schemas are read. A story project has every project tool, and
+      // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
         ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore),
-        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder)),
+        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
     release: async (projectId, sessionId) => {
@@ -1019,7 +1075,7 @@ export function createApp(options: AppOptions = {}) {
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
-      tools: [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+      tools: [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
@@ -1102,7 +1158,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project,
         conversations.open(project, conversation),
-        [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+        [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
         model,
         piAgentDirectory,
@@ -1959,6 +2015,11 @@ export function createApp(options: AppOptions = {}) {
       return pluginChangeReply(reply, cause);
     }
   });
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-preview", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginServices.preview(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -2720,6 +2781,7 @@ export function createApp(options: AppOptions = {}) {
       await driver.cleanup();
       agentPlaytests.delete(key);
     }
+    closePluginGame(project.id);
     await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
     await canvasStore.waitForProject(project.id);
@@ -3707,6 +3769,19 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     },
   );
+  // A gamepad map presses keys in the person's pages of the game; null turns it off.
+  app.put<{ Params: { projectId: string }; Body: { map: unknown } }>(
+    "/projects/:projectId/preview/input-map",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["map"], properties: { map: {} } } }, bodyLimit: 16 * 1024 },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const { map } = request.body;
+      if (map !== null && !isGamepadKeyMap(map)) return reply.code(400).send({ error: "Invalid input map" });
+      previews.setInputMap(project, map ?? undefined);
+      return reply.code(204).send();
+    },
+  );
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/tuning", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -4344,6 +4419,8 @@ export function createApp(options: AppOptions = {}) {
     await agentRuntimes.close();
     setPluginAgentDefinitions([]);
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
+    await pluginGamesForPlugins.close();
+    for (const projectId of [...pluginGames.keys()]) closePluginGame(projectId);
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();

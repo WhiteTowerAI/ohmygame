@@ -13,7 +13,20 @@ export type ProjectType = (typeof PROJECT_TYPE_IDS)[number];
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile", "mobile-landscape"] as const;
-export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+export type BuiltinPreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+/** A built-in preset, or a plugin's preview device, `publisher/name:device`. */
+export type PreviewViewport = BuiltinPreviewViewport | `${string}/${string}:${string}`;
+export const PLUGIN_PREVIEW_DEVICE_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+export function isBuiltinPreviewViewport(value: unknown): value is BuiltinPreviewViewport {
+  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
+}
+
+/** Whether `value` names a preview device; a plugin's may no longer be installed. */
+export function isPreviewViewport(value: unknown): value is PreviewViewport {
+  return isBuiltinPreviewViewport(value) ||
+    (typeof value === "string" && value.length <= 200 && new RegExp(PLUGIN_PREVIEW_DEVICE_PATTERN).test(value));
+}
 export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
 export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 

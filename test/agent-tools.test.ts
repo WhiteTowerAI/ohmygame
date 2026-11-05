@@ -12,6 +12,7 @@ import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
+import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
 import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 import sharp from "sharp";
 
@@ -82,6 +83,14 @@ describe("agent tools", () => {
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
+      // A native type's plugin runs its game whatever the web preview does; the app only makes its runtime for such a type.
+      const plugin = {
+        driver: { ...driver, capabilities: pluginGameCapabilities({ operations: ["captureFrame"], maxFrame: 600 }) },
+        resolveOpenTarget: async () => ({ runtime: "plugin" as const, provider: "a/b:c", projectPath: project.workspacePath }),
+        maxFrame: 600,
+      };
+      const gameUse = createAgentTools(project, runner, projects, undefined, undefined, plugin).find(({ name }) => name === "game_use");
+      expect((gameUse?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties?.frame).toMatchObject({ maximum: 600 });
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
     expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);

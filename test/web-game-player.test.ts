@@ -188,6 +188,28 @@ describe("shared desktop game", () => {
     expect(electron.views).toHaveLength(0);
   });
 
+  it("draws the person's filter over the game, off while it records and again after a crash", async () => {
+    const games = create();
+    const filter = { colorSpace: "linearRGB" as const, matrix: [[0.5, 0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] };
+    // Chosen before the game starts, it is drawn once the host page loads.
+    games.setFilter("game", filter);
+    await games.attach("game", "mount", editor(), url, layout, async () => target);
+    const contents = electron.views[0]!.webContents;
+    const filters = () => contents.executeJavaScript.mock.calls.flatMap(([script]) => script.startsWith("window.setFilter?.(") ? [JSON.parse(script.slice(19, -1))] : []);
+    expect(filters()).toEqual([filter]);
+    // The filter is off by the time recording may start capturing.
+    await games.setRecording("game", true);
+    expect(filters()).toEqual([filter, null]);
+    await games.setRecording("game", false);
+    expect(filters()).toEqual([filter, null, filter]);
+    contents.emit("render-process-gone");
+    await games.refresh("game", async () => target, true);
+    expect(filters()).toEqual([filter, null, filter, filter]);
+    games.setFilter("game", undefined);
+    await vi.waitFor(() => expect(filters().at(-1)).toBeNull());
+    games.close();
+  });
+
   it("refreshes the current scene, follows server changes, and recovers a crashed renderer", async () => {
     const games = create();
     await games.attach("game", "mount", editor(), url, layout, async () => target);

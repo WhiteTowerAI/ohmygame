@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -27,10 +28,13 @@ import {
   availableProjectTypes,
   buildWebPreview,
   createTypedProject,
+  projectGameHooks,
+  projectGameUse,
   projectKind,
   projectKindAt,
   recognizeProjectTypes,
 } from "../src/daemon/project-types.js";
+import { PluginGameRuntime } from "../src/daemon/plugin-game-runtime.js";
 import {
   PluginGrants,
   projectFolderKey,
@@ -145,6 +149,39 @@ const SOURCES: Record<string, string> = {
   broken: `
     export function activate() { throw new Error("cannot start"); }
   `,
+  player: `
+    export function activate(context) {
+      context.registerTool("play", async () => {
+        if (!context.game) return "no game";
+        const session = await context.game.open({ viewport: { width: 320, height: 240 } });
+        const shot = await session.capture();
+        await session.close();
+        return { id: session.id, operations: session.capabilities.operations, shot };
+      });
+      context.registerTool("giveUp", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("enough")), 50);
+        return context.game.open({ signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("refused", () => context.game.open({ viewport: { width: 1, height: 1 } }).then(() => "opened", (error) => error.message));
+      context.registerTool("late", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("too slow")), 20);
+        return context.game.open({ viewport: { width: 999, height: 999 }, signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("hang", () => {
+        void context.game.open().catch(() => {});
+        return "waiting";
+      });
+    }
+  `,
+  "early-player": `
+    let early;
+    export async function activate(context) {
+      early = await context.game.open({ viewport: { width: 320, height: 240 } }).then((session) => session.id, (error) => error.message);
+      context.registerTool("early", () => early);
+    }
+  `,
 };
 
 const TOOLS: Record<string, string[]> = {
@@ -168,6 +205,8 @@ const TOOLS: Record<string, string[]> = {
   slowstart: ["pid"],
   other: ["pid"],
   broken: ["anything"],
+  player: ["play", "giveUp", "refused", "late", "hang"],
+  "early-player": ["early"],
 };
 
 let root: string;
@@ -180,6 +219,7 @@ const plugin = (name: string, version = "1.0.0"): ExtensionHostPlugin => ({
   tools: TOOLS[name] ?? [],
   commands: name === "tools" ? ["greet"] : [],
   projectTypes: [],
+  game: false,
   hooks: [],
 });
 
@@ -701,6 +741,67 @@ describe("extension hosts", () => {
         )
       ).message,
     ).toContain("shut down");
+  });
+
+  it("answers a plugin's context.game through the app, and ends its sessions with the plugin or host", async () => {
+    const extensionHosts = hosts();
+    const requests: { caller: { scope: string; plugin: string; generation: number }; request: unknown }[] = [];
+    const released: unknown[] = [];
+    let cancelled = false;
+    extensionHosts.serveGame({
+      handle: async (caller, request, signal) => {
+        requests.push({ caller, request });
+        if (request.operation === "open" && !request.viewport)
+          return new Promise((_resolve, reject) => signal.addEventListener("abort", () => { cancelled = true; reject(new Error("gave up")); }));
+        if (request.operation === "open" && request.viewport!.width < 240) throw new Error("viewport too small");
+        // Opens after the plugin gave up, as if the reply was already on its way.
+        if (request.operation === "open" && request.viewport!.width === 999) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return { sessionId: "late1", runtime: "web", capabilities: { operations: ["open", "close"] } };
+        }
+        if (request.operation === "open") return { sessionId: "s1", runtime: "web", capabilities: { operations: ["open", "capture", "close"] } };
+        if (request.operation === "capture") return { sessionId: "s1", width: 320 };
+        return null;
+      },
+      release: (what) => { released.push(what); },
+    });
+    const project = path.join(root, "player");
+    const player = { ...plugin("player"), game: true };
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "play" })).toEqual({
+      id: "s1",
+      operations: ["open", "capture", "close"],
+      shot: { sessionId: "s1", width: 320 },
+    });
+    expect(requests.map(({ request }) => request)).toEqual([
+      { operation: "open", viewport: { width: 320, height: 240 } },
+      { operation: "capture", session: "s1" },
+      { operation: "close", session: "s1" },
+    ]);
+    const generation = requests[0]!.caller.generation;
+    expect(requests[0]!.caller).toMatchObject({ scope: project, plugin: "test/player" });
+    // Giving up reaches the app; an error comes back as the plugin's.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "giveUp" })).toBe("enough");
+    await vi.waitFor(() => expect(cancelled).toBe(true));
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "refused" })).toBe("viewport too small");
+    // A plugin that doesn't ask for it has no context.game.
+    const other = path.join(root, "other");
+    expect(await extensionHosts.invoke({ scope: other, project: other, plugin: plugin("player"), tool: "play" })).toBe("no game");
+    // A session the app opened after the plugin gave up is closed for it.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "late" })).toBe("too slow");
+    await vi.waitFor(() => expect(requests.map(({ request }) => request)).toContainEqual({ operation: "close", session: "late1" }));
+    // A plugin's game can be played while it activates.
+    const early = path.join(root, "early-player");
+    expect(await extensionHosts.invoke({ scope: early, project: early, plugin: { ...plugin("early-player"), game: true }, tool: "early" })).toBe("s1");
+
+    // Unloading the plugin gives up its requests still running before its sessions end.
+    cancelled = false;
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "hang" })).toBe("waiting");
+    await vi.waitFor(() => expect(requests.at(-1)!.request).toEqual({ operation: "open" }));
+    await extensionHosts.deactivate(project, "test/player");
+    expect(cancelled).toBe(true);
+    expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
+    await extensionHosts.stop(project);
+    expect(released).toContainEqual({ scope: project, generation });
   });
 
   it("stops an idle host", async () => {
@@ -1374,6 +1475,65 @@ describe("project types", () => {
     }
   });
 
+  it("runs a native type's game for game_use through its project's host", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-types-game-"));
+    const dir = path.join(root, "packages/board-game");
+    await cp(await boardPackage("good"), dir, { recursive: true });
+    const manifestPath = path.join(dir, ".ohmygame-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.engines["ohmygame-api"] = "^2.3.0";
+    Object.assign(manifest.contributes.projectTypes[0], { preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } });
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const png = (await sharp({ create: { width: 320, height: 240, channels: 3, background: "#3070c0" } }).png().toBuffer()).toString("base64");
+    await writeFile(
+      path.join(dir, "index.mjs"),
+      `import { writeFile } from "node:fs/promises";
+      let opened = 0;
+      export function activate(context) {
+        context.registerProjectType("board", {
+          gameUse: async (input) => {
+            if (input.operation === "open") return { session: "board-" + ++opened, viewport: { width: 320, height: 240 } };
+            if (input.operation === "captureFrame") {
+              await writeFile(input.output, Buffer.from(${JSON.stringify(png)}, "base64"));
+              return { frame: input.frame };
+            }
+            return {};
+          },
+        });
+      }`,
+    );
+    const services = new PluginServices({ directory: data, hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200, idleMs: 100 } });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.consent("acme/board", ["native"]);
+      const folder = path.join(data, "game");
+      await createTypedProject({ folder, type: "acme/board:board", name: "Game", services });
+      const found = await projectGameUse(folder, services);
+      expect(found).toEqual({ provider: "acme/board:board", version: "1.0.0", spec: { operations: ["captureFrame"], maxFrame: 600 } });
+      const runtime = new PluginGameRuntime({ ...found!, hooks: projectGameHooks(folder, services, found!) });
+      const opened = await runtime.request({ operation: "open", target: { runtime: "plugin", provider: found!.provider, projectPath: folder } });
+      if (opened.operation !== "open") throw new Error("not opened");
+      expect(opened.snapshot.viewport).toEqual({ width: 320, height: 240 });
+      const generation = await services.native.hostGeneration(folder);
+      // The open session keeps the host running past its idle time.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(await services.native.hostGeneration(folder)).toBe(generation);
+      const captured = await runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 });
+      expect(captured).toMatchObject({ operation: "captureFrame", capture: { width: 320, height: 240, source: "fresh-run", frame: 30 } });
+      // A host that stopped took the session with it.
+      await services.native.closeProject(folder);
+      await expect(runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 })).rejects.toThrow("restarted");
+      runtime.close();
+      // The person turning the plugin off takes the game away from game_use.
+      await services.setEnabled("acme/board", false);
+      expect(await projectGameUse(folder, services)).toBeUndefined();
+    } finally {
+      await services.close();
+      await rm(data, { recursive: true, force: true });
+    }
+  });
+
   it("takes on a folder that already holds the type's files without overwriting them", async () => {
     const { services, parent, cleanup } = await setup();
     try {
@@ -1489,6 +1649,9 @@ describe("plugin settings and commands", () => {
             { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
           ],
+          previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
+          inputMaps: [{ id: "pad", title: "Pad", buttons: { a: "Space", start: "Enter" }, sticks: { left: { left: "ArrowLeft", right: "ArrowRight" } } }],
+          previewFilters: [{ id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
         },
       }),
     );
@@ -1533,6 +1696,12 @@ describe("plugin settings and commands", () => {
       expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }]);
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
+      expect(await services.preview(folder)).toEqual({
+        devices: [{ id: "acme/keys:handheld", plugin: "acme/keys", title: "Handheld", width: 800, height: 480 }],
+        filters: [{ id: "acme/keys:grey", plugin: "acme/keys", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
+        // Ready for the preview's bridge: button indexes and axis directions.
+        inputMaps: [{ id: "acme/keys:pad", plugin: "acme/keys", title: "Pad", map: { buttons: [[0, "Space"], [9, "Enter"]], axes: [[0, -1, "ArrowLeft"], [0, 1, "ArrowRight"]], deadZone: 0.5 } }],
+      });
     } finally {
       await services.close();
       await Promise.all([data, folder].map((item) => rm(item, { recursive: true, force: true })));

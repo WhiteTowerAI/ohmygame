@@ -104,6 +104,20 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+With `capabilities.game` (API 2.3.0), a project's context has `game`: the
+project's game as the agent's [`game_use`](runtime.md#agent-game-use) plays
+it, through the same runtime and so within the same session limits.
+`game.open()` returns a session whose methods (`inspect`, `act`, `capture`,
+`captureFrame`, `recordStart`, `recordStop`, `close`) each take a `signal`.
+The host asks the daemon (`game` and `game-reply` messages,
+`src/daemon/plugin-game-bridge.ts`), which checks on every request that the
+plugin is on in the project and asks for `game`. Its sessions are its own and
+end when it is unloaded or its host stops. A recording goes to the Library
+named for the plugin, for at most 60 seconds. The plugin that runs a native
+type's game can't play it this way. Like every capability, `game` is the
+person's say for code they trust; it doesn't contain native code that
+ignores it.
+
 Native code isn't sandboxed: the [security model](plugin-security.md) says what
 that means and what the person approves. Wherever `native` is allowed (adding a
 plugin, turning it on, creating a project that turns it on) the app warns that
@@ -251,11 +265,13 @@ was opened.
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
+| Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -317,6 +333,17 @@ was opened.
   new project's first message goes back into the composer. A `%key%` message
   comes from the plugin's locale files in the language the prompt request
   names (`?locale=`). A failed or missing check lets the prompt through.
+- A `native` type with a native entry may declare `gameUse` (API 2.3.0):
+  the game [`game_use`](runtime.md#plugin-game-runtimes) opens through the
+  type's native `gameUse` hook. `operations` lists what it does besides
+  `open` and `close`: `inspect`, `act` (with the `input` it takes:
+  `pointer`, `keyboard`, `touch`, `resize`), `capture` (the session's
+  current frame) and `captureFrame` (a fresh run from the start, captured at
+  a `frame` up to `maxFrame`). The hook gets `GameUseHookInput`
+  (`src/shared/extension-host-protocol.ts`), one request at a time per
+  session: `open` names the plugin's own session, and a capture writes a PNG
+  or JPEG to the `output` path the app chose and may return the `frame` it
+  kept and `notes` about it.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
@@ -684,6 +711,37 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked
   before the plugin runs.
+- **Preview devices** (`contributes.previewDevices`, API 2.3.0) of a
+  project's active plugins follow the built-in sizes in the preview's device
+  menu and in Project settings (`GET /projects/:id/plugin-preview`). A device
+  is an `id`, a `title`, and a `width` and `height` from 240 to 4096, the
+  same limits as `game_use`. It sets the game's viewport only and doesn't
+  emulate the device. A project saves it as `publisher/name:device`; while its
+  plugin is off or gone, the preview shows Fit.
+- **Preview filters** (`contributes.previewFilters`, API 2.3.0) are colour
+  matrices the person can turn on from the same menu, for that visit only,
+  such as a colour-vision simulation. A filter gives a 3 × 3 `matrix` over
+  red, green and blue, an optional `offset`, the `colorSpace` its coefficients
+  are for (`linearRGB` or `sRGB`), and its `source` (where the coefficients
+  come from, such as the paper, deficiency and severity), shown as the item's
+  tooltip. Alpha is always kept. A filter only changes what the person sees:
+  in the desktop app the game's host page draws it in Preview and Play, and it
+  is off while the person records; no cover is taken while one is on; the
+  agent's playtests and screenshots are never filtered.
+- **Gamepad maps** (`contributes.inputMaps`, API 2.3.0) press keys for a game
+  that only reads the keyboard. A map names a standard gamepad's `buttons`
+  (`a`, `b`, `x`, `y`, `leftBumper`, `rightBumper`, `leftTrigger`,
+  `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `up`, `down`,
+  `left`, `right`, `home`) and the `left` and `right` `sticks`' directions,
+  each as a `KeyboardEvent.code`, and a stick's `deadZone` (0.1 to 0.9, 0.5 by
+  default). Maps are off until the person picks one from the preview's device
+  menu; the choice is kept per project on that device and sent with `PUT
+  /projects/:id/preview/input-map`. The preview's bridge in each of the
+  person's pages of the game (never an AI test's) polls the pad while the page
+  has focus and sends key presses and releases there. It lets every key go on
+  blur, on disconnect and when the map changes. A game that reads the gamepad
+  itself stops the map, so the same input doesn't arrive twice. The events
+  aren't trusted ones, so a game that checks `isTrusted` ignores them.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
@@ -1053,7 +1111,15 @@ the project has no web preview and isn't published to Community.
 - **Agent:** the `maker` MCP server starts from the same pinned install with
   `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` and offers Maker's tools; tools
   take the project's absolute `target_dir`. The `maker_preview` tool controls
-  the same preview as the panel. Local previews never submit remotely;
+  the same preview as the panel. `game_use` captures frames of fresh runs
+  (`preview validate --mode screenshot`), at the size the agent asked for or
+  the preview window's. Opening a session starts nothing. A capture refuses
+  while the preview runs, since only the person stops theirs, runs one at a
+  time per project, and passes on Maker's word when the frame was still
+  loading and Maker kept a later one. The Runtime gets 560 seconds within
+  the host's 10-minute limit, enough for 30,000 frames at 60 FPS plus startup.
+  A failed capture includes the Runtime log and invocation paths, with
+  credentials removed. Local previews never submit remotely;
   `maker_build_current_directory` commits, pushes and builds the bound branch,
   leaving out the excluded files unless they are already tracked. The TapTap
   Release Skill uses the person's signed-in `taptap-cli` for the store page,
@@ -1065,8 +1131,8 @@ the project has no web preview and isn't published to Community.
 
 See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
-Skills. Authenticated Maker creation, preview, build and publication still
-need a Maker account to check by hand.
+Skills. Authenticated Maker creation, preview, `game_use` captures, build and
+publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 

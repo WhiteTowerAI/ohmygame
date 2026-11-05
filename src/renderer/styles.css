@@ -11590,9 +11590,11 @@ summary.work-summary:hover {
   position: absolute;
   z-index: 20;
   top: calc(100% + 8px);
-  left: 0;
+  right: 0;
   display: flex;
-  width: 170px;
+  width: max-content;
+  min-width: 170px;
+  max-width: 280px;
   flex-direction: column;
   padding: 4px;
   border: 0;
@@ -11625,6 +11627,27 @@ summary.work-summary:hover {
 
 .viewport-option[aria-checked="true"] {
   color: var(--text);
+}
+
+.viewport-menu-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.viewport-menu-heading {
+  padding: 4px 8px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Holds a plugin filter's definition; draws nothing itself. */
+.preview-filter-definition {
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 /* The preview's address, like a browser's: its state, the page, and reload. */
@@ -12005,7 +12028,8 @@ summary.work-summary:hover {
 
 .viewer-stage-tablet,
 .viewer-stage-mobile,
-.viewer-stage-mobile-landscape {
+.viewer-stage-mobile-landscape,
+.viewer-stage-device {
   padding: 10px;
   overflow: auto;
 }
@@ -12021,6 +12045,13 @@ summary.work-summary:hover {
   width: min(667px, 100%);
   height: auto;
   aspect-ratio: 667 / 375;
+}
+
+/* A plugin's device, at its own size. */
+.viewer-stage-device .preview-frame-wrap {
+  width: min(var(--preview-device-width), 100%);
+  height: auto;
+  aspect-ratio: var(--preview-device-ratio);
 }
 
 .preview-frame {
