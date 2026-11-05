@@ -93,6 +93,8 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   assetAspectRatio?: number;
   assetWidth?: number;
   assetHeight?: number;
+  /** Bytes, from the Library or the project's assets. */
+  assetSize?: number;
   name?: string;
   assetOrigin?: "Project" | "Library";
   assetError?: string;

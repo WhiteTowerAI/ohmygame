@@ -416,3 +416,13 @@ it("waits for the person before it downloads a large 3D file", async () => {
   expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/model.glb");
   await node.unmount();
 });
+
+it("waits for the person while a 3D file's size isn't known yet", async () => {
+  // Just added from the Library: in neither the project's assets nor the loaded Library list.
+  const node = await renderNode("library", assets, { assetId: "new-model", mediaType: "model", assetSize: undefined });
+  expect(getLibraryAsset).not.toHaveBeenCalled();
+  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
+  await act(async () => load.click());
+  expect(getLibraryAsset).toHaveBeenCalledExactlyOnceWith("new-model");
+  await node.unmount();
+});

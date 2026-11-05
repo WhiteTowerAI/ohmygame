@@ -3528,6 +3528,7 @@ const en = {
     loadingAsset: "Loading asset...",
     largeModel: "Large 3D model, {{size}}",
     loadModel: "Load 3D preview",
+    modelSizeUnknown: "3D model",
     library: "Library",
     project: "Project",
     animationProvider: "Animation provider",

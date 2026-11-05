@@ -56,7 +56,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [playing, setPlaying] = useState(false);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const seen = useSeenOnScreen(frame);
-  const [turn, setTurn] = useState(false);
+  // The source whose turn it is: a new source must wait for its own.
+  const [turnSource, setTurnSource] = useState<string>();
+  const turn = turnSource === source;
   const endTurn = useRef(() => {});
 
   useEffect(() => {
@@ -82,9 +84,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
 
   useEffect(() => {
     if (!seen) return;
-    const end = takeModelLoadTurn(() => setTurn(true));
+    const end = takeModelLoadTurn(() => setTurnSource(source));
     endTurn.current = end;
-    return () => { end(); setTurn(false); };
+    return () => { end(); setTurnSource(undefined); };
   }, [seen, source]);
 
   useEffect(() => {

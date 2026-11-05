@@ -5,8 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ModelPreview } from "../src/renderer/model-preview.js";
 
 /** The viewer's public playback and visibility API; GPU behavior is checked in Electron. */
+/** Every model a viewer was put in the page for, since a viewer starts loading as it connects. */
+const connected: Array<string | null> = [];
 class ModelViewer extends HTMLElement {
   static observedAttributes = ["auto-rotate"];
+  connectedCallback() {
+    connected.push(this.getAttribute("src"));
+  }
   loaded = false;
   availableAnimations = ["Walk", "Run"];
   autoplay = false;
@@ -109,6 +114,22 @@ it("loads two models at a time, and the next as one finishes", async () => {
     {["e.glb", "f.glb"].map((source) => <ModelPreview key={source} source={source} label={source} />)}
   </>));
   expect(viewers().map((item) => item.getAttribute("src"))).toEqual(["e.glb", "f.glb"]);
+});
+
+it("makes a model whose source changes wait for a turn of its own", async () => {
+  const show = (sources: string[]) => act(async () => root.render(<>
+    {sources.map((source, index) => <ModelPreview key={index} source={source} label={source} />)}
+  </>));
+  const viewers = () => [...container.querySelectorAll<ModelViewer>("model-viewer")].map((item) => item.getAttribute("src"));
+  await show(["a.glb", "b.glb", "c.glb"]);
+  expect(viewers()).toEqual(["a.glb", "b.glb"]);
+  // The first slot's new model gives its turn to the one already waiting.
+  connected.length = 0;
+  await show(["a2.glb", "b.glb", "c.glb"]);
+  expect(viewers()).toEqual(["b.glb", "c.glb"]);
+  expect(connected).not.toContain("a2.glb");
+  await act(async () => container.querySelector<ModelViewer>('model-viewer[src="b.glb"]')!.load());
+  expect(viewers()).toEqual(["a2.glb", "b.glb", "c.glb"]);
 });
 
 it("loads once on screen and stays still until the person plays the preview", async () => {

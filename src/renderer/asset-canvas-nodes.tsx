@@ -488,7 +488,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
 
 export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const kind = data.mediaType ?? "image";
-  const { preview, stageRef, largeModel } = useCanvasMedia(data.assetId, kind === "model");
+  const { preview, stageRef, largeModel } = useCanvasMedia(data.assetId, kind === "model", data.assetSize);
   const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : kind === "model" ? Box : ImageIcon;
   const mediaLayout = useMediaNodeLayout(kind === "audio" || kind === "model" ? undefined : preview.url, data.assetAspectRatio);
   const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "132px" } as CSSProperties : mediaLayout.style;
@@ -869,20 +869,21 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
 const LARGE_CANVAS_MODEL_BYTES = 32 * 1024 * 1024;
 
 /** A canvas node's file, downloaded once the node comes near the screen, and a large 3D file only once asked for. */
-function useCanvasMedia(assetId: string | undefined, threeD: boolean) {
+function useCanvasMedia(assetId: string | undefined, threeD: boolean, knownSize?: number) {
   const [stage, stageRef] = useState<HTMLDivElement | null>(null);
   const seen = useSeenOnScreen(stage);
   const [requested, setRequested] = useState(false);
-  const size = useCanvasAssetSources().get(assetId ?? "")?.size;
-  const large = threeD && size !== undefined && size > LARGE_CANVAS_MODEL_BYTES && !requested;
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId, seen && !large);
-  return { preview, stageRef, largeModel: large ? { size, onLoad: () => setRequested(true) } : undefined };
+  const size = useCanvasAssetSources().get(assetId ?? "")?.size ?? knownSize;
+  // A 3D file whose size isn't known yet, such as one just added, waits as a large one does.
+  const waiting = threeD && !!assetId && !requested && (size === undefined || size > LARGE_CANVAS_MODEL_BYTES);
+  const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId, seen && !waiting);
+  return { preview, stageRef, largeModel: waiting ? { size, onLoad: () => setRequested(true) } : undefined };
 }
 
-function LargeModelPlaceholder({ size, onLoad }: { size: number; onLoad: () => void }) {
+function LargeModelPlaceholder({ size, onLoad }: { size?: number; onLoad: () => void }) {
   return <div className="story-media-empty">
     <Box size={34} />
-    <strong>{t("assetCanvas.largeModel", { size: formatBytes(size) })}</strong>
+    <strong>{size === undefined ? t("assetCanvas.modelSizeUnknown") : t("assetCanvas.largeModel", { size: formatBytes(size) })}</strong>
     <button className="canvas-asset-retry nodrag" type="button" onClick={onLoad}>{t("assetCanvas.loadModel")}</button>
   </div>;
 }

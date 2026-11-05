@@ -26,7 +26,8 @@ moving it to the GPU runs on the window's main thread
 (`src/renderer/model-preview.tsx`). Asset Canvas nodes also download their file
 only once the node comes near the screen. A 3D file over 32 MB on the canvas
 waits for **Load 3D preview**, since its textures alone can fill gigabytes of
-GPU memory (`src/renderer/asset-canvas-nodes.tsx`).
+GPU memory; so does one whose size isn't known yet, such as a Library model
+just added (`src/renderer/asset-canvas-nodes.tsx`).
 
 ![Paused 3D preview with playback and clip controls (sample model)](assets/3d-preview-playback.png)
 
