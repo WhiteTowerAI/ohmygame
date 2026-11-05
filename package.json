@@ -32,6 +32,7 @@
     "dev:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun --bun node_modules/concurrently/dist/bin/index.js --kill-others --names renderer,desktop --prefix-colors green,cyan \"bun run dev:renderer\" \"bun --bun node_modules/electron/cli.js .\"",
     "dev:renderer": "bun --bun node_modules/vite/bin/vite.js --host 127.0.0.1 --port 43120",
     "start": "node dist/daemon/server.js",
+    "build:multiplayer": "bun run build:packages",
     "start:multiplayer": "node --env-file-if-exists=packages/server/.env packages/games/dist/server.js",
     "start:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun --bun node_modules/electron/cli.js . --built-renderer",
     "prepare:preinstalled-plugins": "node --import tsx scripts/prepare-preinstalled-plugins.ts",

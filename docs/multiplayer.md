@@ -462,15 +462,30 @@ variables already set, such as Railway's, take precedence. Its settings:
 | `GAME_DATA_ADMIN_TOKEN` | Enables the operator route that deletes an account's data. |
 | `MULTIPLAYER_DEPLOYMENTS_FILE` | Optional: deployments an operator lists by hand, as a JSON array. |
 
-On Railway, deploy the service from this repository with the **root directory
-left at the repository root**: the service builds the workspace packages it
-depends on. Point the service's config-as-code path at
-`packages/games/railway.json`, which builds with `bun run build:packages`,
-starts with `bun run start:multiplayer` (Node.js 22.19 or newer runs it) and
-checks `/healthz`. Without it Railway falls back to the root `start` script,
-which runs the desktop daemon instead. Keep one replica, mount a volume at the
-directory of `MULTIPLAYER_DATABASE_PATH`, and add a Postgres service for
-`GAME_DATA_DATABASE_URL`.
+On Railway it is the `multiplayer` service; see
+[deploying services from this repository](#deploying-services-from-this-repository).
+Keep one replica, mount a volume at the directory of `MULTIPLAYER_DATABASE_PATH`,
+and add a Postgres service for `GAME_DATA_DATABASE_URL`.
+
+### Deploying services from this repository
+
+Every service this repository deploys, such as the game service, follows one
+layout, so another service is added the same way:
+
+- It lives in its own package under `packages/`, and its deployment
+  configuration is `packages/<package>/railway.json`. The game service's is
+  `packages/games/railway.json`.
+- The root `package.json` has `build:<service>` and `start:<service>` for it:
+  `build:multiplayer` and `start:multiplayer` for the game service.
+  `railway.json` names them, with the health check path.
+- `railway.json` lists the watch patterns that redeploy it: its own package, the
+  shared packages it uses (`packages/server`, `packages/sdk`), the root
+  `package.json` and `bun.lock`. A change elsewhere, such as to the desktop app,
+  deploys nothing.
+- On Railway the service uses this repository with the **root directory left at
+  the repository root**, since the packages share code and one lockfile, and its
+  config-as-code path is its `railway.json`. Railway otherwise falls back to the
+  root `start` script, which runs the desktop daemon.
 
 Publishing rejects a missing build manifest when `multiplayer.json` declares
 multiplayer, mismatches between source/build/request configurations, and known
