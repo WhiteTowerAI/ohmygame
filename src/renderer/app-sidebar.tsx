@@ -17,7 +17,7 @@ import {
   MessageCircle,
   PanelToggle,
   Plug,
-  RefreshCircle,
+  RefreshCw,
   Search,
   Settings,
   UserRound,
@@ -668,7 +668,7 @@ function UpdatePill() {
   const action = status.type === "available"
     ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
     : status.type === "ready"
-      ? { icon: <RefreshCircle size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      ? { icon: <RefreshCw size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
       : status.type === "error"
         ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;
