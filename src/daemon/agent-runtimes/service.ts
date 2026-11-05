@@ -61,10 +61,15 @@ import { OpenCodeDriver } from "./opencode.js";
  * `-p`, it otherwise reports the generic `sdk-cli`, which subscriptions count
  * against the 5-hour limit about twice as fast for the same work
  * (anthropics/claude-code#97074). OhMyGame's own name, rather than another
- * client's, keeps the report accurate. Sign-in and model checks keep the CLI's
- * default: they send no model requests.
+ * client's, keeps the report accurate. Off the `sdk-*` names Claude Code also
+ * offers its claude.ai Artifact tools; turning them off keeps the tools the
+ * session had under `sdk-cli`.
+ * Sign-in and model checks keep the CLI's default: they send no model requests.
  */
-const CLAUDE_CODE_ENTRYPOINT = "ohmygame";
+const CLAUDE_CLIENT_ENV = {
+  CLAUDE_CODE_ENTRYPOINT: "ohmygame",
+  CLAUDE_CODE_DISABLE_ARTIFACT: "1",
+};
 
 const STATUS_TTL_MS = 60_000;
 
@@ -527,7 +532,7 @@ export class AgentRuntimeService {
     ]);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
     if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
-      env.CLAUDE_CODE_ENTRYPOINT = CLAUDE_CODE_ENTRYPOINT;
+      Object.assign(env, CLAUDE_CLIENT_ENV);
     // Codex conversations with the same executable, environment and Skills share one app server.
     const codexServer =
       request.runtime === "codex-cli"

@@ -23,7 +23,7 @@ export interface AgentRuntimeDefault {
 export interface AgentRuntimeSettings {
   enabled: boolean;
   autoContinue: boolean;
-  /** Claude Code only; see `CLAUDE_CODE_ENTRYPOINT` in the service. */
+  /** Claude Code only; see `CLAUDE_CLIENT_ENV` in the service. */
   identifyAsOhMyGame: boolean;
   permissionMode: AgentPermissionMode;
   binaryPath?: string;

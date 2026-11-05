@@ -432,7 +432,7 @@ describe("coding agent routes", () => {
     const { call, claude, dataDirectory } = await start();
     const log = path.join(dataDirectory, "environment.jsonl");
     const source = FAKE_CLAUDE
-      .replace('const args = process.argv.slice(2);', `const args = process.argv.slice(2); require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, dir: process.env.CLAUDE_CONFIG_DIR, tokenPresent: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN), entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT}) + "\\n"); if (args[0] === "auth" && (args[1] === "login" || args[1] === "logout")) process.exit(0);`)
+      .replace('const args = process.argv.slice(2);', `const args = process.argv.slice(2); require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, dir: process.env.CLAUDE_CONFIG_DIR, tokenPresent: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN), entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT, artifactOff: process.env.CLAUDE_CODE_DISABLE_ARTIFACT}) + "\\n"); if (args[0] === "auth" && (args[1] === "login" || args[1] === "logout")) process.exit(0);`)
       .replace('if (message.type !== "control_request") return;', `if (message.type === "user") { console.log(JSON.stringify({type:"system", subtype:"init", session_id:"test-thread"})); console.log(JSON.stringify({type:"assistant", message:{content:[{type:"text",text:"Profile answer"}]}})); console.log(JSON.stringify({type:"result",subtype:"success"})); return; } if (message.type !== "control_request") return;`);
     await writeFile(claude, source);
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-ambient-token");
@@ -467,6 +467,8 @@ describe("coding agent routes", () => {
       // Conversations report OhMyGame by default; sign-in and model checks keep the CLI's own label.
       const conversation = (record: { args: string[] }) => record.args.includes("--append-system-prompt");
       expect(records.filter(conversation).map((record) => record.entrypoint)).toEqual(["ohmygame"]);
+      // Claude Code offers its claude.ai Artifact tools to any other name; the session keeps the tools it had.
+      expect(records.filter(conversation).map((record) => record.artifactOff)).toEqual(["1"]);
       expect(records.filter((record) => !conversation(record)).every((record) => record.entrypoint === undefined)).toBe(true);
       const unlabeled = await call<AgentRuntimeStatus>("PATCH", "/agent-runtimes/claude-code-cli", { identifyAsOhMyGame: false });
       expect(unlabeled.body.identifyAsOhMyGame).toBe(false);
@@ -475,6 +477,7 @@ describe("coding agent routes", () => {
       await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
       const after = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter(conversation);
       expect(after.map((record) => record.entrypoint)).toEqual(["ohmygame", undefined]);
+      expect(after.map((record) => record.artifactOff)).toEqual(["1", undefined]);
       expect((await call("PATCH", "/agent-runtimes/codex-cli", { identifyAsOhMyGame: true })).status).toBe(400);
       const importedDirectory = path.join(dataDirectory, "imported");
       await mkdir(importedDirectory);

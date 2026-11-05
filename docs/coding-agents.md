@@ -130,7 +130,10 @@ interactive CLI for the same work
 ([anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074);
 Anthropic has not confirmed it). **Report OhMyGame as the client**, on by default
 on Claude Code's settings page, sets `CLAUDE_CODE_ENTRYPOINT=ohmygame` for
-conversations: OhMyGame's own name, never another client's. Sign-in and model
+conversations: OhMyGame's own name, never another client's. Under any name but
+the `sdk-*` ones Claude Code also offers its claude.ai Artifact tools, so the
+switch sets `CLAUDE_CODE_DISABLE_ARTIFACT=1` too and the conversation keeps the
+tools it had under `sdk-cli`. Sign-in and model
 checks keep the CLI's default. Open conversations follow a change with their
 next message, as they do for a permission change.
 
