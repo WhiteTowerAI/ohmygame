@@ -40,7 +40,7 @@
   height: 100%;
 }
 
-.composer > :is(.plugin-builder-notice, .plugin-builder-error) {
+.composer > .plugin-builder-error {
   margin: 0 2px var(--space-2);
   padding: 0;
   background: transparent;
@@ -81,19 +81,11 @@
   text-decoration: none;
 }
 
-.plugin-builder-rail-back {
-  text-decoration: none;
-}
-
-.project-rail a.sidebar-app-new {
-  display: grid;
-}
-
 /* the plugin, as its page will read */
 .plugin-builder-overview {
   max-width: 720px;
   margin: 0 auto;
-  padding: var(--space-3) var(--space-2) var(--space-6);
+  padding-top: var(--space-3);
 }
 
 .plugin-builder-icon-button {
@@ -186,14 +178,6 @@
   overflow: auto;
   font-size: var(--text-md);
   line-height: 1.8;
-}
-
-.plugin-builder-preview-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100%;
 }
 
 .plugin-install-dialog.plugin-icon-picker { gap: 0; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }

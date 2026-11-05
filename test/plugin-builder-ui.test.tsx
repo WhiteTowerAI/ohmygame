@@ -38,6 +38,7 @@ let savedIcon: unknown;
 let hasSettings: boolean;
 let updated: boolean;
 let hasDraft: boolean;
+let working: boolean;
 let sessions: Array<{ id: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -48,7 +49,7 @@ beforeEach(() => {
   requests = [];
   hasConversation = false; everyProject = true;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
-  hasSettings = false; updated = false; hasDraft = true; sessions = [];
+  hasSettings = false; updated = false; hasDraft = true; working = false; sessions = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -62,7 +63,7 @@ beforeEach(() => {
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
     if (route === "/plugins/setup-sessions" && method === "POST") return Response.json({ ...state, id: "created" });
     if (route === `/plugins/setup-sessions/${sessionId}/draft` && !hasDraft) return Response.json({ files: [], errors: [] });
-    if (route === `/plugins/setup-sessions/${sessionId}` && !hasDraft) return Response.json({ ...state, pluginId: undefined, title: "New plugin", status: "idle" });
+    if (route === `/plugins/setup-sessions/${sessionId}` && !hasDraft) return Response.json({ ...state, pluginId: undefined, title: "New plugin", status: working ? "working" : "idle", busy: working });
     if (route === "/models") return Response.json({ models: [], providers: [] });
     if (route === `/plugins/setup-sessions/${sessionId}/install` && method === "POST") {
       if (hasSettings) {
@@ -236,6 +237,25 @@ describe("Plugin Builder layout", () => {
     expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(["Chat", "Overview", "Files"]);
   });
 
+  it("says the draft is being written while the assistant works, and reads files only with Files open", async () => {
+    hasDraft = false; working = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    expect(container.querySelector(".dock-area-center")?.textContent).toContain("The assistant is writing the draft…");
+    expect(requests.some(request => request.includes("/file"))).toBe(false);
+  });
+
+  it("keeps a chat dragged narrower than the default after a reload", async () => {
+    localStorage.setItem("ohmygame-agent-width", "240");
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    expect(container.querySelector<HTMLElement>(".dock")?.style.gridTemplateColumns).toContain("240px");
+  });
+
+  it("shows one Settings heading once installed", async () => {
+    hasSettings = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    expect([...container.querySelectorAll(".plugin-builder-overview h2")].filter(heading => heading.textContent === "Settings")).toHaveLength(1);
+  });
+
   it("keeps its panels in place", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
     expect(container.querySelector(".dock-tab-close")).toBeNull();
@@ -251,8 +271,8 @@ describe("Plugin Builder layout", () => {
 
   it("lists the workspaces in the rail, the open one marked, and offers a new plugin", async () => {
     sessions = [
-      { id: "other", title: "Older", status: "ready", createdAt: 0, updatedAt: 1 },
       { id: sessionId, title: "Review", status: "installed", pluginId: storeId, createdAt: 0, updatedAt: 2 },
+      { id: "other", title: "Older", status: "ready", createdAt: 0, updatedAt: 1 },
     ];
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
     const items = [...container.querySelectorAll<HTMLAnchorElement>(".plugin-builder-rail-item")];

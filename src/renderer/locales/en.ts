@@ -2834,6 +2834,7 @@ const en = {
     servicesNotTested: "Services not tested",
     uninstalledChanges: "Changes not installed",
     noDraft: "No draft",
+    writingDraft: "The assistant is writing the draft…",
     scopeAppWide: "It only adds Skills, so it starts on in every project it suits.",
     scopePerProject: "It starts off: turn it on in a project, or in every project, and approve what it asks for.",
     asksFor: "Asks for",

@@ -4,11 +4,11 @@ import type { StorePlugin } from "../shared/plugins.js";
 import { Check, CircleX, LoaderCircle, Plug } from "./icons.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
-import { StorePluginSettings, storePluginEnabled } from "./plugin-store.js";
+import { StorePluginSettings, storePluginEnabled, type useEveryProjectSwitch } from "./plugin-store.js";
 import { PluginAddsList, pluginAddRows, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { Badge, Button, Disclosure, Switch } from "./ui/index.js";
 
-export type DraftCheck = "failed" | "untested" | "passed";
+type DraftCheck = "failed" | "untested" | "passed";
 
 function currentResult(draft: PluginDraft, server: string) {
   const check = draft.checks?.[server];
@@ -38,19 +38,20 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
   stored?: StorePlugin;
   disabled: boolean;
   operation?: string;
-  everyProject: { busy?: unknown; toggle: (plugin: StorePlugin, on: boolean) => void };
+  everyProject: ReturnType<typeof useEveryProjectSwitch>;
   onEditIcon?: () => void;
   onOpenFile: (file: string) => void;
   onTest: (server: string) => void;
 }) {
   const plugin = draft.plugin;
-  if (!plugin) return <div className="plugin-page plugin-builder-overview"><DraftChecks draft={draft} disabled={disabled} operation={operation} onTest={onTest} /></div>;
+  const checks = <DraftChecks draft={draft} disabled={disabled} operation={operation} onTest={onTest} />;
+  if (!plugin) return <div className="plugins-page plugin-builder-overview">{checks}</div>;
   const rows: PluginAddRow[] = [
     ...plugin.skills.map(skill => ({ id: `skill:${skill.id}`, kind: t("plugins.skills"), title: <button className="plugin-builder-link" type="button" title={skill.description} onClick={() => onOpenFile(skill.id)}>{skill.name}</button> })),
     ...pluginAddRows({ ...plugin.adds, skills: 0 }),
   ];
   const tile = <span className="plugin-tile plugin-tile-large"><PluginGlyph plugin={plugin} size={40} setupId={setupId} /></span>;
-  return <div className="plugin-page plugin-builder-overview">
+  return <div className="plugins-page plugin-builder-overview">
     <PluginHead title={plugin.displayName} description={plugin.description} badges={plugin.version ? <Badge tone="outline">v{plugin.version}</Badge> : null}
       tile={onEditIcon ? <button className="plugin-builder-icon-button" type="button" aria-label={t("pluginIconPicker.change")} title={t("pluginIconPicker.change")} disabled={disabled} onClick={onEditIcon}>{tile}</button> : tile} />
     <p className="plugin-long">{t(plugin.appWide ? "pluginBuilder.scopeAppWide" : "pluginBuilder.scopePerProject")}</p>
@@ -62,13 +63,11 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
       <h2>{t("pluginStore.asksFor")}</h2>
       <ul className="plugin-store-capabilities">{plugin.asks.map(ask => <li key={ask} className="plugins-tag plugins-mono">{ask}</li>)}</ul>
     </section> : null}
-    {stored?.settings.length ? <section className="plugins-section" aria-label={t("common.settings")}>
-      <h2>{t("common.settings")}</h2>
-      <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={stored.revision} plugin={stored} /></fieldset>
-    </section> : plugin.settings ? <section className="plugins-section" aria-label={t("common.settings")}>
-      <h2>{t("common.settings")}</h2>
-      <p className="plugins-note">{t("pluginBuilder.settingsAfterInstall")}</p>
-    </section> : null}
+    {stored?.settings.length ? <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={stored.revision} plugin={stored} /></fieldset>
+      : plugin.settings ? <section className="plugins-section" aria-label={t("common.settings")}>
+        <h2>{t("common.settings")}</h2>
+        <p className="plugins-note">{t("pluginBuilder.settingsAfterInstall")}</p>
+      </section> : null}
     {stored && storePluginEnabled(stored) ? <section className="plugins-section" aria-label={t("plugins.management")}>
       <h2>{t("plugins.management")}</h2>
       <dl className="plugin-props">
@@ -80,7 +79,7 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
         </dd>
       </dl>
     </section> : null}
-    <DraftChecks draft={draft} disabled={disabled} operation={operation} onTest={onTest} />
+    {checks}
   </div>;
 }
 

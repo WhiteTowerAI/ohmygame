@@ -2785,6 +2785,7 @@ const zhCN: typeof en = {
     servicesNotTested: "服务还没测试",
     uninstalledChanges: "有未安装的改动",
     noDraft: "没有草稿",
+    writingDraft: "Agent 正在写草稿…",
     scopeAppWide: "它只添加技能，默认在所有适用的项目中开启。",
     scopePerProject: "它默认关闭：在项目里开启，或设为所有项目开启，并由你批准它请求的权限。",
     asksFor: "请求的权限",

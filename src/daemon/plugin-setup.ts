@@ -21,15 +21,15 @@ import {
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
-import type {
-  PluginSetupPrompt,
-  PluginSetupState,
-  PluginSetupSummary,
-  PluginDraft,
-  PluginIconUpdate,
-  PluginSetupMode,
+import {
+  NEW_PLUGIN_TITLE,
+  type PluginSetupPrompt,
+  type PluginSetupState,
+  type PluginSetupSummary,
+  type PluginDraft,
+  type PluginIconUpdate,
+  type PluginSetupMode,
 } from "../shared/plugin-setup.js";
-import { NEW_PLUGIN_TITLE } from "../shared/plugin-setup.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
 import { compatibleRuntimeModel, conversationItems, lastAssistantError } from "./agent.js";
 import type { ThreadItem, Turn } from "../shared/contracts.js";

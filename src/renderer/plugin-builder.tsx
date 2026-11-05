@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginSetupState, type PluginSetupSummary } from "../shared/plugin-setup.js";
+import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginDraftPlugin, type PluginSetupState, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import type { StorePlugin } from "../shared/plugins.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, promptPluginSetup, readPluginDraft,
   readPluginDraftFile, readPluginSetup, testPluginDraft, uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
-import { AppRail } from "./app-sidebar.js";
+import { AppRail, RECENT_LIMIT } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
@@ -107,13 +107,10 @@ function workspaceTitle(title: string): string {
 
 const CHAT_WIDTH_KEY = "ohmygame-agent-width";
 const DEFAULT_CHAT_WIDTH = 430;
-const MIN_CHAT_WIDTH = 320;
 
 function readChatWidth(): number {
-  try {
-    const stored = Number(localStorage.getItem(CHAT_WIDTH_KEY));
-    return Number.isFinite(stored) && stored >= MIN_CHAT_WIDTH ? stored : DEFAULT_CHAT_WIDTH;
-  } catch { return DEFAULT_CHAT_WIDTH; }
+  try { return Number(localStorage.getItem(CHAT_WIDTH_KEY)) || DEFAULT_CHAT_WIDTH; }
+  catch { return DEFAULT_CHAT_WIDTH; }
 }
 function saveChatWidth(width: number) {
   try { localStorage.setItem(CHAT_WIDTH_KEY, String(width)); } catch { /* Layout still works without storage. */ }
@@ -134,8 +131,6 @@ const STARTERS = [
   { id: "skill", icon: FileText }, { id: "panel", icon: LayoutGrid }, { id: "tool", icon: Wrench }, { id: "mcp", icon: Plug },
 ] as const;
 
-const RAIL_LIMIT = 12;
-
 // What the rail last showed: opening another workspace remounts the page, and
 // the rail shouldn't empty and refill.
 let railCache: { sessions: PluginSetupSummary[]; plugins: StorePlugin[] } = { sessions: [], plugins: [] };
@@ -143,16 +138,15 @@ let railCache: { sessions: PluginSetupSummary[]; plugins: StorePlugin[] } = { se
 /** The rail: back to Plugins, the recent AI workspaces, and a new plugin. The rest are on the Plugins page. */
 function BuilderRail({ sessionId, title, status, plugin, onNavigate, onError }: {
   sessionId: string;
-  /** The open workspace's name and status, which load the list again when they change. */
+  /** The open workspace's name and status: the list loads again when they change. */
   title?: string;
   status?: string;
-  plugin?: Parameters<typeof PluginGlyph>[0]["plugin"];
+  plugin?: PluginDraftPlugin;
   onNavigate: (page: AppNavigationTarget) => void;
   onError: (cause: unknown) => void;
 }) {
   const generation = useReadyRuntimeGeneration();
   const [{ sessions, plugins }, setRail] = useState(railCache);
-  const [creating, setCreating] = useState(false);
   useEffect(() => {
     let active = true;
     void waitForRuntime().then(() => Promise.all([listPluginSetups(), listStorePlugins()]))
@@ -162,16 +156,15 @@ function BuilderRail({ sessionId, title, status, plugin, onNavigate, onError }: 
       }).catch(() => { /* The rail keeps what it has; the page reports a daemon it can't reach. */ });
     return () => { active = false; };
   }, [generation, sessionId, title, status]);
-  const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAIL_LIMIT);
-  const listed = recent.some(session => session.id === sessionId) ? recent
-    : [...recent.slice(0, RAIL_LIMIT - 1), ...sessions.filter(session => session.id === sessionId)];
+  // The list comes newest first; the open workspace stays on it however old.
+  const listed = sessions.filter((session, index) => index < RECENT_LIMIT || session.id === sessionId);
   return <AppRail label={t("pluginBuilder.workspaces")} onNavigate={onNavigate}>
     <Tooltip content={t("pluginBuilder.backToPlugins")} placement="right-start">
-      <a className="sidebar-app sidebar-app-new plugin-builder-rail-back" href={pluginHash()} aria-label={t("pluginBuilder.backToPlugins")}><ArrowLeft size={16} /></a>
+      <a className="sidebar-app sidebar-app-new" href={pluginHash()} aria-label={t("pluginBuilder.backToPlugins")}><ArrowLeft size={16} /></a>
     </Tooltip>
     {listed.map(session => {
       const current = session.id === sessionId;
-      const name = workspaceTitle(current ? title ?? session.title : session.title);
+      const name = workspaceTitle(session.title);
       const icon = current ? plugin : plugins.find(item => item.id === session.pluginId);
       return <Tooltip key={session.id} content={name} placement="right-start">
         <a className={`sidebar-app plugin-builder-rail-item${current ? " is-active" : ""}`} href={pluginBuilderHash(session.id)} aria-label={name} aria-current={current ? "page" : undefined}>
@@ -182,10 +175,7 @@ function BuilderRail({ sessionId, title, status, plugin, onNavigate, onError }: 
       </Tooltip>;
     })}
     <Tooltip content={t("pluginBuilder.newPlugin")} placement="right-start">
-      <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} disabled={creating} onClick={() => {
-        setCreating(true);
-        void openPluginBuilder().catch(onError).finally(() => setCreating(false));
-      }}>{creating ? <LoaderCircle className="spin" size={16} /> : <CirclePlus size={16} />}</button>
+      <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} onClick={() => void openPluginBuilder().catch(onError)}><CirclePlus size={16} /></button>
     </Tooltip>
   </AppRail>;
 }
@@ -289,7 +279,6 @@ export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; on
     setLayout(current => ({ ...current, center: { ...current.center, active: "files" } }));
     updateFileRequest({ path: file, id: Date.now() });
   }
-  const goToPlugins = () => { window.location.hash = pluginHash(); };
 
   const check = draft?.path ? draftCheck(draft) : undefined;
   const unsaved = Boolean(stored && draft?.revision && !upToDate);
@@ -309,8 +298,9 @@ export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; on
     { label: t(draft?.path ? "pluginBuilder.deleteDraft" : "pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled, onSelect: () => setConfirming("workspace") },
   ] : [];
 
+  const notice = error ?? everyProject.error ?? state?.error;
   const composer = <div className="composer">
-    {error || everyProject.error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? everyProject.error ?? state?.error}</p> : null}
+    {notice ? <p className="plugin-builder-error" role="alert">{notice}</p> : null}
     <PromptBox value={input.prompt} onChange={prompt => setInput(current => ({ ...current, prompt }))} onSubmit={() => void send()}
       inputRef={promptInput} variant={starting ? "home" : "project"} disabled={!state} placeholder={t(state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
       actions={<ComposerActions models={catalog.models} status={catalog.status} value={model} reasoningLevel={reasoning} disabled={disabled}
@@ -348,11 +338,13 @@ export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; on
           if (!draft.revision) return;
           await testPluginDraft(sessionId, server, draft.revision);
           await refresh();
-        })} /> : <EmptyView label={t("pluginBuilder.noDraft")} description={t("pluginBuilder.noDraftHint")} />}
+        })} /> : state?.busy ? <EmptyView label={t("pluginBuilder.writingDraft")} />
+        : <EmptyView label={t("pluginBuilder.noDraft")} description={t("pluginBuilder.noDraftHint")} />}
     </>,
   }, {
     id: "files", title: t("pluginBuilder.tab.files"), icon: <FileCode2 size={14} />, home: "center" as const,
-    content: <>{refreshButton}<PluginFiles sessionId={sessionId} draft={draft} request={fileRequest} /></>,
+    // Only while it's open, or it reads the file for every draft you never look at.
+    content: layout.center.active === "files" ? <>{refreshButton}<PluginFiles sessionId={sessionId} draft={draft} request={fileRequest} /></> : null,
   }];
 
   return <ProjectFrame
@@ -401,7 +393,7 @@ export function PluginBuilder({ sessionId, onNavigate }: { sessionId: string; on
           setConfirming(undefined);
           if (target === "workspace") void action("deleting", async () => {
             await deletePluginWorkspace(sessionId);
-            goToPlugins();
+            window.location.hash = pluginHash();
           });
           else if (target === "uninstall") void action("uninstalling", async () => {
             if (stored) for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
@@ -448,7 +440,7 @@ function PluginFiles({ sessionId, draft, request }: { sessionId: string; draft?:
 }
 
 function EmptyView({ label, description }: { label: string; description?: string }) {
-  return <div className="plugin-builder-preview-empty"><Empty icon={<Sparkles size={20} />} title={label} description={description} /></div>;
+  return <Empty icon={<Sparkles size={20} />} title={label} description={description} />;
 }
 function statusLabel(status: PluginSetupSummary["status"]): string {
   return t(`pluginBuilder.status.${status}`);

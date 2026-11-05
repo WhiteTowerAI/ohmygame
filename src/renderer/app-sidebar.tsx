@@ -43,7 +43,7 @@ export type SidebarActive = SidebarPage | "settings";
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
-const RECENT_LIMIT = 8;
+export const RECENT_LIMIT = 8;
 // Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
 const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
