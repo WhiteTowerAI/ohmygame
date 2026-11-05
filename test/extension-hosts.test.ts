@@ -1563,14 +1563,14 @@ async function hookPackage(name: string, hooks: string[], code: string) {
   return dir;
 }
 
-async function hookSetup(packages: string[]) {
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
   const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
   const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
   const index = new PluginIndex(path.join(data, "plugin-index.json"));
   const grants = new PluginGrants(path.join(data, "plugin-grants.json"));
   await grants.load();
   const resolve = (project: string) => resolveProjectPlugins({ folder: project, index, grants });
-  const runtime = new NativePlugins({ index, resolve, hosts: hosts(), dataFolder: (id) => path.join(data, "plugin-data", id) });
+  const runtime = new NativePlugins({ index, resolve, hosts: hosts({ onLog: options.onLog }), dataFolder: (id) => path.join(data, "plugin-data", id) });
   const ids: string[] = [];
   for (const dir of packages) {
     const result = await index.add(dir);
@@ -1661,11 +1661,12 @@ describe("plugin hooks", () => {
   });
 
   it("tells plugins that hear an event, shows their notices, and survives one that fails", async () => {
+    const logged: Array<[string, string]> = [];
     const setup = await hookSetup([
       await hookPackage("secrets", ["turn.completed"], SECRET_CHECK),
       await hookPackage("broken", ["turn.completed", "asset.added"], `context.registerHook("turn.completed", () => { throw new Error("broken on purpose"); });`),
       await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK),
-    ]);
+    ], { onLog: (id, entry) => logged.push([id, `${entry.source}: ${entry.text}`]) });
     try {
       await writeFile(path.join(setup.folder, "config.js"), `export const key = "sk-${"a".repeat(24)}";\n`);
       await writeFile(path.join(setup.folder, "game.js"), "export const speed = 3;\n");
@@ -1677,6 +1678,8 @@ describe("plugin hooks", () => {
       });
       expect(setup.notices).toEqual([{ plugin: "acme/secrets", message: "Possible secret in config.js", tone: "danger" }]);
       expect(setup.errors).toEqual([{ plugin: "acme/broken", event: "turn.completed", message: "broken on purpose" }]);
+      // The failure is in the plugin's log, named as a hook.
+      expect(logged).toContainEqual(["acme/broken", "call: Hook turn.completed failed: broken on purpose"]);
       // Only the plugins that hear the event are asked; the style pack isn't.
       expect(invoke.mock.calls.map(([id]) => id).sort()).toEqual(["acme/broken", "acme/secrets"]);
       // A plugin that lists an event but never registered a handler fails quietly.

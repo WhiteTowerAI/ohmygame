@@ -708,7 +708,7 @@ export class ExtensionHosts {
       // Cancelled, or not on here, isn't the plugin's failure.
       const code = error instanceof ExtensionHostError ? error.code : "failed";
       if (code !== "cancelled" && code !== "unavailable") {
-        const kind = options.command !== undefined ? `Command ${options.command}` : options.projectType !== undefined ? `Project type hook ${options.projectType}` : `Tool ${options.tool}`;
+        const kind = options.command !== undefined ? `Command ${options.command}` : options.projectType !== undefined ? `Project type hook ${options.projectType}` : options.hook !== undefined ? `Hook ${options.hook}` : `Tool ${options.tool}`;
         this.#onLog?.(options.plugin.id, { level: "error", source: "call", text: `${kind} failed: ${error instanceof Error ? error.message : String(error)}` });
       }
       throw error;

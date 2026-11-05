@@ -1197,7 +1197,12 @@ export function createApp(options: AppOptions = {}) {
       const project = projectAt(folder);
       if (project) events.publish(project.id, "plugin.notice", notice);
     },
-    onError: (plugin, event, err) => app.log.warn({ err, plugin, event }, "A plugin hook failed"),
+    onError: (plugin, event, err) => {
+      app.log.warn({ err, plugin, event }, "A plugin hook failed");
+      // The extension host logs a hook that failed in it; an answer the app can't use is logged here.
+      if (!(err instanceof ExtensionHostError))
+        pluginServices.logs.add(plugin, { level: "error", source: "call", text: `Hook ${event} failed: ${err instanceof Error ? err.message : String(err)}` });
+    },
   });
   tools.setImageHook(async (input, projectId) => {
     const project = projects.get(projectId);
