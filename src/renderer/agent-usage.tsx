@@ -29,7 +29,7 @@ function wasReset(limit: AgentUsageLimit, now: number): boolean {
 }
 
 /** The limit as it stands now: a window whose reset passed counts as empty. */
-function currentUsage(limit: AgentUsageLimit, now: number): AgentUsageLimit {
+export function currentUsage(limit: AgentUsageLimit, now: number): AgentUsageLimit {
   return wasReset(limit, now) ? { ...limit, usedPercent: 0 } : limit;
 }
 
@@ -45,7 +45,8 @@ export function usageResetLabel(limit: AgentUsageLimit, now: number): string | u
   return t("agentUsage.resetsIn", { time });
 }
 
-function level(percent: number): string {
+/** " is-warning" near the limit and " is-danger" at it, for a meter's class. */
+export function usageLevel(percent: number): string {
   return percent >= 95 ? " is-danger" : percent >= 80 ? " is-warning" : "";
 }
 
@@ -53,7 +54,7 @@ function Meter({ limit }: { limit: AgentUsageLimit }) {
   const percent = Math.round(limit.usedPercent);
   return (
     <span
-      className={`cloud-quota-meter agent-usage-meter${level(percent)}`}
+      className={`cloud-quota-meter agent-usage-meter${usageLevel(percent)}`}
       role="meter"
       aria-label={usageWindowLabel(limit)}
       aria-valuemin={0}

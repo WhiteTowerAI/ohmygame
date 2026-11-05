@@ -9,6 +9,7 @@ import {
   usageResetLabel,
   usageWindowLabel,
 } from "../src/renderer/agent-usage.js";
+import { AgentAccountMenu } from "../src/renderer/agent-account-menu.js";
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(() => {
@@ -127,4 +128,47 @@ it("says how long until a window resets, and that a passed one was reset", () =>
   expect(usageResetLabel(at(0.5), now)).toBe("Resets in 1m");
   expect(usageResetLabel(at(-1), now)).toBe("Reset since last report");
   expect(usageResetLabel({ id: "codex/primary", usedPercent: 0 }, now)).toBeUndefined();
+});
+
+it("shows the chosen account's windows, each account's busiest one, and another account's windows on hover", async () => {
+  vi.useFakeTimers({ now: 1_000_000_000_000, toFake: ["Date", "setInterval", "clearInterval"] });
+  try {
+    const now = Date.now();
+    const window_ = (minutes: number, usedPercent: number, resetIn: number) => ({ id: `claude/${minutes === 300 ? "five_hour" : "seven_day"}`, usedPercent, windowMinutes: minutes, resetsAt: (now + resetIn * 60_000) / 1000 });
+    const profile = (id: string, name: string, account: string, limits: ReturnType<typeof window_>[]) => ({
+      id, name, auth: { status: "signed-in" as const, account, billing: "subscription" as const }, limits,
+    });
+    const onChange = vi.fn();
+    await act(async () => root.render(<AgentAccountMenu runtime="claude-code-cli" value="system" disabled={false} onChange={onChange} onRefresh={async () => {}}
+      profiles={[profile("system", "System", "me@example.com", [window_(300, 17, 286), window_(10080, 2, 9840)]), profile("b", "B", "b@example.com", [window_(300, 46, 146), window_(10080, 100, 3960)])]} />));
+    const trigger = container.querySelector<HTMLButtonElement>(".agent-account-trigger")!;
+    expect(trigger.textContent).toBe("System default17%");
+    await act(async () => trigger.click());
+    const menu = document.querySelector(".agent-account-menu")!;
+    expect(menu.querySelector(".agent-account-current")!.textContent).toBe("me@example.comSystem default · Current account");
+    const windows = () => [...menu.querySelectorAll(".agent-account-current ~ .agent-account-windows .agent-account-window")].map((row) => row.textContent);
+    expect(windows()).toEqual(["5-hour17%Resets in 4h 46m", "Weekly2%Resets in 6d 20h"]);
+    // An open menu keeps counting down.
+    await act(async () => vi.advanceTimersByTime(60_000));
+    expect(windows()[0]).toBe("5-hour17%Resets in 4h 45m");
+
+    const rows = [...menu.querySelectorAll<HTMLButtonElement>(".agent-account-row")];
+    expect(rows.map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    expect(rows[1]!.querySelector(".agent-account-row-usage")?.className).toBe("agent-account-row-usage is-danger");
+    // The chosen account's windows are already on top, so only another account opens the card.
+    await act(async () => rows[0]!.dispatchEvent(new Event("pointerenter", { bubbles: false })));
+    expect(document.querySelector(".agent-account-peek")).toBeNull();
+    await act(async () => rows[1]!.focus());
+    const peek = document.querySelector(".agent-account-peek")!;
+    expect(peek.querySelector("strong")?.textContent).toBe("b@example.com");
+    // A native game preview steps aside for it, as for the menu itself.
+    expect(peek.hasAttribute("data-native-preview-overlay")).toBe(true);
+    expect([...peek.querySelectorAll(".agent-account-window")].map((row) => row.textContent)).toEqual(["5-hour46%Resets in 2h 25m", "Weekly100%Resets in 2d 17h"]);
+    await act(async () => rows[1]!.click());
+    expect(onChange).toHaveBeenCalledWith("b");
+    expect(document.querySelector(".agent-account-menu")).toBeNull();
+    expect(document.querySelector(".agent-account-peek")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });

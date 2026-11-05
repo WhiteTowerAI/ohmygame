@@ -961,14 +961,13 @@ describe("checkpoints in the project shell", () => {
     expect(selector).not.toBeNull();
     const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
     await act(async () => selector.click());
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
-    // Each account shows its last quota report, so one with room left is easy to pick.
-    expect(option.querySelector('.canvas-chip-option-detail [role="meter"]')?.getAttribute("aria-valuenow")).toBe("96");
-    expect(option.querySelector(".agent-usage-meter.is-danger")).not.toBeNull();
+    const option = [...document.querySelectorAll<HTMLButtonElement>('.agent-account-menu [role="radio"]')].find((button) => button.textContent?.includes("Work"))!;
+    // Each account shows its busiest window, so one with room left is easy to pick.
+    expect(option.querySelector(".agent-account-row-usage.is-danger")?.textContent).toBe("96%");
     await act(async () => option.click());
     await settle();
     expect(confirm).not.toHaveBeenCalled();
-    expect(selector.textContent).toBe("Work");
+    expect(selector.querySelector(".agent-account-trigger-name")?.textContent).toBe("Work");
     expect(container.querySelector(`[aria-label^="${label}:"]`)).toBe(selector);
     expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
     expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
@@ -1013,11 +1012,11 @@ describe("checkpoints in the project shell", () => {
         ...(!removed ? [{ id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription" } }] : []),
       ]);
     }, chat);
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("Work");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Work");
     removed = true;
     await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
     await settle();
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("System default");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("System default");
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 
