@@ -1,9 +1,26 @@
 {
   "name": "@ohmygame/sdk",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Browser SDK for OhMyGame games.",
   "license": "Apache-2.0",
-  "private": true,
+  "author": "WhiteTowerAI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteTowerAI/ohmygame.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/WhiteTowerAI/ohmygame/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/WhiteTowerAI/ohmygame/issues"
+  },
+  "keywords": [
+    "ohmygame",
+    "game",
+    "sdk",
+    "multiplayer",
+    "leaderboard",
+    "cloud-save"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -48,8 +65,16 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@colyseus/sdk": "^0.18.5"
   },
