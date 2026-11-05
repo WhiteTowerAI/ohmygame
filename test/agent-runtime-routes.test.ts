@@ -176,7 +176,7 @@ describe("coding agent routes", () => {
     await writeFile(executable, FAKE_ACP, { mode: 0o700 });
     expect((await call("PATCH", `/agent-runtimes/${id}`, { permissionMode: ":workspace" })).status).toBe(400);
     const status = await call<AgentRuntimeStatus>("PATCH", `/agent-runtimes/${id}`, { binaryPath: executable, enabled: true, permissionMode: "default" });
-    expect(status.body).toMatchObject({ installed: true, version: "1.2.3", enabled: true, permissionMode: "default", diagnostics: [] });
+    expect(status.body).toMatchObject({ installed: true, version: "1.2.3", enabled: true, permissionMode: "default", diagnostics: [], launch: `${executable} --acp "--note=a b"` });
     const catalog = (await call<AgentModelCatalog>("GET", "/models?runtimes=1")).body;
     expect(catalog.models.find((model) => model.provider === id)).toMatchObject({ id: "fake-model", name: "Fake model", providerName: "Fake ACP" });
     expect((await call("POST", `/agent-runtimes/${id}/login`)).body).toEqual({ command: "fake-acp login" });

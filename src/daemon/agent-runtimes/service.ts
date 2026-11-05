@@ -275,7 +275,7 @@ export class AgentRuntimeService {
       ...(definition.testedVersion
         ? { testedVersion: definition.testedVersion }
         : {}),
-      ...(definition.acp ? { plugin: definition.acp.plugin, launch: definition.acp.launch } : {}),
+      ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       permissionMode: settings.permissionMode,
@@ -1090,6 +1090,11 @@ export class AgentRuntimeService {
  * folder. System default clears the variable, which the person's terminal may
  * set even when OhMyGame was launched without it.
  */
+/** A command line for the person to read: a part that isn't plain is quoted, so spaces and line breaks show. */
+function commandLine(parts: readonly string[]): string {
+  return parts.map((part) => /^[\w@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part)).join(" ");
+}
+
 function signInCommand(id: AgentRuntimeId, binaryPath: string, env: Record<string, string>): string {
   const variable = id === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : id === "codex-cli" ? "CODEX_HOME" : undefined;
   if (!variable) {

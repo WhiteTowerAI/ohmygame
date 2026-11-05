@@ -39,7 +39,7 @@ export interface AgentRuntimeDefinition {
   loginCommand?: string;
   installUrl?: string;
   /** An agent a plugin adds: the plugin, and the arguments that start the Agent Client Protocol on stdio. */
-  acp?: { plugin: string; args: readonly string[]; launch: string };
+  acp?: { plugin: string; args: readonly string[] };
 }
 
 export const AGENT_RUNTIME_DEFINITIONS: Record<

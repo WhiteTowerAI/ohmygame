@@ -2989,7 +2989,7 @@ describe("ACP adapter", () => {
         name: "Gemini",
         binaries: ["gemini"],
         versionArgs: ["--version"],
-        acp: { plugin: "acme/gem", args: ["--acp"], launch: "fake" },
+        acp: { plugin: "acme/gem", args: ["--acp"] },
       },
     ]);
     const { clis, received } = acpAgent();
