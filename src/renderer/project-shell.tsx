@@ -25,6 +25,7 @@ import {
   Share2,
   Upload,
   UserRound,
+  Package,
   X,
 } from "./icons.js";
 import { createPortal } from "react-dom";
@@ -40,6 +41,7 @@ import {
   useState,
   lazy,
   Suspense,
+  type ReactNode,
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
@@ -181,6 +183,30 @@ interface ProjectShellProps {
   onNavigate: (page: AppNavigationTarget) => void;
   onHome: () => void;
   homeLabel?: string;
+  /** A plugin workspace's own rail, top bar and Overview, around the project's chat and files. */
+  workspace?: ProjectWorkspace;
+}
+
+/** What a workspace that isn't a game puts around the project's chat. */
+export interface ProjectWorkspace {
+  rail: ReactNode;
+  placeholder: string;
+  /** The top bar and the `plugin` panel, rendered into the nodes given. */
+  render: (view: ProjectWorkspaceView) => ReactNode;
+}
+
+export interface ProjectWorkspaceView {
+  /** Whether the project's agent is working. */
+  busy: boolean;
+  /** Changes whenever the workspace's files may have changed. */
+  revision: number;
+  /** Puts a prompt in the chat's box. */
+  ask: (text: string) => void;
+  openFile: (path: string) => void;
+  /** The project's layouts and panels, for the top bar. */
+  layoutMenu: MenuEntry[];
+  top: HTMLElement;
+  panel: PanelNodes;
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -192,6 +218,7 @@ const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
   assets: Layers3,
   story: Book,
   canvas: GalleryWide,
+  plugin: Package,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -216,6 +243,7 @@ export function ProjectShell({
   onNavigate,
   onHome,
   homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }),
+  workspace,
 }: ProjectShellProps) {
   const auth = useAuth();
   const runtime = useRuntimeConnection();
@@ -358,6 +386,7 @@ export function ProjectShell({
   // The cards that wait on an answer and the composer render into this node,
   // which moves between the chat panel and the floating bar, so neither a
   // half-answered question nor a draft is lost on the way.
+  const [workspaceTop, setWorkspaceTop] = useState<HTMLElement | null>(null);
   const [chatInputNode] = useState(() => {
     const node = document.createElement("div");
     node.className = "chat-input";
@@ -374,6 +403,8 @@ export function ProjectShell({
   const story = offered.includes("story");
   // An asset canvas is the canvas, with its files in a Code panel beside it.
   const canvasOnly = state.project?.type === "asset-canvas";
+  // A plugin workspace has its files in a Code panel beside its Overview.
+  const codeBeside = canvasOnly || state.project?.type === "plugin";
   // The canvas saves its edits after a pause, so showing an asset canvas's
   // Code saves them first and then reads the files again.
   const canvasCode = canvasOnly && visible.includes("code");
@@ -385,8 +416,8 @@ export function ProjectShell({
       .then(() => { if (!disposed) setCanvasCodeRevision((value) => value + 1); });
     return () => { disposed = true; };
   }, [canvasCode]);
-  const coding = offered.includes("code") && !story && !canvasOnly;
-  const panelled = offered.includes("code") && !canvasOnly;
+  const coding = offered.includes("code") && !story && !codeBeside;
+  const panelled = offered.includes("code") && !codeBeside;
   const designShown = visible.includes("canvas");
   useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
   useEffect(() => {
@@ -1352,9 +1383,9 @@ export function ProjectShell({
   // The code panel opens the file, and comes back if it was closed. A game's
   // workspace brings it forward itself.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (story || canvasOnly) revealPanel("code");
+    if (story || codeBeside) revealPanel("code");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [story, canvasOnly]);
+  }, [story, codeBeside]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -1452,7 +1483,8 @@ export function ProjectShell({
       key={conversation?.id}
       projectId={project?.id}
       conversationId={conversation?.id}
-      supportsDesign={project?.type !== "asset-canvas"}
+      supportsDesign={project?.type !== "asset-canvas" && !workspace}
+      placeholder={workspace?.placeholder}
       conversationReady={Boolean(conversation) && state.connection === "open"}
       running={currentConversationBusy}
       stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
@@ -1545,13 +1577,13 @@ export function ProjectShell({
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
-      rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
+      rail={workspace?.rail ?? <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
         items: conversations,
         current: conversation?.id,
         onOpen: (id) => onOpenConversation(id),
         onNew: () => void newConversation(),
       }} />}
-      top={<ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+      top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
         {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
@@ -1739,7 +1771,7 @@ export function ProjectShell({
           visible: storyVisible,
           onShow: revealPanel,
         }}
-      /> : createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
@@ -1747,12 +1779,15 @@ export function ProjectShell({
         headerActionsTarget={nodes.canvas.toolbar}
         initialNodeId={initialCanvasNodeId}
         onInitialNodeHandled={onInitialCanvasNodeHandled}
-      /></Suspense></ErrorBoundary>, nodes.canvas.body)}
+      /></Suspense></ErrorBoundary>, nodes.canvas.body) : null}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
-      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
+      {project && workspace && workspaceTop ? workspace.render({
+        busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, layoutMenu: toggleMenu, top: workspaceTop, panel: nodes.plugin,
+      }) : null}
+      {project && codeBeside && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
         <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>
           <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
         </ErrorBoundary>

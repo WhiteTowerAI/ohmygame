@@ -31,9 +31,13 @@ export function ProjectTypeMark({ type, size = 20 }: { type: ProjectType; size?:
 
 /** One line on what the type is for, under its name where it is chosen. */
 export function projectTypeDescription(type: ProjectType): string {
-  return PROJECT_TYPE_IDS.includes(type) ? t(`projectTypeDescription.${type}`) : "";
+  return isCreatableType(type) ? t(`projectTypeDescription.${type}`) : "";
 }
 
 export function projectTypeLabel(type: ProjectType): string {
-  return PROJECT_TYPE_IDS.includes(type) ? t(`projectType.${type}`) : type;
+  return isCreatableType(type) ? t(`projectType.${type}`) : type;
+}
+
+function isCreatableType(type: ProjectType): type is (typeof PROJECT_TYPE_IDS)[number] {
+  return (PROJECT_TYPE_IDS as readonly string[]).includes(type);
 }

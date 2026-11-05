@@ -33,7 +33,7 @@ export type AppRoute =
   /** `adds` opens the marketplace filtered to plugins that add that. */
   | { page: "plugins"; pluginId?: string; adds?: PluginContribution }
   | { page: "settings"; section: SettingsSection; agent?: string }
-  | { page: "plugin-builder"; sessionId: string }
+  | { page: "plugin-builder"; sessionId: string; conversationId?: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
   | { page: "thumbnail"; projectId: string; nodeId: string }
@@ -41,8 +41,8 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
-  const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})$/.exec(hash);
-  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1] };
+  const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})(?:\/conversations\/([^/]+))?$/.exec(hash);
+  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1], ...(builderMatch[2] ? { conversationId: decodeURIComponent(builderMatch[2]) } : {}) };
   const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
   if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
     return { page: "plugins", adds: browseMatch[1] as PluginContribution };
@@ -156,8 +156,8 @@ export function pluginBrowseHash(adds: PluginContribution): string {
   return `#/plugins?adds=${adds}`;
 }
 
-export function pluginBuilderHash(sessionId: string): string {
-  return `#/plugins/builder/${encodeURIComponent(sessionId)}`;
+export function pluginBuilderHash(sessionId: string, conversationId?: string): string {
+  return `#/plugins/builder/${encodeURIComponent(sessionId)}${conversationId ? `/conversations/${encodeURIComponent(conversationId)}` : ""}`;
 }
 
 export function projectHash(projectId: string, view?: "design"): string {

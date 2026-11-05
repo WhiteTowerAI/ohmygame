@@ -67,6 +67,7 @@ describe("renderer routes", () => {
   it("restores a builder workspace without treating it as a plugin or game project", () => {
     const sessionId = "1bf8dbe0-438a-488a-b8ec-299829c79561";
     expect(parseAppRoute(pluginBuilderHash(sessionId))).toEqual({ page: "plugin-builder", sessionId });
+    expect(parseAppRoute(pluginBuilderHash(sessionId, "chat-1"))).toEqual({ page: "plugin-builder", sessionId, conversationId: "chat-1" });
     expect(parseAppRoute("#/plugins/builder/%")).toEqual({ page: "home" });
     expect(parseAppRoute(`${pluginBuilderHash(sessionId)}/extra`)).toEqual({ page: "home" });
   });

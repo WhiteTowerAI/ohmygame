@@ -5,17 +5,12 @@ import Fastify from "fastify";
 import sharp from "sharp";
 import { registerPluginIconRoutes, validatePluginIconImage } from "../src/daemon/plugin-icons.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PluginSetupManager, registerPluginSetupRoutes } from "../src/daemon/plugin-setup.js";
+import { randomUUID } from "node:crypto";
+import { PluginSetupManager, registerPluginSetupRoutes, type PluginWorkspaceProjects } from "../src/daemon/plugin-setup.js";
+import type { ProjectState } from "../src/shared/contracts.js";
 import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
-import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
-
-const agentSession = vi.hoisted(() => ({ create: undefined as undefined | ((options: { model: unknown }) => unknown) }));
-vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
-  return { ...actual, createAgentSession: (options: Parameters<typeof actual.createAgentSession>[0]) => agentSession.create ? { session: agentSession.create(options as { model: unknown }) } : actual.createAgentSession(options) };
-});
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -29,40 +24,34 @@ async function environment() {
   const invalidate = vi.fn();
   const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
   cleanup.push(() => services.close());
-  function manager() { return new PluginSetupManager(directory, agentDir, host, services, invalidate, async () => { throw new Error("No test model"); }); }
+  const projects = workspaceProjects(directory);
+  function manager() { return new PluginSetupManager(directory, agentDir, host, services, invalidate, projects); }
   const setup = manager();
   const app = Fastify();
   registerPluginSetupRoutes(app, setup);
   registerPluginIconRoutes(app, async () => undefined);
   cleanup.push(() => app.close());
-  return { directory, agentDir, host, services, setup, manager, app, invalidate };
+  return { directory, agentDir, host, services, setup, manager, app, invalidate, projects };
+}
+/** The hidden projects behind the workspaces, as the app keeps them. */
+function workspaceProjects(directory: string) {
+  const all = new Map<string, ProjectState>();
+  const working = new Set<string>();
+  return {
+    all, working,
+    async create(name: string | undefined, workspacePath: string): Promise<ProjectState> {
+      const id = randomUUID();
+      const project: ProjectState = { id, name: name ?? "Untitled project", nameSource: name ? "manual" : "default", type: "plugin", updatedAt: new Date(0).toISOString(),
+        workspacePath, storagePath: path.join(directory, "projects", id), preview: { status: "stopped" } };
+      all.set(id, project);
+      return project;
+    },
+    get: (id: string) => all.get(id),
+    async remove(project: ProjectState) { all.delete(project.id); },
+    busy: (id: string) => working.has(id),
+  } satisfies PluginWorkspaceProjects & Record<string, unknown>;
 }
 const ID = "personal/design-review";
-describe("plugin builder model", () => {
-  it("records a model change only when the model changes", async () => {
-    const { directory, agentDir, host, services, invalidate } = await environment();
-    const models: Record<string, { provider: string; id: string }> = { one: { provider: "test", id: "one" }, two: { provider: "test", id: "two" } };
-    const setModel = vi.fn(async (model: unknown) => { session.model = model; });
-    const session = { model: undefined as unknown, messages: [], setModel, setThinkingLevel: vi.fn(), bindExtensions: vi.fn(async () => {}), subscribe: () => () => {}, prompt: vi.fn(async () => {}), abort: vi.fn(async () => {}), dispose: vi.fn() };
-    agentSession.create = ({ model }) => { session.model = model; return session; };
-    cleanup.push(async () => { agentSession.create = undefined; });
-    const setup = new PluginSetupManager(directory, agentDir, host, services, invalidate, (async (ref: { id: string }) => ({ runtime: {}, model: models[ref.id] })) as never);
-    cleanup.push(() => setup.close());
-    const { id } = await setup.create();
-    const turn = async (model: string, count: number) => {
-      await setup.prompt(id, { prompt: "Go", model: models[model]! });
-      await vi.waitFor(async () => {
-        expect(session.prompt).toHaveBeenCalledTimes(count);
-        expect((await setup.read(id)).busy).toBe(false);
-      });
-    };
-    await turn("one", 1);
-    await turn("one", 2);
-    expect(setModel).not.toHaveBeenCalled();
-    await turn("two", 3);
-    expect(setModel).toHaveBeenCalledOnce();
-  });
-});
 async function writeDraft(directory: string, sessionId: string, mcp = false) {
   const root = path.join(directory, "plugin-setup", sessionId, "workspace", "design-review");
   await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
@@ -197,7 +186,7 @@ describe("Plugin Builder", () => {
     await expect(setup.installDraft(state.id, draft.revision!)).rejects.toThrow("changed");
     await setup.installDraft(state.id, preview.revision);
     expect(services.index.get(ID)?.manifest.icon).toBe("./assets/icon.svg");
-    const resumed = manager(); cleanup.push(() => resumed.close());
+    const resumed = manager();
     expect((await resumed.draft(state.id)).plugin?.icon).toEqual(asset);
     expect((await resumed.list()).find(session => session.id === state.id)?.icon).toEqual(preview.plugin?.icon);
     const reset = await resumed.updateIcon(state.id, { revision: preview.revision, icon: null });
@@ -288,19 +277,35 @@ describe("Plugin Builder", () => {
     } finally { decode.mockRestore(); }
   });
 
-  it("keeps new workspaces separate, lists them after restart, and retains interrupted status", async () => {
-    const { setup, directory, manager } = await environment();
+  it("keeps new workspaces separate, each with its own hidden project, and lists them after restart", async () => {
+    const { setup, manager, projects } = await environment();
     const first = await setup.create(), second = await setup.create();
     expect(second.id).not.toBe(first.id);
-    await setup.close();
-    const file = path.join(directory, "plugin-setup", first.id, "state.json");
-    const stored = JSON.parse(await readFile(file, "utf8"));
-    await writeFile(file, JSON.stringify({ ...stored, status: "working", busy: true, model: { provider: "fixture", id: "model" } }));
-    const resumed = manager(); cleanup.push(() => resumed.close());
-    const listed = await resumed.list();
+    expect(second.projectId).not.toBe(first.projectId);
+    expect(projects.get(first.projectId)).toMatchObject({ type: "plugin", workspacePath: expect.stringContaining(first.id) });
+    // The workspace works while its project's agent does.
+    projects.working.add(first.projectId);
+    const listed = await manager().list();
     expect(listed).toHaveLength(2);
-    expect(listed.find(item => item.id === first.id)).toMatchObject({ status: "interrupted", model: { provider: "fixture", id: "model" } });
-    expect((await resumed.read(first.id)).busy).toBe(false);
+    expect(listed.find(item => item.id === first.id)).toMatchObject({ status: "working", projectId: first.projectId });
+    expect(listed.find(item => item.id === second.id)).toMatchObject({ status: "idle" });
+  });
+
+  it("names a new workspace after its project until its draft has a name", async () => {
+    const { setup, directory, projects } = await environment();
+    const state = await setup.create();
+    expect(state.title).toBe("New plugin");
+    Object.assign(projects.get(state.projectId)!, { name: "Level ideas", nameSource: "ai" });
+    expect((await setup.read(state.id)).title).toBe("Level ideas");
+    await setup.prepare(state.id, await writeDraft(directory, state.id));
+    expect((await setup.read(state.id)).title).toBe("Design Review");
+  });
+
+  it("gives the agent of a workspace's project the plugin tool, and other projects none", async () => {
+    const { setup, projects } = await environment();
+    const state = await setup.create();
+    expect((await setup.agentTools(projects.get(state.projectId)!)).map(tool => tool.name)).toEqual(["plugin_manage"]);
+    expect(await setup.agentTools({ id: state.projectId, type: "general" })).toEqual([]);
   });
 
   it("previews and validates an uninstalled draft, rejects a stale revision, and installs the reviewed version", async () => {
@@ -358,25 +363,12 @@ describe("Plugin Builder", () => {
     const draft = await setup.prepare(state.id, await writeDraft(directory, state.id));
     await setup.installDraft(state.id, draft.revision!);
     await services.uninstall(ID);
-    await setup.close();
-    const resumed = manager(); cleanup.push(() => resumed.close());
+    const resumed = manager();
     expect(await resumed.read(state.id)).toMatchObject({ status: "ready", pluginId: undefined });
     const preview = await resumed.draft(state.id);
     expect(preview.installedRevision).toBeUndefined();
     expect(preview.files).toEqual(draft.files);
     expect(await resumed.installDraft(state.id, preview.revision!)).toMatchObject({ status: "installed", pluginId: ID });
-  });
-
-  it("lists workspace metadata without loading conversation history", async () => {
-    const { setup, manager } = await environment();
-    const state = await setup.create();
-    await setup.close();
-    const resumed = manager(); cleanup.push(() => resumed.close());
-    const history = vi.spyOn(SessionManager, "continueRecent");
-    try {
-      expect((await resumed.list()).map(item => item.id)).toEqual([state.id]);
-      expect(history).not.toHaveBeenCalled();
-    } finally { history.mockRestore(); }
   });
 
   it("deletes a draft workspace and only that one", async () => {
@@ -388,7 +380,7 @@ describe("Plugin Builder", () => {
     expect(removed.statusCode, removed.body).toBe(204);
     expect((await app.inject({ method: "GET", url: `/plugins/setup-sessions/${first.id}` })).statusCode).toBe(404);
     await expect(readFile(path.join(directory, "plugin-setup", first.id, "state.json"))).rejects.toMatchObject({ code: "ENOENT" });
-    const resumed = manager(); cleanup.push(() => resumed.close());
+    const resumed = manager();
     expect((await resumed.list()).map(item => item.id)).toEqual([second.id]);
   });
 
@@ -400,8 +392,7 @@ describe("Plugin Builder", () => {
     await services.configure(ID, { key: "saved-key" });
     expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
     await expect(readFile(path.join(directory, "plugin-setup", state.id, "state.json"))).rejects.toMatchObject({ code: "ENOENT" });
-    await setup.close();
-    const resumed = manager(); cleanup.push(() => resumed.close());
+    const resumed = manager();
     const editing = await resumed.create(ID, "edit");
     expect(editing).toMatchObject({ mode: "edit", pluginId: ID, status: "installed", title: "Design Review" });
     const root = path.join(directory, "plugin-setup", editing.id, "workspace", "design-review");
@@ -435,24 +426,29 @@ describe("Plugin Builder", () => {
     await expect(setup.create("personal:tool")).rejects.toThrow("Select an installed plugin");
   });
 
-  it("deletes conversation history across restart while retaining the draft", async () => {
-    const { setup, directory, manager } = await environment();
+  it("moves a workspace from before projects into one, conversation and all, once", async () => {
+    const { setup, directory, manager, projects } = await environment();
     const state = await setup.create();
-    const draft = await setup.prepare(state.id, await writeDraft(directory, state.id, true));
-    await setup.close();
-    const history = SessionManager.continueRecent(path.join(directory, "plugin-setup", state.id, "workspace"), path.join(directory, "plugin-setup", state.id, "sessions"));
+    const draft = await setup.prepare(state.id, await writeDraft(directory, state.id));
+    const workspace = path.join(directory, "plugin-setup", state.id);
+    const stored = JSON.parse(await readFile(path.join(workspace, "state.json"), "utf8"));
+    delete stored.projectId;
+    await writeFile(path.join(workspace, "state.json"), JSON.stringify({ ...stored, status: "working", model: { provider: "fixture", id: "model" } }));
+    projects.all.clear();
+    const history = SessionManager.create(path.join(workspace, "workspace"), path.join(workspace, "sessions"));
     history.appendMessage({ role: "user", content: "Review my plugin", timestamp: Date.now() });
     history.appendMessage({ role: "assistant", content: [{ type: "text", text: "Reviewed." }], api: "openai-completions", provider: "fixture", model: "fixture", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() });
-    const resumed = manager(); cleanup.push(() => resumed.close());
-    expect((await resumed.read(state.id)).turns.length).toBeGreaterThan(0);
-    const routes = Fastify(); registerPluginSetupRoutes(routes, resumed); cleanup.push(() => routes.close());
-    const cleared = await routes.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}/conversation` });
-    expect(cleared.statusCode).toBe(200);
-    expect(cleared.json().turns).toEqual([]);
+    const resumed = manager();
+    const [read, listed] = await Promise.all([resumed.read(state.id), resumed.list()]);
+    expect(projects.all.size).toBe(1);
+    expect(listed[0]?.projectId).toBe(read.projectId);
+    expect(read).toMatchObject({ status: "ready", title: "Design Review" });
+    const project = projects.get(read.projectId)!;
+    const moved = SessionManager.continueRecent(project.workspacePath, path.join(project.storagePath!, "session"));
+    expect(moved.getBranch().some(entry => entry.type === "message" && entry.message.role === "user")).toBe(true);
+    await expect(readFile(path.join(workspace, "sessions"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await manager().read(state.id)).projectId).toBe(read.projectId);
     expect((await resumed.draft(state.id)).revision).toBe(draft.revision);
-    const restarted = manager(); cleanup.push(() => restarted.close());
-    expect((await restarted.read(state.id)).turns).toEqual([]);
-    expect((await restarted.draft(state.id)).revision).toBe(draft.revision);
   });
 
   it("rejects overwriting another draft's installed plugin and rejects updates from an outdated editing workspace", async () => {
@@ -479,10 +475,22 @@ describe("Plugin Builder", () => {
     const spy = vi.spyOn(services, "draftMcpServer").mockImplementation(async (...args) => { await gate; return server(...args); });
     const testing = setup.testDraft(state.id, "api", draft.revision!);
     try {
-      await vi.waitFor(async () => expect((await setup.read(state.id)).busy).toBe(true));
+      await vi.waitFor(async () => expect((await setup.read(state.id)).status).toBe("working"));
       expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(409);
     } finally { release(); await testing; spy.mockRestore(); }
-    expect((await setup.read(state.id)).busy).toBe(false);
+    expect((await setup.read(state.id)).status).toBe("ready");
+  });
+
+  it("waits for the agent of a workspace's project before deleting or installing", async () => {
+    const { setup, directory, app, projects } = await environment();
+    const state = await setup.create();
+    const draft = await setup.prepare(state.id, await writeDraft(directory, state.id));
+    projects.working.add(state.projectId);
+    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(409);
+    await expect(setup.installDraft(state.id, draft.revision!)).rejects.toThrow("Wait for the builder");
+    projects.working.delete(state.projectId);
+    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
+    expect(projects.get(state.projectId)).toBeUndefined();
   });
 
   it("tests a draft's MCP server without installing it, using the settings saved for it", async () => {
@@ -534,15 +542,5 @@ describe("Plugin Builder", () => {
     const results = await Promise.allSettled([setup.installDraft(first.id, one.revision!), setup.installDraft(second.id, two.revision!)]);
     expect(results.map(result => result.status).sort()).toEqual(["fulfilled", "rejected"]);
     expect(services.index.versions(ID)).toHaveLength(1);
-  });
-
-  it("restores unsent input and model selection by workspace, including after malformed storage", () => {
-    const values = new Map<string, string>();
-    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
-    const input = { prompt: "未发送的请求", model: { provider: "fixture", id: "model" }, reasoningLevel: "high" as const };
-    savePluginBuilderInput("one", input, storage);
-    expect(readPluginBuilderInput("one", storage)).toEqual(input);
-    expect(readPluginBuilderInput("two", storage)).toEqual({ prompt: "" });
-    expect(readPluginBuilderInput("one", { getItem: () => "invalid JSON" })).toEqual({ prompt: "" });
   });
 });

@@ -1,4 +1,3 @@
-import type { AgentModelRef, AgentReasoningLevel, Turn } from "./contracts.js";
 import type { PluginMcpResult, PluginIcon, StorePlugin } from "./plugins.js";
 import type { PluginIconMediaType } from "./plugin-icons.js";
 export type PluginIconChange =
@@ -11,6 +10,8 @@ export const NEW_PLUGIN_TITLE = "New plugin";
 
 export interface PluginSetupSummary {
   id: string;
+  /** The hidden project that holds its conversations. */
+  projectId: string;
   mode?: PluginSetupMode;
   pluginId?: string;
   title: string;
@@ -18,19 +19,7 @@ export interface PluginSetupSummary {
   icon?: PluginIcon;
   createdAt: number;
   updatedAt: number;
-  status: "idle" | "working" | "ready" | "installed" | "interrupted" | "error";
-  model?: AgentModelRef;
-  reasoningLevel?: AgentReasoningLevel;
-}
-export interface PluginSetupState extends PluginSetupSummary {
-  turns: Turn[];
-  busy: boolean;
-  error?: string;
-}
-export interface PluginSetupPrompt {
-  prompt: string;
-  model: AgentModelRef;
-  reasoningLevel?: AgentReasoningLevel;
+  status: "idle" | "working" | "ready" | "installed";
 }
 
 /** What a valid draft would install. */

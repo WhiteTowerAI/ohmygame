@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginBuilder } from "../src/renderer/plugin-builder.js";
-import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
 import type { PluginIcon } from "../src/shared/plugins.js";
-import type { PluginSetupState } from "../src/shared/plugin-setup.js";
+import type { PluginSetupSummary } from "../src/shared/plugin-setup.js";
+import type { ProjectWorkspace } from "../src/renderer/project-shell.js";
 import i18next from "i18next";
 
 vi.mock("../src/renderer/auth.js", async importOriginal => ({
@@ -13,11 +13,31 @@ vi.mock("../src/renderer/auth.js", async importOriginal => ({
   useAuth: () => ({ state: { status: "signed-out" }, openSignIn: () => {} }),
 }));
 
+// The project's chat is the project shell's; here it only places the workspace's parts, as the shell does.
+const shell = vi.hoisted(() => ({ busy: false, asked: [] as string[], opened: [] as string[], props: undefined as undefined | { projectId: string; workspace: ProjectWorkspace } }));
+vi.mock("../src/renderer/project-shell.js", async () => {
+  const { useState } = await import("react");
+  const { createPanelNodes } = await import("../src/renderer/panel-layout.js");
+  return {
+    ProjectShell: (props: { projectId: string; workspace: ProjectWorkspace }) => {
+      shell.props = props;
+      const [top, setTop] = useState<HTMLElement | null>(null);
+      const [panel] = useState(createPanelNodes);
+      return <div className="project-frame">
+        {props.workspace.rail}
+        <header className="project-top"><span ref={setTop} /></header>
+        <div className="workspace-panel" ref={node => { if (node && !node.contains(panel.body)) node.append(panel.toolbar, panel.body); }} />
+        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), layoutMenu: [], top, panel }) : null}
+      </div>;
+    },
+  };
+});
+
 const sessionId = "a1234567-1234-1234-1234-123456789abc";
 const storeId = "personal/review";
-const state: PluginSetupState = {
-  id: sessionId, pluginId: storeId, title: "Review", status: "installed",
-  createdAt: 0, updatedAt: 0, busy: false, turns: [],
+const state: PluginSetupSummary = {
+  id: sessionId, projectId: "project", pluginId: storeId, title: "Review", status: "installed",
+  createdAt: 0, updatedAt: 0,
 };
 const stored = {
   id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", bundled: false, everyProject: true,
@@ -30,7 +50,6 @@ let container: HTMLDivElement;
 let installed: boolean;
 let installationFailed: boolean;
 let requests: string[];
-let hasConversation: boolean;
 let everyProject: boolean;
 let draftIcon: PluginIcon | undefined;
 let iconChanged: boolean;
@@ -47,7 +66,7 @@ beforeEach(() => {
   installed = true;
   installationFailed = false;
   requests = [];
-  hasConversation = false; everyProject = true;
+  everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; updated = false; hasDraft = true; working = false; sessions = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -74,11 +93,7 @@ beforeEach(() => {
       installationFailed = true;
       return Response.json({ error: "Configuration could not be saved" }, { status: 409 });
     }
-    const currentState = { ...state, pluginId: storeId, mode: "create", turns: hasConversation ? [{ id: "turn", conversationId: sessionId, status: "completed", items: [] }] : [] };
-    if (route === `/plugins/setup-sessions/${sessionId}/conversation` && method === "DELETE") {
-      hasConversation = false;
-      return Response.json({ ...currentState, turns: [] });
-    }
+    const currentState = { ...state, pluginId: storeId, mode: "create" };
     if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, revision: updated ? "new" : "old", ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), everyProject, grants: { enabled: true, allowed: [] } }] : []);
     if (route === `/plugin-store/${storeId}/configuration`) return Response.json({ token: { type: "text", value: null } });
     if (route === `/plugin-store/${storeId}/every-project` && method === "PUT") {
@@ -108,6 +123,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+const routing = { onNavigate: () => {}, onOpenConversation: () => {} };
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 /** An entry in the menu under the plugin's name, which stays open for a look. */
 const menuEntry = async (label: string) => {
@@ -127,7 +143,7 @@ const answer = async (choice: "Delete" | "Uninstall" | "Cancel") => {
 
 describe("Plugin Builder removal controls", () => {
   it("deletes an installed workspace independently of uninstalling its plugin", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await choose("Delete plugin draft");
     await answer("Cancel");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
@@ -138,21 +154,8 @@ describe("Plugin Builder removal controls", () => {
     expect(window.location.hash).toBe("#/plugins");
   });
 
-  it("deletes only conversation history and keeps the installed draft open", async () => {
-    hasConversation = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
-    await choose("Delete conversation");
-    await answer("Delete");
-    expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}/conversation`);
-    expect(requests).not.toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
-    expect((await menuEntry("Delete conversation"))?.disabled).toBe(true);
-    expect(await menuEntry("Delete plugin draft")).toBeDefined();
-    expect(installed).toBe(true);
-    expect(window.location.hash).toBe(`#/plugins/builder/${sessionId}`);
-  });
-
   it("toggles the installed plugin from Builder without uninstalling it", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Turn Review on in every project").click());
     expect(requests).toContain(`PUT /plugin-store/${storeId}/every-project`);
     expect(button("Turn Review on in every project").getAttribute("aria-checked")).toBe("false");
@@ -161,7 +164,7 @@ describe("Plugin Builder removal controls", () => {
   });
 
   it("honors cancellation and changes the installed view back to an installable draft after uninstalling", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await choose("Uninstall plugin");
     await answer("Cancel");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
@@ -174,20 +177,18 @@ describe("Plugin Builder removal controls", () => {
     expect(install?.disabled).toBe(false);
   });
 
-  it("deletes an uninstalled workspace and its unsent input before returning to Plugins", async () => {
+  it("deletes an uninstalled workspace before returning to Plugins", async () => {
     installed = false;
-    savePluginBuilderInput(sessionId, { prompt: "Unsent draft" }, localStorage);
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await choose("Delete plugin draft");
     await answer("Delete");
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
-    expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("");
     expect(window.location.hash).toBe("#/plugins");
   });
 
   it("reloads the settings form once an update is installed", async () => {
     hasSettings = true; iconChanged = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     const reads = () => requests.filter(request => request === `GET /plugin-store/${storeId}/configuration`).length;
     expect(reads()).toBe(1);
     const update = [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!;
@@ -197,7 +198,7 @@ describe("Plugin Builder removal controls", () => {
 
   it("reloads the settings form on Refresh only when the installed package changed", async () => {
     hasSettings = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     const reads = () => requests.filter(request => request === `GET /plugin-store/${storeId}/configuration`).length;
     const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="Refresh plugin preview"]')!;
     await act(async () => refresh.click());
@@ -209,7 +210,7 @@ describe("Plugin Builder removal controls", () => {
 
   it("refreshes after a partial installation failure so uninstall and retry stay available", async () => {
     installed = false;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin")!;
     await act(async () => install.click());
     expect(await menuEntry("Uninstall plugin")).toBeDefined();
@@ -222,50 +223,32 @@ describe("Plugin Builder removal controls", () => {
 
 
 describe("Plugin Builder layout", () => {
-  it("starts as one prompt with ways to begin, and keeps the chat beside the plugin once there is a draft", async () => {
+  it("opens the workspace's project with its chat, and offers ways to begin until there is a draft", async () => {
     hasDraft = false;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    expect(shell.props?.projectId).toBe("project");
+    expect(shell.props?.workspace.placeholder).toBe("Describe what your plugin should do…");
     expect(container.querySelector(".project-name")?.textContent).toBe("New plugin");
-    expect(container.querySelector(".dock")).toBeNull();
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".home-starts button")].find(item => item.textContent === "Skill")!.click());
-    expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("Make a Skill that teaches the agent to ");
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    hasDraft = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
-    expect(container.querySelector(".home-starts")).toBeNull();
-    expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(["Chat", "Overview", "Files"]);
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-builder-starters button")].find(item => item.textContent === "Skill")!.click());
+    expect(shell.asked).toEqual(["Make a Skill that teaches the agent to "]);
   });
 
-  it("says the draft is being written while the assistant works, and reads files only with Files open", async () => {
-    hasDraft = false; working = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
-    expect(container.querySelector(".dock-area-center")?.textContent).toContain("The assistant is writing the draft…");
-    expect(requests.some(request => request.includes("/file"))).toBe(false);
-  });
-
-  it("keeps a chat dragged narrower than the default after a reload", async () => {
-    localStorage.setItem("ohmygame-agent-width", "240");
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
-    expect(container.querySelector<HTMLElement>(".dock")?.style.gridTemplateColumns).toContain("240px");
+  it("says the draft is being written while the agent works", async () => {
+    hasDraft = false; shell.busy = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    expect(container.querySelector(".workspace-panel")?.textContent).toContain("The assistant is writing the draft…");
+    expect(container.querySelector(".project-status")?.textContent).toBe("Working…");
   });
 
   it("shows one Settings heading once installed", async () => {
     hasSettings = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     expect([...container.querySelectorAll(".plugin-builder-overview h2")].filter(heading => heading.textContent === "Settings")).toHaveLength(1);
-  });
-
-  it("keeps its panels in place", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
-    expect(container.querySelector(".dock-tab-close")).toBeNull();
-    expect(container.querySelector('.dock-tab[draggable="true"]')).toBeNull();
-    expect(container.querySelector(".dock-resizer")).not.toBeNull();
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {
     iconChanged = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     expect(container.querySelector(".project-status")?.textContent).toBe("Checks passed · Changes not installed");
   });
 
@@ -274,7 +257,7 @@ describe("Plugin Builder layout", () => {
       { id: sessionId, title: "Review", status: "installed", pluginId: storeId, createdAt: 0, updatedAt: 2 },
       { id: "other", title: "Older", status: "ready", createdAt: 0, updatedAt: 1 },
     ];
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     const items = [...container.querySelectorAll<HTMLAnchorElement>(".plugin-builder-rail-item")];
     expect(items.map(item => item.getAttribute("aria-label"))).toEqual(["Review", "Older"]);
     expect(items[0]?.getAttribute("aria-current")).toBe("page");
@@ -283,7 +266,7 @@ describe("Plugin Builder layout", () => {
   });
 
   it("opens a workspace nothing was said in for a new plugin, and only then makes one", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("New plugin").click());
     expect(requests).toContain("POST /plugins/setup-sessions");
     expect(window.location.hash).toBe("#/plugins/builder/created");
@@ -303,7 +286,7 @@ describe("Plugin Builder icons", () => {
   }
   it("translates picker labels and validation notices into Chinese", async () => {
     await i18next.changeLanguage("zh-CN");
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("更改插件图标").click());
     expect(document.querySelector('[role="dialog"] h2')?.textContent).toBe("插件图标");
     await act(async () => {
@@ -313,7 +296,7 @@ describe("Plugin Builder icons", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe("请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片");
   });
   it("saves a path in the package and makes the changed draft updateable", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
     await act(async () => modalButton("Package image").click());
     await fill(input("Plugin icon path"), "./assets/logo.svg");
@@ -324,7 +307,7 @@ describe("Plugin Builder icons", () => {
     expect(requests.filter(request => request === `GET /plugins/setup-sessions/${sessionId}/draft`)).toHaveLength(1);
   });
   it("validates package paths and restores the default icon", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
     await act(async () => modalButton("Package image").click());
     await fill(input("Plugin icon path"), "https://example.com/logo.png");
@@ -338,7 +321,7 @@ describe("Plugin Builder icons", () => {
     const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:icon-preview");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     await act(async () => button("Change plugin icon").click());
     expect(modalButton("Choose file")).not.toBeNull();
     expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("No file selected");
@@ -352,7 +335,7 @@ describe("Plugin Builder icons", () => {
   });
 
   it("closes on Escape and returns focus to the edit button", async () => {
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} onNavigate={() => {}} />));
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     button("Change plugin icon").focus();
     await act(async () => button("Change plugin icon").click());
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
