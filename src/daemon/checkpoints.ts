@@ -17,6 +17,7 @@ import path from "node:path";
 import ignore, { type Ignore } from "ignore";
 import type { ProjectState, TurnChanges } from "../shared/contracts.js";
 import { countLineChanges } from "../shared/line-diff.js";
+import { PROJECT_BUILD_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
 import {
   BUFFERED_BYTES,
@@ -222,9 +223,10 @@ const READ_ATTEMPTS = 3;
 // no finer than a few milliseconds on Linux and two seconds on FAT. The next snapshot reads it again instead of
 // trusting the cache.
 const UNSETTLED_MS = 2_000;
-// Dependencies and version control are left out wherever they are. Build output and editor caches are left out at
-// the workspace root only: a game may keep its own `levels/build/`. The rest of `.data/` is kept, unlike in the
-// file tree and in published archives, because asset metadata must go back together with the assets it describes.
+// Dependencies and version control are left out wherever they are. Build output and OhMyGame's files for this
+// computer are left out at the workspace root only: a game may keep its own `levels/build/`. The rest of
+// `.ohmygame/` is kept, unlike in the file tree and in published archives, because asset metadata must go back
+// together with the assets it describes.
 // Generation history and Godot's generated cache are not project creative state.
 const EXCLUDED_ANYWHERE = new Set(["node_modules", ".git"]);
 const EXCLUDED_AT_ROOT = new Set([
@@ -232,16 +234,22 @@ const EXCLUDED_AT_ROOT = new Set([
   "build",
   "out",
   ".godot",
-  ".ohmygame",
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_BUILD_DIRECTORY,
   ".ohmygame-install-pending",
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept agent attachments in `.data/`, and Node
+  // thumbnails and story runtime updates straight in `.ohmygame/`.
   ".data/agent-attachments",
+  ".ohmygame/thumbnails",
+  ".ohmygame/story-runtime",
   "canvas/jobs.json",
 ]);
 // What a project's `.gitignore` files ignore is left out as well, wherever they are, except the files OhMyGame keeps
 // for the project at the workspace root, which must go back together with the assets they describe, and the
 // `.gitignore` files themselves, which say what each snapshot left out.
 const GITIGNORE = ".gitignore";
-const KEPT_DESPITE_GITIGNORE = [".data", "canvas"];
+// compat: since beta.5.5, remove `.data` from beta.7 and 2026-12-06. Projects kept their asset records there.
+const KEPT_DESPITE_GITIGNORE = [PROJECT_DATA_DIRECTORY, ".data", "canvas"];
 const MAX_GITIGNORE_BYTES = 1024 * 1024;
 const CASE_INSENSITIVE =
   process.platform === "darwin" || process.platform === "win32";

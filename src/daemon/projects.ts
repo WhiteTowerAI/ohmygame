@@ -22,6 +22,8 @@ import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
+import { ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
+import { migrateProjectLayout } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
 // Imports assemble a project here, next to the projects, and then move it into place.
@@ -80,7 +82,7 @@ export function workspaceEntryName(value: string): string {
 
 function assertEditableWorkspacePath(value: string): void {
   const parts = value.replaceAll("\\", "/").split("/");
-  if (parts.some((part) => [".git", ".data", ".ohmygame"].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
+  if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
   if (parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
 
@@ -193,6 +195,7 @@ export class ProjectManager {
           const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
           const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
           const workspaceAvailable = await isDirectory(workspacePath);
+          if (workspaceAvailable) await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
           const project = projectState(
             workspacePath,
             metadata,
@@ -238,6 +241,7 @@ export class ProjectManager {
     if (!hasExternalWorkspace) {
       await mkdir(workspacePath, { recursive: true });
     }
+    await migrateProjectLayout(workspacePath);
     await writeMetadata(projectDirectory, metadata);
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
@@ -397,7 +401,7 @@ export class ProjectManager {
         errorOnExist: true,
         filter: (sourcePath) => {
           const relative = path.relative(source.workspacePath, sourcePath).replaceAll(path.sep, "/");
-          return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
+          return path.basename(sourcePath) !== "node_modules" && relative !== PROJECT_LOCAL_DIRECTORY;
         },
       });
       await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
@@ -445,6 +449,7 @@ export class ProjectManager {
       }
       await writeMetadata(staging, metadata);
       await rename(workspacePath, path.join(staging, "workspace"));
+      await migrateProjectLayout(path.join(staging, "workspace"));
       await bindCanvasHistory(path.join(staging, "workspace"), id);
       await rename(staging, this.#projectDirectory(id));
     } catch (error) {
@@ -470,7 +475,7 @@ export class ProjectManager {
     let movedTo: string | undefined;
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external") {
-        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+        await rm(path.join(project.workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
       } else {
         const target = path.join(this.#removedDirectory, id, folderName(project.name));
         await mkdir(path.dirname(target), { recursive: true });
@@ -502,7 +507,7 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external" && !registrationOnly) {
-        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+        await rm(path.join(project.workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
@@ -613,11 +618,9 @@ export class ProjectManager {
     const normalizedPrompt = metadata.prompt?.trim();
     let previewPath: string | undefined;
     if (metadata.preview) {
-      const dataDirectory = path.join(project.workspacePath, ".data");
-      const previewDirectory = path.join(dataDirectory, "asset-previews");
-      await ensureDirectory(dataDirectory, true);
-      await ensureDirectory(previewDirectory, true);
-      previewPath = `.data/asset-previews/${path.parse(fileName).name}.${metadata.preview.extension}`;
+      await ensureDirectory(path.join(project.workspacePath, PROJECT_DATA_DIRECTORY), true);
+      await ensureDirectory(path.join(project.workspacePath, ...ASSET_PREVIEWS_DIRECTORY.split("/")), true);
+      previewPath = `${ASSET_PREVIEWS_DIRECTORY}/${path.parse(fileName).name}.${metadata.preview.extension}`;
       const previewDestination = path.join(project.workspacePath, ...previewPath.split("/"));
       const previewTemporary = `${previewDestination}.${randomUUID()}.tmp`;
       try {
@@ -833,8 +836,8 @@ export class ProjectManager {
       }
       await rm(removed, { recursive: true, force: true });
       if (previewPaths.length) {
-        await ensureDirectory(path.join(project.workspacePath, ".data"));
-        await ensureDirectory(path.join(project.workspacePath, ".data", "asset-previews"));
+        await ensureDirectory(path.join(project.workspacePath, PROJECT_DATA_DIRECTORY));
+        await ensureDirectory(path.join(project.workspacePath, ...ASSET_PREVIEWS_DIRECTORY.split("/")));
         for (const preview of previewPaths) await rm(path.join(project.workspacePath, ...preview.split("/")), { force: true });
       }
       await this.touch(id);

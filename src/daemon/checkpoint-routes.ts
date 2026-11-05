@@ -27,6 +27,7 @@ import {
   readWorkspaceNotice,
   writeWorkspaceNotice,
 } from "./workspace-notice.js";
+import { migrateProjectLayout } from "./project-layout.js";
 
 export function registerCheckpointRoutes(
   app: FastifyInstance,
@@ -261,6 +262,8 @@ export function registerCheckpointRoutes(
             (paths) => paths.forEach((file) => changed.add(file)),
             afterUnlock,
           );
+          // compat: since beta.5.5, remove from beta.7 and 2026-12-06. A checkpoint from before can bring back `.data/`.
+          if (changed.size > 0) await migrateProjectLayout(project.workspacePath);
           if (changed.size > 0 || kind === "recovery" || kind === "restore") {
             announced = true;
             await announce(project, [...changed], context, afterUnlock);

@@ -126,7 +126,7 @@ describe("Interactive Story project export", () => {
       path.join(workspace, "graph.json"),
       "utf8",
     );
-    for (const folder of [".data", ".ohmygame", ".git", "node_modules"]) {
+    for (const folder of [".data", ".ohmygame", ".ohmygame/local", ".git", "node_modules"]) {
       await mkdir(path.join(workspace, folder));
       await writeFile(path.join(workspace, folder, "local.txt"), "local");
     }
@@ -134,9 +134,10 @@ describe("Interactive Story project export", () => {
     const files = await unzip(await exportStoryArchive(workspace, library));
 
     expect(files[".data/local.txt"]?.toString()).toBe("local");
+    expect(files[".ohmygame/local.txt"]?.toString()).toBe("local");
     expect(
       Object.keys(files).filter((file) =>
-        /^(\.ohmygame|\.git|node_modules)\//.test(file),
+        /^(\.ohmygame\/local|\.git|node_modules)\//.test(file),
       ),
     ).toEqual([]);
     expect(files["AGENTS.md"]).toBeDefined();

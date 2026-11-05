@@ -251,4 +251,61 @@ describe("Web Game project codebase", () => {
     await expect(manager.setStartupDirectory(project.id, "../outside")).rejects.toThrow("Startup directory must be a relative path");
     await expect(manager.setStartupDirectory(project.id, "missing")).rejects.toThrow("Startup directory does not exist");
   });
+
+  it("moves OhMyGame's files from an older layout into .ohmygame/ on load, keeping what is there", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-layout-"));
+    try {
+      const manager = new ProjectManager(directory);
+      const project = await manager.create("Old layout", "general");
+      const workspace = project.workspacePath;
+      const files: Record<string, string> = {
+        ".data/assets.json": JSON.stringify({
+          version: 1,
+          prompts: { "art/hero.png": "Old prompt", "art/tree.png": "A tree" },
+          previews: { "art/hero.png": ".data/asset-previews/hero.jpg" },
+          libraryAssets: {},
+        }),
+        ".data/asset-previews/hero.jpg": "old preview",
+        ".data/agent-attachments/batch/files/a.txt": "attachment",
+        ".data/notes.txt": "someone's own file",
+        ".ohmygame/thumbnails/menu.webp": "thumbnail",
+        ".ohmygame/story-runtime/1/story/runtime.js": "runtime",
+        ".ohmygame/assets.json": JSON.stringify({ version: 1, prompts: { "art/hero.png": "New prompt", "art/rock.png": "A rock" }, previews: {}, libraryAssets: {} }),
+        ".ohmygame/asset-previews/hero.jpg": "new preview",
+      };
+      for (const [file, contents] of Object.entries(files)) {
+        await mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
+        await writeFile(path.join(workspace, file), contents);
+      }
+
+      await new ProjectManager(directory).load();
+
+      const read = (file: string) => readFile(path.join(workspace, file), "utf8");
+      // What is already in `.ohmygame/` is kept, and what would replace it stays behind.
+      expect((await readdir(path.join(workspace, ".data"))).sort()).toEqual(["asset-previews", "notes.txt"]);
+      expect(await read(".data/asset-previews/hero.jpg")).toBe("old preview");
+      expect(await read(".ohmygame/.gitignore")).toBe("local/\nbuild/\n");
+      expect(await read(".ohmygame/asset-previews/hero.jpg")).toBe("new preview");
+      expect(await read(".ohmygame/local/attachments/batch/files/a.txt")).toBe("attachment");
+      expect(await read(".ohmygame/local/thumbnails/menu.webp")).toBe("thumbnail");
+      expect(await read(".ohmygame/local/story-runtime/1/story/runtime.js")).toBe("runtime");
+      expect((await readdir(path.join(workspace, ".ohmygame"))).sort()).toEqual([".gitignore", "asset-previews", "assets.json", "local"]);
+      expect(JSON.parse(await read(".ohmygame/assets.json"))).toMatchObject({
+        prompts: { "art/hero.png": "New prompt", "art/tree.png": "A tree", "art/rock.png": "A rock" },
+        previews: { "art/hero.png": ".ohmygame/asset-previews/hero.jpg" },
+      });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("leaves asset records it cannot read in .data/", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-layout-"));
+    try {
+      const project = await new ProjectManager(directory).create("Newer records", "general");
+      await mkdir(path.join(project.workspacePath, ".data"));
+      await writeFile(path.join(project.workspacePath, ".data/assets.json"), JSON.stringify({ version: 2 }));
+      await new ProjectManager(directory).load();
+      expect(await readFile(path.join(project.workspacePath, ".data/assets.json"), "utf8")).toBe(JSON.stringify({ version: 2 }));
+      expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "local"]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
 });

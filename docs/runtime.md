@@ -507,6 +507,24 @@ projects/<project-id>/
 └── session/       Pi session files, one per conversation
 ```
 
+OhMyGame's own files in the workspace are in `.ohmygame/`:
+
+```text
+.ohmygame/
+├── .gitignore       leaves local/ and build/ out of the project's repository
+├── assets.json      prompts, previews, Library links and origins of assets
+├── asset-previews/  preview images of generated assets
+├── build/           what plugins build, such as a Godot web build
+└── local/           this computer's files: agent attachments, Node thumbnails,
+                     newer story runtime files
+```
+
+Everything but `local/` and `build/` goes with the project into snapshots,
+exports and its repository. A project from an older OhMyGame keeps asset
+records, previews and attachments in `.data/` and its caches straight in
+`.ohmygame/`; they move when the project loads, is imported, or a snapshot
+from before comes back. What is already in place is never replaced.
+
 Settings → General → **Project location** sets the folder new projects are
 made in when the dialog doesn't choose one: each gets a new subfolder named
 after it (`Name`, then `Name 2`, …), used as an existing folder is. Unset, new
@@ -812,7 +830,7 @@ message and when its run ends. Finished, failed and cancelled turns show their
 net file changes in Chat. The project does not need Git; snapshot storage stays
 beside the workspace without changing its `.git`, branches or index. Snapshots
 leave out what the workspace's `.gitignore` files ignore, apart from OhMyGame's
-own `.data/` and `canvas/`, and snapshots that nothing names are pruned at most
+own `.ohmygame/` and `canvas/`, and snapshots that nothing names are pruned at most
 once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and

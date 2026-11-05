@@ -60,8 +60,8 @@ describe("project archive export", () => {
       "src/main.js": "start()",
       "levels/build/keep.txt": "level build data",
       ".gitignore": "dist\n",
-      ".data/assets.json": "{}",
-      ".data/asset-previews/hero.png": "preview",
+      ".ohmygame/assets.json": "{}",
+      ".ohmygame/asset-previews/hero.png": "preview",
       "canvas/board.json": "{}",
       "canvas/jobs.json": "[]",
       "node_modules/pkg/index.js": "dependency",
@@ -71,8 +71,10 @@ describe("project archive export", () => {
       "build/out.txt": "build",
       "out/out.txt": "build",
       ".godot/cache": "cache",
-      ".ohmygame/state.json": "agent",
-      ".data/agent-attachments/a.txt": "attachment",
+      ".ohmygame/state.json": "project data",
+      ".ohmygame/local/attachments/a.txt": "attachment",
+      ".ohmygame/local/thumbnails/a.webp": "thumbnail",
+      ".ohmygame/build/web/index.html": "build",
       ".env": "SECRET=1",
       "config/.env.local": "SECRET=2",
     };
@@ -99,9 +101,10 @@ describe("project archive export", () => {
     expect(Object.keys(archive).sort()).toEqual([
       "cover.webp",
       "ohmygame-project.json",
-      "workspace/.data/asset-previews/hero.png",
-      "workspace/.data/assets.json",
       "workspace/.gitignore",
+      "workspace/.ohmygame/asset-previews/hero.png",
+      "workspace/.ohmygame/assets.json",
+      "workspace/.ohmygame/state.json",
       "workspace/canvas/board.json",
       "workspace/index.html",
       "workspace/levels/build/keep.txt",
@@ -552,7 +555,14 @@ describe("project archive import", () => {
           mode: 0o120777,
         },
         "workspace/.data/agent-attachments/a.txt": "attachment",
-        "workspace/.data/assets.json": "{}",
+        "workspace/.data/assets.json": JSON.stringify({
+          version: 1,
+          prompts: { "art/hero.png": "A hero" },
+          previews: { "art/hero.png": ".data/asset-previews/hero.jpg" },
+          libraryAssets: {},
+        }),
+        "workspace/.data/asset-previews/hero.jpg": "preview",
+        "workspace/.ohmygame/thumbnails/menu.webp": "thumbnail",
         "notes.txt": "outside the workspace",
       }),
     );
@@ -570,10 +580,16 @@ describe("project archive import", () => {
         ),
       ),
     ).toEqual([{ ...job, context: { ...job.context, projectId: project.id } }]);
+    // An archive from before keeps OhMyGame's files in `.data/`; they move into `.ohmygame/`.
     expect(await listFiles(project.workspacePath)).toEqual([
-      ".data/assets.json",
+      ".ohmygame/.gitignore",
+      ".ohmygame/asset-previews/hero.jpg",
+      ".ohmygame/assets.json",
       "canvas/jobs.json",
     ]);
+    expect(
+      JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/assets.json"), "utf8")),
+    ).toMatchObject({ previews: { "art/hero.png": ".ohmygame/asset-previews/hero.jpg" } });
     const restored = new ProjectManager(dataDirectory);
     await restored.load();
     expect(restored.get(project.id)).toMatchObject({

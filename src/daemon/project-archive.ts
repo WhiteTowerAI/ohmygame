@@ -38,28 +38,36 @@ import { sniffImageType } from "./image-format.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import type { ProjectManager } from "./projects.js";
+import { PROJECT_BUILD_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 
 const GRAPH_FILE = "graph.json";
 
 // Dependencies and version control are left out wherever they are, as are
 // environment files, which usually hold secrets. Build output, caches and
-// OhMyGame's agent data are left out at the workspace root only, like in
-// checkpoints. The rest of `.data/` is kept: asset metadata and previews must
-// travel with the assets they describe.
+// OhMyGame's files for this computer are left out at the workspace root only,
+// like in checkpoints. The rest of `.ohmygame/` is kept: asset metadata and
+// previews must travel with the assets they describe.
 const EXCLUDED_ANYWHERE = new Set(["node_modules", ".git"]);
 const EXCLUDED_AT_ROOT = new Set([
   "dist",
   "build",
   "out",
   ".godot",
-  ".ohmygame",
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_BUILD_DIRECTORY,
   ".ohmygame-install-pending",
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept agent attachments in `.data/`.
   ".data/agent-attachments",
   "canvas/jobs.json",
 ]);
 const SKIPPED_ON_IMPORT_AT_ROOT = new Set([
-  ".ohmygame",
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_BUILD_DIRECTORY,
   ".ohmygame-install-pending",
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Archives from before kept Node thumbnails and story
+  // runtime updates straight in `.ohmygame/`, and agent attachments in `.data/`.
+  ".ohmygame/thumbnails",
+  ".ohmygame/story-runtime",
   ".data/agent-attachments",
 ]);
 

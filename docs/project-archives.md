@@ -55,15 +55,18 @@ cover was chosen by hand (`custom`) or captured automatically (`auto`).
   `.git`.
 - Build output and caches at the workspace root: `dist`, `build`, `out` and
   `.godot`. A game's own `levels/build/` stays.
-- Agent data and the Canvas job queue at the workspace root: `.ohmygame`,
-  `.data/agent-attachments` and `canvas/jobs.json`.
+- OhMyGame's files for this computer, plugin builds and the Canvas job queue
+  at the workspace root: `.ohmygame/local`, `.ohmygame/build` and
+  `canvas/jobs.json`.
 - Environment files wherever they are: every name starting with `.env`.
 - Symbolic links.
 - Conversations, checkpoints and publish information, which live outside the
   workspace and hold absolute paths or belong to an account.
 
-The rest of `.data/`, such as `.data/assets.json` and `.data/asset-previews`,
-is kept so asset prompts and previews travel with the assets. `.gitignore`
+The rest of `.ohmygame/`, such as `.ohmygame/assets.json` and
+`.ohmygame/asset-previews`, is kept so asset prompts and previews travel with
+the assets. An archive from an older OhMyGame keeps them in `.data/`; they
+move into `.ohmygame/` on import. `.gitignore`
 files do not change what is exported.
 
 An Interactive Story's graph can point at Library assets outside the
