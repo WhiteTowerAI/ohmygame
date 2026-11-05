@@ -2289,6 +2289,7 @@ export function createApp(options: AppOptions = {}) {
             throw new ExampleError(cause instanceof Error ? cause.message : String(cause), 400);
           }
         }
+        await projects.storeSettings(project.id);
         return reply.code(201).send(project);
       }
       const type = request.body?.type ?? "web-game";
@@ -2303,6 +2304,7 @@ export function createApp(options: AppOptions = {}) {
           await projects.delete(project.id);
           throw cause;
         }
+        await projects.storeSettings(project.id);
       }
       return reply.code(201).send(project);
     } catch (cause) {
@@ -4333,6 +4335,12 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
+    try {
+      // An archive of settings that can't be read would carry stand-ins for them.
+      await projects.readySettings(project.id);
+    } catch (cause) {
+      return reply.code(409).send({ error: (cause as Error).message });
+    }
     try {
       const archive = await exportProjectArchive(project, { library });
       return reply

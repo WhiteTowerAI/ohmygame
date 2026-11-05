@@ -126,9 +126,9 @@ describe("Web Game project codebase", () => {
     expect(await manager.refreshPreviewReadiness(project.id)).toMatchObject({ webPreviewEnabled: true, preview: { status: "waiting" } });
     // Projects created before the switch existed must also remain opt-in.
     const metadataPath = path.join(directory, "projects", project.id, "project.json");
-    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-    delete metadata.webPreviewEnabled;
-    await writeFile(metadataPath, JSON.stringify(metadata));
+    const { settings, ...record } = JSON.parse(await readFile(metadataPath, "utf8"));
+    delete settings.webPreviewEnabled;
+    await writeFile(metadataPath, JSON.stringify({ ...settings, ...record, version: 1 }));
     const restored = new ProjectManager(directory);
     await restored.load();
     expect(restored.get(project.id)).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
@@ -229,7 +229,9 @@ describe("Web Game project codebase", () => {
       previewViewport,
     });
     expect(updated.preview).toEqual({ status: type === "general" ? "stopped" : "waiting" });
-    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", project.id, "project.json"), "utf8"))).toMatchObject({
+    // The settings are the folder's; project.json keeps only this computer's record.
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", project.id, "project.json"), "utf8"))).not.toHaveProperty("settings");
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/settings.json"), "utf8"))).toMatchObject({
       startupDirectory: "apps/game",
       startupScript: "start",
       packageManager: "pnpm",

@@ -495,7 +495,7 @@ Each project lives under the daemon data directory:
 
 ```text
 projects/<project-id>/
-├── project.json   project identity and latest publication
+├── project.json   this computer's record: id, folder, latest publication, when it changed
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -514,7 +514,7 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── cover-state.json  explicit cover mode, including when no cover exists
 ├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
 ├── settings.json     the name, type, run and preview settings, appearance and
-│                     media model defaults, kept in step with project.json
+│                     media model defaults: the project's record of them
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
                       (cover-auto.webp), agent attachments, Node thumbnails,
@@ -523,10 +523,17 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 
 Everything but `local/` and `build/` goes with the project into snapshots,
 exports and its repository, except that snapshots leave out the settings,
-cover and logo, so undoing a turn keeps them. `project.json` stays the record;
-`settings.json` is written whenever it changes and at start. A folder opened
-as a project again, as the same type, gets back its name and settings from
-it; a name typed when opening it wins. A project from an older OhMyGame keeps asset
+cover and logo, so undoing a turn keeps them. `settings.json` is where the
+project's name and settings are: a start reads them from it, so an edit there,
+such as from Git, is what the next start shows. `project.json` holds them
+(`settings`) only while the folder can't take them: a new folder that is
+still empty, until its type or example fills it or something changes, or one
+that isn't there. A folder that isn't there shows by its folder name, and a
+`settings.json` that can't be read is never written over; until either is
+back, the project's settings can't change. A folder opened as a project
+again, as the same type, gets back its name and settings from it; a name
+typed when opening it wins. A `project.json` from before (`version: 1`) held
+them itself; they move to the folder when it loads. A project from an older OhMyGame keeps asset
 records, previews and attachments in `.data/`, its caches straight in
 `.ohmygame/`, and its covers and logo beside `project.json`; they move when
 the project loads, is imported, or a snapshot from before comes back. What is
@@ -862,7 +869,7 @@ in the `--project-cover-*` variables in `src/renderer/styles.css`.
 
 **Appearance…** in the project menu, also at the top of project settings,
 changes how a project looks. Changes apply at once and are kept in
-`appearance` in `project.json`:
+`appearance` in `.ohmygame/settings.json`:
 
 - `icon` and `tone` replace the icon and background the ID picks. The icons are
   the 24 in `PROJECT_ICONS` (`src/shared/project-appearance.ts`), whose order
