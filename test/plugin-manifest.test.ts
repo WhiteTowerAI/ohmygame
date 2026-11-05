@@ -129,6 +129,9 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, id: "example" })).toContainEqual(
       expect.stringMatching(/^\/id /),
     );
+    // Files left in projects are named inside the project.
+    expect(messages({ ...minimal, projectFiles: ["./.maker/", "./maker.json"] })).toEqual([]);
+    expect(messages({ ...minimal, projectFiles: ["../outside"] })).toContainEqual(expect.stringMatching(/^\/projectFiles\/0 /));
   });
 
   it("checks rules the schema can't express", () => {

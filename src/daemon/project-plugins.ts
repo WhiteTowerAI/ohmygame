@@ -197,8 +197,12 @@ interface GrantsFile {
 export class PluginGrants {
   #data: GrantsFile = { schema: 1, plugins: {}, projects: {} };
   #queue: Promise<unknown> = Promise.resolve();
+  readonly #safeMode: boolean;
 
-  constructor(private readonly file: string) {}
+  /** In safe mode every plugin reads as off; what is saved doesn't change. */
+  constructor(private readonly file: string, options: { safeMode?: boolean } = {}) {
+    this.#safeMode = options.safeMode ?? false;
+  }
 
   /**
    * Reads the decisions. A missing file, or one that isn't JSON any more,
@@ -232,7 +236,8 @@ export class PluginGrants {
   }
 
   plugin(id: string): PluginGrant | undefined {
-    return this.#data.plugins[id];
+    const grant = this.#data.plugins[id];
+    return this.#safeMode ? { ...grant, allowed: grant?.allowed ?? [], enabled: false } : grant;
   }
 
   project(folderKey: string, id: string) {

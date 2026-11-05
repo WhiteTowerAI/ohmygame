@@ -461,9 +461,19 @@ describe("plugins in the project shell", () => {
     // The page's bridge says once it has applied the theme it was sent.
     let page: MessagePort | undefined;
     const ready = vi.fn();
-    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready);
+    // It also answers pings, and passes on errors the page didn't catch, cut to length.
+    const onPong = vi.fn();
+    const onError = vi.fn();
+    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready, { onPong, onError });
     page!.postMessage({ event: "ready" });
     await vi.waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
+    page!.postMessage({ event: "pong" });
+    page!.postMessage({ event: "error", message: `TypeError: ${"x".repeat(5000)}` });
+    page!.postMessage({ event: "error", message: { not: "text" } });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+    expect(onPong).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]![0]).toHaveLength(4000);
+    expect(onError.mock.calls[1]![0]).toBe("Error");
     connection.close();
     page!.close();
 

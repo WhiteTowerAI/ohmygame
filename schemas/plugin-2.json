@@ -215,6 +215,18 @@
       },
       "additionalProperties": false
     },
+    "projectFiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+$",
+        "minLength": 3,
+        "maxLength": 500
+      },
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true
+    },
     "ui": {
       "type": "object",
       "properties": {

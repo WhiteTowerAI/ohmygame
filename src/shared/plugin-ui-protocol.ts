@@ -99,7 +99,9 @@ export type PluginUiEvent =
   /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
   | { event: "progress"; command: string; message: string }
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
-  | { event: "command"; command: string; result?: unknown; error?: string };
+  | { event: "command"; command: string; result?: unknown; error?: string }
+  /** Asks whether the page still answers; the bridge replies `pong` by itself. */
+  | { event: "ping" };
 
 export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
 export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];

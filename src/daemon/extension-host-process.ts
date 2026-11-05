@@ -1,5 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { format } from "node:util";
 import {
   EXTENSION_HOST_PROTOCOL_VERSION,
   PROJECT_TYPE_HOOKS,
@@ -56,6 +58,28 @@ const cut = (text: string) =>
   text.length > HOST_MESSAGE_MAX_CHARS
     ? `${text.slice(0, HOST_MESSAGE_MAX_CHARS - 1)}…`
     : text;
+
+// What a plugin prints through `console` while its code runs (activating, a
+// call, or what those started) goes to the daemon under its id, for its log.
+// Anything else, such as a child process's output, stays the host's.
+const runningPlugin = new AsyncLocalStorage<string>();
+for (const [method, level] of [["log", "info"], ["info", "info"], ["debug", "info"], ["warn", "warn"], ["error", "error"]] as const) {
+  const original = console[method].bind(console);
+  console[method] = (...args: unknown[]) => {
+    const plugin = runningPlugin.getStore();
+    if (!plugin || !process.connected) {
+      original(...args);
+      return;
+    }
+    let text: string;
+    try {
+      text = format(...args);
+    } catch {
+      text = "(a value that couldn't be printed)";
+    }
+    send({ type: "log", plugin, level, text: cut(text) });
+  };
+}
 
 const errorMessage = (error: unknown) => {
   try {
@@ -244,14 +268,14 @@ process.on("message", (message: HostRequest) => {
         });
         return;
       }
-      track(activate(message.id, message.plugin)).catch((error) =>
+      track(runningPlugin.run(message.plugin.id, () => activate(message.id, message.plugin))).catch((error) =>
         send({ type: "error", id: message.id, message: errorMessage(error) }),
       );
       return;
     case "invoke": {
       const controller = new AbortController();
       calls.set(message.id, controller);
-      invoke(message, controller)
+      runningPlugin.run(message.plugin, () => invoke(message, controller))
         .catch((error) =>
           send({
             type: "error",
@@ -267,7 +291,7 @@ process.on("message", (message: HostRequest) => {
       calls.get(message.id)?.abort(new Error("Plugin call cancelled"));
       return;
     case "deactivate":
-      track(deactivate(message.plugin)).then(
+      track(runningPlugin.run(message.plugin, () => deactivate(message.plugin))).then(
         () => send({ type: "result", id: message.id, value: null }),
         (error) =>
           send({ type: "error", id: message.id, message: errorMessage(error) }),

@@ -179,6 +179,34 @@ describe("project file", () => {
 });
 
 describe("project plugins", () => {
+  it("runs nothing in safe mode, keeping what was allowed for a normal start", async () => {
+    const { data, index, grants, folder } = await setup();
+    await clonedProject(folder);
+    await grants.consent("ohmygame/godot", ["native", "process:godot", "project.files:write"]);
+    await grants.approve(await projectFolderKey(folder), "ohmygame/godot", ["native", "process:godot", "project.files:write"]);
+    expect(statuses(await resolveProjectPlugins({ folder, index, grants }))).toMatchObject({ "ohmygame/godot": "active" });
+    const safe = new PluginGrants(path.join(data, "plugin-grants.json"), { safeMode: true });
+    await safe.load();
+    expect(statuses(await resolveProjectPlugins({ folder, index, grants: safe }))).toEqual({
+      "ohmygame/godot": "disabled",
+      "ohmygame/game-studio": "disabled",
+    });
+    expect(safe.plugin("ohmygame/godot")).toMatchObject({ enabled: false, allowed: ["native", "process:godot", "project.files:write"] });
+    // A change made meanwhile is still saved as it is.
+    await safe.consent("ohmygame/game-studio", []);
+    await grants.load();
+    expect(grants.plugin("ohmygame/godot")?.enabled).toBe(true);
+    expect(grants.plugin("ohmygame/game-studio")?.enabled).toBe(true);
+    const services = new PluginServices({ directory: await temporary(), safeMode: true });
+    try {
+      await expect(services.setEnabled("ohmygame/godot", true)).rejects.toThrow("Plugins stay off in safe mode");
+      // Nor does a Plugin Builder draft's MCP test start its server.
+      await expect(services.draftMcpServer(await temporary(), "server", { withSaved: false })).rejects.toThrow("Plugins stay off in safe mode");
+    } finally {
+      await services.close();
+    }
+  });
+
   it("asks before running what a cloned project requests", async () => {
     const { index, grants, folder } = await setup();
     await clonedProject(folder);
@@ -492,6 +520,7 @@ describe("project plugins", () => {
             token: { type: "secret", title: "Token" },
           },
           capabilities: { processes: ["maker"], secrets: true },
+          projectFiles: ["./.maker/"],
           contributes: {
             mcpServers: [
               { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"], timeoutSeconds: 600 },
@@ -546,8 +575,18 @@ describe("project plugins", () => {
       await services.uninstall("../../projects");
       expect(() => services.dataFolder("../../projects")).toThrow("Not a plugin id");
       expect((await stat(outside)).isDirectory()).toBe(true);
+      // Before uninstalling, it says what goes: the last version takes its settings and data.
+      await writeFile(path.join(services.dataFolder("acme/maker"), "session.json"), "{}");
+      expect(await services.uninstallPreview("acme/maker", "1.0.0")).toEqual({ last: true, settings: 2, dataBytes: 2, projectFiles: ["./.maker/"] });
+      // Kept, they wait for a later install; what was allowed goes either way.
+      await services.uninstall("acme/maker", "1.0.0", { keepData: true });
+      expect(services.grants.plugin("acme/maker")).toBeUndefined();
+      expect(services.values.count("acme/maker")).toBe(2);
+      expect((await stat(path.join(services.dataFolder("acme/maker"), "session.json"))).isFile()).toBe(true);
+      expect((await services.index.add(root)).ok).toBe(true);
       // Uninstalling the last version deletes the data folder.
       await services.uninstall("acme/maker");
+      expect(services.values.count("acme/maker")).toBe(0);
       await expect(stat(services.dataFolder("acme/maker"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await services.close();

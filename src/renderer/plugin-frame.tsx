@@ -16,6 +16,8 @@ import {
   type PluginUiToastTone,
   type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
+import { t } from "./i18n.js";
+import { Button, Dialog } from "./ui/index.js";
 import "./plugin-frame.css";
 
 export { accentTokens, PAGE_TOKENS, PLUGIN_ACCENT_MIN_CONTRAST };
@@ -63,6 +65,10 @@ export interface PluginPageContext {
   toast(message: string, tone?: PluginUiToastTone): void;
   /** Asks the person in a dialog the app draws; a page only learns the answer. */
   confirm(request: PluginUiConfirm): Promise<boolean>;
+  /** Hears an error the page didn't catch, for its plugin's log. */
+  reportError?(message: string): void;
+  /** Turns the plugin off everywhere, as from a panel that stopped responding. */
+  turnOff?(): void;
 }
 
 /** The app's current design tokens and appearance, as a page sees them. */
@@ -200,12 +206,24 @@ export function connectPluginFrame(
   context: PluginPageContext,
   /** Called when the page's bridge has applied the app's theme. */
   onReady?: () => void,
+  /** The bridge answering a `ping`, and an error the page didn't catch. */
+  hooks: { onPong?: () => void; onError?: (message: string) => void } = {},
 ): { send(event: PluginUiEvent): void; close(): void } {
   const channel = new MessageChannel();
   const port = channel.port1;
   port.onmessage = ({ data }) => {
-    if ((data as { event?: unknown } | null)?.event === "ready") {
+    const event = (data as { event?: unknown; message?: unknown } | null)?.event;
+    if (event === "ready") {
       onReady?.();
+      return;
+    }
+    if (event === "pong") {
+      hooks.onPong?.();
+      return;
+    }
+    if (event === "error") {
+      const message = (data as { message?: unknown }).message;
+      hooks.onError?.(typeof message === "string" ? message.slice(0, 4000) : "Error");
       return;
     }
     const read = readPluginUiRequest(data);
@@ -240,6 +258,13 @@ export function connectPluginFrame(
     close: () => port.close(),
   };
 }
+
+/** How often a showing page's bridge is asked whether it still answers. */
+export const PLUGIN_FRAME_PING_MS = 5_000;
+/** A showing page that hasn't answered for this long is said to have stopped responding. */
+export const PLUGIN_FRAME_HANG_MS = 15_000;
+/** A page's uncaught errors reach its log at most this often, so one in a loop can't flood it. */
+export const PLUGIN_FRAME_ERROR_INTERVAL_MS = 2_000;
 
 /** How long after its page loads a frame shows, when the page's bridge hasn't said it is ready. */
 export const PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS = 500;
@@ -276,6 +301,11 @@ export function PluginFrame({
   latest.current = context;
   const shown = useRef(visible);
   shown.current = visible;
+  // A page with the bridge answers pings; one that stops is offered a reload.
+  const bridged = useRef(false);
+  const lastPong = useRef(0);
+  const lastError = useRef(0);
+  const [hung, setHung] = useState(false);
   // The context changes every render; requests read the latest one.
   const stable: PluginPageContext = {
     get plugin() { return latest.current.plugin; },
@@ -327,6 +357,24 @@ export function PluginFrame({
     const reveal = () => {
       element.dataset.ready = "";
     };
+    bridged.current = false;
+    const hooks = {
+      onPong: () => {
+        lastPong.current = Date.now();
+        setHung(false);
+      },
+      onError: (message: string) => {
+        const now = Date.now();
+        if (now - lastError.current < PLUGIN_FRAME_ERROR_INTERVAL_MS) return;
+        lastError.current = now;
+        latest.current.reportError?.(message);
+      },
+    };
+    const ready = () => {
+      bridged.current = true;
+      lastPong.current = Date.now();
+      reveal();
+    };
     const timers = [setTimeout(reveal, PLUGIN_FRAME_REVEAL_LATEST_MS)];
     const onLoad = () => {
       if (loaded) {
@@ -337,7 +385,7 @@ export function PluginFrame({
       }
       loaded = true;
       timers.push(setTimeout(reveal, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS));
-      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, reveal);
+      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
@@ -355,6 +403,26 @@ export function PluginFrame({
   useEffect(() => {
     connection.current?.send({ event: "visibility", visible });
   }, [visible]);
+
+  // Only while it shows: a hidden page may be throttled, and nobody waits on it.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!bridged.current || !shown.current || document.hidden) {
+        lastPong.current = Date.now();
+        return;
+      }
+      if (Date.now() - lastPong.current > PLUGIN_FRAME_HANG_MS) setHung(true);
+      connection.current?.send({ event: "ping" });
+    }, PLUGIN_FRAME_PING_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const reload = () => {
+    setHung(false);
+    connection.current?.close();
+    connection.current = undefined;
+    setMount((value) => value + 1);
+  };
 
   useEffect(() => {
     const prefix = `${latest.current.plugin.id}:`;
@@ -384,15 +452,27 @@ export function PluginFrame({
   }), [onToolbarRun]);
 
   return (
-    <iframe
-      key={`${url}#${mount}`}
-      ref={frame}
-      className="plugin-frame"
-      src={url}
-      title={title}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      allow=""
-    />
+    <>
+      <iframe
+        key={`${url}#${mount}`}
+        ref={frame}
+        className="plugin-frame"
+        src={url}
+        title={title}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        allow=""
+      />
+      {hung && visible ? <Dialog open size="sm" title={t("pluginFrame.notRespondingTitle", { name: title })} onClose={() => {
+        lastPong.current = Date.now();
+        setHung(false);
+      }} footer={<>
+        {context.turnOff ? <Button variant="ghost" onClick={() => { setHung(false); context.turnOff?.(); }}>{t("pluginFrame.turnOff")}</Button> : null}
+        <Button onClick={() => { lastPong.current = Date.now(); setHung(false); }}>{t("pluginFrame.wait")}</Button>
+        <Button variant="primary" onClick={reload}>{t("pluginFrame.reload")}</Button>
+      </>}>
+        <p>{t("pluginFrame.notRespondingHint")}</p>
+      </Dialog> : null}
+    </>
   );
 }
