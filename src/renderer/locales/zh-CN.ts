@@ -3457,6 +3457,8 @@ const zhCN: typeof en = {
     assetUnavailable: "素材不可用",
     audio: "音频",
     loadingAsset: "正在加载素材…",
+    largeModel: "大型 3D 模型，{{size}}",
+    loadModel: "加载 3D 预览",
     library: "素材库",
     project: "项目",
     animationProvider: "动画服务商",

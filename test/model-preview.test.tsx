@@ -41,11 +41,22 @@ class ModelViewer extends HTMLElement {
 }
 customElements.define("model-viewer", ModelViewer);
 
+/** happy-dom lays nothing out and its observer never reports; here everything is on screen. */
+class OnScreen {
+  readonly #callback: IntersectionObserverCallback;
+  constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+  observe(target: Element) {
+    queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+  }
+  disconnect() {}
+}
+
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 let visibility: DocumentVisibilityState;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("IntersectionObserver", OnScreen);
   visibility = "visible";
   vi.spyOn(document, "visibilityState", "get").mockImplementation(
     () => visibility,
@@ -72,9 +83,37 @@ async function render(source = "model.glb", controls = true) {
   await act(async () => viewer().load());
 }
 
-it("loads lazily and stays still until the person plays the preview", async () => {
+it("waits for the screen before it loads a model", async () => {
+  const observed: Element[] = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    observe(target: Element) { observed.push(target); }
+    disconnect() {}
+  });
+  await act(async () => root.render(<ModelPreview source="model.glb" label="Character" />));
+  expect(observed).toHaveLength(1);
+  expect(container.querySelector("model-viewer")).toBeNull();
+  expect(container.textContent).toContain("Loading 3D model");
+});
+
+it("loads two models at a time, and the next as one finishes", async () => {
+  await act(async () => root.render(<>
+    {["a.glb", "b.glb", "c.glb"].map((source) => <ModelPreview key={source} source={source} label={source} />)}
+  </>));
+  const viewers = () => [...container.querySelectorAll<ModelViewer>("model-viewer")];
+  expect(viewers().map((item) => item.getAttribute("src"))).toEqual(["a.glb", "b.glb"]);
+  await act(async () => viewers()[0]!.load());
+  expect(viewers().map((item) => item.getAttribute("src"))).toEqual(["a.glb", "b.glb", "c.glb"]);
+  // A model that goes away gives up its turn too.
+  await act(async () => root.render(<ModelPreview source="d.glb" label="d" />));
+  await act(async () => root.render(<>
+    {["e.glb", "f.glb"].map((source) => <ModelPreview key={source} source={source} label={source} />)}
+  </>));
+  expect(viewers().map((item) => item.getAttribute("src"))).toEqual(["e.glb", "f.glb"]);
+});
+
+it("loads once on screen and stays still until the person plays the preview", async () => {
   await render();
-  expect(viewer().getAttribute("loading")).toBe("lazy");
+  expect(viewer().getAttribute("loading")).toBe("eager");
   expect(viewer().getAttribute("interaction-prompt")).toBe("none");
   expect(viewer().paused).toBe(true);
   expect(viewer().autoRotate).toBe(false);

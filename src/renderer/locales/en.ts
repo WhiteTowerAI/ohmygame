@@ -3526,6 +3526,8 @@ const en = {
     assetUnavailable: "Asset unavailable",
     audio: "Audio",
     loadingAsset: "Loading asset...",
+    largeModel: "Large 3D model, {{size}}",
+    loadModel: "Load 3D preview",
     library: "Library",
     project: "Project",
     animationProvider: "Animation provider",
