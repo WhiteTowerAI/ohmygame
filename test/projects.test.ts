@@ -84,7 +84,7 @@ describe("Web Game project codebase", () => {
     expect(restored.get(project.id)).toMatchObject({ type: "general", preview: { status: "waiting" } });
     const copy = await restored.duplicate(project.id);
     expect(copy.type).toBe("general");
-    expect(await readdir(copy.workspacePath)).toEqual(["project.godot"]);
+    expect((await readdir(copy.workspacePath)).sort()).toEqual([".ohmygame", "project.godot"]);
   });
   it("binds copied Canvas generation history to the duplicate", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-duplicate-history-")));
@@ -289,7 +289,7 @@ describe("Web Game project codebase", () => {
       expect(await read(".ohmygame/local/attachments/batch/files/a.txt")).toBe("attachment");
       expect(await read(".ohmygame/local/thumbnails/menu.webp")).toBe("thumbnail");
       expect(await read(".ohmygame/local/story-runtime/1/story/runtime.js")).toBe("runtime");
-      expect((await readdir(path.join(workspace, ".ohmygame"))).sort()).toEqual([".gitignore", "asset-previews", "assets.json", "local"]);
+      expect((await readdir(path.join(workspace, ".ohmygame"))).sort()).toEqual([".gitignore", "asset-previews", "assets.json", "local", "settings.json"]);
       expect(JSON.parse(await read(".ohmygame/assets.json"))).toMatchObject({
         prompts: { "art/hero.png": "New prompt", "art/tree.png": "A tree", "art/rock.png": "A rock" },
         previews: { "art/hero.png": ".ohmygame/asset-previews/hero.jpg" },
@@ -305,7 +305,32 @@ describe("Web Game project codebase", () => {
       await writeFile(path.join(project.workspacePath, ".data/assets.json"), JSON.stringify({ version: 2 }));
       await new ProjectManager(directory).load();
       expect(await readFile(path.join(project.workspacePath, ".data/assets.json"), "utf8")).toBe(JSON.stringify({ version: 2 }));
-      expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "local"]);
+      expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "local", "settings.json"]);
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("brings back a folder's name and settings when it is opened again as the same type", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-settings-"));
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-project-folder-"));
+    try {
+      const manager = new ProjectManager(directory);
+      const project = await manager.create(undefined, "general", folder);
+      await manager.rename(project.id, "Moon Garden");
+      await manager.setAppearance(project.id, { icon: "leaf" });
+      await manager.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
+      expect(JSON.parse(await readFile(path.join(folder, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({
+        version: 1, name: "Moon Garden", type: "general", webPreviewEnabled: false, appearance: { icon: "leaf" },
+      });
+      await manager.remove(project.id);
+
+      const reopened = await manager.create(undefined, "general", folder);
+      expect(reopened).toMatchObject({ name: "Moon Garden", nameSource: "manual", webPreviewEnabled: false, appearance: { icon: "leaf" } });
+      await manager.remove(reopened.id);
+      expect(await manager.create("Typed name", "general", folder)).toMatchObject({ name: "Typed name", appearance: { icon: "leaf" } });
+      expect((await manager.create(undefined, "interactive-story", await mkdtemp(path.join(tmpdir(), "ohmygame-other-")))).name).not.toBe("Moon Garden");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 });

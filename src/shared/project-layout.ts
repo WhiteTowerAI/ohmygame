@@ -14,11 +14,15 @@ export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
+/** The project's name and settings, which OhMyGame writes and reads when the folder is opened again. */
+export const PROJECT_SETTINGS_FILE = ".ohmygame/settings.json";
+
 /**
- * The project's cover and logo. They travel with the project, but snapshots
- * leave them out: going back to an earlier turn keeps the cover as it is.
+ * The project's settings, cover and logo. They travel with the project, but
+ * snapshots leave them out: going back to an earlier turn keeps them as they are.
  */
 export const PROJECT_IDENTITY_FILES = [
+  PROJECT_SETTINGS_FILE,
   ".ohmygame/cover.webp",
   ".ohmygame/cover-frozen.webp",
   ".ohmygame/cover-state.json",

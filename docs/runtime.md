@@ -513,6 +513,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json  explicit cover mode, including when no cover exists
 ├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
+├── settings.json     the name, type, run and preview settings, appearance and
+│                     media model defaults, kept in step with project.json
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
                       (cover-auto.webp), agent attachments, Node thumbnails,
@@ -520,8 +522,11 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ```
 
 Everything but `local/` and `build/` goes with the project into snapshots,
-exports and its repository, except that snapshots leave out the cover and
-logo, so undoing a turn keeps them. A project from an older OhMyGame keeps asset
+exports and its repository, except that snapshots leave out the settings,
+cover and logo, so undoing a turn keeps them. `project.json` stays the record;
+`settings.json` is written whenever it changes and at start. A folder opened
+as a project again, as the same type, gets back its name and settings from
+it; a name typed when opening it wins. A project from an older OhMyGame keeps asset
 records, previews and attachments in `.data/`, its caches straight in
 `.ohmygame/`, and its covers and logo beside `project.json`; they move when
 the project loads, is imported, or a snapshot from before comes back. What is

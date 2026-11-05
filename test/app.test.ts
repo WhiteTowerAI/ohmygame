@@ -467,7 +467,8 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html"]);
+    expect(JSON.parse(await readFile(path.join(duplicated.json().workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ version: 1, name: "Renamed copy" });
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });

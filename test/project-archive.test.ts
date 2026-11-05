@@ -585,6 +585,7 @@ describe("project archive import", () => {
       ".ohmygame/.gitignore",
       ".ohmygame/asset-previews/hero.jpg",
       ".ohmygame/assets.json",
+      ".ohmygame/settings.json",
       "canvas/jobs.json",
     ]);
     expect(

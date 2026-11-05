@@ -140,7 +140,7 @@ describe("project cover selection", () => {
     const manager = new ProjectManager(directory);
     await manager.load();
     expect(await readdir(project.storagePath!)).not.toContain("cover.webp");
-    expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "cover.webp", "local"]);
+    expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "cover.webp", "local", "settings.json"]);
     expect(await readdir(path.join(project.workspacePath, ".ohmygame", "local"))).toEqual(["cover-auto.webp"]);
     expect(await manager.coverState(project.id)).toEqual({ mode: "custom" });
     await manager.setCover(project.id, Buffer.from("capture"), "auto");

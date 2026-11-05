@@ -22,7 +22,7 @@ import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE } from "../shared/project-layout.js";
 import { migrateProjectLayout } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -198,6 +198,7 @@ export class ProjectManager {
           if (workspaceAvailable) {
             await this.#covers.migrate(projectDirectory, path.join(workspacePath, PROJECT_DATA_DIRECTORY)).catch((cause: unknown) => onError?.(projectDirectory, cause));
             await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
+            await writeFolderSettings(workspacePath, metadata);
           }
           const project = projectState(
             workspacePath,
@@ -229,15 +230,20 @@ export class ProjectManager {
     const workspacePath = selectedWorkspacePath !== undefined
       ? await this.#validateExternalWorkspace(selectedWorkspacePath)
       : path.join(projectDirectory, "workspace");
+    const updatedAt = new Date().toISOString();
+    // A folder that was a project before brings back its name and settings, when it is opened as the same type.
+    const carried = hasExternalWorkspace ? await readFolderSettings(workspacePath) : undefined;
+    const kept = carried?.type === type && carried.pluginType?.id === pluginType?.id ? carried : undefined;
     const metadata: ProjectMetadata = {
+      ...(kept ? parseMetadata({ ...kept, version: 1, id, updatedAt }, id, updatedAt).metadata : {}),
       version: 1,
       id,
-      name: name?.trim() || defaultProjectName(type),
-      nameSource: name?.trim() ? "manual" : "default",
+      name: name?.trim() || kept?.name || defaultProjectName(type),
+      nameSource: name?.trim() || kept ? "manual" : "default",
       type,
       ...(pluginType ? { pluginType } : {}),
-      ...(type === "general" ? { webPreviewEnabled: pluginType ? pluginType.preview === "web" : true } : {}),
-      updatedAt: new Date().toISOString(),
+      ...(type === "general" ? { webPreviewEnabled: kept?.webPreviewEnabled ?? (pluginType ? pluginType.preview === "web" : true) } : {}),
+      updatedAt,
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
     await mkdir(projectDirectory, { recursive: true });
@@ -409,6 +415,7 @@ export class ProjectManager {
       });
       await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
       await writeMetadata(duplicateDirectory, metadata);
+      await writeFolderSettings(path.join(duplicateDirectory, "workspace"), metadata);
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
       throw error;
@@ -452,6 +459,7 @@ export class ProjectManager {
       await writeMetadata(staging, metadata);
       await rename(workspacePath, path.join(staging, "workspace"));
       await migrateProjectLayout(path.join(staging, "workspace"));
+      await writeFolderSettings(path.join(staging, "workspace"), metadata);
       await bindCanvasHistory(path.join(staging, "workspace"), id);
       await rename(staging, this.#projectDirectory(id));
     } catch (error) {
@@ -974,6 +982,7 @@ export class ProjectManager {
       if (changes.nameSource === "ai" && project.nameSource !== "default") return false;
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
+      await writeFolderSettings(project.workspacePath, metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
       if (metadata.pluginType) project.pluginType = metadata.pluginType;
@@ -1334,6 +1343,50 @@ async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });
+  }
+}
+
+/** The name and settings a project folder carries in `.ohmygame/settings.json`. */
+function folderSettings(metadata: ProjectMetadata): ProjectArchiveSettings {
+  return Object.fromEntries(
+    PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => metadata[key] !== undefined).map((key) => [key, metadata[key]]),
+  ) as ProjectArchiveSettings;
+}
+
+/**
+ * Keeps `.ohmygame/settings.json` in step with `project.json`, so the folder
+ * keeps its name and settings wherever it goes. `project.json` stays the
+ * record: a folder that cannot be written, such as one that is not there now,
+ * is left as it is and written at the next change or start.
+ */
+async function writeFolderSettings(workspacePath: string, metadata: ProjectMetadata): Promise<void> {
+  const destination = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
+  const text = `${JSON.stringify({ version: 1, ...folderSettings(metadata) }, null, 2)}\n`;
+  try {
+    if ((await readFile(destination, "utf8").catch(() => undefined)) === text) return;
+    await ensureDirectory(path.dirname(destination), true);
+    const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, text, { encoding: "utf8", flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  } catch {
+    // Written again at the next change or start.
+  }
+}
+
+/** The name and settings a folder carries, checked like saved ones; undefined when it has none it can use. */
+async function readFolderSettings(workspacePath: string): Promise<ProjectArchiveSettings | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/")), "utf8")) as Record<string, unknown>;
+    if (value?.version !== 1) return undefined;
+    const candidate = Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+    const updatedAt = new Date(0).toISOString();
+    return folderSettings(parseMetadata({ ...candidate, version: 1, id: "folder", updatedAt }, "folder", updatedAt).metadata);
+  } catch {
+    return undefined;
   }
 }
 
