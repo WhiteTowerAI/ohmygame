@@ -5,7 +5,7 @@ import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
 import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
-import { CanvasError, CanvasStore } from "./canvas-workspace.js";
+import { CanvasError, CanvasStore, type CanvasPluginRunner } from "./canvas-workspace.js";
 import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
@@ -15,9 +15,9 @@ import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner;
 }): CanvasStore {
-  const store = new CanvasStore(options.projects, options.library, options.tools);
+  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
@@ -100,6 +100,10 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   });
   app.post<{ Params: { projectId: string; boardId: string; nodeId: string } }>(`${boardRoute}/nodes/:nodeId/generate`, async (request, reply) => {
     try { return reply.code(202).send(await store.generateNode(request.params.projectId, request.params.boardId, request.params.nodeId)); } catch (cause) { return failure(cause, reply); }
+  });
+  // Runs the node and what comes after it; the jobs show the progress.
+  app.post<{ Params: { projectId: string; boardId: string; nodeId: string } }>(`${boardRoute}/nodes/:nodeId/regenerate`, async (request, reply) => {
+    try { return reply.code(202).send(await store.regenerateFrom(request.params.projectId, request.params.boardId, request.params.nodeId)); } catch (cause) { return failure(cause, reply); }
   });
   app.get<{ Params: { projectId: string } }>(base, async (request, reply) => {
     try { return await store.read(request.params.projectId, documentId(request.query)) ?? null; } catch (cause) { return failure(cause, reply); }

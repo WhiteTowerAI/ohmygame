@@ -104,6 +104,62 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+## Canvas nodes
+
+`contributes.canvasNodes` adds nodes to the Asset Canvas add menu, under
+**Plugins**, one submenu per plugin with more than one node. A node lists up
+to 8 `inputs` (`{ id, title, accepts, multiple?, optional? }`, where
+`accepts` is `image`, `text`, `audio`, `video` or `model`), up to 16 `params`
+(`text`, `number` with `minimum`/`maximum`, `boolean`, or `select` with
+`options`, each with an optional `default`), one `output` of the same kinds,
+and `run.native`, a command the native entry registers with
+`registerCommand`. Canvas nodes came in API 2.3.0, so a plugin with them asks
+for `^2.3.0`. Titles take `%key%` locale strings.
+
+```json
+"canvasNodes": [{
+  "id": "pixelate",
+  "title": "%pixelate.title%",
+  "inputs": [{ "id": "image", "title": "%pixelate.image%", "accepts": "image" }],
+  "params": { "size": { "type": "number", "title": "%pixelate.size%", "default": 8, "minimum": 2, "maximum": 64 } },
+  "output": "image",
+  "run": { "native": "pixelate" }
+}]
+```
+
+On the board the node is `type: "plugin"` with `data.node`
+(`publisher/name:id`), `data.params`, and `data.inputs`, a list of references
+per input id. Each input has its own port; a drop elsewhere fills the first
+input that takes that kind and has room. Text and Document nodes give
+`text`, image, video, audio and 3D nodes and Library assets give their file,
+and another plugin node gives its output.
+
+Running the node starts a canvas job (`toolId: "plugin-node"`). The command
+gets `{ params, inputs, output }`: every param with its default filled in,
+each input as `[{ type: "text", text }]` or
+`[{ type, path, contentType }]`, and `output`, an empty folder for the
+result. It returns `{ text }` for a `text` output (up to 100,000
+characters), or `{ file }`, a regular file inside `output` whose kind
+matches the node's output, up to 512 MB. The app adds that file to the
+Library and sets `data.assetId`. A missing required input, a param that
+doesn't fit, or a plugin that is off fails the job with a message. Rerunning
+with the same params, inputs and output reuses the last result. A node whose
+plugin is off stays on the board with its links and last output, and says
+so; it runs again when the plugin is turned back on. Plugin nodes take part in
+[out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
+like the app's own nodes.
+
+`contributes.canvasPresets` offers ready-made groups of nodes under
+**Presets** in the same menu: `{ id, title, description?, board }`, where
+`board` is a JSON file in the package holding `{ nodes, edges }` in the
+board's own node format. A preset holds up to 200 nodes of the kinds that
+stand alone (text, image, video, audio, 3D, group and plugin nodes) and no
+outputs or Library assets (no `assetId` anywhere). Installing and
+`plugin:check` refuse one that breaks these rules or links to a node it
+doesn't hold. Adding a preset gives its nodes new ids, keeps the links
+between them, and puts them in a new group named after it where the menu
+was opened.
+
 ## Modules
 
 | Area | Code | Tests |
@@ -126,6 +182,7 @@ shows it in the call's progress.
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
 
@@ -186,6 +243,11 @@ shows it in the call's progress.
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
+- Canvas nodes: `GET /projects/:id/plugin-canvas?locale=` lists the
+  [canvas nodes](#canvas-nodes) and presets of the project's active plugins;
+  `GET /projects/:id/plugin-canvas/presets/:publisher/:name/:preset` gives a
+  preset's nodes and edges. A node runs through the canvas
+  `POST …/nodes/:nodeId/generate` route.
 - Pages: `GET /projects/:id/plugin-panels`,
   `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
   page's [project files](#plugin-pages) under

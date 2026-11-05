@@ -854,8 +854,10 @@ export const CANCEL_GENERATION = Symbol("cancel generation");
 
 /** The nodes whose output a node's generation uses: its reference images, a video's references and a 3D source. */
 function nodeReferences(data: unknown): string[] {
-  const { images, references, source } = (data ?? {}) as Record<string, unknown>;
-  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source]
+  const { images, references, source, inputs } = (data ?? {}) as Record<string, unknown>;
+  // A plugin node's inputs, by input id.
+  const pluginInputs = inputs && typeof inputs === "object" ? Object.values(inputs).flatMap((value) => Array.isArray(value) ? value : []) : [];
+  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source, ...pluginInputs]
     .flatMap((reference) => reference && typeof reference === "object" && (reference as { type?: unknown }).type === "node" && typeof (reference as { nodeId?: unknown }).nodeId === "string" ? [(reference as { nodeId: string }).nodeId] : []);
 }
 

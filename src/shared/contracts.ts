@@ -491,7 +491,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -650,6 +650,18 @@ export type AssetCanvasNode = (
     /** Library actions in clip order. */
     actionIds: Model3DActionId[];
     assetId?: string;
+  } }
+  /** A node a plugin adds: its code makes the output from the inputs and settings. */
+  | { id: string; type: "plugin"; position: AssetCanvasPosition; data: {
+    /** `publisher/name:node`. */
+    node: string;
+    params: Record<string, string | number | boolean>;
+    /** Each input's sources, by the input's id. */
+    inputs: Record<string, AssetCanvasReference[]>;
+    /** The output, when the node makes media. */
+    assetId?: string;
+    /** The output, when the node makes text. */
+    text?: string;
   } }
 ) & { parentId?: string; title?: string; description?: string; width?: number; height?: number };
 
@@ -1325,13 +1337,16 @@ export interface ToolJobContext {
 export interface ToolJob {
   model?: ModelRef;
   id: string;
-  toolId: ToolId;
+  /** The tool that ran, or `plugin-node` for a plugin's canvas node. */
+  toolId: ToolId | "plugin-node";
   createdAt: string;
   status: ToolJobStatus;
   title: string;
   context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
+  /** A canvas run: what each source node gave when it started, by node id (see `canvas-chains.ts`). */
+  upstream?: Record<string, string>;
 }
 
 export type ToolArtifact =

@@ -62,6 +62,7 @@ import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
+import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
 import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
@@ -1153,7 +1154,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
@@ -1770,6 +1771,22 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-canvas", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginServices.canvas(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  app.get<{ Params: { projectId: string; publisher: string; name: string; preset: string } }>("/projects/:projectId/plugin-canvas/presets/:publisher/:name/:preset", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const { publisher, name, preset } = request.params;
+    try {
+      const board = await pluginServices.canvasPreset(project.workspacePath, `${publisher}/${name}`, preset);
+      return board ?? reply.code(404).send({ error: "Preset not found" });
+    } catch (error) {
+      return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
   // A plugin's settings: values for its page, secrets only as set or not.
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
