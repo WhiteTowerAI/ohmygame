@@ -292,12 +292,15 @@ describe("plugin catalog browsing", () => {
     });
 
     it("offers a newer version only for a plugin added from npm", async () => {
-      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }));
-      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" })] };
+      const other = { ...fromNpm("other"), origin: { type: "npm", package: "@acme/other", version: "1.0.0", registry: "https://registry.example.com" } } satisfies StorePlugin;
+      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }), other);
+      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" }), listed("other", { version: "1.2.0" })] };
       await renderCatalog();
       const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       expect(card("Installed owned").textContent).toContain("Update available");
       expect(card("Installed local").textContent).not.toContain("Update available");
+      // Another registry is a source of its own, so npm's package couldn't join it.
+      expect(card("Installed other").textContent).not.toContain("Update available");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
       expect(document.querySelector(".ui-dialog")).toBeTruthy();

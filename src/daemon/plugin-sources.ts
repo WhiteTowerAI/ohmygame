@@ -4,7 +4,7 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, sta
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion } from "../shared/plugins.js";
+import { customNpmRegistry, NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion } from "../shared/plugins.js";
 import { extractTarball } from "./archive-extraction.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
@@ -37,6 +37,36 @@ const NPM_REGISTRIES = {
   npmjs: { url: "https://registry.npmjs.org", tarballHosts: ["registry.npmjs.org"] },
   npmmirror: { url: "https://registry.npmmirror.com", tarballHosts: ["registry.npmmirror.com", "cdn.npmmirror.com"] },
 } as const;
+
+interface NpmRegistry {
+  url: string;
+  /** Where its packages download from, over HTTPS. */
+  tarballHosts: readonly string[];
+  /** What messages call it. */
+  label: string;
+}
+
+/** A registry by its name, or another one by its address. */
+function npmRegistry(registry: PluginNpmRegistry): NpmRegistry {
+  if (registry === "npmjs" || registry === "npmmirror") return { ...NPM_REGISTRIES[registry], label: registry };
+  if (customNpmRegistry(registry) !== registry) throw new PluginSourceError(`${registry} isn't an npm registry OhMyGame can use. Enter its address over HTTPS, without a sign-in, query or trailing slash.`);
+  const url = new URL(registry);
+  return { url: registry, tarballHosts: [url.hostname], label: url.host };
+}
+
+/**
+ * Whether a package may download from `tarball`: the registry's own host, or
+ * npm's, where a mirror points a version it hasn't copied yet. Either way the
+ * download has to match the checksum.
+ */
+function isRegistryTarball(tarball: string, registry: NpmRegistry): boolean {
+  try {
+    const url = new URL(tarball);
+    return url.protocol === "https:" && [...registry.tarballHosts, ...NPM_REGISTRIES.npmjs.tarballHosts].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
 /** npm's abbreviated metadata lists every version, so even a busy package fits. */
 const METADATA_MAX_BYTES = 20 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -102,7 +132,7 @@ export class PluginSources {
       try {
         if (origin?.type === "npm") {
           const { scope, name } = parseNpmName(origin.package);
-          const response = await this.#request(`${NPM_REGISTRIES[origin.registry].url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, "Could not reach npm");
+          const response = await this.#request(`${npmRegistry(origin.registry).url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, "Could not reach npm");
           const latest = response.ok ? (await readJson(response) as NpmMetadata)["dist-tags"]?.latest : undefined;
           if (typeof latest !== "string" || !isNewerPluginVersion(latest, entry.version) || this.services.index.get(entry.id, latest)) return undefined;
           // A version the market blocked or turned away would only be refused when added.
@@ -255,23 +285,21 @@ export class PluginSources {
       const others = PLUGIN_NPM_REGISTRIES.filter((registry) => registry !== source.registry);
       return this.#downloadNpm(fullName, scope, name, requested!, release.integrity, [source.registry, ...others].map((registry) => ({
         registry,
-        tarball: `${NPM_REGISTRIES[registry].url}/${fullName}/-/${name}-${encodeURIComponent(requested!)}.tgz`,
+        tarball: `${npmRegistry(registry).url}/${fullName}/-/${name}-${encodeURIComponent(requested!)}.tgz`,
       })), source.market);
     }
-    const registry = NPM_REGISTRIES[source.registry];
-    const response = await this.#request(`${registry.url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, `Could not reach the ${source.registry} registry`);
-    if (response.status === 404) throw new PluginSourceError(`${fullName} isn't on ${source.registry}.${source.registry === "npmmirror" ? " A new package can take a while to reach a mirror." : ""}`);
-    if (!response.ok) throw new PluginSourceError(`The ${source.registry} registry answered ${response.status}.`);
+    const registry = npmRegistry(source.registry);
+    const response = await this.#request(`${registry.url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, `Could not reach the ${registry.label} registry`);
+    if (response.status === 404) throw new PluginSourceError(`${fullName} isn't on ${registry.label}.${source.registry !== "npmjs" ? " A new package can take a while to reach a mirror." : ""}`);
+    if (response.status === 401 || response.status === 403) throw new PluginSourceError(`The ${registry.label} registry wants you to sign in, which OhMyGame doesn't do. Use a registry that's open to everyone.`);
+    if (!response.ok) throw new PluginSourceError(`The ${registry.label} registry answered ${response.status}.`);
     const metadata = await readJson(response) as NpmMetadata;
     const version = requested ?? metadata["dist-tags"]?.latest;
     const published = version !== undefined && metadata.versions && Object.hasOwn(metadata.versions, version) ? metadata.versions[version] : undefined;
     if (!version || !published) throw new PluginSourceError(`${fullName} has no version ${version ?? "to install"}.`);
     const tarball = published.dist?.tarball;
-    if (typeof tarball !== "string" || !isFromHost(tarball, registry.tarballHosts))
-      // A mirror lists a new version before it has copied it, pointing back at npm meanwhile.
-      throw new PluginSourceError(source.registry === "npmmirror" && typeof tarball === "string" && isFromHost(tarball, NPM_REGISTRIES.npmjs.tarballHosts)
-        ? `npmmirror hasn't finished copying ${fullName} ${version} yet. Try again in a few minutes, or add it from npm.`
-        : `${fullName} ${version} doesn't download from ${source.registry}.`);
+    if (typeof tarball !== "string" || !isRegistryTarball(tarball, registry))
+      throw new PluginSourceError(`${fullName} ${version} doesn't download from ${registry.label}.`);
     // The newest version may be one the market knows, or has blocked.
     const latest = requested ? undefined : await this.#marketRelease(fullName, version);
     const integrity = latest?.integrity ?? published.dist?.integrity;
@@ -293,11 +321,9 @@ export class PluginSources {
     if (!integrity) throw new PluginSourceError(`${fullName} ${version} has no SHA-512 checksum to verify it with.`);
     return this.#inTemporaryFolder(async (folder) => {
       const archive = path.join(folder, "package.tgz");
-      let used: PluginNpmRegistry | undefined;
       for (const [index, place] of places.entries()) {
         try {
           await this.network.download(place.tarball, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS));
-          used = place.registry;
           break;
         } catch (cause) {
           await rm(archive, { force: true });
@@ -307,8 +333,10 @@ export class PluginSources {
       if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
       return {
         root: await unpack(archive, folder, { published: true }),
-        source: { type: "npm", name: fullName, registry: used!, version, ...(market ? { market } : {}) },
-        origin: { type: "npm", package: fullName, version, registry: used! },
+        // The registry chosen, even when another had the package: it's where updates
+        // are looked for, and what counts as the same source.
+        source: { type: "npm", name: fullName, registry: places[0]!.registry, version, ...(market ? { market } : {}) },
+        origin: { type: "npm", package: fullName, version, registry: places[0]!.registry },
         check: (entry) => {
           // The scope is what npm vouches for, so it has to be the plugin's publisher.
           const allowed = [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
@@ -422,15 +450,23 @@ async function validPackage(root: string): Promise<PluginIndexEntry> {
   return checked.entry;
 }
 
-/** A package from this computer has no source to vouch for it, so it never counts as the same. */
+/**
+ * A package from this computer has no source to vouch for it, so it never counts as the same.
+ * npmmirror copies npm, so they're one source; another registry's scopes are its own.
+ */
 function isSameSource(left: PluginOrigin | undefined, right: PluginOrigin | undefined): boolean {
-  if (left?.type === "npm" && right?.type === "npm") return left.package.split("/")[0] === right.package.split("/")[0];
+  if (left?.type === "npm" && right?.type === "npm")
+    return left.package.split("/")[0] === right.package.split("/")[0] && npmSource(left.registry) === npmSource(right.registry);
   if (left?.type === "github" && right?.type === "github") return left.repository.toLowerCase() === right.repository.toLowerCase();
   return false;
 }
 
+function npmSource(registry: PluginNpmRegistry): string {
+  return (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(registry) ? "npmjs" : registry;
+}
+
 function sourceName(origin: PluginOrigin | undefined): string {
-  if (origin?.type === "npm") return `npm (${origin.package})`;
+  if (origin?.type === "npm") return npmSource(origin.registry) === "npmjs" ? `npm (${origin.package})` : `${npmRegistry(origin.registry).label} (${origin.package})`;
   if (origin?.type === "github") return `GitHub (${origin.repository})`;
   return "another package on this computer";
 }
@@ -465,14 +501,6 @@ export function parseGitHubUrl(input: string): { repository: string; ref?: strin
   return { repository: `${match[1]}/${match[2]}`, ...(match[3] ? { ref: match[3] } : {}) };
 }
 
-function isFromHost(url: string, hosts: readonly string[]): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && hosts.includes(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
 
 function sha512Integrity(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;

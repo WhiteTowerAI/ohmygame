@@ -240,12 +240,12 @@ describe("PluginSources", () => {
       await close();
     });
 
-    it("tries the other registry when one doesn't have it, and records the one that did", async () => {
+    it("tries the other registry when one doesn't have it, and keeps the one chosen", async () => {
       const { sources, requested, close } = await setup({}, { [onNpm]: bytes }, vouched());
       const preview = await sources.inspect(pinned, "en");
       expect(requested).toEqual([onMirror, onNpm]);
-      expect(preview.source).toMatchObject({ registry: "npmjs", version: "1.0.0" });
-      expect(preview.origin).toMatchObject({ registry: "npmjs" });
+      expect(preview.source).toMatchObject({ registry: "npmmirror", version: "1.0.0" });
+      expect(preview.origin).toMatchObject({ registry: "npmmirror" });
       await close();
     });
 
@@ -320,6 +320,32 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("adds from another registry by its address, and looks there for updates", async () => {
+    const bytes = tgz(...pluginEntries("package/"));
+    const registry = "https://registry.example.com/npm";
+    const latest = { version: "1.0.0" };
+    const metadata = (host: string) => () => Response.json({ "dist-tags": { latest: latest.version }, versions: { [latest.version]: { dist: { tarball: `${host}/@acme/maker/-/maker-${latest.version}.tgz`, integrity: integrity(bytes) } } } });
+    const own = await setup({ [`${registry}/@acme%2Fmaker`]: metadata("https://registry.example.com/npm") }, { "https://registry.example.com/npm/@acme/maker/-/maker-1.0.0.tgz": bytes });
+    const preview = await own.sources.inspect({ ...npm, registry }, "en");
+    expect(preview.origin).toEqual({ type: "npm", package: "@acme/maker", version: "1.0.0", registry });
+    await own.sources.install(preview.source!, preview.digest);
+    latest.version = "1.1.0";
+    expect(await own.sources.updates()).toEqual([{ id: "acme/maker", version: "1.1.0", source: { type: "npm", name: "@acme/maker", registry, version: "1.1.0" } }]);
+    await own.close();
+    // Its packages come from its own host or npm's, nowhere else.
+    latest.version = "1.0.0";
+    const elsewhere = await setup({ [`${registry}/@acme%2Fmaker`]: metadata("https://evil.example") });
+    await expect(elsewhere.sources.inspect({ ...npm, registry }, "en")).rejects.toThrow("doesn't download from registry.example.com");
+    await elsewhere.close();
+    // One that wants a sign-in, or an address that isn't HTTPS, isn't used.
+    const closed = await setup({ [`${registry}/@acme%2Fmaker`]: () => new Response("", { status: 401 }) });
+    await expect(closed.sources.inspect({ ...npm, registry }, "en")).rejects.toThrow("wants you to sign in");
+    await expect(closed.sources.inspect({ ...npm, registry: "http://registry.example.com" as typeof registry }, "en")).rejects.toThrow("isn't an npm registry OhMyGame can use");
+    await expect(closed.sources.inspect({ ...npm, registry: `${registry}/` as typeof registry }, "en")).rejects.toThrow("isn't an npm registry OhMyGame can use");
+    expect(closed.requested.some((url) => url.startsWith("http://"))).toBe(false);
+    await closed.close();
+  });
+
   it("refuses a package whose bytes, host, checksum or version don't line up", async () => {
     const bytes = tgz(...pluginEntries("package/"));
     const tampered = npmPackage("@acme/maker", bytes, { checksum: integrity(Buffer.from("other")) });
@@ -331,10 +357,13 @@ describe("PluginSources", () => {
     await expect(hosted.sources.inspect(npm, "en")).rejects.toThrow("doesn't download from npmjs");
     expect(hosted.requested.some((url) => url.includes("evil.example"))).toBe(false);
     await hosted.close();
-    // A mirror that lists a version it hasn't copied yet points back at npm.
+    // A mirror lists a version it hasn't copied yet with npm's address, which is as good.
     const copying = npmPackage("@acme/maker", bytes);
     const mirror = await setup({ "https://registry.npmmirror.com/@acme%2Fmaker": copying.routes["https://registry.npmjs.org/@acme%2Fmaker"]! }, copying.files);
-    await expect(mirror.sources.inspect({ ...npm, registry: "npmmirror" }, "en")).rejects.toThrow("npmmirror hasn't finished copying @acme/maker 1.0.0 yet");
+    const fromMirror = await mirror.sources.inspect({ ...npm, registry: "npmmirror" }, "en");
+    await mirror.sources.install(fromMirror.source!, fromMirror.digest);
+    // It still came from the mirror the person chose, which is where its updates are looked for.
+    expect(await mirror.sources.origin("acme/maker", "1.0.0")).toMatchObject({ registry: "npmmirror" });
     await mirror.close();
     const unchecked = npmPackage("@acme/maker", bytes, { checksum: "" });
     const noSum = await setup(unchecked.routes, unchecked.files);
@@ -481,15 +510,24 @@ describe("PluginSources", () => {
     const commit = "c".repeat(40);
     const github = gitHubBranch("evil/maker", commit);
     const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
-    const { sources, services, directory, close } = await setup({ ...pack.routes, ...github }, {
+    // Another registry can publish under any scope, so it's a source of its own.
+    const evilRegistry = "https://registry.evil.example";
+    const evilBytes = tgz(...pluginEntries("package/", "acme/maker", "1.1.0"));
+    const { sources, services, directory, close } = await setup({
+      ...pack.routes,
+      ...github,
+      [`${evilRegistry}/@acme%2Fmaker`]: () => Response.json({ "dist-tags": { latest: "1.1.0" }, versions: { "1.1.0": { dist: { tarball: `${evilRegistry}/@acme/maker/-/maker-1.1.0.tgz`, integrity: integrity(evilBytes) } } } }),
+    }, {
       ...pack.files,
       [`https://codeload.github.com/evil/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/", "acme/maker", "1.1.0")),
+      [`${evilRegistry}/@acme/maker/-/maker-1.1.0.tgz`]: evilBytes,
     });
     const preview = await sources.inspect(npm, "en");
     await sources.install(preview.source!, preview.digest);
 
     const message = "already installed from npm (@acme/maker)";
     await expect(sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en")).rejects.toThrow(message);
+    await expect(sources.inspect({ ...npm, registry: evilRegistry }, "en")).rejects.toThrow(message);
     await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "2.0.0")), "en")).rejects.toThrow(message);
     await expect(sources.inspect({ type: "directory", path: await folderPackage(directory, "2.0.0") }, "en")).rejects.toThrow(message);
 

@@ -1442,7 +1442,7 @@ export function createApp(options: AppOptions = {}) {
     oneOf: [
       {
         required: ["name", "registry"], additionalProperties: false,
-        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { enum: [...PLUGIN_NPM_REGISTRIES] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
+        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { anyOf: [{ enum: [...PLUGIN_NPM_REGISTRIES] }, { type: "string", pattern: "^https://", maxLength: 300 }] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
       },
       {
         required: ["url"], additionalProperties: false,
