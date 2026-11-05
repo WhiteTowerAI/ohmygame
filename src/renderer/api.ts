@@ -1834,10 +1834,27 @@ export interface PluginPanel {
   commands: string[];
   accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
+  /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
+  projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
+}
+
+/** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
+export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+}
+
+/** Keeps an error a project's own panel didn't catch, where the agent can read it. */
+export async function reportProjectPanelError(projectId: string, name: string, text: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/errors`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+}
+
+/** A page's `net.fetch`, made by the daemon. */
+export async function pluginNetFetch(projectId: string, plugin: string, body: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<import("../shared/plugin-ui-protocol.js").PluginUiFetchResponse> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-net/${plugin}`, { method: "POST", body: JSON.stringify(body) });
 }
 
 /** The canvas nodes of the project's active plugins, in the app's language. */

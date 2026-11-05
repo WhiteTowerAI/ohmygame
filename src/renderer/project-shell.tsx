@@ -109,7 +109,9 @@ import {
   writePluginFile,
   setPluginPageValue,
   runPluginCommand,
+  pluginNetFetch,
   reportPluginPanelError,
+  reportProjectPanelError,
   setStorePluginEnabled,
   undoProjectPluginChange,
   type PluginPanel,
@@ -147,7 +149,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -238,8 +240,10 @@ export function ProjectShell({
   // Bumped when the project's plugins change, so the chat offers their skills
   // and commands, and their panels come and go.
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
-  // Plugins' panels follow the type's own, in the areas they name.
-  const plugins = useProjectPluginContributions(state.project, capabilitiesRevision);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  // Plugins' panels follow the type's own, in the areas they name; the
+  // project's own panels are files, so they're read again when files change.
+  const plugins = useProjectPluginContributions(state.project, capabilitiesRevision, workspaceRevision);
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
@@ -279,7 +283,6 @@ export function ProjectShell({
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
-  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [gameTuning, setGameTuning] = useState<GameTuningState>();
   const savedTuning = useRef<string | undefined>(undefined);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(() => workspaceVersion(projectId));
@@ -1260,19 +1263,27 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
+    const own = panel.projectPanel;
+    if (own && (own.status !== "allowed" || !panel.url))
+      return <ProjectPanelGate projectId={current.id} panel={panel} onAllowed={() => setCapabilitiesRevision((value) => value + 1)} />;
     return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
       toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       reportError: (message) => {
+        // A project's own panel keeps its errors in the project, where its agent reads them.
+        if (own) {
+          void reportProjectPanelError(current.id, own.name, message).catch(() => {});
+          return;
+        }
         void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
         if (pluginErrorsShown.current.has(panel.plugin)) return;
         pluginErrorsShown.current.add(panel.plugin);
         toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
-      turnOff: () => turnPluginOff(panel.plugin),
+      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));

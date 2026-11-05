@@ -15,7 +15,31 @@ export type PluginUiMethod =
   | "files.move"
   | "files.delete"
   | "history.list"
-  | "usage.get";
+  | "usage.get"
+  | "net.fetch";
+
+/**
+ * An HTTPS request made by the app, for a project panel whose `panel.json`
+ * lists the host in `net`. No cookies go along, a redirect comes back as the
+ * answer rather than being followed, and it gives up after 30 seconds.
+ */
+export interface PluginUiFetch {
+  url: string;
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** At most 30. */
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/** A `net.fetch` answer, its body as text of at most 5 MB. */
+export interface PluginUiFetchResponse {
+  status: number;
+  statusText: string;
+  url: string;
+  /** Only content-type, content-length, etag, last-modified, location and retry-after. */
+  headers: Record<string, string>;
+  body: string;
+}
 
 /**
  * Puts text, files or both in the composer, for a plugin with the `composer`
@@ -126,6 +150,7 @@ export interface PluginUiHost {
   /** The project's latest turns that changed files, newest first; `limit` is 1 to 100, 20 when left out. */
   request(method: "history.list", params?: { limit?: number }): Promise<{ turns: PluginHistoryTurn[] }>;
   request(method: "usage.get"): Promise<{ rows: PluginUsageRow[] }>;
+  request(method: "net.fetch", params: PluginUiFetch): Promise<PluginUiFetchResponse>;
   request<T = unknown>(method: PluginUiMethod, params?: Record<string, unknown>): Promise<T>;
   /** The app's design tokens (`--color-surface`, `--text-md`…), already set on `:root`, and its appearance. */
   on(event: "theme", listener: (theme: { tokens: Record<string, string>; appearance: "dark" | "light" }) => void): () => void;

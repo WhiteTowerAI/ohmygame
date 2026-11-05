@@ -650,6 +650,48 @@ describe("plugins in the project shell", () => {
     }
   });
 
+  it("passes a page's net.fetch to the app only when the page may use it", async () => {
+    const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const fetch = vi.fn(async () => ({ status: 200, statusText: "OK", url: "https://api.example.com/a", headers: {}, body: "hi" }));
+    const context = {
+      plugin: { id: "_project/stats", version: "r1", panel: "stats" },
+      locale: "en" as const,
+      capabilities: { net: ["api.example.com"] },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: vi.fn(),
+      confirm: vi.fn(async () => true),
+      fetch,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Stats" context={context} visible />));
+      await act(async () => {
+        container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 1, method: "net.fetch", params: { url: "https://api.example.com/a" } });
+      await vi.waitFor(() => expect(replies.get(1)?.result).toMatchObject({ status: 200, body: "hi" }));
+      expect(fetch).toHaveBeenCalledWith({ url: "https://api.example.com/a" });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Stats" context={{ ...context, capabilities: {} }} visible />));
+      page!.postMessage({ id: 2, method: "net.fetch", params: { url: "https://api.example.com/a" } });
+      await vi.waitFor(() => expect(replies.get(2)?.error).toContain("net capability"));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
   it("hands a page the project's files as far as it may use them, and says when they change", async () => {
     const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
     // A browser's port carries a Blob; jsdom's Blob doesn't survive Node's port, and Node's own does.

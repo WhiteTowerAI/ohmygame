@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { CheckpointChangeItem, ProjectState } from "../src/shared/contracts.js";
 import { pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 import { projectHistory, projectUsage } from "../src/daemon/plugin-data.js";
+import { projectPanelFetch } from "../src/daemon/project-panels.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
@@ -344,5 +345,100 @@ describe("plugin page files protocol", () => {
     expect(ask("files.move", { from: "a" })).toMatchObject({ ok: false });
     expect(ask("files.list", {})).toMatchObject({ ok: true });
     expect(ask("files.list", { recursive: "yes" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("project panels", () => {
+  /** A project holding a panel of its own, and an app that hasn't been asked about it. */
+  async function panelSetup(manifest: unknown = { title: "Stats", capabilities: { "project.files": "read" }, net: ["api.example.com"] }) {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-panels-"));
+    const app = createApp({ dataDirectory });
+    fixtures.push({ app, directories: [dataDirectory] });
+    await app.ready();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Panels" } })).json<ProjectState>();
+    const folder = path.join(project.workspacePath, ".ohmygame/panels/stats");
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, "panel.json"), JSON.stringify(manifest));
+    await writeFile(path.join(folder, "index.html"), "<p>stats</p>");
+    const panels = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-panels` })).json<{ plugin: string; url?: string; projectPanel?: { status: string; key?: string; issues?: string[] } }[]>();
+    return { app, project, folder, panels };
+  }
+
+  it("runs a panel only once the person allows what it asks for, and again when that changes", async () => {
+    const { app, project, folder, panels } = await panelSetup();
+    await writeFile(path.join(project.workspacePath, "notes.txt"), "hello");
+    const files = `/projects/${project.id}/plugin-files/_project/stats/content?path=notes.txt`;
+    const [waiting] = await panels();
+    expect(waiting).toMatchObject({ plugin: "_project/stats", projectPanel: { status: "needs-approval" } });
+    expect(waiting!.url).toBeUndefined();
+    expect((await app.inject({ method: "GET", url: files })).statusCode).toBe(403);
+
+    const allow = (key: string) => app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/allow`, payload: { key } });
+    expect((await allow("stale")).statusCode).toBe(409);
+    expect((await allow(waiting!.projectPanel!.key!)).statusCode).toBe(204);
+    const [allowed] = await panels();
+    expect(allowed!.projectPanel!.status).toBe("allowed");
+    const page = await fetch(allowed!.url!);
+    expect(await page.text()).toBe("<p>stats</p>");
+    expect(page.headers.get("content-security-policy")).toContain(`/_project/${project.id}/stats/`);
+    expect((await app.inject({ method: "GET", url: files })).body).toBe("hello");
+    // Its folder's files only, without following a link out of it.
+    await symlink(path.join(project.workspacePath, "notes.txt"), path.join(folder, "linked.txt"));
+    expect((await fetch(new URL("linked.txt", allowed!.url!))).status).toBe(404);
+    expect((await fetch(new URL("panel.json", allowed!.url!))).status).toBe(200);
+    // Read is all it asked for.
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugin-files/_project/stats/content?path=notes.txt`, headers: { "content-type": "application/octet-stream" }, payload: "x" })).statusCode).toBe(403);
+    // What was allowed is the app's, never in the project's folder.
+    expect((await readdir(project.workspacePath, { recursive: true })).filter((name) => name.includes("approval"))).toEqual([]);
+
+    // A page that changes keeps running; one that asks for more waits again.
+    await writeFile(path.join(folder, "index.html"), "<p>stats 2</p>");
+    const [changed] = await panels();
+    expect(changed!.projectPanel!.status).toBe("allowed");
+    expect(changed!.url).not.toBe(allowed!.url);
+    await writeFile(path.join(folder, "panel.json"), JSON.stringify({ title: "Stats", capabilities: { "project.files": "write" } }));
+    expect((await panels())[0]!.projectPanel!.status).toBe("needs-approval");
+    expect((await fetch(allowed!.url!)).status).toBe(404);
+    expect((await app.inject({ method: "GET", url: files })).statusCode).toBe(403);
+  });
+
+  it("shows why a panel can't be used", async () => {
+    const { panels } = await panelSetup({ title: "Stats", capabilities: { native: true }, extra: 1 });
+    expect((await panels())[0]!.projectPanel).toMatchObject({ status: "invalid", issues: ["unknown key extra", "unknown capability native"] });
+  });
+
+  it("refuses a panel with more files than it can watch for changes", async () => {
+    const { folder, panels } = await panelSetup({ title: "Stats" });
+    await mkdir(path.join(folder, "assets"));
+    await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(path.join(folder, "assets", `${index}.txt`), "")));
+    expect((await panels())[0]!.projectPanel).toMatchObject({ status: "invalid", issues: [expect.stringContaining("more than 500")] });
+  });
+
+  it("fetches only from hosts the panel lists, and keeps its errors where the agent reads them", async () => {
+    const { app, project, panels } = await panelSetup();
+    const fetchUrl = `/projects/${project.id}/plugin-net/_project/stats`;
+    // Not allowed yet, so not reachable.
+    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "https://api.example.com/x" } })).statusCode).toBe(403);
+    await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/allow`, payload: { key: (await panels())[0]!.projectPanel!.key } });
+    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "https://other.example.com/x" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: fetchUrl, payload: { url: "http://api.example.com/x" } })).statusCode).toBe(400);
+    // A plugin can't reach the network this way.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-net/acme/files`, payload: { url: "https://api.example.com/x" } })).statusCode).toBe(403);
+
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/project-panels/stats/errors`, payload: { text: "TypeError: x is undefined" } })).statusCode).toBe(204);
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame/local/panel-errors/stats.log"), "utf8")).toContain("TypeError: x is undefined");
+  });
+
+  it("sends nothing of the person's, follows no redirect and stops at 5 MB", async () => {
+    const calls: RequestInit[] = [];
+    const answer = (response: Response) => (async (_url: unknown, init?: RequestInit) => { calls.push(init!); return response; }) as typeof fetch;
+    const redirect = await projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com/a", method: "POST", body: "x" },
+      answer(new Response(null, { status: 302, headers: { location: "https://elsewhere.example.com/", "set-cookie": "a=b" } })));
+    expect(redirect).toMatchObject({ status: 302, headers: { location: "https://elsewhere.example.com/" } });
+    expect(redirect.headers["set-cookie"]).toBeUndefined();
+    expect(calls[0]).toMatchObject({ method: "POST", body: "x", redirect: "manual", credentials: "omit" });
+    await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com/big" },
+      answer(new Response(new Uint8Array(5 * 1024 * 1024 + 1))))).rejects.toThrow("larger than 5 MB");
+    await expect(projectPanelFetch({ net: ["api.example.com"] }, { url: "https://api.example.com:8443/" }, answer(new Response("")))).rejects.toThrow("port");
   });
 });

@@ -14,6 +14,11 @@ export const AGENT_ATTACHMENTS_DIRECTORY = ".ohmygame/local/attachments";
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
+/** The project's own panels, one folder each; see `project-panels.ts`. */
+export const PROJECT_PANELS_DIRECTORY = ".ohmygame/panels";
+/** What each project panel's page failed with lately, for the agent to read. */
+export const PROJECT_PANEL_ERRORS_DIRECTORY = ".ohmygame/local/panel-errors";
+
 /** The project's name and settings, which OhMyGame writes and reads when the folder is opened again. */
 export const PROJECT_SETTINGS_FILE = ".ohmygame/settings.json";
 export const PROJECT_SETTINGS_VERSION = 1;

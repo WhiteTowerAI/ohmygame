@@ -15,6 +15,7 @@ import { MIME } from "./preview-static.js";
 // remote scripts, no `eval`, no network, no forms.
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
+//   /_project/<project id>/<panel>/<file>  a project panel's files, once allowed
 //   /_ohmygame/plugin-ui.css, .js          the shared styles and bridge
 //   /_ohmygame/ui/<major>/<file>.js        the page components, by major version
 
@@ -30,6 +31,8 @@ export interface PluginUiServer {
   url: string;
   /** Where a panel's page is, or undefined when the plugin has no such panel. */
   panelUrl(id: string, version: string, panel: string): string | undefined;
+  /** Where a project panel's page is; `revision` makes a changed page load again. */
+  projectPanelUrl(projectId: string, panel: string, entry: string, revision: string): string;
   close(): Promise<void>;
 }
 
@@ -38,8 +41,11 @@ export async function startPluginUiServer({
   sdkDirectory,
   frameAncestors = [],
   port = 0,
+  projectPanel = async () => undefined,
 }: {
   index: PluginIndex;
+  /** The folder of a project's panel that the person allowed, or undefined. */
+  projectPanel?: (projectId: string, panel: string) => Promise<string | undefined>;
   /** The `@ohmygame/plugin-ui` package folder. */
   sdkDirectory: string;
   /** The app's origins, the only pages that may frame plugin pages. */
@@ -91,6 +97,19 @@ export async function startPluginUiServer({
           outgoing.writeHead(404).end();
           return;
         }
+      } else if (parts[0] === "_project") {
+        const [, projectId, panel, ...rest] = parts;
+        const root = projectId && panel && rest.length ? await projectPanel(projectId, panel) : undefined;
+        if (!root) {
+          outgoing.writeHead(404).end();
+          return;
+        }
+        file = await realpath(root);
+        for (const part of rest) {
+          file = path.join(file, part);
+          if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
+        }
+        csp = policy(`${origin}/_project/${projectId}/${panel}/`, false);
       } else {
         const [publisher, name, version, ...rest] = parts;
         const entry =
@@ -159,6 +178,8 @@ export async function startPluginUiServer({
         ? `${origin}/${id}/${version}/${declared.entry.replace(/^\.\//, "")}`
         : undefined;
     },
+    projectPanelUrl: (projectId, panel, entry, revision) =>
+      `${origin}/_project/${encodeURIComponent(projectId)}/${panel}/${entry}?revision=${revision}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections?.();
