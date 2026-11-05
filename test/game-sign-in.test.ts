@@ -168,6 +168,44 @@ describe("game sign-in in the SDK", () => {
     expect(game.auth.player).toBeUndefined();
   });
 
+  it("renews in one tab at a time, so two tabs never spend one refresh token", async () => {
+    const service = accountService();
+    const storage = memoryStorage();
+    const renewals: string[] = [];
+    const handle = (body: Record<string, string>) => {
+      if (body.grant_type === "refresh_token") renewals.push(body.refresh_token!);
+      return service.handle(body);
+    };
+    // navigator.locks, shared by every tab of the browser.
+    const held = new Map<string, Promise<unknown>>();
+    const exclusive = <T>(name: string, task: () => Promise<T>): Promise<T> => {
+      const run = (held.get(name) ?? Promise.resolve()).then(task, task);
+      held.set(name, run.catch(() => {}));
+      return run;
+    };
+    const first = browser(storage, handle);
+    const second = browser(storage, handle);
+    first.env.exclusive = exclusive;
+    second.env.exclusive = exclusive;
+    const tab = await init({ manifest, accountEnvironment: first.env });
+    const signingIn = tab.auth.signIn();
+    await settle();
+    const { code, state } = service.authorize(first.page.opened[0]!);
+    first.page.receive({ type: "ohmygame:sign-in", code, state }, GAME, first.page.popup);
+    await signingIn;
+    const other = await init({ manifest, accountEnvironment: second.env });
+    expect(other.auth.player).toEqual(player);
+
+    // Both tabs find the token about to expire at the same moment.
+    first.page.now += 890_000;
+    second.page.now += 890_000;
+    const [a, b] = await Promise.all([tab.auth.getToken(), other.auth.getToken()]);
+    expect(renewals).toEqual(["refresh-1"]);
+    expect([a, b]).toEqual(["token-2", "token-2"]);
+    expect(tab.auth.player).toEqual(player);
+    expect(other.auth.player).toEqual(player);
+  });
+
   it("reports a closed popup as cancelled", async () => {
     const { page, env } = browser(memoryStorage(), () => Response.json({}));
     const game = await init({ manifest, accountEnvironment: env });

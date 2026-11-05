@@ -127,7 +127,10 @@ cross-origin requests from published games' origins.
 - When the popup is blocked, the page goes to sign-in and back. `init()` then exchanges
   the code, removes `code` and `state` from the address, and the player is signed in.
 - The session is kept in the game origin's `localStorage`. `getToken()` renews it 30
-  seconds before it expires; another tab's renewal is reused.
+  seconds before it expires. Tabs of one browser renew one at a time (`navigator.locks`),
+  and a tab that waited uses the session the other saved: two renewals with one refresh
+  token would look like a stolen token to the account service, which then ends the
+  sign-in.
 
 ### Embedding pages
 

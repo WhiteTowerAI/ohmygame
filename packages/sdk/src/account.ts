@@ -57,6 +57,11 @@ export interface AccountEnvironment {
   listen(listener: (message: SignInMessage) => void): () => void;
   crypto: Crypto;
   now(): number;
+  /**
+   * Runs one task at a time across this browser's tabs, as navigator.locks does. Without
+   * it a renewal runs in this tab alone.
+   */
+  exclusive?<T>(name: string, task: () => Promise<T>): Promise<T>;
 }
 
 /** @internal */
@@ -84,6 +89,9 @@ export function browserAccountEnvironment(): AccountEnvironment | undefined {
     },
     crypto: window.crypto,
     now: () => Date.now(),
+    ...(typeof navigator !== "undefined" && navigator.locks
+      ? { exclusive: <T>(name: string, task: () => Promise<T>) => navigator.locks.request(name, task) as Promise<T> }
+      : {}),
   };
 }
 
@@ -193,7 +201,10 @@ export class OhMyGameAccount implements GameAuth {
     const session = this.session;
     if (!session) return undefined;
     if (session.expiresAt - this.env!.now() > RENEW_BEFORE_MS) return session.accessToken;
-    this.renewing ??= this.renew(session).finally(() => {
+    // Two tabs renewing with one refresh token would look like a stolen token and end the
+    // sign-in, so tabs renew one at a time; the second then finds the first one's session.
+    const renew = () => this.renew(session);
+    this.renewing ??= (this.env!.exclusive ? this.env!.exclusive(`${this.key}:renew`, renew) : renew()).finally(() => {
       this.renewing = undefined;
     });
     return (await this.renewing)?.accessToken;
@@ -317,11 +328,13 @@ export class OhMyGameAccount implements GameAuth {
       this.session = stored;
       return stored;
     }
-    if (!session.refreshToken) {
+    // A token another tab rotated in is the live one; ours was spent.
+    const latest = stored ?? session;
+    if (!latest.refreshToken) {
       this.save(undefined);
       return (this.hostAnswer = this.askHost());
     }
-    const renewed = await this.token({ grant_type: "refresh_token", refresh_token: session.refreshToken });
+    const renewed = await this.token({ grant_type: "refresh_token", refresh_token: latest.refreshToken });
     this.save(renewed);
     return renewed;
   }
