@@ -38,11 +38,13 @@ function report(findings: PluginCheckFinding[]): number {
 
 /** Runs `npm pack` in the folder and returns the archive it made in `into`. */
 function npmPack(folder: string, into: string): string {
-  const result = spawnSync("npm", ["pack", "--json", "--pack-destination", into], {
+  const windows = process.platform === "win32";
+  // cmd.exe splits an unquoted path with spaces, as under C:\Users\Jane Doe.
+  const result = spawnSync("npm", ["pack", "--json", "--pack-destination", windows ? `"${into}"` : into], {
     cwd: folder,
     encoding: "utf8",
     // npm is npm.cmd on Windows, which only a shell runs; the arguments are ours.
-    shell: process.platform === "win32",
+    shell: windows,
     stdio: ["inherit", "pipe", "inherit"],
   });
   if (result.error) throw new Error(`Could not run npm: ${result.error.message}. pack needs npm.`);

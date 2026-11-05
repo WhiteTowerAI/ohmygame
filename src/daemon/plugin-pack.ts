@@ -55,6 +55,9 @@ const names = (value: unknown): string[] => value && typeof value === "object" &
 async function packageNode(directory: string, manifest: Record<string, unknown>, isProjectRoot: boolean, seen: Map<string, PackageNode>, root = directory): Promise<PackageNode> {
   const known = seen.get(directory);
   if (known) return known;
+  // packlist throws outside its promise on a malformed list, which would stop the app.
+  if (manifest.files !== undefined && !(Array.isArray(manifest.files) && manifest.files.every((item) => typeof item === "string")))
+    throw new PluginPackError(`${isProjectRoot ? "package.json" : `${path.relative(root, directory).split(path.sep).join("/")}/package.json`}: files must be a list of paths`);
   const node = { path: directory, isLink: false, isProjectRoot, package: { ...manifest }, edgesOut: new Map() } as PackageNode;
   node.target = node;
   seen.set(directory, node);

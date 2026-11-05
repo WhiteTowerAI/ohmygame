@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { pluginPublishingFiles, pluginTemplateIssue } from "../shared/plugin-template.js";
@@ -25,7 +25,8 @@ export async function exportPlugin(entry: PluginIndexEntry, publisher: string, i
   if (issue) throw new PluginExportError(issue);
   if (!path.isAbsolute(into)) throw new PluginExportError("Choose the folder by its full path.");
   const target = path.join(into, name);
-  if ((await readdir(target).catch(() => [])).length) throw new PluginExportError(`${target} already has files in it. Choose another folder.`);
+  const present = await readdir(target).catch((cause: NodeJS.ErrnoException) => (cause.code === "ENOENT" ? [] : undefined));
+  if (present?.length !== 0) throw new PluginExportError(`${target} already has files in it. Choose another folder.`);
   const staging = path.join(into, `.${name}-${process.pid}-${Date.now()}`);
   await mkdir(into, { recursive: true }).catch(() => {
     throw new PluginExportError(`Can't make a folder in ${into}.`);
@@ -54,7 +55,10 @@ export async function exportPlugin(entry: PluginIndexEntry, publisher: string, i
     }
     const checked = await indexPluginPackage(staging);
     if (!checked.ok) throw new PluginExportError(`The exported package isn't valid: ${checked.issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
-    await rm(target, { recursive: true, force: true });
+    // Only an empty folder gives way; one that got files meanwhile stays as it is.
+    await rmdir(target).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code !== "ENOENT") throw new PluginExportError(`${target} already has files in it. Choose another folder.`);
+    });
     await rename(staging, target);
     return target;
   } finally {

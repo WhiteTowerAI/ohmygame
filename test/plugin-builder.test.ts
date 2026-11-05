@@ -136,6 +136,12 @@ describe("Plugin Builder", () => {
     // Nothing installed changes, and a folder with files isn't overwritten.
     expect(services.index.entries().map((item) => item.id)).toEqual([ID]);
     await expect(exportPlugin(entry, "acme", into)).rejects.toThrow("already has files");
+    // Nor is a file of that name.
+    const other = path.join(directory, "elsewhere");
+    await mkdir(other);
+    await writeFile(path.join(other, name), "mine");
+    await expect(exportPlugin(entry, "acme", other)).rejects.toThrow("already has files");
+    expect(await readFile(path.join(other, name), "utf8")).toBe("mine");
     await expect(exportPlugin({ ...entry, id: "acme/other" }, "acme", into)).rejects.toThrow("Only a plugin you made");
   });
 

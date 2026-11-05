@@ -129,9 +129,10 @@ export class PluginSources {
     };
   }
 
-  async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string): Promise<PluginIndexEntry> {
+  async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
     const run = this.#adding.then(async () => {
+      await before?.();
       await this.#assertCanJoin(entry, fetched.origin);
       const present = this.services.index.get(entry.id, entry.version);
       if (present?.digest === entry.digest) return present;
@@ -186,7 +187,10 @@ export class PluginSources {
     return this.#reading(() => this.#directory({ type: "directory", path: folder, development: true }), async (fetched, entry) => {
       if (entry.id !== id) throw new PluginSourceError(`The folder now holds ${entry.id}, not ${id}. Uninstall ${id} to develop another plugin.`);
       if (this.services.index.get(entry.id, entry.version)?.digest === entry.digest) return false;
-      await this.#install(fetched, entry, entry.digest);
+      // Uninstalled, or added from elsewhere, while the folder was being copied.
+      await this.#install(fetched, entry, entry.digest, async () => {
+        if ((await this.developmentFolders()).get(id) !== folder) throw new PluginSourceError(`${id} isn't in development from ${folder} anymore.`);
+      });
       return true;
     });
   }

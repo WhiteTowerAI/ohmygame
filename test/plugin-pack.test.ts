@@ -67,6 +67,11 @@ describe("published files", () => {
     expect(await publishedFiles(root)).toEqual([".ohmygame-plugin/plugin.json", "notes.md", "skills/make/SKILL.md"]);
   });
 
+  it("refuse a package.json whose files isn't a list of paths", async () => {
+    const root = await folder({ ...plugin, "package.json": JSON.stringify({ name: "@acme/notes", version: "1.0.0", files: [null] }) });
+    await expect(publishedFiles(root)).rejects.toThrow("files must be a list of paths");
+  });
+
   it("stage into a folder of their own, with project templates' .gitignore back", async () => {
     const root = await folder({
       ".ohmygame-plugin/plugin.json": JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes", contributes: { projectTypes: [{ id: "game", title: "Game", description: "A game", template: "./template", preview: "web" }] } }),

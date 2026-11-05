@@ -52,8 +52,7 @@ export class PluginDevelopment {
         if (folders.get(id) !== watched.folder) this.#stop(id);
       for (const [id] of this.#errors) if (!folders.has(id)) this.#errors.delete(id);
       for (const [id, folder] of folders) {
-        if (this.#watched.has(id)) continue;
-        this.#watch(id, folder);
+        if (!this.#watched.has(id)) this.#watch(id, folder);
         if (refresh) this.#schedule(id, 0);
       }
     });
