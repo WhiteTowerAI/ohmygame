@@ -163,7 +163,18 @@ recreates the game document at its current route. A minimal host page, with no
 editor preload or daemon credentials, keeps the editor's top-level site so existing
 Preview saves remain available. Older standalone Play saves stay in their separate
 storage context and are not merged. Browser builds continue to use an iframe and
-separate popup, which reload the game on switching. Static file changes reload
+separate popup, which reload the game on switching.
+
+The view is drawn above the editor's whole page, so no editor or plugin UI can
+appear over the game, and it can only be hidden whole. When a menu, dialog or
+alert would cover it, a JPEG still of the game stands in and the view hides,
+pausing the game. The still is taken as the person presses a control that may
+open one; switching or closing a tab takes none, because it hides or keeps the
+game (`src/renderer/desktop-game-preview.tsx`). Capture encodes on Electron's
+main process, which stalls every window while it runs. Anything meant to be
+drawn over the game belongs in the host page, as preview filters are.
+
+Static file changes reload
 active pages through a local event
 stream, while development servers retain their own HMR protocol. Changes that
 can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,

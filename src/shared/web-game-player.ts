@@ -23,6 +23,7 @@ export interface DesktopWebGamePreviewBridge {
   attach(projectId: string, attachment: string, url: string, layout: WebGamePreviewLayout): Promise<void>;
   layout(projectId: string, attachment: string, layout: WebGamePreviewLayout): Promise<void>;
   detach(projectId: string, attachment: string): Promise<void>;
+  /** The game's current frame as JPEG, which encodes several times faster than PNG. */
   capture(projectId: string): Promise<Uint8Array>;
 }
 
