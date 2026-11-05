@@ -462,6 +462,16 @@ variables already set, such as Railway's, take precedence. Its settings:
 | `GAME_DATA_ADMIN_TOKEN` | Enables the operator route that deletes an account's data. |
 | `MULTIPLAYER_DEPLOYMENTS_FILE` | Optional: deployments an operator lists by hand, as a JSON array. |
 
+On Railway, deploy the service from this repository with the **root directory
+left at the repository root**: the service builds the workspace packages it
+depends on. Point the service's config-as-code path at
+`packages/games/railway.json`, which builds with `bun run build:packages`,
+starts with `bun run start:multiplayer` (Node.js 22.19 or newer runs it) and
+checks `/healthz`. Without it Railway falls back to the root `start` script,
+which runs the desktop daemon instead. Keep one replica, mount a volume at the
+directory of `MULTIPLAYER_DATABASE_PATH`, and add a Postgres service for
+`GAME_DATA_DATABASE_URL`.
+
 Publishing rejects a missing build manifest when `multiplayer.json` declares
 multiplayer, mismatches between source/build/request configurations, and known
 PeerJS dependencies or public PeerJS/CDN markers in the build. These checks
