@@ -149,7 +149,7 @@ export function marketContributions({ adds }: MarketPlugin): PluginContribution[
 }
 
 /** A plugin on the market, not installed yet; opening it reviews the package. */
-export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onOpen: () => void }): ReactNode {
+export function MarketPluginCard({ plugin, installed = false, onOpen }: { plugin: MarketPlugin; installed?: boolean; onOpen: () => void }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
@@ -169,7 +169,7 @@ export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onO
         </span>
       </span>
     </button>
-    <span className="plugins-installed-label">{t("plugins.install")}</span>
+    <span className="plugins-installed-label">{t(installed ? "plugins.installed" : "plugins.install")}</span>
   </article>;
 }
 
@@ -219,29 +219,6 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
     {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
     {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled}
       label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
-  </article>;
-}
-
-/** A listing on the browse page: where it comes from and what it adds. */
-export function StorePluginBrowseCard({ group, onOpen }: { group: StorePluginGroup; onOpen: () => void }): ReactNode {
-  const { plugin } = group;
-  return <article className="plugin-card">
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
-      <StoreTile plugin={plugin} />
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.bundled ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.official")} /> : null}
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.bundled ? t("plugins.officialSource") : plugin.id}</span>
-          <StoreTags plugin={plugin} />
-        </span>
-      </span>
-    </button>
-    <span className="plugins-installed-label">{t("plugins.installed")}</span>
   </article>;
 }
 

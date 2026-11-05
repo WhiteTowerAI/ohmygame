@@ -13,22 +13,27 @@ from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
+The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
+the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
+**Installed** has a dot when an installed plugin has an update.
 
-- **Installed** groups plugins by their `categories` into **Game creation**,
+- **Installed** holds what others made: bundled, prepared, and added from npm or
+  GitHub. It groups them by their `categories` into **Game creation**,
   **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
-  shows up to six cards and a **View all**. **Personal** comes next: the
-  plugins the person made (`personal/<name>`), ending with **Create a plugin
-  with AI**, then the AI workspaces. Search shows every match in one list.
+  shows up to six cards and a **View all**. A **Category** filter narrows them
+  to what they add; **Skills** lists each of their Skills on its own instead.
+  Search shows every match in one list.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning on one that
   asks for more than was allowed asks first, saying it will run in every
   project it suits. One stopped everywhere from its page says **Disabled** and
   has no switch.
-- **Browse** lists every plugin with its source and what it adds, and filters by
-  source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
-  come first, under **Featured** and **On npm**, leaving out what's installed.
-- **Skills** lists each plugin's Skills, with the person's own under **Personal**.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins under
+  **Featured** and **On npm**, filtered by what they add. One that's installed
+  says so and opens its page.
+- **Mine** holds what the person can edit: **Create a plugin with AI**, the
+  plugins they made (`personal/<name>`) or added from this computer, then the AI
+  workspaces.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how

@@ -31,7 +31,7 @@ export type AppRoute =
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
   /** `adds` opens the marketplace filtered to plugins that add that. */
-  | { page: "plugins"; pluginId?: string; adds?: PluginContribution }
+  | { page: "plugins"; pluginId?: string; adds?: PluginContribution; tab?: PluginsTab }
   | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string; conversationId?: string }
   | { page: "game"; gameId: string }
@@ -47,6 +47,8 @@ export function parseAppRoute(hash: string): AppRoute {
   if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
     return { page: "plugins", adds: browseMatch[1] as PluginContribution };
   }
+  const tabMatch = /^#\/plugins\?tab=(installed|discover|mine)$/.exec(hash);
+  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] as PluginsTab };
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -149,6 +151,13 @@ export function projectsHash({ projectType, query, sort }: ProjectListFilters = 
 
 export function pluginHash(pluginId?: string): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
+}
+
+/** The Plugins page's tabs: what others made, what there is to get, and what is the person's own. */
+export type PluginsTab = "installed" | "discover" | "mine";
+
+export function pluginsTabHash(tab: PluginsTab): string {
+  return `#/plugins?tab=${tab}`;
 }
 
 /** The marketplace, showing the plugins that add `adds`. */

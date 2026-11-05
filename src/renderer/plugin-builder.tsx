@@ -11,7 +11,7 @@ import { groupStorePlugins, useEveryProjectSwitch } from "./plugin-store.js";
 import { draftCheck, draftCheckLabel, PluginOverview } from "./plugin-builder-overview.js";
 import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
-import { pluginBuilderHash, pluginHash } from "./routes.js";
+import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
@@ -37,7 +37,7 @@ export function PluginBuilderSessions() {
   if (error) return <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} />;
   if (!sessions.length) return null;
   return <section className="plugins-section" aria-label={t("pluginBuilder.workspaces")}>
-    <h2>{t("pluginBuilder.continue")} <span className="plugins-count">{sessions.length}</span></h2>
+    <h2>{t("pluginBuilder.continue")}</h2>
     <div className="plugins-grid">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
       onDeleted={() => setSessions(current => current.filter(item => item.id !== session.id))}
       onError={cause => setError(message(cause))} />)}</div>
@@ -174,7 +174,7 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
       : <p className="plugin-builder-working" role="status"><LoaderCircle className="spin" size={13} />{t("pluginBuilder.opening")}</p>}
   </div></ProjectFrame>;
   return <ProjectShell key={summary.projectId} projectId={summary.projectId} conversationId={conversationId} onOpenConversation={onOpenConversation}
-    onNavigate={onNavigate} onHome={() => { window.location.hash = pluginHash(); }} homeLabel={t("navigation.backTo", { page: t("plugins.title") })}
+    onNavigate={onNavigate} onHome={() => { window.location.hash = pluginsTabHash("mine"); }} homeLabel={t("navigation.backTo", { page: t("plugins.title") })}
     workspace={{
       rail,
       placeholder: t(summary.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder"),
@@ -282,7 +282,7 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
           setConfirming(undefined);
           if (target === "workspace") void action("deleting", async () => {
             await deletePluginSetup(sessionId);
-            window.location.hash = pluginHash();
+            window.location.hash = pluginsTabHash("mine");
           });
           else void action("uninstalling", async () => {
             if (stored) for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
