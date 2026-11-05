@@ -61,6 +61,9 @@ export async function checkCodexCompatibility(
 }
 
 const REQUEST_TIMEOUT_MS = 60_000;
+/** The server explicitly rejected an RPC, rather than losing its response. */
+export class CodexRequestError extends Error {}
+
 export const CODEX_CLIENT = {
   name: "ohmygame",
   title: "OhMyGame",
@@ -207,11 +210,12 @@ export class CodexAppServer {
     this.#pending.delete(id);
     clearTimeout(pending.timer);
     const error = record(message.error);
-    if (error)
-      pending.reject(
-        cliProbeError("Codex", String(error.message ?? "Codex request failed")),
-      );
-    else pending.resolve(message.result);
+    if (error) {
+      const failure = cliProbeError("Codex", String(error.message ?? "Codex request failed"));
+      pending.reject(failure instanceof AgentRuntimeCompatibilityError
+        ? failure
+        : new CodexRequestError(failure.message));
+    } else pending.resolve(message.result);
   }
 }
 
