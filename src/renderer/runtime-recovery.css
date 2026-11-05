@@ -35,6 +35,13 @@
   flex: none;
   color: var(--color-danger);
 }
+.runtime-notice-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
 .runtime-notice p {
   margin: 0;
   color: var(--color-text-secondary);

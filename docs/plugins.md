@@ -104,6 +104,43 @@ the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
 
+Native code isn't sandboxed: the [security model](plugin-security.md) says what
+that means and what the person approves. Wherever `native` is allowed (adding a
+plugin, turning it on, creating a project that turns it on) the app warns that
+its code runs with the person's own access (`NativeCodeWarning`).
+
+## When a plugin misbehaves
+
+- **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's
+  last 500 lines since the app started, in memory: what its native code
+  printed through `console` while it ran (the host tags it with the plugin,
+  so one host's plugins stay apart), its failed tools, commands and hooks,
+  its host stopping under it, a failed call to its MCP service from an
+  agent, and its panels' uncaught errors, which the page bridge sends and
+  the app posts to `POST /plugin-store/:publisher/:name/log`. `GET` on the
+  same route returns it with the plugin's saved secrets, and what looks like
+  a key, token or URL password, replaced by `[redacted]`, so what the app
+  shows or copies has been through that. A failed tool's or command's error
+  loses the plugin's saved secrets the same way before it reaches a toast, a
+  page or an agent (`PluginServices.callTool`, `runCommand`). A failed command's toast and a
+  panel's first error offer **View log**; the log has **Turn off** and
+  **Copy log**.
+- **Quarantine.** A plugin blamed for three host crashes or hangs within
+  five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
+  page and card say it stopped, and it stays so until it is turned on again
+  or the app restarts.
+- **A panel that stops answering.** While a page with the bridge shows, the
+  app pings it every five seconds and the bridge answers by itself. After
+  fifteen seconds without an answer the app offers to wait, reload the
+  panel, or turn the plugin off.
+- **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
+  from the service-stopped notice or the Plugins page's Add menu, the
+  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
+  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
+  type. Saved choices don't change, plugins can't be turned on, and the
+  Plugins page offers to restart normally. Electron can't tell a key held
+  at launch without native code, so there is no Shift shortcut.
+
 ## Canvas nodes
 
 `contributes.canvasNodes` adds nodes to the Asset Canvas add menu, under
@@ -467,7 +504,27 @@ the source again and refuses a package whose digest isn't the one reviewed.
   `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
   each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
-  its page. Nothing updates a package by itself: adding it again is the update.
+  its page; a GitHub origin keeps the branch or tag it was added from.
+
+### Updates
+
+Nothing updates a package by itself: adding a newer one is the update.
+`GET /plugin-store/updates` (`PluginSources.updates`) looks where each
+plugin's newest version came from, at startup and when the Plugins page opens,
+reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
+GitHub branch or tag is at now. A plugin with an update says so, and its page
+opens the same review as Add plugin, at that version or commit; the market's
+own update comes first when it has one. A package from this computer has
+nowhere to look, so its page says to add it again.
+
+- The review lists what the new version asks for and marks what the person
+  hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
+  only that is asked again.
+- A project that names a version keeps it. Its Plugins sheet moves it to any
+  installed version that works there, newer or older, which is also how it goes
+  back. One that follows the plugin for every project gets the newest.
+- `GET /plugin-store/:publisher/:name/usage` names the projects using each
+  version, and the plugin's page offers to remove older versions none uses.
 
 ## The plugin market
 
@@ -514,7 +571,9 @@ HTTP on this computer), there's no market and nothing is read.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `contributes.themes` each give
+on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
+projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in
 `src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
 syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
@@ -556,6 +615,17 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
   `plugins/` only switches off; uninstalling it is refused.
+- **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
+  whether it is the last version, the saved settings and size of the data
+  folder that go with the last one, the projects that use the version, and
+  the manifest's `projectFiles`, which stay. The last version always takes
+  what the person allowed; `?keepData=true` on the `DELETE` keeps its
+  settings and data folder for a later install from the same npm scope or
+  GitHub repository. A package from anywhere else that takes the id, or one
+  from this computer, starts without them (`PluginServices.forgetKeptData`).
+  A project's Plugins sheet
+  offers an installed version in place of an uninstalled one, and for an
+  uninstalled plugin, finding it in Plugins or removing it from the project.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the

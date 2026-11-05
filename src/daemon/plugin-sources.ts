@@ -4,14 +4,14 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, sta
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
+import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion } from "../shared/plugins.js";
 import { extractTarball } from "./archive-extraction.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
 import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
 import { downloadRelease } from "./plugin-releases.js";
-import { capabilityGrants } from "./project-plugins.js";
+import { capabilityGrants, missingGrants } from "./project-plugins.js";
 
 // The Add plugin dialog's sources. Each gives a package in a temporary folder,
 // which is read and checked but never run: npm's install scripts don't apply.
@@ -89,6 +89,37 @@ export class PluginSources {
     return this.#reading(() => this.#unpackUpload(file), (fetched, entry) => this.#install(fetched, entry, digest));
   }
 
+  /**
+   * Looks where each plugin's newest version came from for a newer package.
+   * One that can't be checked now is left out; a local one can only be added again.
+   */
+  async updates(): Promise<PluginSourceUpdate[]> {
+    await this.services.ready();
+    const newest = [...new Set(this.services.index.entries().map((entry) => entry.id))].map((id) => this.services.index.get(id)!);
+    const found = await Promise.all(newest.map(async (entry): Promise<PluginSourceUpdate | undefined> => {
+      const origin = await this.origin(entry.id, entry.version);
+      try {
+        if (origin?.type === "npm") {
+          const { scope, name } = parseNpmName(origin.package);
+          const response = await this.#request(`${NPM_REGISTRIES[origin.registry].url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, "Could not reach npm");
+          const latest = response.ok ? (await readJson(response) as NpmMetadata)["dist-tags"]?.latest : undefined;
+          return typeof latest === "string" && isNewerPluginVersion(latest, entry.version) && !this.services.index.get(entry.id, latest)
+            ? { id: entry.id, version: latest, source: { type: "npm", name: origin.package, registry: origin.registry, version: latest } }
+            : undefined;
+        }
+        if (origin?.type === "github" && !origin.release) {
+          const commit = await this.#resolveCommit(origin.repository, origin.ref);
+          const url = `https://github.com/${origin.repository}${origin.ref ? `/tree/${origin.ref}` : ""}`;
+          return commit !== origin.commit ? { id: entry.id, commit, source: { type: "github", url, commit } } : undefined;
+        }
+      } catch {
+        // Offline, or GitHub limiting requests: the next check tries again.
+      }
+      return undefined;
+    }));
+    return found.filter((update) => update !== undefined);
+  }
+
   /** Where a package the person added came from; a local one has no origin. */
   async origin(id: string, version: string): Promise<PluginOrigin | undefined> {
     return (await this.#loadOrigins())[`${id}@${version}`];
@@ -127,6 +158,10 @@ export class PluginSources {
       mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => localizePluginString(entry, server.title, language)),
       settings: Boolean(entry.manifest.configuration),
       installedVersions: this.services.index.versions(entry.id).map((installed) => installed.version),
+      // What was allowed stays with the plugin, so a new version asks only for what it adds.
+      ...(this.services.index.versions(entry.id).length
+        ? { newAsks: missingGrants(capabilityGrants(entry.manifest), this.services.grants.plugin(entry.id)?.allowed ?? []) }
+        : {}),
       ...(fetched.origin ? { origin: fetched.origin } : {}),
     };
   }
@@ -137,6 +172,12 @@ export class PluginSources {
       await this.#assertCanJoin(entry, fetched.origin);
       const present = this.services.index.get(entry.id, entry.version);
       if (present?.digest === entry.digest) return present;
+      // Settings and data kept at uninstall go back only to the source they came from.
+      if (!this.services.index.versions(entry.id).length) {
+        if (!(await this.#keptFor(entry.id, fetched.origin))) await this.services.forgetKeptData(entry.id);
+        // From now on what's kept belongs to this package's source alone.
+        await this.#forgetOrigins(entry.id);
+      }
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
@@ -160,6 +201,12 @@ export class PluginSources {
         throw new PluginSourceError(`${entry.id} is already installed from ${sourceName(previous)}. Its approvals and settings stay with that source, so uninstall it first to add it from here.`);
     }
     if (present) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+  }
+
+  /** Whether every package this id came from before is the same source as `origin`. */
+  async #keptFor(id: string, origin: PluginOrigin | undefined): Promise<boolean> {
+    const before = Object.entries(await this.#loadOrigins()).filter(([key]) => key.startsWith(`${id}@`)).map(([, value]) => value);
+    return before.length > 0 && before.every((previous) => isSameSource(previous, origin));
   }
 
   #fetch(source: PluginAddSource): Promise<FetchedPackage> {
@@ -277,7 +324,7 @@ export class PluginSources {
       return {
         root: await unpack(archive, folder, { published: false }),
         source: { type: "github", url: source.url, commit },
-        origin: { type: "github", repository, commit },
+        origin: { type: "github", repository, commit, ...(ref ? { ref } : {}) },
       };
     });
   }
@@ -339,7 +386,15 @@ export class PluginSources {
   /** Adding the same version from elsewhere replaces it, origin included. */
   async #recordOrigin(key: string, origin: PluginOrigin | undefined): Promise<void> {
     const { [key]: _replaced, ...others } = await this.#loadOrigins();
-    const next = origin ? { ...others, [key]: origin } : others;
+    await this.#saveOrigins(origin ? { ...others, [key]: origin } : others);
+  }
+
+  async #forgetOrigins(id: string): Promise<void> {
+    const origins = await this.#loadOrigins();
+    await this.#saveOrigins(Object.fromEntries(Object.entries(origins).filter(([key]) => !key.startsWith(`${id}@`))));
+  }
+
+  async #saveOrigins(next: Record<string, PluginOrigin>): Promise<void> {
     await mkdir(path.dirname(this.originsPath), { recursive: true });
     const temporary = `${this.originsPath}.${randomUUID()}.tmp`;
     try {

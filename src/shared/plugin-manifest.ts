@@ -580,6 +580,13 @@ export const PluginManifestV2Schema = Type.Object(
     ),
     capabilities: Type.Optional(Capabilities),
     /**
+     * Files or folders, such as `./.maker/`, the plugin leaves in a project.
+     * Uninstalling lists them and leaves them, since they're the project's.
+     */
+    projectFiles: Type.Optional(
+      Type.Array(RelativePath(), { minItems: 1, maxItems: 20, uniqueItems: true }),
+    ),
+    /**
      * The plugin's pages: `major` is the version of the page components they
      * use, `preview` lets them load one still in preview, and `accent` is its
      * brand colour, used for progress, selection and links where it stands out

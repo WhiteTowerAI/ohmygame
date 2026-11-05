@@ -79,7 +79,9 @@ export type HostMessage =
       commands: string[];
       ms: number;
     }
-  | { type: "stats"; id: number; stats: HostStats };
+  | { type: "stats"; id: number; stats: HostStats }
+  /** A line a plugin's code printed while it ran, through `console`. */
+  | { type: "log"; plugin: string; level: "info" | "warn" | "error"; text: string };
 
 // What a plugin's native entry exports:
 //
@@ -161,6 +163,8 @@ export function isHostMessage(value: unknown): value is HostMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
   if (message.type === "ready") return typeof message.protocol === "number";
+  if (message.type === "log")
+    return typeof message.plugin === "string" && typeof message.text === "string" && (message.level === "info" || message.level === "warn" || message.level === "error");
   if (typeof message.id !== "number") return false;
   switch (message.type) {
     case "result":

@@ -501,9 +501,9 @@ handle("ohmygame:runtime-state", (event) => {
   if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
   return daemon.state();
 });
-handle("ohmygame:restart-runtime", (event) => {
+handle("ohmygame:restart-runtime", (event, options: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
-  return daemon.restart();
+  return daemon.restart({ safeMode: (options as { safeMode?: unknown } | undefined)?.safeMode === true });
 });
 
 async function startGameRecording(projectId: string): Promise<void> {
@@ -778,6 +778,8 @@ try {
   }).catch((error) => { console.warn("Could not install the OhMyGame MCP launcher", error); return undefined; });
   clearExternalMcpApp = await markExternalMcpApp(dataDirectory).catch(() => undefined);
   daemon = new DaemonSupervisor({
+    // `--safe-mode` starts with no plugins running, for a plugin that breaks the app.
+    safeMode: process.argv.includes("--safe-mode"),
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
     dataDirectory,
     token: randomBytes(32).toString("base64url"),

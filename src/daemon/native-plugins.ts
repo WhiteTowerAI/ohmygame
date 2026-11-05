@@ -248,6 +248,10 @@ export class NativePlugins {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));
   }
 
+  quarantined(id: string): boolean {
+    return this.#hosts.quarantined(id);
+  }
+
   /** Lets a quarantined plugin run again, as when the person turns it back on. */
   release(id: string) {
     this.#hosts.release(id);

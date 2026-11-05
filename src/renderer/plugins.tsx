@@ -1,11 +1,11 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, Server, Sparkles, Store } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles, Store } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
-import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, readPluginMarket, waitForRuntime } from "./api.js";
+import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash } from "./routes.js";
@@ -46,6 +46,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [addOpen, setAddOpen] = useState(false);
   const [market, setMarket] = useState<PluginMarketListing>();
   const [adding, setAdding] = useState<MarketPlugin>();
+  const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
+  const [updating, setUpdating] = useState<PluginSourceUpdate>();
+  const [safeMode, setSafeMode] = useState(false);
+  const runtimeService = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.runtimeService;
+  const restart = (mode: boolean) => void runtimeService?.restart({ safeMode: mode }).catch((cause: unknown) => setError(errorMessage(cause)));
   const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
@@ -92,6 +97,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     return () => clearInterval(timer);
   }, [serviceGeneration]);
 
+  // Where installed plugins came from is checked when the page opens, and again after one is added.
+  const readUpdates = () => void waitForRuntime().then(readPluginUpdates).then(setUpdates, () => {});
+  useEffect(readUpdates, [serviceGeneration]);
+  useEffect(() => { void waitForRuntime().then(readPluginStatus).then((status) => setSafeMode(status.safeMode), () => {}); }, [serviceGeneration]);
+  const added = (id: string) => void reload().then(() => { readUpdates(); onPluginChange(id); });
+
   function createWithAi(): void {
     void openPluginBuilder().catch(cause => setError(errorMessage(cause)));
   }
@@ -100,7 +111,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const groups = groupStorePlugins(store);
   const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
-  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(everyProject.busy)}
+  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
     onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
   // Plugins group by what they are for; each card says whether it is on in every project.
   const published = matching.filter(({ plugin }) => !madeByPerson(plugin));
@@ -124,6 +135,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },
+    // For a plugin that breaks the app: everything starts again with no plugin running.
+    ...(runtimeService && !safeMode ? ["separator" as const, { label: t("pluginSafeMode.restartSafe"), icon: <RotateCcw size={14} />, onSelect: () => restart(true) }] : []),
   ];
   const searchCopy = tab === "skills"
     ? { placeholder: t("plugins.searchSkills"), label: t("plugins.searchSkillsLabel") }
@@ -209,12 +222,17 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
 
   return <section className="plugins-page">
+    {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
+      ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
+      {t("pluginSafeMode.hint")}
+    </Alert></div> : null}
     {pluginId ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={pluginId} group={detail} market={market} onUpdate={setAdding} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
+        ? <StorePluginDetail key={pluginId} group={detail} market={market} updates={updates} onUpdate={setAdding}
+          onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
         : phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => void load()} />}
     </> : <>
@@ -236,9 +254,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}
       </div>
     </>}
-    {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {everyProject.dialog}
-    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); added(id); }} /> : null}
+    {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}
   </section>;
 
   function showCatalog(): void {

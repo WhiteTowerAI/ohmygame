@@ -94,7 +94,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginSkillContent } from "../shared/plugins.js";
+import type { PluginLogView, PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -826,8 +826,38 @@ export async function setStorePluginEnabled(id: string, enabled: boolean): Promi
   void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
 }
 
-export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+/** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
+export function readPluginLog(id: string): Promise<PluginLogView> {
+  return request(`/plugin-store/${pluginPath(id)}/log`);
+}
+
+/** Adds a panel's uncaught error to its plugin's log. */
+export async function reportPluginPanelError(id: string, text: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/log`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+}
+
+/** Whether the service started in safe mode, with no plugin running. */
+export function readPluginStatus(): Promise<{ safeMode: boolean }> {
+  return request("/plugin-store/status");
+}
+
+/** Newer packages where installed plugins came from; checked at startup and when the Plugins page opens. */
+export function readPluginUpdates(): Promise<PluginSourceUpdate[]> {
+  return request("/plugin-store/updates");
+}
+
+/** The projects using each installed version of a plugin. */
+export function readPluginUsage(id: string): Promise<Record<string, string[]>> {
+  return request(`/plugin-store/${pluginPath(id)}/usage`);
+}
+
+export function readPluginUninstall(id: string, version: string): Promise<PluginUninstallPreview> {
+  return request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}/uninstall`);
+}
+
+/** Uninstalls a version; `keepData` keeps the last version's settings and data for a later install. */
+export async function uninstallStorePlugin(id: string, version: string, options: { keepData?: boolean } = {}): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}${options.keepData ? "?keepData=true" : ""}`, { method: "DELETE" });
   void syncPluginTheme(listPluginThemes, id);
 }
 

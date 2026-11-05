@@ -137,7 +137,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type PluginTheme, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import type { WorkspaceFile } from "../shared/contracts.js";
@@ -216,6 +216,8 @@ export interface AppOptions {
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
   preinstalledPluginsDirectory?: string;
+  /** Safe mode: every plugin is off, its own choices kept for when the app starts normally. */
+  pluginSafeMode?: boolean;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -598,6 +600,8 @@ const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 /** Why a story made before web stories cannot play, build, or publish yet. */
 const NEEDS_UPGRADE = "This story was made before stories played as their own web page. Ask the user to open it in the Story editor, which upgrades it, then try again.";
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
+const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -851,6 +855,7 @@ export function createApp(options: AppOptions = {}) {
     bundledOff: BUNDLED_PLUGINS_OFF,
     projectKind: projectKindAtFolder,
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
+    ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the plugins"));
@@ -1064,6 +1069,10 @@ export function createApp(options: AppOptions = {}) {
   }, (projectId, conversationId, messages) => events.publish(projectId, "scheduled.changed", { messages }, { conversationId }));
   agents = new AgentManager(events, {
     onActivityChange: notifyProjectActivity,
+    onMcpToolFailed: (server, tool, message) => {
+      const plugin = pluginServices.mcpServerPlugin(server);
+      if (plugin) pluginServices.logs.add(plugin, { level: "error", source: "mcp", text: `MCP tool ${tool} failed: ${message || "no details"}` });
+    },
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
@@ -1229,6 +1238,8 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
+    // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
+    void pluginUpdates.check();
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
@@ -1376,6 +1387,7 @@ export function createApp(options: AppOptions = {}) {
         ...(added ? { origin: added } : {}),
         ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
+        ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
         ...(entry.manifest.beta ? { beta: true } : {}),
         // The digest changes with the package, which holds the icon.
@@ -1413,6 +1425,17 @@ export function createApp(options: AppOptions = {}) {
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
   });
   const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
+  // The last check, shared by the startup check and every Plugins page opened within a few minutes of it.
+  const pluginUpdates = {
+    last: undefined as { at: number; result: Promise<PluginSourceUpdate[]> } | undefined,
+    check(): Promise<PluginSourceUpdate[]> {
+      if (!this.last || Date.now() - this.last.at > PLUGIN_UPDATE_CHECK_REUSE_MS)
+        this.last = { at: Date.now(), result: pluginSources.updates().catch(() => []) };
+      return this.last.result;
+    },
+  };
+  app.get("/plugin-store/updates", (): Promise<PluginSourceUpdate[]> => pluginUpdates.check());
+  app.get("/plugin-store/status", (): { safeMode: boolean } => ({ safeMode: pluginServices.safeMode }));
   const pluginSourceBody = {
     type: "object",
     required: ["type"],
@@ -1453,6 +1476,8 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     try {
       const { id, version } = await pluginSources.install(request.body.source, request.body.digest);
+      // What it updated from is out of date now.
+      pluginUpdates.last = undefined;
       return await reply.code(201).send({ id, version });
     } catch (cause) {
       return sourceReply(reply, cause);
@@ -1526,12 +1551,52 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
-  app.delete<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version", async (request, reply) => {
+  /** The names of the projects using each version of a plugin. */
+  const projectsUsingPlugin = async (id: string): Promise<Record<string, string[]>> => {
+    const using: Record<string, string[]> = {};
+    for (const project of projects.list()) {
+      const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
+      const state = resolved?.ok ? resolved.plugins.find((item) => item.id === id) : undefined;
+      if (state) (using[state.version] ??= []).push(project.name);
+    }
+    for (const names of Object.values(using)) names.sort((a, b) => a.localeCompare(b));
+    return using;
+  };
+  // What uninstalling a version removes, and the projects that use it, for the person to see first.
+  app.get<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version/uninstall", async (request, reply): Promise<PluginUninstallPreview | undefined> => {
+    await pluginServices.ready();
+    const id = `${request.params.publisher}/${request.params.name}`;
+    if (!pluginServices.index.get(id, request.params.version)) return reply.code(404).send({ error: `${id} ${request.params.version} is not installed` });
+    const preview = await pluginServices.uninstallPreview(id, request.params.version);
+    return { ...preview, projects: (await projectsUsingPlugin(id))[request.params.version] ?? [] };
+  });
+  // A plugin's log, redacted, and whether it is quarantined; a panel's uncaught errors are added from the app.
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/log", async (request): Promise<PluginLogView> => {
+    await pluginServices.ready();
+    return pluginServices.log(`${request.params.publisher}/${request.params.name}`);
+  });
+  app.post<{ Params: { publisher: string; name: string }; Body: { text: string } }>("/plugin-store/:publisher/:name/log", {
+    schema: { body: { type: "object", required: ["text"], additionalProperties: false, properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
+  }, async (request, reply) => {
+    await pluginServices.ready();
+    const id = `${request.params.publisher}/${request.params.name}`;
+    if (!pluginServices.index.get(id)) return reply.code(404).send({ error: `${id} is not installed` });
+    pluginServices.logs.add(id, { level: "error", source: "panel", text: request.body.text });
+    return reply.code(204).send();
+  });
+  // Which projects use each installed version, so older ones no project uses can go.
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/usage", async (request): Promise<Record<string, string[]>> => {
+    await pluginServices.ready();
+    return projectsUsingPlugin(`${request.params.publisher}/${request.params.name}`);
+  });
+  app.delete<{ Params: { publisher: string; name: string; version: string }; Querystring: { keepData?: string } }>("/plugin-store/:publisher/:name/:version", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { keepData: { type: "string", enum: ["true"] } } } },
+  }, async (request, reply) => {
     await pluginServices.ready();
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    await pluginServices.uninstall(id, request.params.version);
+    await pluginServices.uninstall(id, request.params.version, { keepData: request.query.keepData === "true" });
     if (!pluginServices.index.versions(id).length) await preinstalledPlugins.markRemoved(id);
     return reply.code(204).send();
   });
@@ -1566,6 +1631,10 @@ export function createApp(options: AppOptions = {}) {
         // The version turning it on gives, which a version the project pins differs from.
         version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
+        // Installed versions that work here, newest first, to move the project between.
+        versions: pluginServices.index.versions(id)
+          .filter((item) => !pluginApiIssue(item.manifest) && (appWidePluginSuits(item.manifest.appliesTo, kind) || owner === id))
+          .map((item) => item.version),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),
         capabilities: requested,
