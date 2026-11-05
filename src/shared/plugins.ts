@@ -6,7 +6,8 @@ import type { PreviewColorFilter } from "./preview-filter.js";
 import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
-  | { type: "github"; repository: string; commit: string; release?: string }
+  /** `ref`: the branch or tag it was added from; without one, the default branch. */
+  | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
   | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
@@ -68,9 +69,13 @@ export interface PluginAddPreview {
   asks: string[];
   skills: number;
   mcpServers: string[];
+  /** Events the plugin's code hears about, from `contributes.hooks`. */
+  hooks?: string[];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
+  /** With a version installed: what it asks that the person hasn't allowed yet, the only part asked again. */
+  newAsks?: string[];
   origin?: PluginOrigin;
 }
 
@@ -272,6 +277,8 @@ export interface StorePlugin {
   origin?: PluginOrigin;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
+  /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
+  quarantined?: true;
   categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
@@ -288,7 +295,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -418,6 +425,47 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
+/** A newer package where an installed plugin came from: npm's `latest`, or a new commit on its GitHub branch or tag. */
+export interface PluginSourceUpdate {
+  id: string;
+  /** The npm version, or for GitHub the commit, it would read. */
+  version?: string;
+  commit?: string;
+  /** Read and reviewed in the Add plugin dialog, like any package. */
+  source: PluginAddSource;
+}
+
+/** One line of a plugin's log: what its native code printed, or something of its that failed. */
+export interface PluginLogEntry {
+  /** ISO time. */
+  at: string;
+  level: "info" | "warn" | "error";
+  /** `native`: its code printed it; `call`: a tool, command or hook failed; `host`: its extension host stopped; `mcp`: an MCP service failed; `panel`: a page hit an uncaught error. */
+  source: "native" | "call" | "host" | "mcp" | "panel";
+  text: string;
+}
+
+/** A plugin's log, credentials redacted, and whether it is quarantined. */
+export interface PluginLogView {
+  entries: PluginLogEntry[];
+  /** It stopped its extension host too often; it stays off until it is turned on again or OhMyGame restarts. */
+  quarantined: boolean;
+}
+
+/** What uninstalling a version, or a plugin's every version, removes and leaves. */
+export interface PluginUninstallPreview {
+  /** No version is left after it, so its permissions go too. */
+  last: boolean;
+  /** Saved settings and sign-ins removed with the last version, unless kept. */
+  settings: number;
+  /** The size of its data folder, removed with the last version unless kept. */
+  dataBytes: number;
+  /** Files its manifest says it leaves in projects; uninstalling doesn't touch them. */
+  projectFiles: string[];
+  /** Projects that use the removed version, which stop running it. */
+  projects: string[];
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;
@@ -427,6 +475,8 @@ export interface ProjectPluginItem {
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
+  /** Installed versions that work in the project, newest first, to update or go back to. */
+  versions: string[];
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** On in every project it suits, as set on the Plugins page. */

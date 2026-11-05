@@ -259,6 +259,22 @@ describe("plugin catalog API", () => {
     // The project reads its panels after indexing, so indexing tells it nothing.
     expect(await replayed()).not.toContain("project.plugins.changed");
 
+    // What uninstalling would remove is read first; a version that isn't installed has nothing to say.
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/1.0.0/uninstall" })).json()).toEqual({ last: true, settings: 0, dataBytes: 0, projectFiles: [], projects: [] });
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/9.9.9/uninstall" })).statusCode).toBe(404);
+    // No project uses it, and one that ships with the app has nowhere to update from.
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/usage" })).json()).toEqual({});
+    expect((await app.inject({ method: "GET", url: "/plugin-store/updates" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/plugin-store/status" })).json()).toEqual({ safeMode: false });
+    // A panel's uncaught error joins the plugin's log, which the page reads back; only an installed plugin has one.
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/log" })).json()).toEqual({ entries: [], quarantined: false });
+    expect((await app.inject({ method: "POST", url: "/plugin-store/ohmygame/godot/log", payload: { text: "Editor: TypeError: token=abc123 is undefined" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/plugin-store/ohmygame/godot/log" })).json()).toEqual({
+      entries: [{ at: expect.any(String), level: "error", source: "panel", text: "Editor: TypeError: token=[redacted] is undefined" }],
+      quarantined: false,
+    });
+    expect((await app.inject({ method: "POST", url: "/plugin-store/acme/missing/log", payload: { text: "x" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0?keepData=yes" })).statusCode).toBe(400);
     // A plugin that ships with the app only turns off.
     const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });
     expect(removed.statusCode).toBe(409);
@@ -438,5 +454,7 @@ describe("plugin catalog API", () => {
     const unity = ((await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as typeof store).find((plugin) => plugin.id === "ohmygame/unity");
     expect(unity?.everyProject).toBe(true);
     expect(store.every((plugin) => plugin.bundled)).toBe(true);
+    // Approvals go to an installed plugin, so none wait for a package added later under that id.
+    expect((await app.inject({ method: "POST", url: "/plugin-store/acme/later/consent", payload: { allowed: ["native"] } })).statusCode).toBe(409);
   });
 });

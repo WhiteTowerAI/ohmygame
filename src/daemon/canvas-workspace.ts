@@ -511,7 +511,8 @@ export class CanvasStore {
       const running = nodeJobs.find((job) => job.status === "running");
       if (running && reuse) return { reused: "running" as const, job: running };
       if (running) throw new CanvasError("This node is already generating", 409);
-      const resolved = await this.tools.prepare(toolId, input, id);
+      // Only a retry passes a recovery id; its input was prepared, and plugins changed it, the first time.
+      const resolved = await this.tools.prepare(toolId, input, id, { hooksApplied: recoveryId !== undefined });
       const inputRevision = revision(resolved), latest = nodeJobs.find((job) => job.status !== "cancelled");
       const currentAssetId = (node.data as { assetId?: string }).assetId;
       if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && currentAssetId && latest.run?.files[0]?.assetId === currentAssetId) return { reused: "output" as const, job: await this.#reused(id, latest, upstream) };
@@ -805,7 +806,7 @@ export class CanvasStore {
       await withCanvasLock(this.#project(id).workspacePath, async () => {
         if (controller.signal.aborted) return;
         const workspace = this.#project(id).workspacePath, boardId = job.context!.boardId!;
-        await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!]);
+        await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
           const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music", "generate-audio": "audio-scene" } as Partial<Record<ToolId, string>>)[toolId];

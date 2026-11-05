@@ -1,5 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { format } from "node:util";
 import {
   EXTENSION_HOST_PROTOCOL_VERSION,
   PROJECT_TYPE_HOOKS,
@@ -28,6 +30,8 @@ interface LoadedPlugin {
   commands: Map<string, ToolHandler>;
   /** Project type hooks, keyed `<type>:<hook>`. */
   projectTypes: Map<string, ToolHandler>;
+  /** Event hooks, by event. */
+  hooks: Map<string, ToolHandler>;
   disposers: Array<() => void | Promise<void>>;
   deactivate?: () => void | Promise<void>;
 }
@@ -121,6 +125,28 @@ const cut = (text: string) =>
     ? `${text.slice(0, HOST_MESSAGE_MAX_CHARS - 1)}…`
     : text;
 
+// What a plugin prints through `console` while its code runs (activating, a
+// call, or what those started) goes to the daemon under its id, for its log.
+// Anything else, such as a child process's output, stays the host's.
+const runningPlugin = new AsyncLocalStorage<string>();
+for (const [method, level] of [["log", "info"], ["info", "info"], ["debug", "info"], ["warn", "warn"], ["error", "error"]] as const) {
+  const original = console[method].bind(console);
+  console[method] = (...args: unknown[]) => {
+    const plugin = runningPlugin.getStore();
+    if (!plugin || !process.connected) {
+      original(...args);
+      return;
+    }
+    let text: string;
+    try {
+      text = format(...args);
+    } catch {
+      text = "(a value that couldn't be printed)";
+    }
+    send({ type: "log", plugin, level, text: cut(text) });
+  };
+}
+
 const errorMessage = (error: unknown) => {
   try {
     return cut(error instanceof Error ? error.message : String(error));
@@ -142,12 +168,13 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     tools: new Map(),
     commands: new Map(),
     projectTypes: new Map(),
+    hooks: new Map(),
     disposers: [],
   };
   // Only what the manifest declares can be registered, so the index, the
   // agent and the person see every tool before it runs.
   const register = (
-    kind: "tool" | "command" | "projectType",
+    kind: "tool" | "command" | "projectType" | "hook",
     declared: string[],
     handlers: Map<string, ToolHandler>,
     name: string,
@@ -194,6 +221,8 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
       });
       return { dispose: () => disposables.forEach((item) => item.dispose()) };
     },
+    registerHook: (event, handler) =>
+      register("hook", plugin.hooks, loaded.hooks, event, handler),
     onDispose(dispose) {
       loaded.disposers.push(dispose);
     },
@@ -228,6 +257,7 @@ async function disposeAll(loaded: LoadedPlugin) {
   loaded.tools.clear();
   loaded.commands.clear();
   loaded.projectTypes.clear();
+  loaded.hooks.clear();
   for (const dispose of loaded.disposers.splice(0).reverse())
     await Promise.resolve()
       .then(dispose)
@@ -254,7 +284,9 @@ async function invoke(
       ? loaded?.commands
       : request.kind === "projectType"
         ? loaded?.projectTypes
-        : loaded?.tools
+        : request.kind === "hook"
+          ? loaded?.hooks
+          : loaded?.tools
   )?.get(request.name);
   if (!handler)
     throw new Error(
@@ -304,14 +336,14 @@ process.on("message", (message: HostRequest) => {
         });
         return;
       }
-      track(activate(message.id, message.plugin)).catch((error) =>
+      track(runningPlugin.run(message.plugin.id, () => activate(message.id, message.plugin))).catch((error) =>
         send({ type: "error", id: message.id, message: errorMessage(error) }),
       );
       return;
     case "invoke": {
       const controller = new AbortController();
       calls.set(message.id, controller);
-      invoke(message, controller)
+      runningPlugin.run(message.plugin, () => invoke(message, controller))
         .catch((error) =>
           send({
             type: "error",
@@ -334,7 +366,7 @@ process.on("message", (message: HostRequest) => {
       return;
     }
     case "deactivate":
-      track(deactivate(message.plugin)).then(
+      track(runningPlugin.run(message.plugin, () => deactivate(message.plugin))).then(
         () => send({ type: "result", id: message.id, value: null }),
         (error) =>
           send({ type: "error", id: message.id, message: errorMessage(error) }),

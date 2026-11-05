@@ -1,4 +1,5 @@
 import type { GameTuningState } from "../shared/game-tuning.js";
+import { HOOK_FILES_MAX } from "../shared/plugin-hooks.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -101,17 +102,22 @@ import {
   deletePluginFile,
   getPluginPageValue,
   listPluginFiles,
+  getPluginHistory,
+  getPluginUsage,
   movePluginFile,
   readPluginFile,
   writePluginFile,
   setPluginPageValue,
   runPluginCommand,
+  reportPluginPanelError,
+  setStorePluginEnabled,
   undoProjectPluginChange,
   type PluginPanel,
   skipLimitResume,
   updateAgentRuntime,
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
+import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
@@ -124,7 +130,7 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
-import { imageAttachment } from "./composer-attachments.js";
+import { appendAttachments, attachmentFiles, imageAttachment } from "./composer-attachments.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
@@ -142,7 +148,7 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
+import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -303,6 +309,13 @@ export function ProjectShell({
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
   const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
+  /** The latest files the daemon saw change, for pages that read the project's files. */
+  const [pluginFileChange, setPluginFileChange] = useState<{ paths: string[]; truncated?: boolean }>();
+  /** Changes that arrived since pages last heard: several can come before one render. */
+  const pendingFileChange = useRef<{ paths: string[]; truncated?: boolean }>(undefined);
+  useEffect(() => { pendingFileChange.current = undefined; }, [pluginFileChange]);
+  /** Each plugin's hooks show at most as many notices as its pages may show toasts. */
+  const noticeLimits = useRef(new Map<string, () => boolean>());
   const [pluginToolbarRuns] = useState(() => new Set<(run: PluginToolbarRun) => void>());
   const onPluginToolbarRun = useCallback((listener: (run: PluginToolbarRun) => void) => {
     pluginToolbarRuns.add(listener);
@@ -310,6 +323,10 @@ export function ProjectShell({
   }, [pluginToolbarRuns]);
   /** The question a plugin's page is asking, in a dialog the app draws. */
   const [pluginConfirm, setPluginConfirm] = useState<{ panel: PanelId; plugin: string; request: PluginUiConfirm; answer: (yes: boolean) => void }>();
+  // The plugin whose log is open, from an error it caused.
+  const [pluginLog, setPluginLog] = useState<string>();
+  // A panel's uncaught errors go to its log; the first one each session says so.
+  const pluginErrorsShown = useRef(new Set<string>());
   const pluginConfirmOpen = useRef(false);
   // A question from a panel that's gone has nobody to answer to.
   useEffect(() => {
@@ -414,6 +431,16 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
+        if (event.type === "project.files.changed") {
+          pendingFileChange.current = mergeFileChanges(pendingFileChange.current, event.data);
+          setPluginFileChange(pendingFileChange.current);
+        }
+        if (event.type === "plugin.notice") {
+          const limits = noticeLimits.current;
+          if (!limits.has(event.data.plugin)) limits.set(event.data.plugin, rateLimit(PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS));
+          // Under the plugin's id, as its pages' toasts are.
+          if (limits.get(event.data.plugin)!()) toast({ title: event.data.plugin, description: event.data.message, ...(event.data.tone === "danger" ? { tone: "danger" } : {}) });
+        }
         if (event.type === "plugin.command.progress") {
           setPluginProgress({ command: event.data.command, message: event.data.message });
           if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
@@ -1158,9 +1185,17 @@ export function ProjectShell({
       return { result };
     } catch (cause) {
       const error = errorMessage(cause);
-      toast({ title: command.title, description: error, tone: "danger" });
+      toast({ title: command.title, description: t("pluginLog.commandFailed", { plugin: command.plugin, error }), tone: "danger",
+        action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(command.plugin) } });
       return { error };
     }
+  }
+  /** Turns a plugin off everywhere, as from a panel that stopped responding. */
+  function turnPluginOff(plugin: string): void {
+    void setStorePluginEnabled(plugin, false).then(
+      () => setCapabilitiesRevision((value) => value + 1),
+      (cause: unknown) => toast({ title: plugin, description: errorMessage(cause), tone: "danger" }),
+    );
   }
   /** A build is read from disk, so pending edits are saved first, as for Export web build. */
   async function saveBeforeBuild(command: ProjectPluginCommand | undefined): Promise<void> {
@@ -1204,11 +1239,19 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} onToolbarRun={onPluginToolbarRun} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} fileChange={pluginFileChange} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
       toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
+      reportError: (message) => {
+        void reportPluginPanelError(panel.plugin, `${panel.title}: ${message}`).catch(() => {});
+        if (pluginErrorsShown.current.has(panel.plugin)) return;
+        pluginErrorsShown.current.add(panel.plugin);
+        toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
+          action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
+      },
+      turnOff: () => turnPluginOff(panel.plugin),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
@@ -1221,7 +1264,17 @@ export function ProjectShell({
       capabilities: panel.capabilities,
       commands: panel.commands,
       project: () => ({ name: current.name, type: current.pluginType?.id ?? current.type }),
-      fillComposer: (text) => requestPrompt(text),
+      fillComposer: (text, files) => {
+        if (!state.conversation) throw new Error("There is no conversation to fill");
+        // Checked before anything goes in, so a page's files that don't fit leave the composer as it was.
+        const draft = composerDrafts.get({ projectId, conversationId: state.conversation.id });
+        const attachments = files.length ? appendAttachments(draft.getSnapshot().attachments, attachmentFiles(files)) : undefined;
+        if (attachments) draft.update({ attachments });
+        if (text) requestPrompt(text);
+        else revealPanel("chat");
+      },
+      history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
+      usage: () => getPluginUsage(current.id, panel.plugin),
       storage: {
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
@@ -1462,6 +1515,8 @@ export function ProjectShell({
       {pluginConfirm.request.message ? <p className="plugin-confirm-message">{pluginConfirm.request.message}</p> : null}
       <p className="plugin-confirm-source">{t("pluginCommands.askedBy", { plugin: pluginConfirm.plugin })}</p>
     </Dialog> : null}
+    {pluginLog ? <PluginLogDialog plugin={pluginLog} displayName={pluginLog} onClose={() => setPluginLog(undefined)}
+      onChanged={() => setCapabilitiesRevision((value) => value + 1)} /> : null}
     {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
       onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
       onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
@@ -1791,4 +1846,15 @@ async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/** Two batches of changed files as one, with no more paths than one event carries. */
+export function mergeFileChanges(
+  earlier: { paths: string[]; truncated?: boolean } | undefined,
+  later: { paths: string[]; truncated?: boolean },
+): { paths: string[]; truncated?: boolean } {
+  if (!earlier) return { ...later };
+  const all = [...new Set([...earlier.paths, ...later.paths])].sort();
+  const truncated = earlier.truncated || later.truncated || all.length > HOOK_FILES_MAX;
+  return { paths: all.slice(0, HOOK_FILES_MAX), ...(truncated ? { truncated: true } : {}) };
 }

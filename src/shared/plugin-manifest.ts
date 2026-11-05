@@ -7,6 +7,7 @@ import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./p
 import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
+import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -128,6 +129,10 @@ const Capabilities = Type.Object(
     "project.selection": Type.Optional(Type.Boolean()),
     "project.files": Type.Optional(Literals(["read", "write"])),
     composer: Type.Optional(Type.Boolean()),
+    /** Pages read the project's turns that changed files. */
+    "project.history": Type.Optional(Type.Boolean()),
+    /** Pages read what the project's conversations used. */
+    "project.usage": Type.Optional(Type.Boolean()),
     agent: Type.Optional(Type.Boolean()),
     /**
      * Native code may play the project's game as the agent's game_use does
@@ -674,6 +679,13 @@ export const PluginManifestV2Schema = Type.Object(
     ),
     capabilities: Type.Optional(Capabilities),
     /**
+     * Files or folders, such as `./.maker/`, the plugin leaves in a project.
+     * Uninstalling lists them and leaves them, since they're the project's.
+     */
+    projectFiles: Type.Optional(
+      Type.Array(RelativePath(), { minItems: 1, maxItems: 20, uniqueItems: true }),
+    ),
+    /**
      * The plugin's pages: `major` is the version of the page components they
      * use, `preview` lets them load one still in preview, and `accent` is its
      * brand colour, used for progress, selection and links where it stands out
@@ -720,6 +732,10 @@ export const PluginManifestV2Schema = Type.Object(
           previewDevices: list(PreviewDevice),
           previewFilters: list(PreviewFilter),
           inputMaps: list(InputMap),
+          /** Events the native entry hears about; see `PluginHookInputs`. */
+          hooks: Type.Optional(
+            Type.Array(Literals(PLUGIN_HOOKS), { minItems: 1, uniqueItems: true }),
+          ),
           canvasNodes: list(CanvasNode),
           canvasPresets: list(CanvasPreset),
         },
@@ -853,6 +869,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
   if (contributes.tools && !native)
     issue("/contributes/tools", "tools run in the native entrypoint");
+  if (contributes.hooks && !native)
+    issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
     if (agentToolName(manifest.id, tool.name).length > AGENT_TOOL_NAME_MAX)
       issue(

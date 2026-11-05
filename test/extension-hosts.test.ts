@@ -19,6 +19,8 @@ import {
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { createApp } from "../src/daemon/app.js";
 import { NativePlugins } from "../src/daemon/native-plugins.js";
+import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/plugin-hooks.js";
+import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import {
@@ -44,6 +46,17 @@ import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
+  chatty: `
+    export function activate(context) {
+      console.log("starting", { ready: true });
+      context.registerTool("later", () => new Promise((resolve) => setTimeout(() => { console.warn("after a while"); resolve("ok"); }, 10)));
+      context.registerTool("fail", () => { throw new Error("nope"); });
+      context.registerTool("forge", () => {
+        process.send({ type: "log", plugin: "test/elsewhere", level: "error", text: "not mine" });
+        return "sent";
+      });
+    }
+  `,
   tools: `
     let activations = 0;
     export function activate(context) {
@@ -172,6 +185,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const TOOLS: Record<string, string[]> = {
+  chatty: ["later", "fail", "forge"],
   tools: [
     "echo",
     "pid",
@@ -206,6 +220,7 @@ const plugin = (name: string, version = "1.0.0"): ExtensionHostPlugin => ({
   commands: name === "tools" ? ["greet"] : [],
   projectTypes: [],
   game: false,
+  hooks: [],
 });
 
 /** Two versions of one plugin, in their own folders. */
@@ -397,6 +412,33 @@ describe("extension hosts", () => {
         input: "back",
       }),
     ).toMatchObject({ input: "back" });
+  });
+
+  it("logs what each plugin prints and what of it fails, under its own id", async () => {
+    const logged: Array<[string, string, string, string]> = [];
+    const extensionHosts = hosts({ crashLimit: 2, onLog: (id, entry) => logged.push([id, entry.level, entry.source, entry.text]) });
+    const call = (name: string, tool: string) => extensionHosts.invoke({ scope: "app", plugin: plugin(name), tool });
+    expect(await call("chatty", "later")).toBe("ok");
+    await failure(call("chatty", "fail"));
+    // Another plugin's name can't be borrowed.
+    expect(await call("chatty", "forge")).toBe("sent");
+    await failure(call("tools", "crash"));
+    await failure(call("tools", "crash"));
+    await vi.waitFor(() => expect(logged.filter(([id]) => id === "test/tools")).toHaveLength(5));
+    // What a plugin's own code printed or threw is in order; a crash also says its host stopped, twice here, then that it is off.
+    expect(logged.filter(([id]) => id === "test/chatty")).toEqual([
+      ["test/chatty", "info", "native", "starting { ready: true }"],
+      ["test/chatty", "warn", "native", "after a while"],
+      ["test/chatty", "error", "call", "Tool fail failed: nope"],
+    ]);
+    const tools = logged.filter(([id]) => id === "test/tools").map(([, , source, text]) => `${source}: ${text}`);
+    expect(tools.filter((line) => line.startsWith("call: Tool crash failed"))).toHaveLength(2);
+    expect(tools.filter((line) => line.startsWith("host: Its extension host stopped"))).toHaveLength(2);
+    expect(tools).toContainEqual(expect.stringMatching(/^host: Turned off: it stopped its extension host 2 times/));
+    expect(logged.some(([id]) => id === "test/elsewhere")).toBe(false);
+    // A refused call isn't the plugin's failure.
+    await failure(call("tools", "echo"));
+    expect(logged.filter(([, , , text]) => text.includes("quarantined"))).toEqual([]);
   });
 
   it("reports a plugin that fails to activate and keeps the host for others", async () => {
@@ -1580,6 +1622,7 @@ describe("plugin settings and commands", () => {
       path.join(dir, "index.mjs"),
       `export function activate(context) {
         context.registerTool("settings", (_input, call) => call.configuration);
+        context.registerTool("leak", () => { throw new Error("The service refused s3cret"); });
       }`,
     );
     await writeFile(
@@ -1598,7 +1641,10 @@ describe("plugin settings and commands", () => {
           token: { type: "secret", title: "Token" },
         },
         contributes: {
-          tools: [{ name: "settings", description: "Echoes settings.", input: "./tools/empty.json" }],
+          tools: [
+            { name: "settings", description: "Echoes settings.", input: "./tools/empty.json" },
+            { name: "leak", description: "Fails with the token.", input: "./tools/empty.json" },
+          ],
           commands: [
             { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
@@ -1623,6 +1669,8 @@ describe("plugin settings and commands", () => {
       await services.configure("acme/keys", { engine: "/opt/engine", token: "s3cret" });
       // Without `capabilities.secrets`, native code never sees the token.
       expect(await call()).toEqual({ engine: "/opt/engine", mode: "safe" });
+      // Its errors reach a toast, a page or an agent with saved secrets taken out, as its log does.
+      await expect(services.callTool(services.index.get("acme/keys")!, "leak", { folder })).rejects.toThrow("The service refused [redacted]");
       expect(services.values.view(services.index.get("acme/keys")!)).toEqual({
         engine: { type: "path", value: "/opt/engine" },
         mode: { type: "select", value: "safe" },
@@ -1657,6 +1705,201 @@ describe("plugin settings and commands", () => {
     } finally {
       await services.close();
       await Promise.all([data, folder].map((item) => rm(item, { recursive: true, force: true })));
+    }
+  });
+});
+
+// --- Hooks -------------------------------------------------------------------
+
+/** A native plugin that hears `hooks`, with `code` as its activate's body. */
+async function hookPackage(name: string, hooks: string[], code: string) {
+  const dir = path.join(root, `packages/hooks-${name}`);
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await writeFile(path.join(dir, "index.mjs"), `export async function activate(context) {\n${code}\n}`);
+  await writeFile(
+    path.join(dir, ".ohmygame-plugin/plugin.json"),
+    JSON.stringify({
+      id: `acme/${name}`,
+      version: "1.0.0",
+      engines: { "ohmygame-api": "^2.3.0" },
+      displayName: name,
+      description: "Hears about the project.",
+      entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true },
+      contributes: { hooks },
+    }),
+  );
+  return dir;
+}
+
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
+  const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
+  const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
+  const index = new PluginIndex(path.join(data, "plugin-index.json"));
+  const grants = new PluginGrants(path.join(data, "plugin-grants.json"));
+  await grants.load();
+  const resolve = (project: string) => resolveProjectPlugins({ folder: project, index, grants });
+  const runtime = new NativePlugins({ index, resolve, hosts: hosts({ onLog: options.onLog }), dataFolder: (id) => path.join(data, "plugin-data", id) });
+  const ids: string[] = [];
+  for (const dir of packages) {
+    const result = await index.add(dir);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    ids.push(result.entry.id);
+  }
+  const plugins = Object.fromEntries(ids.map((id) => [id, "1.0.0"]));
+  await writeProjectFile(folder, (file) => ({ ...file, plugins }), { type: "general", plugins });
+  const key = await projectFolderKey(folder);
+  for (const id of ids) {
+    await grants.consent(id, ["native"]);
+    await grants.approve(key, id, ["native"]);
+  }
+  const notices: PluginNotice[] = [];
+  const errors: Array<{ plugin: string; event: string; message: string }> = [];
+  const hooks = new PluginHooks({
+    resolve,
+    native: runtime,
+    onNotice: (_folder, notice) => notices.push(notice),
+    onError: (plugin, event, error) => errors.push({ plugin, event, message: error instanceof Error ? error.message : String(error) }),
+  });
+  return {
+    folder,
+    key,
+    runtime,
+    hooks,
+    notices,
+    errors,
+    cleanup: () => Promise.all([data, folder].map((dir) => rm(dir, { recursive: true, force: true }))),
+  };
+}
+
+const STYLE_PACK = `
+  context.registerHook("image.beforeGenerate", (input) => ({
+    prompt: input.prompt + ", pixel art, 16 colours",
+    ...(input.resolution ? { aspectRatio: "16:9" } : {}),
+  }));`;
+
+/** Checks the files a turn changed for anything that looks like a key. */
+const SECRET_CHECK = `
+  const { readFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+  context.registerHook("turn.completed", async (input) => {
+    const found = [];
+    for (const change of input.changes) {
+      if (change.kind === "removed") continue;
+      const text = await readFile(path.join(context.project.folder, change.path), "utf8");
+      if (/sk-[A-Za-z0-9]{20,}/.test(text)) found.push(change.path);
+    }
+    return found.length ? { notice: "Possible secret in " + found.join(", "), tone: "danger" } : undefined;
+  });`;
+
+describe("plugin hooks", () => {
+  it("lets a style pack change an image's prompt and settings, and records it", async () => {
+    const setup = await hookSetup([await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK)]);
+    try {
+      const configured = await setup.hooks.beforeImage(setup.folder, { prompt: "a knight", resolution: "1K", aspectRatio: "1:1" });
+      expect(configured).toEqual({
+        prompt: "a knight, pixel art, 16 colours",
+        resolution: "1K",
+        aspectRatio: "16:9",
+        requestedPrompt: "a knight",
+        pluginChanges: [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt", "aspectRatio"] }],
+      });
+      const sized = await setup.hooks.beforeImage(setup.folder, { prompt: "a castle", size: "1024x1024" });
+      expect(sized).toMatchObject({ prompt: "a castle, pixel art, 16 colours", size: "1024x1024", pluginChanges: [{ fields: ["prompt"] }] });
+      expect(setup.errors).toEqual([]);
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("refuses an image change a plugin may not make, and keeps the request", () => {
+    const sized = { prompt: "a cat", size: "1024x1024" } as const;
+    // A sized request can't switch to resolution and aspect ratio.
+    expect(() => applyImageChange(sized, { aspectRatio: "16:9" })).toThrow("uses size");
+    expect(() => applyImageChange(sized, { images: [] })).toThrow("can't change images");
+    expect(() => applyImageChange(sized, { prompt: "" })).toThrow("prompt");
+    expect(() => applyImageChange(sized, { size: "999x999" })).toThrow("size must be one of");
+    expect(() => applyImageChange(sized, "pixel art")).toThrow("object of changes");
+    expect(applyImageChange(sized, undefined)).toEqual({ request: sized, fields: [] });
+    // Setting what is already there changes nothing.
+    expect(applyImageChange(sized, { prompt: "a cat", size: "1024x1024" }).fields).toEqual([]);
+    expect(applyImageChange(sized, { imageModel: { provider: "openai", id: "gpt-image-1", extra: true } })).toEqual({
+      request: { ...sized, imageModel: { provider: "openai", id: "gpt-image-1" } },
+      fields: ["imageModel"],
+    });
+  });
+
+  it("tells plugins that hear an event, shows their notices, and survives one that fails", async () => {
+    const logged: Array<[string, string]> = [];
+    const setup = await hookSetup([
+      await hookPackage("secrets", ["turn.completed"], SECRET_CHECK),
+      await hookPackage("broken", ["turn.completed", "asset.added"], `context.registerHook("turn.completed", () => { throw new Error("broken on purpose"); });`),
+      await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK),
+    ], { onLog: (id, entry) => logged.push([id, `${entry.source}: ${entry.text}`]) });
+    try {
+      await writeFile(path.join(setup.folder, "config.js"), `export const key = "sk-${"a".repeat(24)}";\n`);
+      await writeFile(path.join(setup.folder, "game.js"), "export const speed = 3;\n");
+      const invoke = vi.spyOn(setup.runtime, "hook");
+      await setup.hooks.notify(setup.folder, "turn.completed", {
+        conversationId: "c1",
+        status: "completed",
+        changes: [{ path: "config.js", kind: "added" }, { path: "game.js", kind: "modified" }],
+      });
+      expect(setup.notices).toEqual([{ plugin: "acme/secrets", message: "Possible secret in config.js", tone: "danger" }]);
+      expect(setup.errors).toEqual([{ plugin: "acme/broken", event: "turn.completed", message: "broken on purpose" }]);
+      // The failure is in the plugin's log, named as a hook.
+      expect(logged).toContainEqual(["acme/broken", "call: Hook turn.completed failed: broken on purpose"]);
+      // Only the plugins that hear the event are asked; the style pack isn't.
+      expect(invoke.mock.calls.map(([id]) => id).sort()).toEqual(["acme/broken", "acme/secrets"]);
+      // A plugin that lists an event but never registered a handler fails quietly.
+      await setup.hooks.notify(setup.folder, "asset.added", { path: "assets/a.png", origin: "generated" });
+      expect(setup.errors.at(-1)).toMatchObject({ plugin: "acme/broken", event: "asset.added" });
+      // Hearing an event the manifest doesn't list is refused before the host is asked.
+      expect((await failure(setup.runtime.hook("acme/secrets", "build.started", { folder: setup.folder }))).code).toBe("unavailable");
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("refuses to register a hook the manifest doesn't list", async () => {
+    const setup = await hookSetup([await hookPackage("probe", ["turn.completed"], `
+      let refused = "registered";
+      try {
+        context.registerHook("build.started", () => {});
+      } catch (error) {
+        refused = error.message;
+      }
+      context.registerHook("turn.completed", () => ({ notice: refused }));`)]);
+    try {
+      await setup.hooks.notify(setup.folder, "turn.completed", { conversationId: "c1", status: "completed", changes: [] });
+      expect(setup.notices).toEqual([{ plugin: "acme/probe", message: "acme/probe does not declare a hook named build.started", tone: "default" }]);
+      expect(await setup.hooks.listeners(setup.folder, "build.started")).toEqual([]);
+      expect((await setup.hooks.listeners(setup.folder, "turn.completed")).map((entry) => entry.id)).toEqual(["acme/probe"]);
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("watches a project's files, leaving out tools' own folders", async () => {
+    expect(watchedPath("src\\game.js")).toBe("src/game.js");
+    for (const ignored of [".git/index", "node_modules/a/b.js", ".data/x", ".ohmygame/build/web/index.html"])
+      expect(watchedPath(ignored)).toBeUndefined();
+    const folder = await realpath(await mkdtemp(path.join(tmpdir(), "ohmygame-watch-")));
+    const changes: Array<{ paths: string[]; truncated?: boolean }> = [];
+    const watches = new ProjectFileWatches((_folder, change) => changes.push(change), { debounceMs: 50 });
+    try {
+      watches.set(folder, true);
+      expect(watches.watching(folder)).toBe(true);
+      await mkdir(path.join(folder, "node_modules"), { recursive: true });
+      await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
+      await writeFile(path.join(folder, "notes.md"), "# Notes");
+      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
+      watches.set(folder, false);
+      expect(watches.watching(folder)).toBe(false);
+    } finally {
+      watches.dispose();
+      await rm(folder, { recursive: true, force: true });
     }
   });
 });

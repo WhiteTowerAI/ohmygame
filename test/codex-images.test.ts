@@ -46,6 +46,9 @@ describe("Codex image import", () => {
     const projects = new ProjectManager(home, library);
     await projects.load();
     const project = await projects.create("Native image", "general");
+    // Plugins hear about it once, as a generated asset, however often the image is imported.
+    const added = vi.fn();
+    projects.onAssetAdded = added;
     context.saveGeneratedImage = (name, bytes, prompt) =>
       projects.addGeneratedAsset(project.id, name, bytes, { prompt });
     const item = {
@@ -68,6 +71,16 @@ describe("Codex image import", () => {
     expect(await projects.generatedAssetPrompt(project.id, artifact.path)).toBe(
       "Orange cat",
     );
+    expect(added.mock.calls).toEqual([[project, { path: artifact.path, origin: "generated", prompt: "Orange cat" }]]);
+    // Adding a Library asset to another project is an import there; adding it again isn't.
+    const other = await projects.create("Other", "general");
+    const imported = await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
+    await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
+    expect(added.mock.calls.slice(1)).toEqual([[other, { path: imported.path, origin: "imported", prompt: "Orange cat" }]]);
+    // Canvas saves its generations through the same path, as generated.
+    const canvas = await projects.create("Canvas", "general");
+    const generated = await projects.materializeLibraryAsset(canvas.id, restored.list()[0]!.id, "generated");
+    expect(added.mock.calls.at(-1)).toEqual([canvas, { path: generated.path, origin: "generated", prompt: "Orange cat" }]);
   });
 
   it("imports inline data without reading the external savedPath and uses stable names", async () => {

@@ -118,6 +118,83 @@ type's game can't play it this way. Like every capability, `game` is the
 person's say for code they trust; it doesn't contain native code that
 ignores it.
 
+Native code isn't sandboxed: the [security model](plugin-security.md) says what
+that means and what the person approves. Wherever `native` is allowed (adding a
+plugin, turning it on, creating a project that turns it on) the app warns that
+its code runs with the person's own access (`NativeCodeWarning`).
+
+### Hooks
+
+`contributes.hooks` lists the events a plugin's native code hears about in
+a project, and `context.registerHook(event, handler)` registers a handler
+for one; the entry can't register an event the manifest doesn't list.
+What each handler receives is `PluginHookInputs` in
+`src/shared/plugin-hooks.ts`, and `src/daemon/plugin-hooks.ts` runs them.
+Only plugins that are on in the project hear anything, in its extension
+host, and the add review and the plugin's page list the events.
+
+| Event | When | Input |
+| --- | --- | --- |
+| `asset.added` | A generated asset is saved in the project, or a Library asset is added to it | `path`, `origin` (`generated` or `imported`), `prompt` |
+| `turn.completed` | A run's turns are closed, however the run ended | `conversationId`, `status`, `changes` (each file once, at most 500) |
+| `build.started`, `build.completed` | Around packing the project for export or publishing | `purpose`, then `status` with `bytes` or `error` |
+| `files.changed` | Files changed, in OhMyGame or outside it | `paths` (at most 200 every half second), `truncated` |
+| `image.beforeGenerate` | Before an image is generated in the project, by an agent, the canvas or the app | `prompt`, `imageModel`, `size` or `resolution` and `aspectRatio`, `transparentBackground`, `references` |
+
+Every hook but `image.beforeGenerate` only hears: nothing waits for it,
+and it can't stop or change what happened. It may return
+`{ notice, tone }`, which the project shows as a toast under the plugin's
+id (at most 300 characters, five in ten seconds); `tone` is `default` or
+`danger`. A hook that fails or takes over 30 seconds goes in the plugin's
+[log](#when-a-plugin-misbehaves) and nothing else happens; so does an
+`image.beforeGenerate` answer the app can't use. `.git`, `node_modules`, `.data` and `.ohmygame` aren't
+watched, and a project's files are watched only while it is open and one
+of its plugins hears `files.changed` or has a page with `project.files`.
+
+`image.beforeGenerate` may return the fields it changes: `prompt` (at most
+8,000 characters), `imageModel` (`{ provider, id }`), `transparentBackground`,
+and `size`, or `resolution` and `aspectRatio`, in the kind the request
+already uses. It can't add or remove reference images. Plugins run in the
+project's order, each seeing the one before's changes, before the image's
+model is resolved; one that fails, takes over 10 seconds, or answers with
+a field or value it can't set changes nothing. The Library keeps the
+prompt as it was generated, with `requestedPrompt` and `pluginChanges`
+(which plugin and version changed which fields), and shows them on the
+asset; the agent's result says which plugins changed the request and the
+prompt used.
+
+## When a plugin misbehaves
+
+- **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's
+  last 500 lines since the app started, in memory: what its native code
+  printed through `console` while it ran (the host tags it with the plugin,
+  so one host's plugins stay apart), its failed tools, commands and hooks,
+  its host stopping under it, a failed call to its MCP service from an
+  agent, and its panels' uncaught errors, which the page bridge sends and
+  the app posts to `POST /plugin-store/:publisher/:name/log`. `GET` on the
+  same route returns it with the plugin's saved secrets, and what looks like
+  a key, token or URL password, replaced by `[redacted]`, so what the app
+  shows or copies has been through that. A failed tool's or command's error
+  loses the plugin's saved secrets the same way before it reaches a toast, a
+  page or an agent (`PluginServices.callTool`, `runCommand`). A failed command's toast and a
+  panel's first error offer **View log**; the log has **Turn off** and
+  **Copy log**.
+- **Quarantine.** A plugin blamed for three host crashes or hangs within
+  five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
+  page and card say it stopped, and it stays so until it is turned on again
+  or the app restarts.
+- **A panel that stops answering.** While a page with the bridge shows, the
+  app pings it every five seconds and the bridge answers by itself. After
+  fifteen seconds without an answer the app offers to wait, reload the
+  panel, or turn the plugin off.
+- **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
+  from the service-stopped notice or the Plugins page's Add menu, the
+  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
+  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
+  type. Saved choices don't change, plugins can't be turned on, and the
+  Plugins page offers to restart normally. Electron can't tell a key held
+  at launch without native code, so there is no Shift shortcut.
+
 ## Canvas nodes
 
 `contributes.canvasNodes` adds nodes to the Asset Canvas add menu, under
@@ -181,6 +258,7 @@ was opened.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
 | Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
@@ -494,7 +572,27 @@ the source again and refuses a package whose digest isn't the one reviewed.
   `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
   each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
-  its page. Nothing updates a package by itself: adding it again is the update.
+  its page; a GitHub origin keeps the branch or tag it was added from.
+
+### Updates
+
+Nothing updates a package by itself: adding a newer one is the update.
+`GET /plugin-store/updates` (`PluginSources.updates`) looks where each
+plugin's newest version came from, at startup and when the Plugins page opens,
+reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
+GitHub branch or tag is at now. A plugin with an update says so, and its page
+opens the same review as Add plugin, at that version or commit; the market's
+own update comes first when it has one. A package from this computer has
+nowhere to look, so its page says to add it again.
+
+- The review lists what the new version asks for and marks what the person
+  hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
+  only that is asked again.
+- A project that names a version keeps it. Its Plugins sheet moves it to any
+  installed version that works there, newer or older, which is also how it goes
+  back. One that follows the plugin for every project gets the newest.
+- `GET /plugin-store/:publisher/:name/usage` names the projects using each
+  version, and the plugin's page offers to remove older versions none uses.
 
 ## The plugin market
 
@@ -541,7 +639,9 @@ HTTP on this computer), there's no market and nothing is read.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `contributes.themes` each give
+on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
+projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in
 `src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
 syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
@@ -583,6 +683,17 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
   `plugins/` only switches off; uninstalling it is refused.
+- **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
+  whether it is the last version, the saved settings and size of the data
+  folder that go with the last one, the projects that use the version, and
+  the manifest's `projectFiles`, which stay. The last version always takes
+  what the person allowed; `?keepData=true` on the `DELETE` keeps its
+  settings and data folder for a later install from the same npm scope or
+  GitHub repository. A package from anywhere else that takes the id, or one
+  from this computer, starts without them (`PluginServices.forgetKeptData`).
+  A project's Plugins sheet
+  offers an installed version in place of an uninstalled one, and for an
+  uninstalled plugin, finding it in Plugins or removing it from the project.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
@@ -724,7 +835,23 @@ The app also draws around and over a page, with what a page can't change:
   10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused. The page hears a
-  `files` event when the project's files may have changed.
+  `files` event when the project's files may have changed: after an agent's
+  turn or its own change, without `paths`, and when the app sees files
+  change, in OhMyGame or outside it, with the `paths` and `truncated` that
+  `files.changed` hooks get.
+- **Composer.** With `capabilities.composer`,
+  `host.request("composer.fill", { text, attachments })` puts text after
+  what the composer holds and adds up to ten files, each
+  `{ name, data, type }` with `data` a string or Blob, within the limits of
+  files the person attaches. The person sends it; no page can.
+- **History and usage.** Read-only, each with its own capability.
+  `capabilities["project.history"]` lets `host.request("history.list",
+  { limit })` read the project's latest turns that changed files, newest
+  first: the conversation, when and what the person asked (cut to 2,000
+  characters), the files and whether they were undone; `limit` is 1 to 100,
+  20 by default. `capabilities["project.usage"]` lets
+  `host.request("usage.get")` read the project's tokens, turns and time by
+  day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
 
 ### Page components
 

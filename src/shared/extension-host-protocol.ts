@@ -1,6 +1,7 @@
 // Messages between the daemon and an extension host process, and the API a
 // plugin's native entry sees. Everything crossing the boundary is plain,
 // serializable data: no daemon objects, no Node handles.
+import type { PluginHook } from "./plugin-hooks.js";
 
 import type { GameRecordingSaved } from "./game-recording.js";
 import type {
@@ -38,9 +39,11 @@ export interface ExtensionHostPlugin {
   projectTypes: string[];
   /** Whether the manifest asks for `game`; only then has a project's context `game`. */
   game: boolean;
+  /** Events the manifest's `contributes.hooks` lists, the only ones the entry may register. */
+  hooks: string[];
 }
 
-export type HostCallKind = "tool" | "command" | "projectType";
+export type HostCallKind = "tool" | "command" | "projectType" | "hook";
 
 /** What a project type's native hooks do. */
 export const PROJECT_TYPE_HOOKS = ["createProject", "buildWeb", "gameUse"] as const;
@@ -137,7 +140,9 @@ export type HostMessage =
    */
   | { type: "game"; id: number; plugin: string; request: PluginGameRequest }
   /** The plugin gave up on its `game` request with this `id`. */
-  | { type: "game-cancel"; id: number };
+  | { type: "game-cancel"; id: number }
+  /** A line a plugin's code printed while it ran, through `console`. */
+  | { type: "log"; plugin: string; level: "info" | "warn" | "error"; text: string };
 
 // What a plugin's native entry exports:
 //
@@ -204,6 +209,11 @@ export interface PluginContext {
     id: string,
     hooks: Partial<Record<ProjectTypeHook, ToolHandler>>,
   ): Disposable;
+  /**
+   * Registers the handler for one of the events the manifest's
+   * `contributes.hooks` lists. See `PluginHookInputs` for what each receives.
+   */
+  registerHook(event: PluginHook, handler: ToolHandler): Disposable;
   /** Run when the plugin is deactivated or its host stops. */
   onDispose(dispose: () => void | Promise<void>): void;
   /**
@@ -258,6 +268,8 @@ export function isHostMessage(value: unknown): value is HostMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
   if (message.type === "ready") return typeof message.protocol === "number";
+  if (message.type === "log")
+    return typeof message.plugin === "string" && typeof message.text === "string" && (message.level === "info" || message.level === "warn" || message.level === "error");
   if (typeof message.id !== "number") return false;
   switch (message.type) {
     case "result":

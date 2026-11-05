@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -333,11 +333,11 @@ export function createAgentTools(
         const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
         const fileName = `image-${run.id}.${extension}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-          prompt: input.prompt,
+          prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
         return {
-          content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
+          content: [{ type: "text", text: `Generated image saved to ${relativePath}${pluginChangeNote(run)}` }],
           details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
         };
       } finally {
@@ -885,4 +885,11 @@ function findAnimationAction(library: readonly Model3DAnimationAction[], name: s
   const words = wanted.split(/\s+/).filter(Boolean);
   const suggestions = library.filter((action) => words.some((word) => action.name.toLowerCase().includes(word))).slice(0, 8).map((action) => action.name);
   throw new Error(`Unknown animation "${name}".${suggestions.length ? ` Similar names: ${suggestions.join(", ")}.` : ""}`);
+}
+
+/** Tells the agent which plugins changed an image's request before it was generated, and to what. */
+export function pluginChangeNote(run: Pick<ToolRun, "prompt" | "pluginChanges">): string {
+  if (!run.pluginChanges?.length) return "";
+  const who = run.pluginChanges.map((change) => `${change.plugin} ${change.version} (${change.fields.join(", ")})`).join("; ");
+  return `\nPlugins in this project changed the request before it was generated: ${who}.${run.pluginChanges.some((change) => change.fields.includes("prompt")) ? ` The prompt used was: ${run.prompt}` : ""}`;
 }

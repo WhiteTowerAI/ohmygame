@@ -38,6 +38,11 @@ function bridge(port, hello) {
   const emit = (name, value) => listeners.get(name)?.forEach((listener) => listener(value));
   port.onmessage = ({ data }) => {
     if (data && typeof data.event === "string") {
+      // The app checks the page still answers; a page stuck in a loop can't, so it is offered a reload.
+      if (data.event === "ping") {
+        port.postMessage({ event: "pong" });
+        return;
+      }
       if (data.event === "theme") applyTheme(data);
       emit(data.event, data);
       return;
@@ -49,6 +54,16 @@ function bridge(port, hello) {
     else call.resolve(data.result);
   };
   port.start();
+  // Errors the page doesn't catch go to its plugin's log in the app.
+  const report = (error) => {
+    try {
+      port.postMessage({ event: "error", message: String(error?.stack ?? error?.message ?? error).slice(0, 4000) });
+    } catch {
+      // A closed port has nowhere to send it.
+    }
+  };
+  window.addEventListener("error", (event) => report(event.error ?? event.message));
+  window.addEventListener("unhandledrejection", (event) => report(event.reason));
   if (hello.theme) applyTheme(hello.theme);
   // The app keeps the frame hidden until the page has its theme.
   port.postMessage({ event: "ready" });

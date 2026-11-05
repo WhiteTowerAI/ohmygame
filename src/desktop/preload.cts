@@ -24,7 +24,7 @@ if (process.isMainFrame) {
     runtime: Object.freeze(desktopRuntime()),
     runtimeService: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:runtime-state") as Promise<DesktopRuntimeState>,
-      restart: () => ipcRenderer.invoke("ohmygame:restart-runtime") as Promise<DesktopRuntimeState>,
+      restart: (options?: { safeMode?: boolean }) => ipcRenderer.invoke("ohmygame:restart-runtime", { safeMode: options?.safeMode === true }) as Promise<DesktopRuntimeState>,
       onState: (listener: (state: DesktopRuntimeState) => void) => {
         const handler = (_event: Electron.IpcRendererEvent, state: DesktopRuntimeState) => listener(state);
         ipcRenderer.on("ohmygame:runtime-state", handler);

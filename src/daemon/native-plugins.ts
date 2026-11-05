@@ -8,6 +8,7 @@ import type {
 } from "../shared/extension-host-protocol.js";
 import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
 import { projectTypePlugin } from "../shared/project-file.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   ExtensionHostError,
   type ExtensionHosts,
@@ -83,6 +84,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
       (type) => type.id,
     ),
     game: manifest.capabilities?.game === true,
+    hooks: [...manifestHooks(manifest)],
   };
 }
 
@@ -211,6 +213,19 @@ export class NativePlugins {
     });
   }
 
+  /** Runs a plugin's handler for an event its manifest's `contributes.hooks` lists. */
+  async hook(id: string, event: string, options: PluginCallOptions): Promise<unknown> {
+    const { key, entry } = await this.#ready(options.folder, id);
+    if (options.version && options.version !== entry.version)
+      throw unavailable(`${id} is now ${entry.version}; this hook was for ${options.version}`);
+    if (!(manifestHooks(entry.manifest) as readonly string[]).includes(event))
+      throw unavailable(`${id} ${entry.version} doesn't hear ${event}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, options)),
+      hook: event,
+    });
+  }
+
   /**
    * Unloads what a project no longer allows: plugins it stopped asking for,
    * moved to another version, or the person turned off or revoked. Call it
@@ -277,6 +292,10 @@ export class NativePlugins {
   /** Stops a project's host, as when the project is closed. */
   async closeProject(folder: string): Promise<void> {
     await this.#hosts.stop(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  quarantined(id: string): boolean {
+    return this.#hosts.quarantined(id);
   }
 
   /** Lets a quarantined plugin run again, as when the person turns it back on. */
