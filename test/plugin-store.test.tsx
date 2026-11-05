@@ -42,7 +42,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
   ],
   examples: [],
   skills: [{ id: "skills/maker/SKILL.md", name: "maker", description: "Build with Maker." }],
-  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], tools: 2, skills: 1 },
+  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], modelProviders: [], agents: [], tools: 2, skills: 1 },
   ...overrides,
 });
 
@@ -249,7 +249,7 @@ it("tries a plugin on in every project by mentioning it, in projects of a kind i
   const [group] = groupStorePlugins([row("1.0.0", {
     id: "acme/worlds", displayName: "Worlds", capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], everyProject: true,
     examples: ["Build a world"], appliesTo: ["web-game"],
-    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 1 },
+    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 1 },
   })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
   expect(document.querySelector('[role=switch][aria-label="Turn Worlds on in every project"]')!.getAttribute("aria-checked")).toBe("true");
@@ -285,5 +285,5 @@ it("goes back to About when the open tab goes away with the newest version", asy
 
 it("offers plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
-  expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 } }))).toEqual([]);
+  expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 } }))).toEqual([]);
 });

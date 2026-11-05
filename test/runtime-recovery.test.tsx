@@ -362,7 +362,7 @@ describe("renderer service recovery", () => {
       id: "acme/test", version: "1.0.0", revision: "a".repeat(64), displayName: "Test plugin", description: "Test",
       capabilities: [], grants: { enabled: true, allowed: [] }, bundled: false, everyProject: false, examples: [], skills: [],
       settings: [{ name: "endpoint", type: "text", title: "Endpoint", required: true }],
-      adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
+      adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
     };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       const route = new URL(url).pathname;

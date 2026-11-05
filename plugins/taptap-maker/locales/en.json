@@ -14,5 +14,7 @@
   "command.create": "Create a Maker project",
   "command.bind": "Connect a Maker project",
   "command.preview": "Control the Maker preview",
+  "command.submitBuild": "Submit a build to Maker…",
+  "command.release": "Release on TapTap…",
   "mcp.title": "TapTap Maker"
 }

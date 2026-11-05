@@ -146,6 +146,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if ("references" in data && data.references) data.references = data.references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId));
     if ("source" in data && data.source?.type === "node" && !ids.has(data.source.nodeId)) delete data.source;
     if ("promptSource" in data && data.promptSource && !ids.has(data.promptSource.nodeId)) delete data.promptSource;
+    if (node.type === "plugin") (data as typeof node.data).inputs = Object.fromEntries(Object.entries(node.data.inputs).map(([key, references]) => [key, references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId))]));
     return { ...node, data } as AssetCanvasNode;
   });
   const merged = {

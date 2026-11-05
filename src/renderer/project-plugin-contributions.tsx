@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectPluginChange, ProjectPluginCommand } from "../shared/plugins.js";
@@ -55,6 +55,17 @@ export function commandsForSlot(commands: readonly ProjectPluginCommand[], slot:
 export function slashCommands(commands: readonly ProjectPluginCommand[], context: WhenContext): ProjectPluginCommand[] {
   const slotted = new Set(commandsForSlot(commands, "composer.slash", context));
   return commands.filter((command) => slotted.has(command) || (command.slash && !command.slots.some((entry) => entry.slot === "composer.slash")));
+}
+
+// Bumped when the open project's plugins change, so views outside the shell, like the canvas, read them again.
+let pluginsRevision = 0;
+const pluginsListeners = new Set<() => void>();
+export function announceProjectPluginsChanged(): void {
+  pluginsRevision += 1;
+  for (const listener of pluginsListeners) listener();
+}
+export function useProjectPluginsRevision(): number {
+  return useSyncExternalStore((listener) => { pluginsListeners.add(listener); return () => pluginsListeners.delete(listener); }, () => pluginsRevision);
 }
 
 export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> | undefined, revision: number): {

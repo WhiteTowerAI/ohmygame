@@ -17,11 +17,11 @@ import type {
 } from "../src/shared/contracts.js";
 import {
   FULL_ACCESS_PERMISSION_MODES,
-  isAgentRuntimeId,
+  isBuiltInAgentRuntimeId,
 } from "../src/shared/agent-runtimes.js";
 
 const runtime = process.argv[2];
-if (!isAgentRuntimeId(runtime))
+if (!isBuiltInAgentRuntimeId(runtime))
   throw new Error("Choose claude-code-cli, codex-cli or opencode-cli");
 const root = await mkdtemp(path.resolve(".runtime/agent-runtime-live-"));
 const externalFixture = await mkdtemp(

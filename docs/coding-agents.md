@@ -296,8 +296,12 @@ plan mode, cancellation, errors and events are the same code.
   requires a rebuild. The next message
   continues it (`--resume`, `thread/resume`, the OpenCode session). Every edit
   or restore invalidates context, even when the native ID is unchanged. Later
-  Pi messages/model changes, cancellation, failure, legacy metadata and
-  interrupted writes also invalidate it. An expired native session triggers
+  Pi messages/model changes, unconfirmed cancellation, unrecoverable failure,
+  legacy metadata and interrupted writes also invalidate it. Codex retains its
+  thread after a confirmed stop, a terminal failed request or an explicit
+  request rejection; an exited app server resumes the thread on its next run.
+  Inputs rejected before startup are carried into the next turn.
+  An expired native session triggers
   one fresh-context retry with handoff rather than silently losing history.
 - **Handoff.** When an agent joins a conversation it has not seen, its first
   message carries a summary built from the stored record: recent turns and the
@@ -323,7 +327,7 @@ conversation manager or event database is needed.
 | Codex       | `codex app-server` JSON-RPC; one thread per conversation         | The thread's dynamic tools, answered over the same pipe | App server approval requests                         |
 | OpenCode    | `opencode serve` on loopback with its own password               | Remote MCP on the daemon with a turn token              | `permission.asked` events, answered on the server    |
 
-Each stdin stays open for the session. A CLI that no message has used for ten minutes is stopped; the next message starts a new process that resumes the same native session. Codex conversations with the same executable, environment and staged Skills share one app server, routed by thread; it stops with its last conversation. OpenCode keeps a server per conversation because its MCP servers, and so OhMyGame's tools, are registered for the whole instance. After **Stop**, once Claude Code has reported that the turn ended, the next message continues the same session and tells it the turn was stopped; other agents build a new context from a handoff. Native queue prioritization means
+Each stdin stays open for the session. A CLI that no message has used for ten minutes is stopped; the next message starts a new process that resumes the same native session. Codex conversations with the same executable, environment and staged Skills share one app server, routed by thread; it stops with its last conversation. OpenCode keeps a server per conversation because its MCP servers, and so OhMyGame's tools, are registered for the whole instance. After **Stop**, once Claude Code or Codex has reported that the turn ended, the next message continues the same session and tells it the turn was stopped. A forced stop still requires a history handoff, as does every OpenCode stop. Native queue prioritization means
 **Next**: after the current turn, before ordinary follow-ups. Mid-turn native
 injection is excluded because concurrent file writes cannot provide an
 independent checkpoint before delivery. Processes run in their

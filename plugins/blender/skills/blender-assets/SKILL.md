@@ -9,7 +9,7 @@ For a new asset, deliver an editable `.blend`, a runtime GLB, and a preview rend
 
 ## Run Blender
 
-Find the executable on PATH or in its usual location (macOS `/Applications/Blender.app/Contents/MacOS/Blender`, Windows `Program Files/Blender Foundation`) and check `--version`. `bpy` exists only in Blender's bundled Python, so run scripts through Blender; put an existing `.blend` before `--python`:
+Find the executable on PATH or in its usual location (macOS `/Applications/Blender.app/Contents/MacOS/Blender`, Windows `Program Files/Blender Foundation/Blender <VERSION>/blender.exe`). On Windows the install can be on any drive: also check Start menu shortcuts and their targets (`%ProgramData%` and `%APPDATA%` under `Microsoft/Windows/Start Menu/Programs`) and each Steam library listed in `<Steam>/steamapps/libraryfolders.vdf` (`steamapps/common/Blender`). If none is found, ask the user for the executable's path instead of reporting it as not installed. Check `--version`. `bpy` exists only in Blender's bundled Python, so run scripts through Blender; put an existing `.blend` before `--python`:
 
 ```text
 <blender> --background [<SOURCE.blend>] --python-exit-code 1 --python <SCRIPT.py>

@@ -14,7 +14,9 @@ import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { OpenCodeDriver } from "../src/daemon/agent-runtimes/opencode.js";
 import { createServer, type ServerResponse } from "node:http";
-import type { DriverContext } from "../src/daemon/agent-runtimes/driver-context.js";
+import type { DriverContext, HttpBridgeHandlers } from "../src/daemon/agent-runtimes/driver-context.js";
+import { AcpDriver } from "../src/daemon/agent-runtimes/acp.js";
+import { setPluginAgentDefinitions } from "../src/daemon/agent-runtimes/definitions.js";
 import type {
   NativeToolResult,
   NativeTurnSink,
@@ -1159,20 +1161,206 @@ describe("Claude Code adapter", () => {
 describe("Codex adapter", () => {
   const generatedPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 
+  it.each(["stop", "failed", "rejected", "exit", "exit-before-start", "stop-then-rejected", "forced"] as const)(
+    "continues the native thread after %s unless stopping had to be forced",
+    async (ending) => {
+      const stops = ending === "stop" || ending === "stop-then-rejected" || ending === "forced";
+      const unconfirmed = ending === "rejected" || ending === "exit-before-start";
+      const requests: Array<{ method: string; params: Record<string, any> }> = [];
+      let threads = 0;
+      let turns = 0;
+      const clis = fakeCli((message, cli) => {
+        if (typeof message.method !== "string" || message.id === undefined) return;
+        const params = message.params as Record<string, any>;
+        requests.push({ method: message.method, params });
+        const reply = (result: unknown) => cli.send({ id: message.id, result });
+        if (message.method === "thread/start" || message.method === "thread/resume") {
+          const id = message.method === "thread/start" ? `thread-${++threads}` : params.threadId;
+          return reply({ thread: { id }, activePermissionProfile: { id: params.permissions } });
+        }
+        if (message.method === "turn/interrupt") {
+          reply({});
+          if (ending !== "forced") cli.send({ method: "turn/completed", params: {
+            threadId: params.threadId, turn: { id: params.turnId, status: "interrupted" },
+          } });
+          return;
+        }
+        if (message.method !== "turn/start") return reply({});
+        const id = `turn-${++turns}`;
+        if ((turns === 1 && ending === "rejected") || (turns === 2 && ending === "stop-then-rejected"))
+          return cli.send({ id: message.id, error: { code: -32602, message: "Model temporarily unavailable" } });
+        if (turns === 1 && ending === "exit-before-start") return cli.exit(1);
+        reply({ turn: { id } });
+        if (turns === 1 && stops) return;
+        if (turns === 1 && ending === "exit") return cli.exit(1);
+        cli.send({ method: "turn/completed", params: {
+          threadId: params.threadId,
+          turn: turns === 1 ? { id, status: "failed", error: { message: "Rate limit exceeded" } }
+            : { id, status: "completed" },
+        } });
+      });
+      const ctx = await context();
+      const manager = SessionManager.inMemory(ctx.workspacePath);
+      const createSession = () => new NativeCodingSession({
+        runtime: "codex-cli", model: "gpt-test", sessionManager: manager, toolNames: [],
+        cancellationTimeoutMs: ending === "forced" ? 1 : undefined,
+        createDriver: (resume) => new CodexDriver({ ...ctx, resume }),
+        requestApproval: async () => "deny",
+      });
+      const session = createSession();
+      cleanup.push(() => session.dispose());
+      const first = session.prompt("Keep the original character and make the film", unconfirmed
+        ? { images: [{ type: "image", mimeType: "image/png", data: generatedPng }] }
+        : undefined);
+      if (stops) {
+        await vi.waitFor(() => expect(turns).toBe(1));
+        await session.abort();
+      }
+      await first;
+      if (ending === "stop-then-rejected") await session.prompt("Use the revised storyboard");
+      const state = latestNativeSession(manager.getBranch(), "codex-cli");
+      if (ending === "forced") expect(state).toBeUndefined();
+      else expect(state).toMatchObject({ sessionId: "thread-1", ...(stops ? { interrupted: true } : {}) });
+      // Reopening must preserve the marker as well as continuing in memory.
+      await session.dispose();
+      const reopened = createSession();
+      cleanup.push(() => reopened.dispose());
+      await reopened.prompt("Continue");
+      expect(latestNativeSession(manager.getBranch(), "codex-cli")?.pendingUserMessageId).toBeUndefined();
+      const input = requests.filter((request) => request.method === "turn/start").at(-1)!.params;
+      expect(input.threadId).toBe(ending === "forced" ? "thread-2" : "thread-1");
+      const wire = JSON.stringify(input.input);
+      expect(wire.includes("<conversation-handoff>")).toBe(ending === "forced");
+      expect(wire.includes("stopped the previous turn on purpose")).toBe(stops && ending !== "forced");
+      if (ending === "stop-then-rejected") expect(wire).toContain("Use the revised storyboard");
+      if (unconfirmed) {
+        expect(wire).toContain("Keep the original character and make the film");
+        expect(input.input).toContainEqual({ type: "image", url: `data:image/png;base64,${generatedPng}` });
+      }
+      expect(threads).toBe(ending === "forced" ? 2 : 1);
+      expect(clis.length).toBeGreaterThan(1);
+    },
+  );
+
+  it("isolates late notifications, tools and approvals while the next turn is starting", async () => {
+    let turn = 0;
+    let secondRpc: unknown;
+    const answers = new Map<unknown, Record<string, any>>();
+    const clis = fakeCli((message, cli) => {
+      if (message.method === undefined && message.id !== undefined) { answers.set(message.id, message); return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start" || message.method === "thread/resume")
+        return cli.send({ id: message.id, result: {
+          thread: { id: "thread-1" }, activePermissionProfile: { id: params.permissions },
+        } });
+      if (message.method === "turn/start") {
+        if (++turn === 2) { secondRpc = message.id; return; }
+        cli.send({ id: message.id, result: { turn: { id: "turn-1" } } });
+        cli.send({ method: "turn/completed", params: {
+          threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" },
+        } });
+        return;
+      }
+      cli.send({ id: message.id, result: {} });
+    });
+    const ctx = await context();
+    const call = vi.spyOn(ctx.bridge, "call");
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    expect(await driver.runTurn({ text: "first", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal))
+      .toEqual({ status: "aborted", resumable: true });
+    const recorded = recordingSink();
+    const next = driver.runTurn({ text: "continue", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(secondRpc).toBeDefined());
+    const cli = clis[0]!;
+    const notify = (method: string, params: Record<string, unknown>) => cli.send({ method, params });
+    // These arrive before the RPC response can identify the new turn.
+    for (const ids of [
+      { threadId: "thread-1", turnId: "turn-1" },
+      { threadId: "another-thread", turnId: "turn-2" },
+      { threadId: "thread-1", turnId: "unknown-old-turn" },
+    ]) {
+      notify("item/agentMessage/delta", { ...ids, itemId: "old", delta: "stale text" });
+      notify("item/completed", { ...ids, item: { id: "old", type: "commandExecution", aggregatedOutput: "stale output" } });
+      notify("thread/tokenUsage/updated", { ...ids, tokenUsage: { total: { inputTokens: 9000 }, last: { inputTokens: 9000 } } });
+      notify("error", { ...ids, error: { message: "stale error" } });
+      notify("turn/completed", { threadId: ids.threadId, turn: { id: ids.turnId, status: "failed" } });
+      cli.send({ id: `tool-${ids.threadId}-${ids.turnId}`, method: "item/tool/call", params: {
+        ...ids, callId: "old-tool", tool: "echo_tool", arguments: { value: "stale" },
+      } });
+      cli.send({ id: `approval-${ids.threadId}-${ids.turnId}`, method: "item/commandExecution/requestApproval", params: {
+        ...ids, itemId: "old-approval", command: "stale command",
+      } });
+    }
+    const ids = { threadId: "thread-1", turnId: "turn-2" };
+    notify("item/agentMessage/delta", { ...ids, itemId: "current", delta: "current text" });
+    cli.send({ id: secondRpc, result: { turn: { id: "turn-2" } } });
+    await vi.waitFor(() => expect(answers.size).toBe(6));
+    expect([...answers].filter(([id]) => String(id).startsWith("tool-")).every(([, answer]) => answer.error)).toBe(true);
+    expect(recorded.calls).toEqual(["text:current:current text"]);
+    expect(recorded.asked).toEqual([]);
+    expect(call).not.toHaveBeenCalled();
+    // An old terminal event after identification must not finish the new turn either.
+    notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } });
+    notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-2", status: "completed" } });
+    expect(await next).toEqual({ status: "completed" });
+  });
+
+  it("does not carry a late bridged tool result into the next turn", async () => {
+    let turn = 0;
+    let answer: Record<string, any> | undefined;
+    const clis = fakeCli((message, cli) => {
+      if (message.id === "late-tool") { answer = message; return; }
+      if (message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start" || message.method === "thread/resume"
+        ? { thread: { id: "thread-1" }, activePermissionProfile: { id: params.permissions } }
+        : message.method === "turn/start" ? { turn: { id: `turn-${++turn}` } } : {} });
+    });
+    const ctx = await context();
+    let finish!: (value: { result: NativeToolResult; isError: boolean }) => void;
+    const call = vi.spyOn(ctx.bridge, "call").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    const controller = new AbortController();
+    const first = driver.runTurn({ text: "first", images: [], readOnly: false }, recordingSink().sink, controller.signal);
+    await vi.waitFor(() => expect(turn).toBe(1));
+    const cli = clis[0]!;
+    cli.send({ id: "late-tool", method: "item/tool/call", params: {
+      threadId: "thread-1", turnId: "turn-1", callId: "shared-id", tool: "echo_tool", arguments: { value: "old" },
+    } });
+    await vi.waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+    controller.abort();
+    cli.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } } });
+    expect(await first).toEqual({ status: "aborted", resumable: true });
+    const recorded = recordingSink();
+    const second = driver.runTurn({ text: "next", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    await vi.waitFor(() => expect(turn).toBe(2));
+    finish({ result: { content: [{ type: "text", text: "stale tool output" }] }, isError: false });
+    await vi.waitFor(() => expect(answer?.error).toBeDefined());
+    cli.send({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-2", item: {
+      type: "dynamicToolCall", id: "shared-id", success: true, contentItems: [{ type: "inputText", text: "current tool output" }],
+    } } });
+    cli.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-2", status: "completed" } } });
+    expect(await second).toEqual({ status: "completed" });
+    expect(recorded.results.get("shared-id")?.result.content).toEqual([{ type: "text", text: "current tool output" }]);
+  });
+
   function imageCli(item: Record<string, unknown>, options: { started?: boolean; duplicate?: boolean } = {}) {
     return fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined) return;
       const params = message.params as Record<string, unknown>;
       cli.send({ id: message.id, result: message.method === "thread/start"
         ? { thread: { id: "image-thread" }, activePermissionProfile: { id: params.permissions } }
-        : {} });
+        : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {} });
       if (message.method !== "turn/start") return;
       setTimeout(() => {
-        if (options.started) cli.send({ method: "item/started", params: { item: { ...item, status: "inProgress", result: "" } } });
-        cli.send({ method: "item/completed", params: { item } });
-        if (options.duplicate) cli.send({ method: "item/completed", params: { item } });
-        cli.send({ method: "item/completed", params: { item: { type: "agentMessage", id: "final", text: "Here is your cat." } } });
-        cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } });
+        if (options.started) cli.send({ method: "item/started", params: { threadId: "image-thread", turnId: "turn-1", item: { ...item, status: "inProgress", result: "" } } });
+        cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item } });
+        if (options.duplicate) cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item } });
+        cli.send({ method: "item/completed", params: { threadId: "image-thread", turnId: "turn-1", item: { type: "agentMessage", id: "final", text: "Here is your cat." } } });
+        cli.send({ method: "turn/completed", params: { threadId: "image-thread", turn: { id: "turn-1", status: "completed" } } });
       });
     });
   }
@@ -1211,10 +1399,10 @@ describe("Codex adapter", () => {
       const params = message.params as Record<string, unknown>;
       cli.send({ id: message.id, result: message.method === "thread/start"
         ? { thread: { id: "skill-thread" }, activePermissionProfile: { id: params.permissions } }
-        : {} });
+        : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {} });
       if (message.method !== "turn/start") return;
       input = params.input;
-      setTimeout(() => cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } }));
+      setTimeout(() => cli.send({ method: "turn/completed", params: { threadId: "skill-thread", turn: { id: "turn-1", status: "completed" } } }));
     });
     const ctx = await context({ skillDirectories: [skill] });
     const driver = new CodexDriver(ctx);
@@ -1257,7 +1445,7 @@ describe("Codex adapter", () => {
     expect(saveGeneratedImage).toHaveBeenCalledTimes(1);
     abort.abort();
     finish("assets/generated/cat.png");
-    expect(await run).toEqual({ status: "aborted" });
+    expect(await run).toEqual({ status: "aborted", resumable: true });
     expect(recorded.results.size).toBe(0);
   });
 
@@ -1395,6 +1583,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       if (message.method === "thread/start") threads.push(params);
       cli.send({
         id: message.id,
@@ -1405,13 +1594,13 @@ describe("Codex adapter", () => {
                 thread: { id: "thread-1" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() =>
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           }),
         );
     });
@@ -1435,11 +1624,12 @@ describe("Codex adapter", () => {
   });
 
   it("counts what a resumed Codex thread spends from the total it resumed with", async () => {
-    const usage = (total: number, last: number) => ({
+    const usage = (total: number, last: number, turnId = "previous-turn") => ({
       jsonrpc: "2.0",
       method: "thread/tokenUsage/updated",
       params: {
         threadId: "thread-1",
+        turnId,
         tokenUsage: {
           total: { inputTokens: total, cachedInputTokens: 0, outputTokens: total / 10 },
           last: { inputTokens: last, cachedInputTokens: 0, outputTokens: last / 10 },
@@ -1450,6 +1640,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       // Resuming reports the thread's total so far, before any turn runs.
       if (message.method === "thread/resume") cli.send(usage(1000, 300));
       cli.send({
@@ -1461,18 +1652,18 @@ describe("Codex adapter", () => {
                 thread: { id: "thread-1" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() => {
           // The first report repeats the resumed total, so nothing is spent yet.
-          cli.send(usage(1000, 300));
-          cli.send(usage(1200, 50));
+          cli.send(usage(1000, 300, routing.turnId));
+          cli.send(usage(1200, 50, routing.turnId));
           // A repeated report, as when a usage limit is hit, spends nothing more.
-          cli.send(usage(1200, 50));
+          cli.send(usage(1200, 50, routing.turnId));
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           });
         });
     });
@@ -1503,6 +1694,7 @@ describe("Codex adapter", () => {
         if (typeof message.method !== "string" || message.id === undefined)
           return;
         const params = message.params as Record<string, unknown>;
+        const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
         if (
           ["thread/start", "thread/resume", "turn/start"].includes(
             message.method,
@@ -1522,13 +1714,13 @@ describe("Codex adapter", () => {
                   thread: { id: "thread-1" },
                   activePermissionProfile: { id: params.permissions },
                 }
-              : {},
+              : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
         });
         if (message.method === "turn/start")
           setTimeout(() =>
             cli.send({
               method: "turn/completed",
-              params: { turn: { status: "completed" } },
+              params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
             }),
           );
       });
@@ -1556,6 +1748,7 @@ describe("Codex adapter", () => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
+      const routing = { threadId: "thread-1", turnId: `turn-${String(message.id)}` };
       if (message.method === "thread/start")
         config = params.config as Record<string, unknown>;
       cli.send({
@@ -1575,13 +1768,13 @@ describe("Codex adapter", () => {
                   thread: { id: "thread-1" },
                   activePermissionProfile: { id: params.permissions },
                 }
-              : {},
+              : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {},
       });
       if (message.method === "turn/start")
         setTimeout(() =>
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           }),
         );
     });
@@ -1601,14 +1794,17 @@ describe("Codex adapter", () => {
     let threads = 0;
     const turns: string[] = [];
     let toolAnswer: unknown;
+    let delayStart = false;
+    let delayedRpc: unknown;
+    const interrupts: Record<string, unknown>[] = [];
     const clis = fakeCli((message, cli) => {
       if (message.id === 900 && "result" in message)
         toolAnswer = message.result;
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       const params = message.params as Record<string, unknown>;
-      if (message.method === "thread/start") {
-        const id = `thread-${++threads}`;
+      if (message.method === "thread/start" || message.method === "thread/resume") {
+        const id = message.method === "thread/start" ? `thread-${++threads}` : params.threadId;
         return cli.send({
           id: message.id,
           result: {
@@ -1619,11 +1815,13 @@ describe("Codex adapter", () => {
       }
       if (message.method === "turn/start") {
         turns.push(String(params.threadId));
+        if (delayStart) { delayedRpc = message.id; return; }
         return cli.send({
           id: message.id,
           result: { turn: { id: `turn-${String(params.threadId)}` } },
         });
       }
+      if (message.method === "turn/interrupt") interrupts.push(params);
       cli.send({ id: message.id, result: {} });
     });
     const directory = await mkdtemp(
@@ -1692,14 +1890,24 @@ describe("Codex adapter", () => {
       },
     });
     expect(await firstTurn).toEqual({ status: "completed" });
-    await second.dispose();
-    expect(cli.exited).toBeFalsy();
+    // A shared server may acknowledge a turn after its conversation was closed.
+    delayStart = true;
+    const controller = new AbortController();
+    const lateTurn = first.runTurn({ text: "stop before acknowledgement", images: [], readOnly: false }, one.sink, controller.signal);
+    await vi.waitFor(() => expect(delayedRpc).toBeDefined());
+    controller.abort();
     await first.dispose();
+    expect(await lateTurn).toEqual({ status: "aborted" });
+    expect(cli.exited).toBeFalsy();
+    cli.send({ id: delayedRpc, result: { turn: { id: "late-turn" } } });
+    await vi.waitFor(() => expect(interrupts).toContainEqual({ threadId: firstThread, turnId: "late-turn" }));
+    await second.dispose();
     expect(cli.exited).toBe(true);
     await expect(stat(directory)).rejects.toThrow();
   });
 
   it("projects quota windows from initial limits and live updates", async () => {
+    const routing = { threadId: "thread-1", turnId: "turn-1" };
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
@@ -1723,7 +1931,7 @@ describe("Codex adapter", () => {
                   },
                 },
               }
-            : {};
+            : message.method === "turn/start" ? { turn: { id: routing.turnId } } : {};
       cli.send({ id: message.id, result });
       if (message.method === "turn/start")
         setTimeout(() => {
@@ -1737,7 +1945,7 @@ describe("Codex adapter", () => {
           });
           cli.send({
             method: "turn/completed",
-            params: { turn: { status: "completed" } },
+            params: { ...routing, turn: { id: routing.turnId, status: "completed" } },
           });
         }, 0);
     });
@@ -1757,16 +1965,19 @@ describe("Codex adapter", () => {
     );
   });
 
-  it("reports expired resume to the shared session without silently creating an empty thread", async () => {
+  it.each(["thread/resume", "turn/start"])("reports expired %s without silently creating an empty thread", async (expiredMethod) => {
     const methods: string[] = [];
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
         return;
       methods.push(message.method);
+      const params = message.params as Record<string, unknown>;
       cli.send(
-        message.method === "thread/resume"
+        message.method === expiredMethod
           ? { id: message.id, error: { message: "thread not found" } }
-          : { id: message.id, result: {} },
+          : { id: message.id, result: message.method === "thread/resume"
+            ? { thread: { id: "expired" }, activePermissionProfile: { id: params.permissions } }
+            : {} },
       );
     });
     const driver = new CodexDriver(await context({ resume: "expired" }));
@@ -1800,12 +2011,12 @@ describe("Codex adapter", () => {
           cli.send({
             id: "grant-reference",
             method: "item/permissions/requestApproval",
-            params: { permissions: reference, reason: "Read reference files" },
+            params: { threadId: "thread-1", turnId: "turn-1", permissions: reference, reason: "Read reference files" },
           });
         else
           cli.send({
             method: "turn/completed",
-            params: { turn: { id: "turn-1", status: "completed" } },
+            params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
           });
         return;
       }
@@ -1831,6 +2042,7 @@ describe("Codex adapter", () => {
               id: "grant-secrets",
               method: "item/permissions/requestApproval",
               params: {
+                threadId: "thread-1", turnId: "turn-1",
                 permissions: {
                   fileSystem: { read: ["/tmp/secrets/auth.json"], write: null },
                 },
@@ -1875,7 +2087,7 @@ describe("Codex adapter", () => {
         answer = message.result;
         cli.send({
           method: "turn/completed",
-          params: { turn: { status: "completed" } },
+          params: { threadId: "plan-thread", turn: { id: "turn-1", status: "completed" } },
         });
         return;
       }
@@ -1890,7 +2102,7 @@ describe("Codex adapter", () => {
                 thread: { id: "plan-thread" },
                 activePermissionProfile: { id: params.permissions },
               }
-            : {},
+            : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {},
       });
       if (message.method === "turn/start") {
         expect(params.permissions).toBe(":read-only");
@@ -1900,6 +2112,7 @@ describe("Codex adapter", () => {
               id: "plan-write",
               method: "item/permissions/requestApproval",
               params: {
+                threadId: "plan-thread", turnId: "turn-1",
                 permissions: { fileSystem: { write: ["/tmp/workspace/a"] } },
               },
             }),
@@ -2632,4 +2845,417 @@ describe("OpenCode adapter", () => {
       expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
     },
   );
+});
+
+describe("ACP adapter", () => {
+  const PLUGIN_AGENT = "agent.acme.gem.gemini" as const;
+  afterEach(() => setPluginAgentDefinitions([]));
+
+  /** A fake agent speaking the Agent Client Protocol; `prompt` plays each turn. */
+  function acpAgent(
+    options: {
+      loadSession?: boolean;
+      authRequired?: boolean;
+      prompt?: (turn: {
+        message: Record<string, unknown>;
+        update: (update: Record<string, unknown>) => void;
+        ask: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        reply: (result: unknown) => void;
+      }) => void | Promise<void>;
+    } = {},
+  ) {
+    const received: Record<string, unknown>[] = [];
+    const waiting = new Map<number, (result: Record<string, unknown>) => void>();
+    let next = 1_000;
+    const clis = fakeCli(async (message, cli) => {
+      if (message.type === "spawned") return;
+      received.push(message);
+      const reply = (result: unknown) =>
+        cli.send({ jsonrpc: "2.0", id: message.id, result });
+      if (message.method === undefined && typeof message.id === "number") {
+        waiting.get(message.id)?.(message.result as Record<string, unknown>);
+        return;
+      }
+      const update = (value: Record<string, unknown>) =>
+        cli.send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "s1", update: value },
+        });
+      switch (message.method) {
+        case "initialize":
+          return reply({
+            protocolVersion: 1,
+            agentCapabilities: {
+              loadSession: options.loadSession === true,
+              promptCapabilities: { image: true },
+              mcpCapabilities: { http: true },
+            },
+            authMethods: [],
+          });
+        case "session/new":
+          if (options.authRequired)
+            return cli.send({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32000, message: "Authentication required" },
+            });
+          return reply({
+            sessionId: "s1",
+            modes: {
+              currentModeId: "default",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+            configOptions: [
+              {
+                id: "model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: "fast",
+                options: [
+                  { value: "fast", name: "Fast" },
+                  { group: "pro", name: "Pro", options: [{ value: "smart", name: "Smart" }] },
+                ],
+              },
+              {
+                id: "effort",
+                name: "Effort",
+                category: "thought_level",
+                type: "select",
+                currentValue: "low",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          });
+        case "session/load":
+          // Loading replays history, which the conversation already shows.
+          update({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "old reply" },
+          });
+          // A session last used for planning comes back in its plan mode.
+          return reply({
+            modes: {
+              currentModeId: "plan",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+          });
+        case "session/set_config_option":
+        case "session/set_mode":
+          return reply({});
+        case "session/prompt":
+          return options.prompt?.({
+            message,
+            update,
+            reply,
+            ask: (params) =>
+              new Promise((resolve) => {
+                const id = next++;
+                waiting.set(id, resolve);
+                cli.send({
+                  jsonrpc: "2.0",
+                  id,
+                  method: "session/request_permission",
+                  params: { sessionId: "s1", ...params },
+                });
+              }),
+          });
+      }
+    });
+    return { received, clis };
+  }
+
+  const permissionOptions = [
+    { optionId: "yes", name: "Allow", kind: "allow_once" },
+    // A label naming a folder called ohmygame grants nothing by itself.
+    { optionId: "always", name: "Always allow edits in ohmygame/", kind: "allow_always" },
+    { optionId: "no", name: "Reject", kind: "reject_once" },
+  ];
+
+  it("reads a plugin agent's models and reasoning levels, and whether it needs signing in", async () => {
+    setPluginAgentDefinitions([
+      {
+        id: PLUGIN_AGENT,
+        name: "Gemini",
+        binaries: ["gemini"],
+        versionArgs: ["--version"],
+        acp: { plugin: "acme/gem", args: ["--acp"] },
+      },
+    ]);
+    const { clis, received } = acpAgent();
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-acp-probe-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const probed = await discovery.probeModels("/bin/gemini", PLUGIN_AGENT, {}, directory);
+    expect(clis[0]!.args).toEqual(["--acp"]);
+    expect(received.find((message) => message.method === "session/new")?.params).toEqual({
+      cwd: directory,
+      mcpServers: [],
+    });
+    expect(probed.models.map((model) => [model.id, model.name, model.nativeReasoningLevels])).toEqual([
+      ["fast", "Fast", ["low", "high"]],
+      ["smart", "Smart", ["low", "high"]],
+    ]);
+    expect(probed.models[0]).toMatchObject({ provider: PLUGIN_AGENT, providerName: "Gemini" });
+    acpAgent({ authRequired: true });
+    await expect(
+      discovery.probeModels("/bin/gemini", PLUGIN_AGENT, {}, directory),
+    ).resolves.toEqual({ models: [], signedOut: true });
+  });
+
+  it("streams a turn, asks what the agent asks and shows OhMyGame's tools with their results", async () => {
+    let handlers: HttpBridgeHandlers | undefined;
+    const { received } = acpAgent({
+      prompt: async ({ update, ask, reply }) => {
+        expect(handlers!.active()).toBe(true);
+        // OhMyGame's tools stop with the turn, not with the agent's process.
+        expect(handlers!.callSignal!()).toBe(turnSignal);
+        update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello" } });
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Run tests",
+          kind: "execute",
+          status: "pending",
+          rawInput: { command: "npm test" },
+        });
+        const answer = await ask({ toolCall: { toolCallId: "t1" }, options: permissionOptions });
+        expect(answer).toEqual({ outcome: { outcome: "selected", optionId: "always" } });
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "t1",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "ok" } }],
+        });
+        // An OhMyGame tool, titled with its arguments as some agents do.
+        update({ sessionUpdate: "tool_call", toolCallId: "t2", title: '{"value":"hi"}', kind: "other", status: "in_progress" });
+        handlers!.observe(
+          { name: "echo_tool", args: { value: "hi" }, callId: "echo_tool:7" },
+          { result: { content: [{ type: "text", text: "echo hi" }] }, isError: false },
+        );
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: "completed" });
+        // One named the way MCP clients prefix tools needs no permission.
+        update({ sessionUpdate: "tool_call", toolCallId: "t3", title: "mcp__ohmygame__echo_tool", kind: "other" });
+        expect(await ask({ toolCall: { toolCallId: "t3" }, options: permissionOptions })).toEqual({
+          outcome: { outcome: "selected", optionId: "yes" },
+        });
+        update({ sessionUpdate: "usage_update", used: 1200, size: 200000 });
+        reply({
+          stopReason: "end_turn",
+          usage: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 2, cachedWriteTokens: 0, totalTokens: 17 },
+        });
+      },
+    });
+    const driver = new AcpDriver(
+      await context({
+        model: "smart",
+        permissionMode: "default",
+        httpBridge: async (registered) => {
+          handlers = registered;
+          return { url: "http://127.0.0.1:1/agent-runtime-bridge/mcp", token: "tok", revoke: () => {} };
+        },
+      }),
+      { name: "Gemini", args: ["--acp"] },
+    );
+    const recording = recordingSink(() => "allow-always");
+    const turnSignal = new AbortController().signal;
+    const outcome = await driver.runTurn(
+      { text: "Do it", images: [{ type: "image", mimeType: "image/png", data: "AAAA" }], readOnly: false },
+      recording.sink,
+      turnSignal,
+    );
+    expect(handlers!.callSignal!()).toBeUndefined();
+    expect(outcome).toEqual({ status: "completed" });
+    expect(handlers!.listAll).toBe(true);
+    expect(recording.sessionId()).toBe("s1");
+    expect(received.find((message) => message.method === "session/new")?.params).toEqual({
+      cwd: "/tmp/workspace",
+      mcpServers: [
+        {
+          type: "http",
+          name: "ohmygame",
+          url: "http://127.0.0.1:1/agent-runtime-bridge/mcp",
+          headers: [{ name: "Authorization", value: "Bearer tok" }],
+        },
+      ],
+    });
+    expect(
+      received
+        .filter((message) => message.method === "session/set_config_option")
+        .map((message) => message.params),
+    ).toEqual([
+      { sessionId: "s1", configId: "model", value: "smart" },
+      { sessionId: "s1", configId: "effort", value: "high" },
+    ]);
+    const prompt = (received.find((message) => message.method === "session/prompt")!.params as { prompt: Array<Record<string, unknown>> }).prompt;
+    expect(prompt[0]!.text).toContain("Project instructions");
+    expect(prompt.slice(1)).toEqual([
+      { type: "text", text: "Do it" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+    ]);
+    expect(recording.calls).toEqual([
+      "thinking:thought-0:Thinking",
+      "text:text-0:Hello",
+      "thinkingDone:thought-0",
+      "textDone:text-0",
+      'toolCall:t1:bash:{"command":"npm test","description":"Run tests"}',
+      "toolStarted:t1",
+      "toolResult:t1:false",
+      'toolCall:ohmygame:echo_tool:7:echo_tool:{"value":"hi"}',
+      "toolStarted:ohmygame:echo_tool:7",
+      "toolResult:ohmygame:echo_tool:7:false",
+      "usage:0:0:200000:1200",
+    ]);
+    expect(recording.results.get("t1")?.result.content).toEqual([{ type: "text", text: "ok" }]);
+    expect(recording.asked).toEqual([
+      expect.objectContaining({
+        kind: "command",
+        tool: "Run tests",
+        command: "npm test",
+        always: { scope: "saved", rules: ["Always allow edits in ohmygame/"] },
+      }),
+    ]);
+    expect(recording.spent).toEqual(["10:5:2:0"]);
+  });
+
+  it("plans in the agent's plan mode, refusing what it asks, then returns to its working mode", async () => {
+    const answers: unknown[] = [];
+    const { received } = acpAgent({
+      prompt: async ({ ask, reply }) => {
+        answers.push(await ask({ toolCall: { toolCallId: "w", title: "Write file", kind: "edit" }, options: permissionOptions }));
+        reply({ stopReason: "end_turn" });
+      },
+    });
+    const driver = new AcpDriver(await context({ permissionMode: "allow" }), { name: "Gemini", args: [] });
+    const recording = recordingSink(() => "allow");
+    for (const readOnly of [true, false])
+      expect(
+        await driver.runTurn({ text: "go", images: [], readOnly }, recording.sink, new AbortController().signal),
+      ).toEqual({ status: "completed" });
+    expect(
+      received.filter((message) => message.method === "session/set_mode").map((message) => message.params),
+    ).toEqual([
+      { sessionId: "s1", modeId: "plan" },
+      { sessionId: "s1", modeId: "default" },
+    ]);
+    // Planning refuses; Allow all allows without asking.
+    expect(answers).toEqual([
+      { outcome: { outcome: "selected", optionId: "no" } },
+      { outcome: { outcome: "selected", optionId: "yes" } },
+    ]);
+    expect(recording.asked).toEqual([]);
+    // Only a new session's first prompt carries the instructions.
+    const prompts = received.filter((message) => message.method === "session/prompt");
+    expect(JSON.stringify(prompts[1]!.params)).not.toContain("Project instructions");
+  });
+
+  it("loads the session it continues without showing its history again, or hands off when it cannot", async () => {
+    const { received } = acpAgent({
+      loadSession: true,
+      prompt: ({ update, reply }) => {
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "new reply" } });
+        reply({ stopReason: "end_turn" });
+      },
+    });
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-acp-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "# Skill\n");
+    const resumed = await context({ resume: "s1", skillDirectories: [skill] });
+    const driver = new AcpDriver(resumed, { name: "Gemini", args: [] });
+    const recording = recordingSink();
+    await driver.runTurn({ text: "again", images: [], readOnly: false }, recording.sink, new AbortController().signal);
+    expect(received.find((message) => message.method === "session/load")?.params).toMatchObject({
+      sessionId: "s1",
+      cwd: "/tmp/workspace",
+    });
+    expect(received.some((message) => message.method === "session/new")).toBe(false);
+    expect(received.find((message) => message.method === "session/set_mode")?.params).toEqual({
+      sessionId: "s1",
+      modeId: "default",
+    });
+    expect(recording.calls.filter((call) => call.startsWith("text:"))).toEqual(["text:text-0:new reply"]);
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).not.toContain(
+      "Project instructions",
+    );
+    // This process staged the Skills in its own folder, so the continued session hears where.
+    expect(JSON.stringify(received.find((message) => message.method === "session/prompt"))).toContain(
+      // As JSON writes it, with Windows backslashes escaped.
+      JSON.stringify(path.join(resumed.privateDirectory, "skills", path.basename(skill), "SKILL.md")).slice(1, -1),
+    );
+
+    acpAgent({ loadSession: false });
+    await expect(
+      new AcpDriver(await context({ resume: "s1" }), { name: "Gemini", args: [] }).runTurn(
+        { text: "again", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).rejects.toBeInstanceOf(NativeSessionExpiredError);
+  });
+
+  it("stops at once while the agent is still starting its session", async () => {
+    // This agent never answers session/new.
+    const stuck = fakeCli((message, cli) => {
+      if (message.method === "initialize")
+        cli.send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    });
+    const driver = new AcpDriver(await context(), { name: "Gemini", args: [] });
+    const turn = driver.runTurn({ text: "hi", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    await vi.waitFor(() => expect(stuck[0]).toBeDefined());
+    await vi.waitFor(() => expect(stuck[0]!.exited).not.toBe(true));
+    const started = Date.now();
+    await driver.dispose();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(await turn).toMatchObject({ status: "failed" });
+  });
+
+  it("says how to sign in when the agent needs it", async () => {
+    acpAgent({ authRequired: true });
+    const outcome = await new AcpDriver(await context(), {
+      name: "Gemini",
+      args: [],
+      loginCommand: "gemini auth",
+    }).runTurn({ text: "hi", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+    expect(outcome).toEqual({
+      status: "failed",
+      error: expect.stringContaining("Gemini is not signed in. Run `gemini auth`"),
+    });
+  });
+
+  it("cancels a turn, answering what the agent was still asking as cancelled", async () => {
+    let answered: unknown;
+    let asked!: () => void;
+    const asking = new Promise<void>((resolve) => (asked = resolve));
+    const { received } = acpAgent({
+      prompt: async ({ ask, reply }) => {
+        const answer = ask({ toolCall: { toolCallId: "t", title: "Run", kind: "execute" }, options: permissionOptions });
+        asked();
+        answered = await answer;
+        reply({ stopReason: "cancelled" });
+      },
+    });
+    const driver = new AcpDriver(await context({ permissionMode: "default" }), { name: "Gemini", args: [] });
+    const controller = new AbortController();
+    const recording = recordingSink();
+    recording.sink.requestApproval = (_details, options) =>
+      new Promise((resolve) => options?.signal?.addEventListener("abort", () => resolve("deny")));
+    const turn = driver.runTurn({ text: "go", images: [], readOnly: false }, recording.sink, controller.signal);
+    await asking;
+    await vi.waitFor(() => expect(recording.calls).toContain('toolCall:t:bash:{"command":"Run","description":"Run"}'));
+    controller.abort();
+    await driver.interrupt();
+    expect(await turn).toEqual({ status: "aborted", resumable: true });
+    expect(received.some((message) => message.method === "session/cancel")).toBe(true);
+    expect(answered).toEqual({ outcome: { outcome: "cancelled" } });
+  });
 });

@@ -58,7 +58,7 @@ export function parseAppRoute(hash: string): AppRoute {
   const settingsMatch = /^#\/settings(?:\/(general|account|billing|appearance|notifications|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   // Every agent, OhMyGame's own included, has its own settings page.
-  const agentMatch = /^#\/settings\/agents\/([a-z0-9-]+)$/.exec(hash);
+  const agentMatch = /^#\/settings\/agents\/([a-z0-9.-]+)$/.exec(hash);
   if (agentMatch?.[1]) return { page: "settings", section: "agents", agent: agentMatch[1] };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };

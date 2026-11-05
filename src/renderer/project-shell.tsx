@@ -144,7 +144,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -237,6 +237,7 @@ export function ProjectShell({
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   // Plugins' panels follow the type's own, in the areas they name.
   const plugins = useProjectPluginContributions(state.project, capabilitiesRevision);
+  useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
   const offered: PanelId[] = state.project ? [...panelsOf(state.project), ...pluginPanels.keys()] : [];
@@ -1171,6 +1172,7 @@ export function ProjectShell({
       return {};
     }
     try {
+      await saveBeforeBuild(command);
       const { result, change } = await runPluginCommand(project.id, command.id);
       showPluginChange(command.title, change);
       return { result };
@@ -1179,6 +1181,12 @@ export function ProjectShell({
       toast({ title: command.title, description: error, tone: "danger" });
       return { error };
     }
+  }
+  /** A build is read from disk, so pending edits are saved first, as for Export web build. */
+  async function saveBeforeBuild(command: ProjectPluginCommand | undefined): Promise<void> {
+    if (!command || !("native" in command.run) || command.run.build !== "web") return;
+    await saveDesign.current?.();
+    await desktopSave.flush();
   }
   /** Answers a plugin page's question, and lets another be asked. */
   function answerPluginConfirm(yes: boolean): void {
@@ -1266,6 +1274,7 @@ export function ProjectShell({
         if (action.kind === "fill") requestPrompt(action.text);
         else if (action.kind === "app") await runProjectPluginCommand(action.command);
         if (action.kind !== "plugin") return null;
+        await saveBeforeBuild(found);
         const { result, change } = await runPluginCommand(current.id, id, input);
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
@@ -1293,7 +1302,8 @@ export function ProjectShell({
     "separator",
     { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
   ];
-  const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
+  const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
+  const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's
   // workspace brings it forward itself.
@@ -1504,9 +1514,22 @@ export function ProjectShell({
         {project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
           : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
-          { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
-          "separator",
-          { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
+          ...(publishButton.builtIn ? [
+            { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+            "separator",
+            { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
+          ] satisfies MenuEntry[] : []),
+          // Plugins' ways to publish; one that builds the game waits for an export.
+          ...(publishButton.builtIn && publishCommands.length ? ["separator" as const] : []),
+          ...publishCommands.map((command): MenuEntry => ({
+            label: command.title,
+            icon: <Plug size={14} />,
+            disabled: "native" in command.run && command.run.build === "web" && !!exporting,
+            // Plugin code shows as publishing until it ends; the rest only opens or fills something.
+            onSelect: () => void ("native" in command.run || "tool" in command.run
+              ? (setPublishing(true), runProjectPluginCommand(command).finally(() => setPublishing(false)))
+              : runProjectPluginCommand(command)),
+          })),
         ]} trigger={(props) => (
           <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>

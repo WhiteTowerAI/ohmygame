@@ -1,3 +1,6 @@
+import { THEME_TOKENS } from "../shared/plugin-manifest.js";
+import type { PluginTheme } from "../shared/plugins.js";
+
 export type Appearance = "system" | "light" | "dark";
 type ResolvedAppearance = Exclude<Appearance, "system">;
 
@@ -56,6 +59,74 @@ export function readPalette(): Palette {
 export function setPalette(palette: Palette): void {
   writeStored(PALETTE_STORAGE_KEY, palette === "neutral" ? undefined : palette);
   applyPalette(palette);
+  // A palette takes the place of a plugin's theme.
+  writeStored(PLUGIN_THEME_STORAGE_KEY, undefined);
+  applyPluginTheme(undefined);
+}
+
+// A plugin's theme, chosen in place of a palette: its values over the neutral
+// greys, for the appearances it has values for. They are kept with the choice,
+// so the theme applies at launch before the app reaches the daemon.
+const PLUGIN_THEME_STORAGE_KEY = "ohmygame:plugin-theme";
+const PLUGIN_THEME_STYLE_ID = "ohmygame-plugin-theme";
+
+export function readPluginTheme(): PluginTheme | undefined {
+  try {
+    const value = JSON.parse(readStored(PLUGIN_THEME_STORAGE_KEY) ?? "null") as unknown;
+    return value && typeof value === "object" && typeof (value as PluginTheme).id === "string" ? value as PluginTheme : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Chooses a plugin's theme, or none, in place of a palette. */
+export function setPluginTheme(theme: PluginTheme | undefined): void {
+  writeStored(PALETTE_STORAGE_KEY, undefined);
+  applyPalette("neutral");
+  writeStored(PLUGIN_THEME_STORAGE_KEY, theme ? JSON.stringify(theme) : undefined);
+  applyPluginTheme(theme);
+}
+
+/** The theme's values for one appearance that name a theme token. */
+export function pluginThemeValues(theme: Pick<PluginTheme, "dark" | "light">, appearance: "dark" | "light"): Array<[string, string]> {
+  const tokens = new Set<string>(THEME_TOKENS);
+  return Object.entries(theme[appearance] ?? {}).filter(([token, value]) => tokens.has(token) && typeof value === "string");
+}
+
+export function applyPluginTheme(theme: PluginTheme | undefined): void {
+  document.getElementById(PLUGIN_THEME_STYLE_ID)?.remove();
+  if (!theme) return;
+  const style = document.createElement("style");
+  style.id = PLUGIN_THEME_STYLE_ID;
+  document.head.append(style);
+  const sheet = style.sheet;
+  if (!sheet) return;
+  for (const appearance of ["dark", "light"] as const) {
+    const values = pluginThemeValues(theme, appearance);
+    if (!values.length) continue;
+    // Set one by one: a value the browser can't read is dropped, and none can reach past its rule.
+    // The code view sets its own syntax colours, so the theme's are set there too.
+    const rule = sheet.cssRules[sheet.insertRule(`:root[data-appearance="${appearance}"], :root[data-appearance="${appearance}"] .workspace-code {}`, sheet.cssRules.length)] as CSSStyleRule;
+    for (const [token, value] of values) rule.style.setProperty(token, value);
+  }
+}
+
+/**
+ * Keeps the chosen plugin theme to what its plugin now offers: its newest
+ * values. A theme its plugin no longer offers stops showing, but stays chosen
+ * unless that plugin is `ended`, turned off or removed by the person: safe
+ * mode and a plugin that fails to load offer nothing for a while.
+ */
+export async function syncPluginTheme(load: () => Promise<PluginTheme[]>, ended?: string): Promise<void> {
+  const current = readPluginTheme();
+  if (!current) return;
+  const themes = await load().catch(() => undefined);
+  // The person may have chosen something else meanwhile.
+  if (!themes || JSON.stringify(readPluginTheme()) !== JSON.stringify(current)) return;
+  const now = themes.find((theme) => theme.id === current.id);
+  if (now && JSON.stringify(now) !== JSON.stringify(current)) setPluginTheme(now);
+  else if (!now && current.plugin === ended) setPluginTheme(undefined);
+  else applyPluginTheme(now);
 }
 
 export function applyPalette(palette: Palette): void {

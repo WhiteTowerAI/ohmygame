@@ -1,5 +1,5 @@
 import { isAgentRuntimeId } from "../../shared/agent-runtimes.js";
-import { AGENT_RUNTIME_DEFINITIONS } from "./definitions.js";
+import { findAgentRuntimeDefinition } from "./definitions.js";
 
 /** The `api` of assistant messages a coding agent's turn recorded in the shared session. */
 export const NATIVE_API = "ohmygame-native";
@@ -82,7 +82,7 @@ export function replayNativeMessages<Message>(
 
 function agentName(provider: unknown): string {
   return isAgentRuntimeId(provider)
-    ? AGENT_RUNTIME_DEFINITIONS[provider].name
+    ? (findAgentRuntimeDefinition(provider)?.name ?? "The coding agent")
     : "The coding agent";
 }
 

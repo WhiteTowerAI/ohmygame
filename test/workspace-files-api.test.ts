@@ -25,6 +25,27 @@ async function setup() {
 }
 
 describe("project file management", () => {
+  it("supports bounded directory listings while preserving the complete asset index and metadata", async () => {
+    const { app, project, base } = await setup();
+    await mkdir(path.join(project.workspacePath, "场景", "deep"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "场景", "hero.png"), "image");
+    await writeFile(path.join(project.workspacePath, "场景", "deep", "game.ts"), "source");
+    await writeAssetMetadata(project.workspacePath, "场景/hero.png", { origin: "generated", prompt: "Hero" });
+    const root = await app.inject({ method: "GET", url: `${base}?directory=` });
+    expect(root.statusCode, root.body).toBe(200);
+    expect(root.json()).toContainEqual({ path: "场景", size: 0, directory: true });
+    expect(root.json<WorkspaceFile[]>().some((file) => file.path.startsWith("场景/"))).toBe(false);
+    const children = await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent("场景")}` });
+    expect(children.statusCode, children.body).toBe(200);
+    expect(children.json()).toContainEqual({ path: "场景/deep", size: 0, directory: true });
+    expect(children.json()).toContainEqual(expect.objectContaining({ path: "场景/hero.png", size: 5, origin: "generated", prompt: "Hero", mediaType: "image" }));
+    expect((await app.inject({ method: "GET", url: base })).json()).toContainEqual({ path: "场景/deep/game.ts", size: 6 });
+    for (const directory of ["..", ".data", "C:\\Windows", "场景/hero.png"]) {
+      expect((await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent(directory)}` })).statusCode).toBe(400);
+    }
+    expect((await app.inject({ method: "GET", url: `${base}?directory=missing` })).statusCode).toBe(404);
+  });
+
   it("creates, renames and deletes files and folders without overwriting other files", async () => {
     const { app, project, base } = await setup();
     expect((await app.inject({ method: "POST", url: base, payload: { name: "src", kind: "folder" } })).statusCode).toBe(201);

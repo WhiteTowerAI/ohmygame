@@ -139,7 +139,8 @@ export function OnboardingAgents({
   }
 
   async function useAgent(agent: AgentRuntimeStatus) {
-    if (!agent.enabled) {
+    // A plugin's agent is turned on in Settings, which shows what it runs first.
+    if (!agent.enabled && !agent.plugin) {
       remember(await updateAgentRuntime(agent.id, { enabled: true }));
       notifyAgentModelsChanged();
     }

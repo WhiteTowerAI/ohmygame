@@ -32,6 +32,17 @@ working copy is now ignored remains listed as a removal. The path filter applies
 to both explorer views. Switching back to Files preserves the selected source
 file; an explicit request to open a source file also switches back to Files.
 
+Files loads the project's root first and reads a folder's immediate children
+on its first expansion, reusing that list until a workspace refresh. After an
+agent turn, Undo/Reapply, or a file operation, it
+refreshes the root, expanded folders, and the open file's parent folders;
+collapsed branches are not scanned. The open file, folder expansion, and
+scroll position stay on screen during refreshes. **Refresh files** rereads
+those same directories to pick up external changes. No file watchers are
+created for the file tree. Entering a path filter loads the complete file
+index, so matches inside unopened folders remain searchable. Assets also
+retains its complete index rather than depending on which folders are open.
+
 ![Read-only Git changes in Code](assets/workspace-git.webp)
 
 The list refreshes when Code opens, when Changes opens, after an agent turn,
@@ -65,3 +76,9 @@ currently changed path in that project's repository. Start with
 `src/daemon/workspace-git.ts`, `src/shared/workspace-git.ts` and
 `src/renderer/workspace-git-changes.tsx`; tests are in
 `test/workspace-git.test.ts` and `test/workspace-git-renderer.test.tsx`.
+
+`GET /projects/:projectId/files?directory=` returns immediate root entries;
+`directory=src` returns immediate children of `src`, including nonempty
+directories. Omitting `directory` retains the complete recursive listing used
+by search and Assets. Directory requests use the same path containment checks
+as file reads and exclude generated/internal directories and symbolic links.

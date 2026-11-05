@@ -10,6 +10,7 @@ import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
 import type { AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { ProjectCanvasNode } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
 import { resolveModel3DConnection, resolveModel3D, DEFAULT_MODEL_3D_CONFIG, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -101,6 +102,11 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   model3DRuntime?: Model3DNodeRuntime;
   animateRuntime?: Animate3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
+  /** A plugin node's `publisher/name:node`, its settings, and what feeds each input. */
+  node?: string;
+  params?: Record<string, string | number | boolean>;
+  inputs?: Record<string, AssetCanvasReference[]>;
+  pluginRuntime?: PluginNodeRuntime;
 };
 export type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType> & { title?: string; description?: string };
 
@@ -170,6 +176,22 @@ export interface Model3DNodeRuntime extends ReferenceMediaNodeRuntime {
 
 export interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
   models: Model3DModel[];
+}
+
+export interface PluginNodeRuntime {
+  /** Absent while the node's plugin is off or gone. */
+  definition?: ProjectCanvasNode;
+  /** What the last output is, known from the Library while the plugin is off. */
+  output?: ProjectCanvasNode["output"];
+  /** What is connected to each input, by input id. */
+  sources: Record<string, Array<{ nodeId?: string; name: string }>>;
+  generating: boolean;
+  busy: boolean;
+  error?: string;
+  onChange: (params: Record<string, string | number | boolean>) => void;
+  onRemoveInput: (input: string, index: number) => void;
+  onGenerate: () => void;
+  onCancel?: () => void;
 }
 
 export interface MediaReferenceView {

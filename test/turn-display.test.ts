@@ -267,13 +267,14 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([compaction]);
   });
 
-  it("projects generated images after work as artifacts", () => {
-    const display = projectTurnDisplay(turn([
-      tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } }),
-      answer("Done."),
-    ], false));
+  it("keeps generated images in their tool without repeating them after work", () => {
+    const generated = tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } });
+    for (const active of [true, false]) {
+      const display = projectTurnDisplay(turn([generated, answer("Done.")], active));
 
-    expect(display.artifacts).toEqual([{ type: "image", path: "assets/generated/image.png", mediaType: "image/png" }]);
+      expect(display.artifacts).toEqual([]);
+      expect(display.work[0]).toMatchObject({ kind: "tool-group", tools: [generated] });
+    }
   });
 
   it("projects generated models after work as artifacts", () => {
