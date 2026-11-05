@@ -14278,15 +14278,11 @@ summary.work-summary:hover {
 :is(.agent-account-trigger-usage, .agent-account-row-usage, .agent-account-window).is-danger { --usage-color: var(--danger); }
 :is(.agent-account-trigger-usage, .agent-account-row-usage):is(.is-warning, .is-danger) { color: var(--usage-color); }
 
+.agent-account-heading > span { flex: 1; }
 .ui-popover.agent-account-menu {
   width: 300px;
   max-height: min(560px, calc(100vh - 16px));
 }
-.agent-account-current { display: grid; gap: 1px; padding: 8px 8px 4px; }
-.agent-account-current > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-account-current > strong { font-size: var(--text-md); font-weight: var(--weight-medium); }
-.agent-account-current > small { color: var(--color-text-tertiary); font-size: var(--text-sm); }
-.agent-account-empty { margin: 0; padding: 4px 8px 8px; color: var(--color-text-tertiary); font-size: var(--text-sm); }
 
 .agent-account-windows { display: grid; gap: 12px; padding: 8px 8px 10px; }
 .agent-account-window { display: grid; gap: 6px; }
@@ -14297,7 +14293,7 @@ summary.work-summary:hover {
 .agent-account-bar > span { display: block; min-width: 3px; height: 100%; border-radius: inherit; background: var(--usage-color, var(--color-ink)); transition: width var(--duration-base) var(--ease-out); }
 .agent-account-window > small { color: var(--color-text-tertiary); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
-.agent-account-heading { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 2px 8px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.agent-account-heading { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
 .agent-account-list { display: grid; gap: 1px; }
 .agent-account-row {
   display: flex;
@@ -14321,12 +14317,13 @@ summary.work-summary:hover {
 .agent-account-row-text > span { font-size: var(--text-md); }
 .agent-account-row-text > small { color: var(--color-text-tertiary); font-size: var(--text-xs); }
 .agent-account-row[aria-checked="true"] .agent-account-row-text > span { font-weight: var(--weight-medium); }
-/* One short bar per window, so both read at a glance without opening the card. */
-.agent-account-mini { display: grid; flex: none; gap: 3px; width: 32px; }
-.agent-account-mini > span { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--color-hover); }
-.agent-account-mini > span > span { display: block; height: 100%; border-radius: inherit; background: var(--color-text-tertiary); }
-.agent-account-mini > .is-warning > span { background: var(--warning); }
-.agent-account-mini > .is-danger > span { background: var(--danger); }
+/* A ring per window, so both read at a glance without opening the card. */
+.agent-account-rings { display: inline-flex; flex: none; gap: 4px; }
+.agent-account-ring { flex: none; }
+.agent-account-ring circle { fill: none; stroke: var(--color-hover); stroke-width: 2.5; }
+.agent-account-ring circle + circle { stroke: var(--color-text-secondary); stroke-linecap: round; }
+.agent-account-ring.is-warning circle + circle { stroke: var(--warning); }
+.agent-account-ring.is-danger circle + circle { stroke: var(--danger); }
 .agent-account-row-usage { flex: none; min-width: 32px; color: var(--color-text-secondary); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }
 .agent-account-check { display: inline-grid; flex: none; place-items: center; width: 14px; color: var(--color-text-secondary); }
 

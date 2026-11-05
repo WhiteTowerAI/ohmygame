@@ -1938,9 +1938,8 @@ const zhCN: typeof en = {
     empty: "和 {{name}} 对话后显示。",
   },
   codingAgents: {
-    accountCurrent: "当前账号",
+    profileSystemShort: "默认",
     accountList: "账号",
-    accountNoUsage: "对话后显示额度",
     accountManage: "管理账号",
     updateAvailable: "可更新",
     updateAvailableHint: "比 OhMyGame 测试过的 {{version}} 旧。",

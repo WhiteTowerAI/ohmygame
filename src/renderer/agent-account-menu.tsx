@@ -12,13 +12,24 @@ import { IconButton, Popover } from "./ui/index.js";
 const CLOCK_MS = 30_000;
 const CARD_WIDTH = 240;
 
+/** The menu is narrow, so the system account goes by a shorter name than in Settings. */
 function profileName(profile: AgentAccountProfileStatus): string {
-  return profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
+  return profile.id === "system" ? t("codingAgents.profileSystemShort") : profile.name;
 }
 
-/** The window closest to its limit: the one that stops the account first. */
-function busiest(limits: readonly AgentUsageLimit[]): AgentUsageLimit | undefined {
-  return limits.reduce<AgentUsageLimit | undefined>((top, limit) => (!top || limit.usedPercent > top.usedPercent ? limit : top), undefined);
+/** The shortest window, such as the 5-hour one: the share that changes from turn to turn. */
+function shortest(limits: readonly AgentUsageLimit[]): AgentUsageLimit | undefined {
+  return limits.reduce<AgentUsageLimit | undefined>((first, limit) => (!first || (limit.windowMinutes ?? Infinity) < (first.windowMinutes ?? Infinity) ? limit : first), undefined);
+}
+
+/** A small ring filled by a window's share used. */
+function UsageRing({ limit }: { limit: AgentUsageLimit }) {
+  const percent = Math.round(limit.usedPercent);
+  const length = 2 * Math.PI * 6.5;
+  return <svg className={`agent-account-ring${usageLevel(percent)}`} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="8" cy="8" r="6.5" />
+    {percent > 0 ? <circle cx="8" cy="8" r="6.5" strokeDasharray={`${(length * percent) / 100} ${length}`} transform="rotate(-90 8 8)" /> : null}
+  </svg>;
 }
 
 /** Each window with its share used, a bar and how long until it resets. */
@@ -38,10 +49,10 @@ function UsageWindows({ limits, now }: { limits: readonly AgentUsageLimit[]; now
 }
 
 /**
- * The chat header's account menu for Claude Code and Codex: the chosen
- * account's quota windows and when they reset, then every account with its
- * busiest window. Hovering an account shows its windows beside the menu, so
- * the person can move to one with room left.
+ * The chat header's account menu for Claude Code and Codex: every account
+ * with a ring per quota window and its shortest window's share. Hovering or
+ * focusing an account shows its windows and when they reset beside the menu,
+ * so the person can move to one with room left.
  */
 export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange, onRefresh }: {
   runtime: AccountRuntimeId;
@@ -78,15 +89,13 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
   const agent = runtime === "codex-cli" ? "Codex" : "Claude Code";
   const label = t("codingAgents.chatProfile", { name: agent });
   const limitsOf = (profile: AgentAccountProfileStatus) => (profile.limits ?? []).map((limit) => currentUsage(limit, now));
-  const selectedLimits = limitsOf(selected);
-  const top = busiest(selectedLimits);
-  const topPercent = top ? Math.round(top.usedPercent) : undefined;
+  const first = shortest(limitsOf(selected));
+  const firstPercent = first ? Math.round(first.usedPercent) : undefined;
   const peeked = peek && profiles.find((profile) => profile.id === peek.id);
 
   /** Beside the menu, level with the row: on the right when it fits, else on the left. */
   function showPeek(profile: AgentAccountProfileStatus, row: HTMLElement) {
-    // The chosen account's windows are already at the top of the menu.
-    if (!profile.limits?.length || profile.id === selected!.id) { setPeek(undefined); return; }
+    if (!profile.limits?.length) { setPeek(undefined); return; }
     const menu = row.closest(".agent-account-menu")!.getBoundingClientRect();
     const at = row.getBoundingClientRect();
     const left = menu.right + 6 + CARD_WIDTH <= window.innerWidth - 8 ? menu.right + 6 : Math.max(8, menu.left - 6 - CARD_WIDTH);
@@ -98,19 +107,15 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
       aria-label={`${label}: ${profileName(selected)}`} title={selected.auth.account ?? profileName(selected)} onClick={() => setOpen(!open)}>
       <UserRound size={13} aria-hidden="true" />
       <span className="agent-account-trigger-name">{profileName(selected)}</span>
-      {topPercent !== undefined ? <span className={`agent-account-trigger-usage${usageLevel(topPercent)}`}>{topPercent}%</span> : null}
+      {firstPercent !== undefined ? <span className={`agent-account-trigger-usage${usageLevel(firstPercent)}`}>{firstPercent}%</span> : null}
       <ChevronDown size={12} aria-hidden="true" />
     </button>
     <Popover open={open} onClose={() => setOpen(false)} anchor={trigger} placement="bottom-end" className="agent-account-menu" label={label}>
-      <div className="agent-account-current">
-        <strong title={selected.auth.account}>{selected.auth.account ?? profileName(selected)}</strong>
-        <small>{selected.auth.account ? `${profileName(selected)} · ${t("codingAgents.accountCurrent")}` : t("codingAgents.accountCurrent")}</small>
-      </div>
-      {selectedLimits.length ? <UsageWindows limits={selectedLimits} now={now} />
-        : <p className="agent-account-empty">{t(selected.auth.status === "signed-out" ? "codingAgents.signedOut" : "codingAgents.accountNoUsage")}</p>}
-      <div className="ui-menu-separator" />
       <div className="agent-account-heading">
         <span>{t("codingAgents.accountList")}</span>
+        <IconButton size="sm" label={t("codingAgents.accountManage")} onClick={() => { setOpen(false); window.location.hash = settingsHash("agents", runtime); }}>
+          <Settings size={13} />
+        </IconButton>
         <IconButton size="sm" label={t("codingAgents.profileRecheck")} disabled={refreshing} onClick={() => {
           setRefreshing(true);
           void onRefresh().finally(() => setRefreshing(false));
@@ -119,8 +124,8 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
       <div className="agent-account-list" role="radiogroup" aria-label={label} onPointerLeave={() => setPeek(undefined)}>
         {profiles.map((profile) => {
           const limits = limitsOf(profile);
-          const peak = busiest(limits);
-          const percent = peak ? Math.round(peak.usedPercent) : undefined;
+          const window_ = shortest(limits);
+          const percent = window_ ? Math.round(window_.usedPercent) : undefined;
           const active = profile.id === selected.id;
           return <button type="button" role="radio" aria-checked={active} key={profile.id} className="agent-account-row" disabled={disabled}
             onPointerEnter={(event) => showPeek(profile, event.currentTarget)} onFocus={(event) => showPeek(profile, event.currentTarget)}
@@ -130,19 +135,12 @@ export function AgentAccountMenu({ runtime, profiles, value, disabled, onChange,
               <span>{profileName(profile)}</span>
               <small>{profile.auth.account ?? (profile.auth.status === "signed-out" ? t("codingAgents.signedOut") : "")}</small>
             </span>
-            {limits.length ? <span className="agent-account-mini" aria-hidden="true">
-              {limits.slice(0, 2).map((limit) => <span key={limit.id} className={usageLevel(Math.round(limit.usedPercent)).trim()}><span style={{ width: `${Math.round(limit.usedPercent)}%` }} /></span>)}
-            </span> : null}
             {percent !== undefined ? <span className={`agent-account-row-usage${usageLevel(percent)}`}>{percent}%</span> : null}
+            {limits.length ? <span className="agent-account-rings">{limits.slice(0, 2).map((limit) => <UsageRing key={limit.id} limit={limit} />)}</span> : null}
             <span className="agent-account-check">{active ? <Check size={14} /> : null}</span>
           </button>;
         })}
       </div>
-      <div className="ui-menu-separator" />
-      <button type="button" className="ui-menu-item" onClick={() => { setOpen(false); window.location.hash = settingsHash("agents", runtime); }}>
-        <span className="ui-menu-icon"><Settings size={14} /></span>
-        <span className="ui-menu-label">{t("codingAgents.accountManage")}</span>
-      </button>
     </Popover>
     {open && peeked ? createPortal(<div ref={card} className="agent-account-peek" style={peek.style} role="tooltip" data-native-preview-overlay>
       <strong>{peeked.auth.account ?? profileName(peeked)}</strong>

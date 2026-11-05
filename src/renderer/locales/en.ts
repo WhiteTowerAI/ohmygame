@@ -1959,9 +1959,8 @@ const en = {
     empty: "Shown after a conversation with {{name}}.",
   },
   codingAgents: {
-    accountCurrent: "Current account",
+    profileSystemShort: "Default",
     accountList: "Accounts",
-    accountNoUsage: "Usage shows after a conversation",
     accountManage: "Manage accounts",
     updateAvailable: "Update available",
     updateAvailableHint: "Older than {{version}}, the version OhMyGame was tested with.",

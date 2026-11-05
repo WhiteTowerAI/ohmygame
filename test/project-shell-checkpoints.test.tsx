@@ -1016,7 +1016,7 @@ describe("checkpoints in the project shell", () => {
     removed = true;
     await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
     await settle();
-    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("System default");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Default");
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 
