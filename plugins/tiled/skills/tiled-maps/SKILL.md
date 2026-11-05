@@ -15,6 +15,8 @@ Tile GIDs are global: mask off the flip and rotation flags in the high bits, the
 
 ## Export
 
+Find Tiled on PATH or in its usual location (macOS `/Applications/Tiled.app/Contents/MacOS/Tiled`, Windows `Program Files/Tiled/tiled.exe`). On Windows the install can be on any drive: also check Start menu shortcuts and their targets (`%ProgramData%` and `%APPDATA%` under `Microsoft/Windows/Start Menu/Programs`) and each Steam library listed in `<Steam>/steamapps/libraryfolders.vdf` (`steamapps/common/Tiled`). If none is found, ask the user for the executable's path instead of reporting it as not installed.
+
 ```text
 <TILED> --export-map json <SOURCE.tmx> <OUTPUT.json>
 ```

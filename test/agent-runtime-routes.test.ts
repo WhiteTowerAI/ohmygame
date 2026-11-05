@@ -130,7 +130,70 @@ async function start(source = FAKE_CLAUDE) {
   return { app, call, claude, dataDirectory };
 }
 
+/** An agent that speaks the Agent Client Protocol with `--acp`, as a plugin declares it. */
+const FAKE_ACP = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("fake-acp 1.2.3"); process.exit(0); }
+if (args[0] !== "--acp") process.exit(2);
+const send = (value) => console.log(JSON.stringify(value));
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined || !m.method) return;
+  const reply = (result) => send({ jsonrpc: "2.0", id: m.id, result });
+  if (m.method === "initialize") return reply({ protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } });
+  if (m.method === "session/new") return reply({ sessionId: "fake-session", configOptions: [{ id: "model", name: "Model", category: "model", type: "select", currentValue: "fake-model", options: [{ value: "fake-model", name: "Fake model" }] }] });
+  if (m.method === "session/prompt") {
+    send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: m.params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ACP reply" } } } });
+    return reply({ stopReason: "end_turn" });
+  }
+  reply({});
+});
+`;
+
 describe("coding agent routes", () => {
+  it.skipIf(process.platform === "win32")("adds a plugin's ACP agent to Agents, runs a conversation with it and follows the plugin", async () => {
+    const { app, call, dataDirectory } = await start();
+    // The agent reaches OhMyGame's tools over loopback, so the daemon listens.
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const source = path.join(dataDirectory, "acp-plugin");
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/fake-acp", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Fake ACP", description: "An ACP agent",
+      capabilities: { processes: ["fake-acp"] },
+      contributes: { agents: [{ id: "fake", title: "Fake ACP", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" }] },
+    }));
+    const payload = { source: { type: "directory", path: source } };
+    const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
+    expect(inspected.status).toBe(200);
+    expect((await call("POST", "/plugin-sources/install", { ...payload, digest: inspected.body.digest })).status).toBe(201);
+    const id = "agent.acme.fake-acp.fake";
+    await vi.waitFor(async () =>
+      expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
+        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow",
+      }),
+    );
+    const executable = path.join(dataDirectory, "fake-acp");
+    await writeFile(executable, FAKE_ACP, { mode: 0o700 });
+    expect((await call("PATCH", `/agent-runtimes/${id}`, { permissionMode: ":workspace" })).status).toBe(400);
+    const status = await call<AgentRuntimeStatus>("PATCH", `/agent-runtimes/${id}`, { binaryPath: executable, enabled: true, permissionMode: "default" });
+    expect(status.body).toMatchObject({ installed: true, version: "1.2.3", enabled: true, permissionMode: "default", diagnostics: [], launch: `${executable} --acp "--note=a b"` });
+    const catalog = (await call<AgentModelCatalog>("GET", "/models?runtimes=1")).body;
+    expect(catalog.models.find((model) => model.provider === id)).toMatchObject({ id: "fake-model", name: "Fake model", providerName: "Fake ACP" });
+    expect((await call("POST", `/agent-runtimes/${id}/login`)).body).toEqual({ command: "fake-acp login" });
+
+    const project = (await call<ProjectState>("POST", "/projects", {})).body;
+    const chat = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: id, id: "fake-model" } })).body;
+    const base = `/projects/${project.id}/conversations/${chat.id}`;
+    expect(await call("POST", `${base}/turns`, { prompt: "Hello" })).toMatchObject({ status: 202 });
+    await vi.waitFor(async () => expect(JSON.stringify((await call<ConversationDetail>("GET", base)).body)).toContain("ACP reply"), { timeout: 10_000 });
+
+    expect((await call("PUT", "/plugin-store/acme/fake-acp/enabled", { enabled: false })).status).toBe(204);
+    await vi.waitFor(async () =>
+      expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.some((agent) => agent.id === id)).toBe(false),
+    );
+    expect((await call("POST", `/agent-runtimes/${id}/recheck`)).status).toBe(404);
+  });
+
   it("accepts only the agent's own permission modes", async () => {
     const { call } = await start();
     expect(

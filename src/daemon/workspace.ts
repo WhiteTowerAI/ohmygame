@@ -12,9 +12,16 @@ export class WorkspaceError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
 }
 
-export async function listWorkspaceFiles(workspacePath: string): Promise<WorkspaceFile[]> {
+/** With a directory, list only its immediate children; omission retains the complete asset/search index. */
+export async function listWorkspaceFiles(workspacePath: string, directory?: string): Promise<WorkspaceFile[]> {
   const files: WorkspaceFile[] = [];
-  await visit(workspacePath, "", files);
+  if (directory === undefined) await visit(workspacePath, "", files);
+  else {
+    const normalized = directory.replaceAll("\\", "/");
+    if (normalized.split("/").some((part) => IGNORED_DIRECTORIES.has(part))) throw new WorkspaceError("Directory is excluded from the file browser");
+    const absolute = await resolveWorkspaceDirectory(workspacePath, normalized);
+    files.push(...await directoryEntries(absolute, normalized));
+  }
   const metadata = await readAssetMetadata(workspacePath);
   for (const file of files) {
     if (file.directory) continue;
@@ -108,6 +115,17 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
     if (!(await visit(root, child, files))) files.push({ path: child, size: 0, directory: true });
   }
   return regular.length + directories.length > 0;
+}
+
+async function directoryEntries(directory: string, relativeDirectory: string): Promise<WorkspaceFile[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const visible = entries.filter((entry) => entry.isFile() || (entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)));
+  return mapConcurrent(visible, 8, async (entry): Promise<WorkspaceFile> => {
+    const entryPath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) return { path: entryPath, size: 0, directory: true };
+    const media = workspaceMediaInfo(entry.name);
+    return { path: entryPath, size: (await stat(path.join(directory, entry.name))).size, ...(media ? { mediaType: media.mediaType } : {}) };
+  });
 }
 
 export { workspaceMediaInfo };

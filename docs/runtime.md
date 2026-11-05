@@ -673,6 +673,12 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
+Generated images appear as small thumbnails inside their tool's details
+([example](assets/chat-generated-image-details.png)),
+with the same click-to-enlarge, copy and save actions as other chat images.
+They are not repeated below the response. The files remain in the project's
+`assets/generated/` folder, and the conversation keeps their references.
+
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
 

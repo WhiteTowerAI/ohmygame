@@ -7,6 +7,7 @@ import type {
   ModelAuthNotification,
   ImageModel,
   ModelProviderSummary,
+  PluginProviderInfo,
   ProviderCapability,
   ProviderSummary,
   VideoModel,
@@ -55,6 +56,7 @@ import { followProviderSettings } from "./model-settings-events.js";
 import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 import { groupProviders } from "./provider-groups.js";
+import { pluginHash } from "./routes.js";
 import { t } from "./i18n.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
@@ -144,14 +146,16 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
     ].some((value) => value.toLowerCase().includes(normalizedQuery)))
   ));
+  // A plugin's providers stay in view until they are set up, not under More.
+  const pluginProviders = visibleProviders.filter((provider) => provider.plugin && provider.status !== "connected");
   const {
     connected: connectedProviders, free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders,
-  } = groupProviders(visibleProviders, {
+  } = groupProviders(visibleProviders.filter((provider) => !pluginProviders.includes(provider)), {
     isConnected: (provider) => provider.status === "connected",
     isFree: (provider) => provider.managed === "free_cloud" || provider.id === "hyper3d",
     isLocal: (provider) => provider.id === "codex-cli" || isLocalModelProvider(provider),
   });
-  const filteredProviders = [...connectedProviders, ...freeProviders, ...popularProviders, ...localProviders, ...moreProviders];
+  const filteredProviders = [...connectedProviders, ...freeProviders, ...pluginProviders, ...popularProviders, ...localProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
     <>
@@ -173,6 +177,7 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
       {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
       {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
+      {!filtering && pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
       {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
       {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
       {!filtering && moreProviders.length ? (
@@ -261,6 +266,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "codex-cli") return <CodexImageProviderDetail provider={provider} onBack={onBack} onOpenAgents={onOpenAgents} />;
   if (provider.id === "hyper3d" || provider.id === HYPER3D_CONNECTION_ID) return <Hyper3DProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.managed === "free_cloud") return <FreeCloudProviderDetail provider={provider} onBack={onBack} />;
+  if (provider.plugin) return <PluginProviderDetail provider={provider} plugin={provider.plugin} onBack={onBack} />;
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
@@ -270,6 +276,41 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+/** A provider an installed plugin adds: its key and address are set on the plugin's page. */
+function PluginProviderDetail({ provider, plugin, onBack }: { provider: ProviderSummary; plugin: PluginProviderInfo; onBack: () => void }) {
+  const [modelsRevision, setModelsRevision] = useState(0);
+  const hint = provider.configured ? t("providers.plugin.hint", { plugin: plugin.name })
+    : plugin.keyField ? t("providers.plugin.needsKey", { field: plugin.keyField })
+    : t("providers.plugin.unavailable");
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={provider} onBack={onBack}>
+      {provider.configured ? <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} /> : null}
+    </ProviderDetailHeader>
+    <section className="settings-detail-section" aria-label={t("providers.connection.title")}>
+      <div className="provider-models-heading">
+        <h4>{t("providers.connection.title")}</h4>
+        <div className="provider-models-heading-actions">
+          <Button onClick={() => { window.location.hash = pluginHash(plugin.id); }}>{t("providers.plugin.open")}</Button>
+        </div>
+      </div>
+      <p className="settings-detail-hint">{hint}</p>
+      <div className="settings-provider-connection">
+        <div className="settings-provider-setting-row">
+          <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
+          <span className="settings-provider-setting-value" title={plugin.baseUrl}>{plugin.baseUrl}</span>
+          <span />
+        </div>
+        {plugin.keyField ? <div className="settings-provider-setting-row">
+          <span className="settings-search-field-label">{t("providers.apiKey")}</span>
+          <span className="settings-provider-setting-value">{provider.configured ? "••••••••" : t("providers.plugin.keyMissing")}</span>
+          <span />
+        </div> : null}
+      </div>
+    </section>
+    {provider.configured ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+  </section>;
 }
 
 function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onOpenAgents?: () => void }) {
@@ -1264,7 +1305,8 @@ function useProviderEndpoint(providerId: string) {
   return { supported, baseUrl, savedBaseUrl, setBaseUrl, reset: () => setBaseUrl(savedBaseUrl), dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
-function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | "custom" | "preset" | "managed">): string {
+function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | "custom" | "preset" | "managed" | "plugin">): string {
+  if (provider.plugin) return t("providers.description.plugin", { plugin: provider.plugin.name });
   if (provider.id === "codex-cli") return t("codexImages.description");
   if (provider.id === "hyper3d") return t("providers.description.hyper3d");
   if (provider.managed) return t("providers.group.free");

@@ -39,6 +39,8 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
     for (const node of detail.board.nodes) if (node.type === "file") await resolveWorkspaceEntry(workspace, node.data.path).catch((cause: unknown) => issues.push({ file, message: `Node ${node.id}: file ${node.data.path}: ${cause instanceof Error ? cause.message : String(cause)}` }));
     if (manifest) for (const id of canvasNodeAssetIds(detail.board.nodes)) if (!manifest.assets[id]) issues.push({ file, message: `Asset ${id} is not registered in canvas/assets.json` });
     for (const node of detail.board.nodes) {
+      // What a plugin node takes and makes is the plugin's to say; it is checked when the node runs.
+      if (node.type === "plugin") continue;
       const outputId = "assetId" in node.data ? node.data.assetId : undefined;
       const output = outputId ? assets.get(outputId) : undefined;
       const expected = node.type === "asset" ? node.data.mediaType : node.type === "model-3d" || node.type === "animate-3d" ? "model" : node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene" ? "audio" : node.type;

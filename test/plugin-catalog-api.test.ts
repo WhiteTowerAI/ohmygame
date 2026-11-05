@@ -394,6 +394,28 @@ describe("plugin catalog API", () => {
     expect(unknownFile.statusCode).toBe(404);
   });
 
+  it("offers the themes of the plugins the person has on", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-themes-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await app.ready();
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-themes-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(source, "locales"), { recursive: true });
+    await writeFile(path.join(source, "locales", "en.json"), JSON.stringify({ deep: "Deep sea" }));
+    await writeFile(path.join(source, "locales", "zh-CN.json"), JSON.stringify({ deep: "深海" }));
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/ocean", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Ocean", description: "Blue themes",
+      contributes: { themes: [{ id: "deep", title: "%deep%", dark: { "--color-accent": "#00aaff" } }] },
+    }));
+    await addPlugin(app, source);
+    const themes = async (locale = "en") => (await app.inject({ method: "GET", url: `/plugin-themes?locale=${locale}` })).json();
+    expect(await themes()).toEqual([{ id: "acme/ocean:deep", plugin: "acme/ocean", title: "Deep sea", dark: { "--color-accent": "#00aaff" } }]);
+    expect((await themes("zh-CN"))[0].title).toBe("深海");
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/ocean/enabled", payload: { enabled: false } })).statusCode).toBeLessThan(300);
+    expect(await themes()).toEqual([]);
+  });
+
   it("lists the plugins that ship with the app", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")),

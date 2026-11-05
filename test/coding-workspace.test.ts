@@ -153,12 +153,17 @@ describe("coding workspace", () => {
 
   it("puts Publish in the top bar for projects that can publish", () => {
     const idle = { publishing: false, agentBusy: false };
-    expect(publishAction({ type: "web-game" }, idle)).toEqual({ disabled: false, label: "Publish" });
-    expect(publishAction({ type: "general" }, idle)).toEqual({ disabled: false, label: "Publish" });
+    expect(publishAction({ type: "web-game" }, idle)).toEqual({ disabled: false, label: "Publish", builtIn: true });
+    expect(publishAction({ type: "general" }, idle)).toEqual({ disabled: false, label: "Publish", builtIn: true });
     expect(publishAction({ type: "web-game" }, { publishing: false, agentBusy: true })?.disabled).toBe(true);
-    expect(publishAction({ type: "web-game" }, { publishing: true, agentBusy: false })).toEqual({ disabled: true, label: "Publishing" });
-    expect(publishAction({ type: "godot-game" }, idle)).toEqual({ disabled: true, label: "Godot publishing is not available yet" });
+    expect(publishAction({ type: "web-game" }, { publishing: true, agentBusy: false })).toEqual({ disabled: true, label: "Publishing", builtIn: true });
+    expect(publishAction({ type: "godot-game" }, idle)).toEqual({ disabled: true, label: "Godot publishing is not available yet", builtIn: false });
     expect(publishAction({ type: "asset-canvas" }, idle)).toBeUndefined();
+    // Plugins' ways to publish make the button usable where the app has none.
+    expect(publishAction({ type: "asset-canvas" }, { ...idle, plugins: 1 })).toEqual({ disabled: false, label: "Publish", builtIn: false });
+    expect(publishAction({ type: "godot-game" }, { ...idle, plugins: 2 })).toEqual({ disabled: false, label: "Publish", builtIn: false });
+    expect(publishAction({ type: "general", pluginType: { preview: "native" } } as never, idle)?.disabled).toBe(true);
+    expect(publishAction({ type: "general", pluginType: { preview: "native" } } as never, { ...idle, plugins: 1 })).toMatchObject({ disabled: false, builtIn: false });
   });
 
   it("opens a Godot workspace on its code and leaves publishing to the top bar", () => {

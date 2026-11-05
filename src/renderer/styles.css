@@ -251,6 +251,14 @@ body {
   left: var(--sidebar-width, 232px);
 }
 
+/* Collapsed, back and forward move into the sheet's top inset, where they would
+   sit inside the drag strip. Keep the strip clear of them: a draggable area
+   swallows the buttons' clicks, and their own no-drag cannot carve it out from
+   outside the strip. */
+.desktop-window-frame .page-frame:has(.sidebar-history) .page-sheet .window-drag-region {
+  left: calc(var(--sidebar-width, 232px) + 60px);
+}
+
 .desktop-window-frame .onboarding .window-drag-region,
 .desktop-window-frame .onboarding-arrival .window-drag-region,
 .desktop-window-frame .route-loading .window-drag-region {
@@ -1132,6 +1140,14 @@ body {
 
 .coding-agent-command code {
   overflow-wrap: anywhere;
+}
+
+.coding-agent-launch {
+  display: block;
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .coding-agent-command .icon-button {
@@ -4501,17 +4517,40 @@ select.settings-search-input {
   min-height: inherit;
 }
 
-.model-preview-clips {
+.model-preview-controls {
   position: absolute;
   z-index: 2;
   bottom: 8px;
   left: 8px;
   max-width: calc(100% - 16px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.model-preview-controls .ui-icon-button {
+  flex: none;
+  color: inherit;
+}
+
+.model-preview-controls .ui-icon-button.is-active,
+.model-preview-controls .ui-icon-button:not(:disabled):hover {
+  background: rgb(255 255 255 / 16%);
+  color: inherit;
+}
+
+.model-preview-clips {
+  min-width: 0;
+  max-width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: rgb(0 0 0 / 55%);
+  background: transparent;
   color: #fff;
   cursor: pointer;
   font: inherit;
@@ -5564,6 +5603,172 @@ button {
   opacity: 0.4;
 }
 
+/* A plugin's node: one row and port per input, then its output. */
+.story-plugin-node {
+  width: 320px;
+  overflow: visible;
+}
+
+.story-plugin-inputs {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.story-plugin-input {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+.story-plugin-input-title {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.story-plugin-input-title small {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.story-plugin-source {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+
+.story-plugin-source > span {
+  overflow: hidden;
+  max-width: 160px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-plugin-source button {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.story-plugin-source button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.story-plugin-empty {
+  color: var(--text-faint);
+}
+
+.story-plugin-output {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  padding: 10px;
+}
+
+.story-plugin-output img,
+.story-plugin-output video {
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 6px;
+}
+
+.story-plugin-output audio {
+  width: 100%;
+}
+
+.story-plugin-text {
+  overflow: auto;
+  max-height: 220px;
+  margin: 0;
+  justify-self: stretch;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.story-plugin-off,
+.story-plugin-error {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.story-plugin-off {
+  color: var(--text-faint);
+}
+
+.story-plugin-error {
+  color: var(--danger);
+}
+
+.story-node > .story-plugin-output-handle {
+  top: 50%;
+}
+
+.story-plugin-description {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.story-plugin-params {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.story-plugin-param {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.story-plugin-param > span {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-plugin-param input:not([type="checkbox"]),
+.story-plugin-param select {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--story-editor-surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.story-plugin-param.is-boolean input {
+  justify-self: start;
+}
+
+.story-plugin-composer .story-media-controls {
+  justify-content: flex-end;
+}
+
 .story-media-empty {
   display: flex;
   align-items: center;
@@ -6356,6 +6561,37 @@ button {
   cursor: default;
   opacity: 0.55;
 }
+.story-video-picker-list > button.is-selected {
+  background: var(--surface-hover);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.story-video-picker:has(> .library-picker-footer) {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+.library-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 10px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.library-picker-footer button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.library-picker-footer button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .story-video-picker-thumbnail {
   position: relative;
   display: grid;
@@ -6427,6 +6663,16 @@ button {
 }
 
 .story-canvas.story-canvas-pan .react-flow__pane {
+  cursor: grab;
+}
+
+/* Let the hand tool drag through the group selection and connection handles. */
+.story-canvas.story-canvas-pan .react-flow__nodesselection-rect,
+.story-canvas.story-canvas-pan .react-flow__handle {
+  pointer-events: none;
+}
+
+.story-canvas.story-canvas-pan .react-flow__node {
   cursor: grab;
 }
 
@@ -9270,13 +9516,16 @@ summary.work-summary:hover {
   margin: 12px 0 16px;
 }
 
-.tool-artifact-image {
+.tool-generated-image {
+  min-height: 96px;
+}
+
+.tool-generated-image img {
   display: block;
-  width: min(100%, 360px);
-  max-height: 360px;
-  margin: 0 0 12px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .tool-artifact-video {
@@ -12002,6 +12251,19 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
+.file-explorer-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: var(--space-2) var(--space-2) 4px;
+}
+
+.file-explorer-filter .file-filter {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
 .file-filter {
   display: flex;
   min-height: 28px;
@@ -12272,6 +12534,7 @@ summary.work-summary:hover {
 }
 
 .workspace-code {
+  --syntax-comment: var(--color-text-secondary);
   --syntax-keyword: #ff7b72;
   --syntax-string: #a5d6ff;
   --syntax-name: #d2a8ff;
@@ -12283,7 +12546,7 @@ summary.work-summary:hover {
   --syntax-name: #6639ba;
   --syntax-number: #0550ae;
 }
-.workspace-code .token:is(.comment, .prolog, .doctype) { color: var(--color-text-secondary); }
+.workspace-code .token:is(.comment, .prolog, .doctype) { color: var(--syntax-comment); }
 .workspace-code .token:is(.keyword, .tag, .operator, .important) { color: var(--syntax-keyword); }
 .workspace-code .token:is(.string, .attr-value, .regex, .inserted) { color: var(--syntax-string); }
 .workspace-code .token:is(.function, .class-name, .selector) { color: var(--syntax-name); }

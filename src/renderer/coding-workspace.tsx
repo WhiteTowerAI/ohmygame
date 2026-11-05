@@ -65,6 +65,7 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
@@ -209,8 +210,8 @@ export function CodingWorkspace({
   const [logsOpen, setLogsOpen] = useState(false);
   const [knownPaths, setKnownPaths] = useState<string[]>(["/"]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
-  const [selectedCodePath, setSelectedCodePath] = useState<string>();
-  const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
+  const [codeFileRequest, setCodeFileRequest] = useState(openFileRequest);
+  const codeRequestId = useRef(0);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
@@ -220,7 +221,6 @@ export function CodingWorkspace({
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
   ));
   const [agentPlaytestWatchPending, setAgentPlaytestWatchPending] = useState(false);
-  const fileRequest = useRef(0);
   const preview = project?.preview;
   const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
   const player = useWebGamePlayer(supportsPreview ? project?.id : undefined, previewBaseUrl, preview?.revision, preview?.pages?.find((page) => page.source === "player")?.path);
@@ -300,65 +300,31 @@ export function CodingWorkspace({
   }, []);
 
   useEffect(() => {
-    fileRequest.current += 1;
     setFiles([]);
-    setSelectedCodePath(undefined);
-    setSelectedFile(undefined);
     setFilesError(undefined);
+    setCodeFileRequest(undefined);
   }, [project?.id]);
 
   useEffect(() => {
-    if (!project || !(shows("code") || shows("assets"))) return;
+    if (!project || !shows("assets")) return;
     let disposed = false;
-    const request = ++fileRequest.current;
     setFilesLoading(true);
     setFilesError(undefined);
-    void listWorkspaceFiles(project.id).then(async (result) => {
+    void listWorkspaceFiles(project.id).then((result) => {
       if (disposed) return;
       setFiles(result);
-      if (fileRequest.current === request && shows("code") && selectedCodePath) {
-        const selected = result.find((file) => file.path === selectedCodePath);
-        if (selected) {
-          const content = await loadWorkspaceFile(project.id, selectedCodePath, result);
-          if (!disposed && fileRequest.current === request) setSelectedFile(content);
-        } else {
-          setSelectedCodePath(undefined);
-          setSelectedFile(undefined);
-        }
-      }
     }).catch((cause) => {
-      if (!disposed && fileRequest.current === request) setFilesError(errorMessage(cause));
+      if (!disposed) setFilesError(errorMessage(cause));
     }).finally(() => {
-      if (!disposed && fileRequest.current === request) setFilesLoading(false);
+      if (!disposed) setFilesLoading(false);
     });
     return () => { disposed = true; };
-  }, [project?.id, shows("code"), shows("assets"), workspaceRevision, filesRevision]);
-
-  async function selectFile(filePath: string): Promise<void> {
-    if (!project) return;
-    const request = ++fileRequest.current;
-    setSelectedCodePath(filePath);
-    setSelectedFile(undefined);
-    setFilesLoading(true);
-    setFilesError(undefined);
-    try {
-      const content = await loadWorkspaceFile(project.id, filePath, files);
-      if (fileRequest.current === request) setSelectedFile(content);
-    } catch (cause) {
-      if (fileRequest.current === request) setFilesError(errorMessage(cause));
-    } finally {
-      if (fileRequest.current === request) setFilesLoading(false);
-    }
-  }
+  }, [project?.id, shows("assets"), workspaceRevision, filesRevision]);
 
   useEffect(() => {
     if (!openFileRequest) return;
-    if (shows("code")) {
-      void selectFile(openFileRequest.path);
-    } else {
-      setSelectedCodePath(openFileRequest.path);
-      show("code");
-    }
+    setCodeFileRequest({ path: openFileRequest.path, id: ++codeRequestId.current });
+    show("code");
   }, [openFileRequest?.id]);
 
   function navigatePreview(path: string): void {
@@ -433,7 +399,7 @@ export function CodingWorkspace({
   ><Wrench size={14} /></button> : null;
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
-    setSelectedCodePath(path);
+    setCodeFileRequest({ path, id: ++codeRequestId.current });
     show("code");
   };
 
@@ -477,7 +443,7 @@ export function CodingWorkspace({
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
             <PreviewView
-              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device} filter={filter}
+              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={openCode} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device} filter={filter}
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
@@ -505,28 +471,15 @@ export function CodingWorkspace({
     } : undefined,
     code: {
       toolbar: <><div className="code-toolbar" ref={setCodeToolbar} />{settingsButton}</>,
-      body: <WorkspaceFileBrowser
+      body: project ? <WorkspaceCodeView
+        key={project.id}
         toolbarTarget={codeToolbar}
-        files={files}
-        selectedPath={selectedCodePath}
-        selectedFile={selectedFile}
-        loading={filesLoading}
-        error={filesError}
-        onSelect={selectFile}
-        projectId={project?.id}
-        revision={workspaceRevision}
-        filesRevision={filesRevision}
-        openFileRequestId={openFileRequest?.id}
-        onFilesChanged={(change) => {
-          fileRequest.current += 1;
-          setSelectedCodePath((current) => workspacePathAfterChange(current, change));
-          setSelectedFile(undefined);
-          setFilesRevision((value) => value + 1);
-        }}
-        onOpenExternal={project && typeof window !== "undefined" && window.ohMyGameDesktop?.openProjectFile
-          ? (path, mode) => window.ohMyGameDesktop!.openProjectFile(project.id, path, mode)
-          : undefined}
-      />,
+        projectId={project.id}
+        revision={workspaceRevision + filesRevision}
+        enabled={shows("code")}
+        openFileRequest={codeFileRequest}
+        onFilesChanged={() => setFilesRevision((value) => value + 1)}
+      /> : null,
     },
     assets: {
       toolbar: settingsButton,
@@ -1150,6 +1103,10 @@ export function WorkspaceFileBrowser({
   fileActions,
   renderFile,
   toolbarTarget,
+  onDirectoryToggle,
+  onSearchChange,
+  onRefresh,
+  treeLoading = false,
 }: {
   files: WorkspaceFile[];
   selectedPath?: string;
@@ -1167,10 +1124,18 @@ export function WorkspaceFileBrowser({
   renderFile?: (file: WorkspaceFileContent) => ReactNode;
   /** The panel toolbar, where the open file's path and actions go. Without it they get a header. */
   toolbarTarget?: HTMLElement | null;
+  onDirectoryToggle?: (directory: string, expanded: boolean) => void;
+  onSearchChange?: (term: string) => void;
+  onRefresh?: () => void;
+  treeLoading?: boolean;
 }) {
   // A refresh can move the selection on before the new file arrives. What stays on screen is only ever the selected file.
   const openFile = selectedFile?.path === selectedPath ? selectedFile : undefined;
   const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => onSearchChange?.(searchTerm), searchTerm.trim() ? 200 : 0);
+    return () => clearTimeout(timer);
+  }, [searchTerm, onSearchChange]);
   const [browserView, setBrowserView] = useState<"files" | "changes">("files");
   const [selectedGitPath, setSelectedGitPath] = useState<string>();
   const git = useWorkspaceGitChanges(projectId, revision, filesRevision);
@@ -1206,13 +1171,25 @@ export function WorkspaceFileBrowser({
   useEffect(() => {
     const tree = fileTree.current;
     if (!selectedPath) revealed.current = null;
-    if (!tree || !selectedPath || !files.some((file) => file.path === selectedPath)) return;
+    if (!tree || treeLoading || !selectedPath || !files.some((file) => file.path === selectedPath)) return;
     const last = revealed.current;
     if (last?.tree === tree && last.path === selectedPath && last.request === openFileRequestId) return;
     const reveal = { tree, path: selectedPath, request: openFileRequestId };
-    revealed.current = reveal;
-    void tree.scrollTo(selectedPath)?.then(() => { if (revealed.current === reveal) tree.select(selectedPath, { focus: false }); });
-  }, [files, selectedPath, openFileRequestId, treeHeight, showChanges]);
+    let disposed = false;
+    let frame: number | undefined;
+    void tree.scrollTo(selectedPath)?.then(() => {
+      if (disposed) return;
+      // Opening a parent can load children and move the row. Only finish the reveal
+      // after that render; a pending directory load cancels this attempt.
+      frame = requestAnimationFrame(() => {
+        if (disposed) return;
+        revealed.current = reveal;
+        void tree.scrollTo(selectedPath);
+        tree.select(selectedPath, { focus: false });
+      });
+    });
+    return () => { disposed = true; if (frame !== undefined) cancelAnimationFrame(frame); };
+  }, [files, selectedPath, openFileRequestId, treeHeight, showChanges, treeLoading]);
 
   async function mutate(operation: () => Promise<WorkspaceFileChange>): Promise<void> {
     if (busy) return;
@@ -1275,6 +1252,8 @@ export function WorkspaceFileBrowser({
             <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
           </button>
         </div> : null}
+        {onRefresh && error ? <p className="file-action-error" role="alert">{error}</p> : null}
+        <div className="file-explorer-filter">
         <label className="file-filter">
           <Search size={13} aria-hidden="true" />
           <input
@@ -1285,6 +1264,8 @@ export function WorkspaceFileBrowser({
             aria-label={t("workspace.filterFilesLabel")}
           />
         </label>
+        {onRefresh ? <IconButton size="sm" label={t("workspace.refreshFiles")} onClick={onRefresh} disabled={loading}><RefreshCw size={12} className={loading ? "spin" : undefined} /></IconButton> : null}
+        </div>
         {actionError ? <p className="file-action-error" role="alert">{actionError}</p> : null}
         {showChanges ? <GitChangesList data={git.data} loading={git.loading} error={git.error} search={searchTerm}
           selectedPath={selectedGitPath} onSelect={setSelectedGitPath} /> : <div className="file-tree" ref={setTreeElement} onContextMenu={(event) => {
@@ -1303,6 +1284,7 @@ export function WorkspaceFileBrowser({
               selection={selectedPath}
               searchTerm={searchTerm}
               searchMatch={(node, term) => node.data.name.toLocaleLowerCase().includes(term.toLocaleLowerCase())}
+              onToggle={(id) => { if (!searchTerm.trim()) onDirectoryToggle?.(id, fileTree.current?.isOpen(id) ?? false); }}
               disableDrag
               disableDrop
               dndBackend={NO_DRAG_AND_DROP}
@@ -1388,10 +1370,24 @@ export function WorkspaceFileBrowser({
   </>;
 }
 
-export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { projectId: string; revision: number; openFileRequest?: { path: string; id: number } }) {
+interface WorkspaceCodeViewProps {
+  projectId: string;
+  revision: number;
+  openFileRequest?: { path: string; id: number };
+  toolbarTarget?: HTMLElement | null;
+  enabled?: boolean;
+  onFilesChanged?: () => void;
+}
+
+export function WorkspaceCodeView(props: WorkspaceCodeViewProps) {
+  return <WorkspaceCodeContent key={props.projectId} {...props} />;
+}
+
+function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTarget, enabled = true, onFilesChanged }: WorkspaceCodeViewProps) {
   const [filesRevision, setFilesRevision] = useState(0);
-  const [files, setFiles] = useState<WorkspaceFile[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string>();
+  const [selectedPath, setSelectedPath] = useState(openFileRequest?.path);
+  const listing = useWorkspaceFiles(projectId, revision + filesRevision, selectedPath, enabled);
+  const files = listing.files;
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -1399,14 +1395,13 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
   const handledOpenFileRequest = useRef(openFileRequest?.id);
 
   useEffect(() => {
+    if (!enabled || listing.loading) return;
     let disposed = false;
     const currentRequest = ++request.current;
     setLoading(true);
     setError(undefined);
-    void listWorkspaceFiles(projectId).then(async (result) => {
-      if (disposed) return;
-      setFiles(result);
-      if (request.current !== currentRequest) return;
+    void (async () => {
+      const result = files;
       const requestedPath = openFileRequest?.path;
       const nextPath = selectedPath && result.some((file) => file.path === selectedPath)
         ? selectedPath
@@ -1420,13 +1415,13 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
       }
       const content = await loadWorkspaceFile(projectId, nextPath, result);
       if (!disposed && request.current === currentRequest) setSelectedFile(content);
-    }).catch((cause) => {
+    })().catch((cause) => {
       if (!disposed && request.current === currentRequest) setError(errorMessage(cause));
     }).finally(() => {
       if (!disposed && request.current === currentRequest) setLoading(false);
     });
     return () => { disposed = true; };
-  }, [projectId, revision, filesRevision]);
+  }, [projectId, files, listing.loading, enabled]);
 
   async function selectFile(path: string): Promise<void> {
     const currentRequest = ++request.current;
@@ -1454,18 +1449,24 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
     files={files}
     selectedPath={selectedPath}
     selectedFile={selectedFile}
-    loading={loading}
-    error={error}
+    loading={loading || listing.loading}
+    error={error ?? listing.error}
     onSelect={(path) => void selectFile(path)}
     projectId={projectId}
     revision={revision}
     filesRevision={filesRevision}
     openFileRequestId={openFileRequest?.id}
+    toolbarTarget={toolbarTarget}
+    onDirectoryToggle={listing.toggle}
+    onSearchChange={listing.search}
+    onRefresh={listing.refresh}
+    treeLoading={listing.loading}
     onFilesChanged={(change) => {
       request.current += 1;
       setSelectedPath((current) => workspacePathAfterChange(current, change));
       setSelectedFile(undefined);
       setFilesRevision((value) => value + 1);
+      onFilesChanged?.();
     }}
     onOpenExternal={typeof window !== "undefined" && window.ohMyGameDesktop?.openProjectFile
       ? (path, mode) => window.ohMyGameDesktop!.openProjectFile(projectId, path, mode)
@@ -1761,7 +1762,7 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
   onContextMenu?: (node: NodeRendererProps<WorkspaceFileNode>["node"], event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   const folder = Boolean(node.data.directory || !node.isLeaf);
-  const expandable = Boolean(node.data.children?.length);
+  const expandable = folder;
   return (
     <div className={`file-tree-node${node.isSelected ? " file-tree-node-selected" : ""}`} style={style} title={node.id} onContextMenu={(event) => onContextMenu?.(node, event)}>
       {expandable ? <button

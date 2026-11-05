@@ -9,6 +9,7 @@ import {
   type HostMessage,
   type HostRequest,
   type HostStats,
+  type PluginBuild,
   type PluginConfigurationValues,
   type PluginGameRequest,
 } from "../shared/extension-host-protocol.js";
@@ -80,6 +81,8 @@ export type InvokeOptions = {
   turn?: string;
   /** The plugin's configuration values, sent with the call so a change applies to the next one. */
   configuration?: PluginConfigurationValues;
+  /** The web build a command asked for. */
+  build?: PluginBuild;
   /**
    * Runs once the plugin is active, right before the call is sent; throwing
    * refuses the call. Lets the caller check that the plugin is still allowed
@@ -421,6 +424,7 @@ class ExtensionHost {
         input: options.input,
         ...(options.turn ? { turn: options.turn } : {}),
         ...(options.configuration ? { configuration: options.configuration } : {}),
+        ...(options.build ? { build: options.build } : {}),
       },
       plugin.id,
       options.timeoutMs ?? this.options.callTimeoutMs,

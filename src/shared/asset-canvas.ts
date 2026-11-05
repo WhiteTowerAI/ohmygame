@@ -135,6 +135,16 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
         }
       }
     }
+    if (node.type === "plugin") {
+      // What each input accepts is the plugin's to say; it is checked when the node runs.
+      for (const references of Object.values(node.data.inputs)) {
+        for (const reference of references) {
+          if (reference.type === "library") continue;
+          const source = nodes.get(reference.nodeId);
+          if (!source || source.id === node.id || !PLUGIN_NODE_SOURCES.includes(source.type)) throw new Error(`Node ${node.id} has an invalid Node reference`);
+        }
+      }
+    }
     if ((node.type === "animate-3d" || node.type === "model-3d") && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "animate-3d", "asset"]);
     if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
@@ -142,6 +152,9 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     }
   }
 }
+
+/** Nodes whose output a plugin node can take. */
+export const PLUGIN_NODE_SOURCES: readonly AssetCanvasNode["type"][] = ["text", "document", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "asset", "plugin"];
 
 export function isTextGenerationReferenceNode(node: { type?: AssetCanvasNode["type"]; data: object }): boolean {
   return node.type === "text" || node.type === "document" || node.type === "image" || (node.type === "asset" && "mediaType" in node.data && node.data.mediaType === "image");

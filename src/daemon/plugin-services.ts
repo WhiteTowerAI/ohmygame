@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { watch, type FSWatcher } from "node:fs";
-import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -9,7 +10,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import type { McpServerDefinition, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -290,6 +291,19 @@ export class PluginServices {
     });
   }
 
+  /**
+   * The newest version of each installed plugin that this app can run and
+   * that isn't disabled everywhere. What a plugin adds to the app itself,
+   * such as model providers, comes from these, whatever projects turn on.
+   */
+  async installed(): Promise<PluginIndexEntry[]> {
+    await this.ready();
+    return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = this.index.get(id);
+      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false ? [entry] : [];
+    });
+  }
+
   /** The Skills of `everyProject`, as a new project's agent would load them. */
   async everyProjectSkills(kind?: ProjectKind): Promise<PluginSkillRegistration[]> {
     return (await this.everyProject(kind)).flatMap((entry) => entry.skills.map((skill) => skillRegistration(entry, path.join(entry.root, skill.path))));
@@ -464,6 +478,65 @@ export class PluginServices {
         });
     }
     return preview;
+  }
+
+  /** What a project's active plugins add to Asset Canvas, in `locale`. */
+  async canvas(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginCanvas> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const canvas: ProjectPluginCanvas = { nodes: [], presets: [] };
+    if (!resolved?.ok) return canvas;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      const pluginName = text(entry.manifest.displayName);
+      for (const node of entry.manifest.contributes?.canvasNodes ?? [])
+        canvas.nodes.push({
+          id: `${entry.id}:${node.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(node.title),
+          ...(node.description ? { description: text(node.description) } : {}),
+          inputs: (node.inputs ?? []).map((input) => ({ ...input, title: text(input.title) })),
+          params: Object.entries(node.params ?? {}).map(([key, param]) => ({
+            key,
+            ...param,
+            title: text(param.title),
+            ...(param.description ? { description: text(param.description) } : {}),
+          })),
+          output: node.output,
+        });
+      for (const preset of entry.manifest.contributes?.canvasPresets ?? [])
+        canvas.presets.push({
+          id: `${entry.id}:${preset.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(preset.title),
+          ...(preset.description ? { description: text(preset.description) } : {}),
+        });
+    }
+    return canvas;
+  }
+
+  /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
+  async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
+    const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
+    if (!entry || !preset) return undefined;
+    const file = path.join(entry.root, preset.board);
+    const bytes = await readFile(file);
+    if (bytes.length > CANVAS_PRESET_MAX_BYTES) throw new Error(`${preset.board} is too large`);
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    const problem = canvasPresetIssue(value);
+    if (problem) throw new Error(`${preset.board} ${problem}`);
+    const board = value as Partial<CanvasPresetBoard>;
+    return { nodes: board.nodes!, edges: board.edges ?? [] };
   }
 
   /** The panels of a project's active plugins, with what their pages may ask the host for. */
@@ -947,7 +1020,7 @@ export class PluginServices {
   async runCommand(
     entry: PluginIndexEntry,
     command: PluginCommand,
-    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress">,
+    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress" | "build">,
   ): Promise<unknown> {
     const { run } = command;
     const id = `${entry.id}:${command.id}`;

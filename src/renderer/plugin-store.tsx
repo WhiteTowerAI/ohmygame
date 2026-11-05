@@ -327,6 +327,8 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
     ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
     ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
     ...plugin.adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
+    ...plugin.adds.modelProviders.map((title) => ({ kind: t("pluginStore.addsModelProvider"), title })),
+    ...plugin.adds.agents.map((title) => ({ kind: t("pluginStore.addsAgent"), title })),
     ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
     ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
   ];

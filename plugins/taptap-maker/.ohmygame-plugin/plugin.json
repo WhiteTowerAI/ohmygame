@@ -57,7 +57,19 @@
       { "id": "projects", "title": "%command.projects%", "run": { "native": "projects", "timeoutSeconds": 120, "changesFiles": false } },
       { "id": "create", "title": "%command.create%", "run": { "native": "create", "input": "./schemas/create.json", "timeoutSeconds": 1800 } },
       { "id": "bind", "title": "%command.bind%", "run": { "native": "bind", "input": "./schemas/bind.json", "timeoutSeconds": 1800 } },
-      { "id": "preview", "title": "%command.preview%", "run": { "native": "preview", "input": "./schemas/preview.json", "timeoutSeconds": 900, "changesFiles": false } }
+      { "id": "preview", "title": "%command.preview%", "run": { "native": "preview", "input": "./schemas/preview.json", "timeoutSeconds": 900, "changesFiles": false } },
+      {
+        "id": "submit-build",
+        "title": "%command.submitBuild%",
+        "run": { "prompt": "Submit this game to Maker as a new build, and give me the link to its preview page.", "skill": "taptap-maker", "insert": true },
+        "slots": [{ "slot": "project.publish", "when": "project.type == 'ohmygame/taptap-maker:maker'" }]
+      },
+      {
+        "id": "release",
+        "title": "%command.release%",
+        "run": { "prompt": "Help me release this game on TapTap: prepare its store page, then submit it for review.", "skill": "taptap-release", "insert": true },
+        "slots": [{ "slot": "project.publish", "when": "project.type == 'ohmygame/taptap-maker:maker'" }]
+      }
     ],
     "mcpServers": [
       {
