@@ -1,4 +1,3 @@
-import { manifestHooks } from "../shared/plugin-hooks.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -8,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { customNpmRegistry, NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
 import { PluginPackError, stagePublished, unpackPlugin } from "./plugin-pack.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
-import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
 import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
 import { downloadRelease } from "./plugin-releases.js";
@@ -185,9 +184,7 @@ export class PluginSources {
       description: localizePluginString(entry, entry.manifest.description, language),
       appWide: isAppWidePlugin(entry.manifest),
       asks: capabilityGrants(entry.manifest),
-      skills: entry.skills.length,
-      mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => localizePluginString(entry, server.title, language)),
-      ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
+      adds: pluginAdds(entry, (value) => localizePluginString(entry, value, language)),
       settings: Boolean(entry.manifest.configuration),
       installedVersions: this.services.index.versions(entry.id).map((installed) => installed.version),
       // What was allowed stays with the plugin, so a new version asks only for what it adds.
