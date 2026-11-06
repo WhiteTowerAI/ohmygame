@@ -2,7 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectInputMap, ProjectPluginChange, ProjectPluginCommand, ProjectPluginPreview, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
-import { getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
+import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
+import { allowProjectPanel, getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
 import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
@@ -69,7 +70,11 @@ export function useProjectPluginsRevision(): number {
   return useSyncExternalStore((listener) => { pluginsListeners.add(listener); return () => pluginsListeners.delete(listener); }, () => pluginsRevision);
 }
 
-export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> | undefined, revision: number): {
+/**
+ * `filesRevision` reads only the panels again: a project's own panels are
+ * files in it, which the agent can add, change or remove in any turn.
+ */
+export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> | undefined, revision: number, filesRevision = 0): {
   panels: PluginPanel[];
   commands: ProjectPluginCommand[];
   previewDevices: ProjectPreviewDevice[];
@@ -78,30 +83,39 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
   when: WhenContext;
 } {
   const generation = useReadyRuntimeGeneration();
-  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; preview: ProjectPluginPreview; active: string[] }>();
+  const [loaded, setLoaded] = useState<{ projectId: string; commands: ProjectPluginCommand[]; preview: ProjectPluginPreview; active: string[] }>();
+  const [panels, setPanels] = useState<{ projectId: string; panels: PluginPanel[] }>();
   const projectId = project?.id;
   useEffect(() => {
     if (!projectId) return;
     let disposed = false;
     // A project whose plugins can't be read shows only the built-in panels.
+    void getPluginPanels(projectId, language).catch((): PluginPanel[] => []).then((next) => {
+      if (!disposed) setPanels({ projectId, panels: next });
+    });
+    return () => { disposed = true; };
+  }, [projectId, revision, generation, filesRevision]);
+  useEffect(() => {
+    if (!projectId) return;
+    let disposed = false;
     void Promise.all([
-      getPluginPanels(projectId, language).catch((): PluginPanel[] => []),
       listProjectPluginCommands(projectId).catch((): ProjectPluginCommand[] => []),
       getProjectPluginPreview(projectId).catch((): ProjectPluginPreview => ({ devices: [], filters: [], inputMaps: [] })),
       // `project.plugin('<id>')` asks about every active plugin, with or without panels.
       getProjectPlugins(projectId)
         .then((view) => view.plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []))
         .catch((): string[] => []),
-    ]).then(([panels, commands, preview, active]) => {
-      if (!disposed) setLoaded({ projectId, panels, commands, preview, active });
+    ]).then(([commands, preview, active]) => {
+      if (!disposed) setLoaded({ projectId, commands, preview, active });
     });
     return () => { disposed = true; };
   }, [projectId, revision, generation]);
-  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], previewFilters: [], inputMaps: [], when: { values: {}, plugins: new Set() } };
-  const when = projectWhenContext(project, [...loaded.active, ...[...loaded.panels, ...loaded.commands].map((item) => item.plugin)]);
+  if (!project || loaded?.projectId !== project.id || panels?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], previewFilters: [], inputMaps: [], when: { values: {}, plugins: new Set() } };
+  const when = projectWhenContext(project, [...loaded.active, ...[...panels.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
-    // A page needs its address; one without it can't be shown.
-    panels: loaded.panels.filter((panel) => panel.url && matchesWhen(panel.when, when)),
+    // A page needs its address; one without it can't be shown, except a
+    // project's own panel, which shows why until it is allowed.
+    panels: panels.panels.filter((panel) => (panel.url || panel.projectPanel) && matchesWhen(panel.when, when)),
     commands: loaded.commands,
     previewDevices: loaded.preview.devices,
     previewFilters: loaded.preview.filters,
@@ -144,6 +158,45 @@ export function PluginPanelToolbar({ commands, onRun }: {
     })}
     {rest.length ? <DropdownMenu placement="bottom-end" items={rest.map((command) => ({ label: command.title, disabled: running.has(command.id), onSelect: () => run(command) }))}
       trigger={(props) => <IconButton {...props} size="sm" label={t("pluginCommands.more")}><MoreHorizontal size={14} /></IconButton>} /> : null}
+  </div>;
+}
+
+/** What a project panel's `panel.json` asks for, in the person's words. */
+export function projectPanelAsks(asks: PluginUiCapabilities): string[] {
+  const lines: string[] = [];
+  if (asks["project.files"]) lines.push(t(asks["project.files"] === "write" ? "projectPanel.askWrite" : "projectPanel.askRead"));
+  if (asks.composer) lines.push(t("projectPanel.askComposer"));
+  if (asks["project.selection"]) lines.push(t("projectPanel.askSelection"));
+  if (asks["project.history"]) lines.push(t("projectPanel.askHistory"));
+  if (asks["project.usage"]) lines.push(t("projectPanel.askUsage"));
+  if (asks.net?.length) lines.push(t("projectPanel.askNet", { hosts: asks.net.join(", ") }));
+  return lines;
+}
+
+/**
+ * A project's own panel that can't run yet: one whose `panel.json` the person
+ * hasn't allowed as it is now, or one that can't be used, with why.
+ */
+export function ProjectPanelGate({ projectId, panel, onAllowed }: { projectId: string; panel: PluginPanel; onAllowed: () => void }) {
+  const state = panel.projectPanel!;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  if (state.status === "invalid") return <div className="project-panel-gate">
+    <Alert tone="danger" title={t("projectPanel.invalid", { name: state.name })} />
+    <ul>{state.issues?.map((issue) => <li key={issue} className="plugins-mono">{issue}</li>)}</ul>
+    <p>{t("projectPanel.invalidHint")}</p>
+  </div>;
+  const asks = projectPanelAsks(state.asks ?? {});
+  return <div className="project-panel-gate">
+    <strong>{t("projectPanel.ask", { title: panel.title })}</strong>
+    <p>{t("projectPanel.askHint")}</p>
+    {asks.length ? <ul>{asks.map((line) => <li key={line}>{line}</li>)}</ul> : <p>{t("projectPanel.asksNothing")}</p>}
+    {error ? <Alert tone="danger" title={error} /> : null}
+    <div><Button size="sm" disabled={busy} onClick={() => {
+      setBusy(true);
+      setError(undefined);
+      void allowProjectPanel(projectId, state.name, state.key!).then(onAllowed, (cause: unknown) => setError(message(cause))).finally(() => setBusy(false));
+    }}>{t("projectPanel.allow")}</Button></div>
   </div>;
 }
 

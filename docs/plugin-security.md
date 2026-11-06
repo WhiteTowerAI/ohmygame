@@ -52,6 +52,12 @@ or when they turn it on in a project:
 | `network:<host>` | Its HTTP MCP servers reaching that host |
 | `process:<command>` | Its local MCP servers starting that command |
 
+A project's own panel ([project panels](plugins.md#project-panels)) asks the
+same way for the page grants above, and for `net` hosts its page may fetch
+from through the daemon, each time its `panel.json` asks for something else.
+What was allowed stays with the app's data for that project, so a project that
+comes from someone else asks again.
+
 A plugin that only adds Skills asks for nothing, so it applies once added.
 An update asks again only for what the new version adds (`newAsks`). Uninstalling
 a plugin's last version forgets what was allowed.

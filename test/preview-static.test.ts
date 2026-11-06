@@ -414,6 +414,16 @@ describe("plugin pages", () => {
     // Pages don't hear about hidden files, which they can't use.
     expect(pageFilePaths(["src/main.ts", ".env", ".private/key.txt", "assets/.cache/x.png"])).toEqual(["src/main.ts"]);
     expect(pluginUiRefusal("project.info", {})).toBeUndefined();
+    // net.fetch reaches HTTPS hosts on the default port, for a page listing some.
+    expect(pluginUiRefusal("net.fetch", {})).toContain("net capability");
+    expect(pluginUiRefusal("net.fetch", { net: ["api.example.com"] })).toBeUndefined();
+    const fetchAsk = (params: unknown) => readPluginUiRequest({ id: 17, method: "net.fetch", params }).ok;
+    expect(fetchAsk({ url: "https://api.example.com/v1", method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).toBe(true);
+    expect(fetchAsk({ url: "http://api.example.com/v1" })).toBe(false);
+    expect(fetchAsk({ url: "https://user@api.example.com/" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com:444/" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com/", method: "TRACE" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com/", body: 5 })).toBe(false);
     // A frame showing a plugin page stays within that plugin version's files.
     const ui = "http://127.0.0.1:9000";
     const from = `${ui}/acme/panel/1.0.0/ui/panel.html`;
@@ -422,6 +432,9 @@ describe("plugin pages", () => {
     expect(pluginFrameNavigationAllowed(from, `${ui}/acme/panel/1.0.1/ui/panel.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "https://example.com/?data=x", ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "about:blank", ui)).toBe(false);
+    // And a project's own panel within its folder.
+    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/stats/other.html`, ui)).toBe(true);
+    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/other/index.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed("http://127.0.0.1:5173/game", "https://example.com", ui)).toBe(true);
   });
 

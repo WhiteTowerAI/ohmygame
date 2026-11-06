@@ -136,7 +136,9 @@ import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./pl
 import { capabilityGrants, missingGrants, projectFolderKey, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
-import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { listProjectPanels, projectPanelFetch, ProjectPanelApprovals, ProjectPanelFetchError, projectPanelFolder, recordProjectPanelError, type FoundProjectPanel } from "./project-panels.js";
+import { PROJECT_PANEL_NAME, projectPanelName, projectPanelPlugin, type ProjectPanelState } from "../shared/project-panels.js";
+import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
@@ -1809,18 +1811,43 @@ export function createApp(options: AppOptions = {}) {
       sdkDirectory: options.pluginUiDirectory ?? path.join(repositoryRoot, "packages", "plugin-ui"),
       frameAncestors: options.pluginFrameAncestors ?? options.allowedOrigins ?? [],
       ...(options.pluginUiPort ? { port: options.pluginUiPort } : {}),
+      // Only a panel the person allowed, as it asks now, is served.
+      projectPanel: async (projectId, name) => {
+        const project = projects.get(projectId);
+        if (!project) return undefined;
+        const found = (await projectPanelsOf(project)).find((panel) => panel.name === name);
+        return found?.status === "allowed" ? projectPanelFolder(project.workspacePath, name) : undefined;
+      },
     }));
     pluginUi.catch(() => (pluginUi = undefined));
     return pluginUi;
   };
   const pageStorage = new PluginPageStorage();
+  // A project's own panels, in `.ohmygame/panels/`; see src/shared/project-panels.ts.
+  const panelApprovals = new ProjectPanelApprovals();
+  const projectStorage = (project: ProjectState) => project.storagePath ?? path.dirname(project.workspacePath);
+  const projectPanelsOf = async (project: ProjectState): Promise<FoundProjectPanel[]> =>
+    listProjectPanels(project.workspacePath, await panelApprovals.read(projectStorage(project)));
+  /** Every page a project shows that may ask its host for something: its plugins' panels, then the panels it allowed of its own. */
+  const pagePanels = async (project: ProjectState, locale: "en" | "zh-CN" = "en") => [
+    ...await pluginServices.panels(project.workspacePath, locale),
+    ...(await projectPanelsOf(project)).flatMap((panel) => panel.status === "allowed" && panel.manifest ? [{
+      id: panel.name,
+      plugin: projectPanelPlugin(panel.name),
+      version: panel.revision!,
+      title: panel.manifest.title,
+      area: panel.manifest.area,
+      capabilities: panel.manifest.capabilities,
+      commands: [],
+    }] : []),
+  ];
   const usageIndex = new UsageIndex(() => projects.list());
   // What a plugin page may read about its project, each behind its own capability.
   const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage") => {
     const project = projects.get(params.projectId);
     if (!project) return undefined;
     const id = `${params.publisher}/${params.name}`;
-    const panel = (await pluginServices.panels(project.workspacePath)).find((item) => item.plugin === id);
+    const panel = (await pagePanels(project)).find((item) => item.plugin === id);
     return panel?.capabilities[need] ? project : undefined;
   };
   app.get<{ Params: { projectId: string; publisher: string; name: string }; Querystring: { limit?: string } }>("/projects/:projectId/plugin-data/:publisher/:name/history", async (request, reply) => {
@@ -1840,22 +1867,78 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
+    const own = await projectPanelsOf(project);
     // An open project reads its panels: from then on its files are watched if a plugin wants to know.
     void syncFileWatch(project.workspacePath);
-    if (!panels.length) return [];
+    if (!panels.length && !own.length) return [];
     const server = await pluginUiServer();
-    // The revision makes a changed page a new address, so an open panel loads it again.
-    return panels.map((panel) => {
-      const url = server.panelUrl(panel.plugin, panel.version, panel.id);
-      return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
-    });
+    return [
+      // The revision makes a changed page a new address, so an open panel loads it again.
+      ...panels.map((panel) => {
+        const url = server.panelUrl(panel.plugin, panel.version, panel.id);
+        return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
+      }),
+      // A panel that isn't allowed yet, or can't be used, shows why instead of its page.
+      ...own.map(({ manifest, revision, ...state }) => ({
+        id: state.name,
+        plugin: projectPanelPlugin(state.name),
+        version: revision ?? "",
+        title: manifest?.title ?? state.name,
+        area: manifest?.area ?? "right",
+        capabilities: manifest?.capabilities ?? {},
+        commands: [],
+        projectPanel: state satisfies ProjectPanelState,
+        ...(state.status === "allowed" && manifest ? { url: server.projectPanelUrl(project.id, state.name, manifest.entry, revision!) } : {}),
+      })),
+    ];
+  });
+  app.post<{ Params: { projectId: string; name: string }; Body: { key: string } }>("/projects/:projectId/project-panels/:name/allow", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["key"], properties: { key: { type: "string", minLength: 1, maxLength: 100 } } } },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const found = (await projectPanelsOf(project)).find((panel) => panel.name === request.params.name);
+    if (!found || found.status === "invalid") return reply.code(404).send({ error: "No such panel in this project" });
+    // The key names what the person was shown; a panel that asks for something else since is asked again.
+    if (found.key !== request.body.key) return reply.code(409).send({ error: "The panel asks for something else now" });
+    await panelApprovals.allow(projectStorage(project), found.name, found.key);
+    return reply.code(204).send();
+  });
+  app.post<{ Params: { projectId: string; name: string }; Body: { text: string } }>("/projects/:projectId/project-panels/:name/errors", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1, maxLength: 4000 } } } },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project || !PROJECT_PANEL_NAME.test(request.params.name)) return reply.code(404).send({ error: "No such panel in this project" });
+    await recordProjectPanelError(project.workspacePath, request.params.name, request.body.text);
+    return reply.code(204).send();
+  });
+  app.post<{ Params: { projectId: string; publisher: string; name: string }; Body: { url: string; method?: string; headers?: Record<string, string>; body?: string } }>("/projects/:projectId/plugin-net/:publisher/:name", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["url"], properties: {
+      url: { type: "string", minLength: 1, maxLength: 2000 },
+      method: { type: "string", enum: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] },
+      headers: { type: "object", maxProperties: 30, additionalProperties: { type: "string", maxLength: 4000 } },
+      body: { type: "string" },
+    } } },
+    bodyLimit: PLUGIN_UI_MESSAGE_MAX_BYTES + 4096,
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const id = `${request.params.publisher}/${request.params.name}`;
+    const panel = projectPanelName(id) ? (await pagePanels(project)).find((item) => item.plugin === id) : undefined;
+    if (!panel?.capabilities.net?.length) return reply.code(403).send({ error: "This page can't reach the network" });
+    try {
+      return await projectPanelFetch(panel.capabilities, request.body);
+    } catch (cause) {
+      if (cause instanceof ProjectPanelFetchError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
   });
   // Only a plugin the project uses, with a page, has storage there.
   const pagePlugin = async (projectId: string, publisher: string, name: string) => {
     const project = projects.get(projectId);
     if (!project) return undefined;
     const id = `${publisher}/${name}`;
-    return (await pluginServices.panels(project.workspacePath)).some((panel) => panel.plugin === id) ? { project, id } : undefined;
+    return (await pagePanels(project)).some((panel) => panel.plugin === id) ? { project, id } : undefined;
   };
   app.get<{ Params: { projectId: string; publisher: string; name: string; key: string } }>("/projects/:projectId/plugin-storage/:publisher/:name/:key", async (request, reply) => {
     const found = await pagePlugin(request.params.projectId, request.params.publisher, request.params.name);
@@ -1885,7 +1968,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(params.projectId);
     if (!project) return undefined;
     const id = `${params.publisher}/${params.name}`;
-    const panel = (await pluginServices.panels(project.workspacePath)).find((item) => item.plugin === id);
+    const panel = (await pagePanels(project)).find((item) => item.plugin === id);
     const allowed = panel?.capabilities["project.files"];
     return allowed === "write" || allowed === need ? { project, id } : undefined;
   };

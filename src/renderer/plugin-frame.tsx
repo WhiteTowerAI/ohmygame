@@ -59,6 +59,8 @@ export interface PluginPageContext {
   history(limit?: number): Promise<unknown>;
   /** What the project's conversations used, with `project.usage`. */
   usage(): Promise<unknown>;
+  /** An HTTPS request to a host the page's `capabilities.net` names, made by the daemon. */
+  fetch?(request: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
   accent?: PluginAccent;
   /** Shows a toast the app draws, under the plugin's id. */
@@ -184,6 +186,14 @@ export async function handlePluginUiRequest(
     case "files.delete":
       await context.files.delete(params.path as string);
       return null;
+    case "net.fetch":
+      if (!context.fetch) throw new Error("This page can't reach the network");
+      return context.fetch({
+        url: params.url as string,
+        ...(params.method === undefined ? {} : { method: params.method as string }),
+        ...(params.headers === undefined ? {} : { headers: params.headers as Record<string, string> }),
+        ...(params.body === undefined ? {} : { body: params.body as string }),
+      });
   }
 }
 
@@ -320,6 +330,7 @@ export function PluginFrame({
     },
     history: (limit) => latest.current.history(limit),
     usage: () => latest.current.usage(),
+    get fetch() { return latest.current.fetch; },
     storage: {
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),

@@ -76,6 +76,7 @@ export const PLUGIN_UI_METHODS = [
   "files.delete",
   "history.list",
   "usage.get",
+  "net.fetch",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -122,6 +123,33 @@ export interface PluginUiCapabilities {
   "project.files"?: "read" | "write";
   "project.history"?: boolean;
   "project.usage"?: boolean;
+  /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
+  net?: string[];
+}
+
+/** What `net.fetch` sends, and the most it brings back. */
+export const PLUGIN_UI_FETCH_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] as const;
+export const PLUGIN_UI_FETCH_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+export const PLUGIN_UI_FETCH_TIMEOUT_MS = 30_000;
+
+/** A `net.fetch` answer: the body as text, and only the headers a page can use. */
+export interface PluginUiFetchResponse {
+  status: number;
+  statusText: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/** The host of an `https:` address, or undefined for anything else. */
+export function fetchHost(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2000) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port ? url.hostname : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The capability a method needs beyond what every page has. */
@@ -246,6 +274,14 @@ export function readPluginUiRequest(
     case "files.move":
       if (!filePath(p.from) || !filePath(p.to)) return fail("files.move needs from and to, paths in the project");
       break;
+    case "net.fetch":
+      if (!fetchHost(p.url)) return fail("net.fetch needs an https: address of at most 2,000 characters, without a port or user name");
+      if (p.method !== undefined && !(PLUGIN_UI_FETCH_METHODS as readonly unknown[]).includes(p.method)) return fail(`net.fetch's method is one of ${PLUGIN_UI_FETCH_METHODS.join(", ")}`);
+      if (p.headers !== undefined && (!p.headers || typeof p.headers !== "object" || Array.isArray(p.headers) || Object.keys(p.headers).length > 30
+        || !Object.entries(p.headers).every(([name, value]) => /^[A-Za-z0-9-]{1,100}$/.test(name) && typeof value === "string" && value.length <= 4000 && !/[\r\n]/.test(value))))
+        return fail("net.fetch's headers are at most 30 names with text values");
+      if (p.body !== undefined && typeof p.body !== "string") return fail("net.fetch's body is text");
+      break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };
 }
@@ -259,6 +295,10 @@ export function pluginUiRefusal(
   if (files) {
     const allowed = capabilities["project.files"];
     return allowed === "write" || allowed === files ? undefined : `${method} needs the project.files capability set to ${files}`;
+  }
+  if (method === "net.fetch") {
+    // Checked again, with the address, where the request is made.
+    return capabilities.net?.length ? undefined : "net.fetch needs the net capability";
   }
   const needed = NEEDS[method];
   return needed && capabilities[needed] !== true

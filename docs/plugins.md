@@ -1045,6 +1045,56 @@ bundled: add it from that folder with **Add plugin…**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
 
+## Project panels
+
+A project can hold panels of its own, without a plugin: each is a folder in
+`.ohmygame/panels/<name>/`, with a lowercase, hyphenated name, holding
+`panel.json` and its page (`src/shared/project-panels.ts`,
+`src/daemon/project-panels.ts`). They travel with the project, in its
+[snapshots](checkpoints.md) and [archives](project-archives.md), so the
+project's agent can write and change them like any other file. A project
+shows at most 12, each of at most 500 files and folders.
+
+```json
+{
+  "title": "Level stats",
+  "entry": "index.html",
+  "area": "right",
+  "capabilities": { "project.files": "read" },
+  "net": ["api.example.com"]
+}
+```
+
+`entry` is `index.html` and `area` is `right` when left out. `capabilities`
+are those of a [plugin page](#plugin-pages), `project.files`, `composer`,
+`project.selection`, `project.history` and `project.usage`; a panel runs no
+native code and has no commands. `net` lists at most 20 host names the page
+may reach with `host.request("net.fetch", { url, method, headers, body })`:
+the daemon makes the request, HTTPS on the default port only, with no cookies,
+a redirect returned to the page rather than followed, a 30-second limit, and
+the answer's body as text of at most 5 MB, with only its `content-type`,
+`content-length`, `etag`, `last-modified`, `location` and `retry-after`
+headers. Unknown keys make the panel unusable, and the panel shows why in
+place of its page.
+
+A panel runs only after the person allows what it asks for, in the panel
+itself. What they allowed is kept with the app's data for the project, never
+in its folder, so a project that is imported, duplicated or opened elsewhere
+asks again, and so does one whose `panel.json` asks for something else. A
+change to its page alone doesn't ask again: what it can do is still only what
+was allowed.
+
+The page is served like a plugin's, from
+`/_project/<project id>/<name>/` on the plugin page server, with the same
+sandbox, CSP and bridge, under the plugin id `_project/<name>`, which no
+plugin can have. The app reads a project's panels again after each turn, so
+one the agent adds or changes shows, or reloads, when the turn ends. Errors
+the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
+where the agent can read them, rather than to a plugin's log.
+
+Making a project panel into a plugin, and trying it in Plugin Builder, wait
+for the Builder redesign (#713).
+
 ## Plugin icons
 
 `icon` in the manifest is optional: a path to an image in the package, such as
