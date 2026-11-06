@@ -4,7 +4,7 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { RESERVED_PUBLISHERS } from "./plugin-services.js";
+import { RESERVED_PUBLISHERS } from "../shared/plugin-manifest.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A

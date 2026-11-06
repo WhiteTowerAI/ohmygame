@@ -2,11 +2,15 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
+import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
   /** `ref`: the branch or tag it was added from; without one, the default branch. */
   | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
-  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
+  /** A folder on this computer being developed: it's added again whenever its files change. */
+  | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
 /** A registry the app knows by name, or another npm registry by its address, as `customNpmRegistry` writes it. */
@@ -34,7 +38,8 @@ export type PluginAddSource =
   /** `market`: opened from a market card, so only a version the market signs off will do. */
   | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
-  | { type: "directory"; path: string };
+  /** `development`: the folder is added again whenever its files change. */
+  | { type: "directory"; path: string; development?: true };
 
 /** A plugin published on npm that the market lists, at its newest version. */
 export interface MarketPlugin {
@@ -85,6 +90,8 @@ export interface PluginAddPreview {
   asks: string[];
   skills: number;
   mcpServers: string[];
+  /** Events the plugin's code hears about, from `contributes.hooks`. */
+  hooks?: string[];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
@@ -226,6 +233,18 @@ export interface PluginMcpResult {
 /** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
 export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
 
+/**
+ * The plugin ids an npm package may hold: its scope is what npm vouches for,
+ * so it's the publisher, and `ohmygame-plugin-` may lead the name. The last
+ * is the one to suggest. Undefined for a name that can't be a plugin's.
+ */
+export function npmPackagePluginIds(packageName: string): string[] | undefined {
+  const match = NPM_PLUGIN_PACKAGE.exec(packageName);
+  if (!match) return undefined;
+  const [, scope, name] = match as unknown as [string, string, string];
+  return [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
+}
+
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
 }
@@ -289,6 +308,8 @@ export interface StorePlugin {
   /** Installed with the app from another repository; it can be uninstalled. */
   preinstalled?: boolean;
   origin?: PluginOrigin;
+  /** Why its folder, in development, couldn't be added again the last time it changed. */
+  developmentError?: string;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
   /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
@@ -309,7 +330,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -385,6 +406,42 @@ export interface ProjectCanvasPreset {
   pluginName: string;
   title: string;
   description?: string;
+}
+
+/** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */
+export interface ProjectPreviewDevice {
+  /** `publisher/name:device`, as a project's `previewViewport` names it. */
+  id: `${string}/${string}:${string}`;
+  plugin: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** A preview filter a project's plugin adds. */
+export interface ProjectPreviewFilter extends PreviewColorFilter {
+  /** `publisher/name:filter`. */
+  id: string;
+  plugin: string;
+  title: string;
+  /** Where its coefficients come from. */
+  source: string;
+}
+
+/** A gamepad input map a project's plugin adds, ready for the preview's bridge. */
+export interface ProjectInputMap {
+  /** `publisher/name:map`. */
+  id: string;
+  plugin: string;
+  title: string;
+  map: GamepadKeyMap;
+}
+
+/** What a project's plugins add to its preview. */
+export interface ProjectPluginPreview {
+  devices: ProjectPreviewDevice[];
+  filters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

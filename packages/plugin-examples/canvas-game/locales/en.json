@@ -1,0 +1,6 @@
+{
+  "plugin.name": "Canvas game",
+  "plugin.description": "A project type whose new projects start from a canvas game template.",
+  "type.title": "Canvas game",
+  "type.description": "A project type whose new projects start from a canvas game template."
+}

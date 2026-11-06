@@ -146,7 +146,10 @@ export function capabilityGrants(
   if (capabilities["project.files"])
     grants.add(`project.files:${capabilities["project.files"]}`);
   if (capabilities.composer) grants.add("composer");
+  if (capabilities["project.history"]) grants.add("project.history");
+  if (capabilities["project.usage"]) grants.add("project.usage");
   if (capabilities.agent) grants.add("agent");
+  if (capabilities.game) grants.add("game");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])

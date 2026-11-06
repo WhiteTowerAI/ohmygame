@@ -2091,6 +2091,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           assetDuration: asset?.duration,
           assetWidth: asset?.width,
           assetHeight: asset?.height,
+          assetSize: asset?.size ?? local?.size,
         };
       })(),
     };

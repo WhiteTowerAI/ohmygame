@@ -35,7 +35,8 @@ import { ActivityLog } from "./activity-log.js";
 import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { isGamepadKeyMap } from "../shared/preview-input.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -47,7 +48,7 @@ import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } fr
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
-import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
+import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
@@ -118,6 +119,10 @@ import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
+import { PluginHooks } from "./plugin-hooks.js";
+import { HOOK_CHANGES_MAX, manifestHooks } from "../shared/plugin-hooks.js";
+import { ProjectFileWatches } from "./project-file-watch.js";
+import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
@@ -125,13 +130,17 @@ import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
+import { PluginDevelopment } from "./plugin-development.js";
+import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { capabilityGrants, missingGrants, type ProjectKind } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, projectFolderKey, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
-import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
+import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectGameHooks, projectGameUse, projectKind, projectKindAt } from "./project-types.js";
+import { PluginGameRuntime } from "./plugin-game-runtime.js";
+import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
 import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
@@ -215,6 +224,8 @@ export interface AppOptions {
   pluginMarketKeys?: PluginMarketOptions["keys"];
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
+  /** How long a plugin in development waits for its edits to settle, in tests. */
+  pluginDevelopmentSettleMs?: number;
   preinstalledPluginsDirectory?: string;
   /** Safe mode: every plugin is off, its own choices kept for when the app starts normally. */
   pluginSafeMode?: boolean;
@@ -293,7 +304,7 @@ const runSettingsSchema = {
       startupScript: { type: "string", minLength: 1, maxLength: 200 },
       packageManager: { enum: ["npm", "pnpm", "yarn", "bun"] },
       previewPath: { type: "string", maxLength: 1_000 },
-      previewViewport: { enum: PREVIEW_VIEWPORTS },
+      previewViewport: { anyOf: [{ enum: PREVIEW_VIEWPORTS }, { type: "string", maxLength: 200, pattern: PLUGIN_PREVIEW_DEVICE_PATTERN }] },
       webPreviewEnabled: { type: "boolean" },
       previewAutoStart: { type: "boolean" },
       previewMode: { enum: ["auto", "script", "static", "command"] },
@@ -901,14 +912,75 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
     }
   };
-  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
-  const projectAgentTools = (project: ProjectState, conversation: StoredConversation) => {
-    const playtestKey = `${project.id}:${conversation.summary.id}`;
-    let playtest = agentPlaytests.get(playtestKey);
-    if (!playtest && options.playtestDriver) {
-      playtest = new OwnedPlaytestDriver(options.playtestDriver);
-      agentPlaytests.set(playtestKey, playtest);
+  /** Each project's plugin game runtime, while its type declares one; its conversations share it. */
+  const pluginGames = new Map<string, PluginGameRuntime>();
+  const closePluginGame = (projectId: string) => {
+    pluginGames.get(projectId)?.close();
+    pluginGames.delete(projectId);
+  };
+  /** The runtime of a `"native"` type's plugin for `game_use`, made again when the project's type changes what it declares. */
+  const pluginGameRuntime = async (project: ProjectState): Promise<PluginGameRuntime | undefined> => {
+    const found = project.pluginType?.preview === "native"
+      ? await projectGameUse(project.workspacePath, pluginServices).catch(() => undefined)
+      : undefined;
+    const existing = pluginGames.get(project.id);
+    if (existing && found && existing.provider === found.provider && existing.version === found.version && isDeepStrictEqual(existing.spec, found.spec)) return existing;
+    closePluginGame(project.id);
+    if (!found) return undefined;
+    const runtime = new PluginGameRuntime({
+      ...found,
+      hooks: projectGameHooks(project.workspacePath, pluginServices, found),
+    });
+    pluginGames.set(project.id, runtime);
+    return runtime;
+  };
+  /**
+   * A conversation's or outside session's own view of the project's game
+   * runtime: its type's plugin's when it declares one, else the app's.
+   */
+  const ownedPlaytest = async (project: ProjectState, key: string) => {
+    const plugin = await pluginGameRuntime(project);
+    const runtime = plugin ?? options.playtestDriver;
+    let owned = agentPlaytests.get(key);
+    if (owned && (!runtime || !owned.wraps(runtime))) {
+      agentPlaytests.delete(key);
+      await owned.cleanup();
+      owned = undefined;
     }
+    if (!runtime) return undefined;
+    if (!owned) {
+      owned = new OwnedPlaytestDriver(runtime);
+      agentPlaytests.set(key, owned);
+    }
+    return {
+      driver: owned,
+      resolveOpenTarget: plugin
+        ? async (): Promise<GameUseOpenTarget> => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath })
+        : (signal?: AbortSignal) => playtestTarget(project, signal),
+      maxFrame: plugin?.spec.maxFrame,
+    };
+  };
+  /** Plugins' `context.game`: the game of the project their host serves, as game_use plays it. */
+  const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
+    const keys = await Promise.all(projects.list().map(async (project) => ({
+      project,
+      key: await projectFolderKey(project.workspacePath).catch(() => project.workspacePath),
+    })));
+    const project = keys.find((item) => item.key === folder)?.project;
+    if (!project) return undefined;
+    const plugin = await pluginGameRuntime(project);
+    if (plugin) return {
+      runtime: plugin,
+      provider: plugin.provider,
+      target: async () => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath }),
+    };
+    const web = options.playtestDriver;
+    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
+  });
+  pluginServices.native.serveGame(pluginGamesForPlugins);
+  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
+  const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
+    const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
     return [...createAgentTools(
       project,
       tools,
@@ -920,7 +992,7 @@ export function createApp(options: AppOptions = {}) {
         invalidatePluginSessions();
         return installed;
       },
-      playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
+      playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
     )];
@@ -938,19 +1010,11 @@ export function createApp(options: AppOptions = {}) {
   const externalMcp = new ExternalMcpService({
     dataDirectory,
     projects: () => projects.list(),
-    tools: (project, sessionId) => {
-      const playtestKey = `${project.id}:external:${sessionId}`;
-      let playtest = agentPlaytests.get(playtestKey);
-      if (!playtest && options.playtestDriver) {
-        playtest = new OwnedPlaytestDriver(options.playtestDriver);
-        agentPlaytests.set(playtestKey, playtest);
-      }
-      return createAgentTools(
-        project, tools, projects, undefined, undefined,
-        playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
-        undefined, canvasStore,
-      );
-    },
+    tools: async (project, sessionId) => createAgentTools(
+      project, tools, projects, undefined, undefined,
+      await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
+      undefined, canvasStore,
+    ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
       ...tool,
@@ -961,12 +1025,12 @@ export function createApp(options: AppOptions = {}) {
       )).result,
     })),
     catalog: () => {
-      // Only the schemas are read. A story project has every project tool, and the
-      // full game_use input is listed; a story's own game_use accepts a subset.
+      // Only the schemas are read. A story project has every project tool, and
+      // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
         ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore),
-        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder)),
+        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
     release: async (projectId, sessionId) => {
@@ -1015,7 +1079,7 @@ export function createApp(options: AppOptions = {}) {
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
-      tools: [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+      tools: [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
@@ -1098,7 +1162,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project,
         conversations.open(project, conversation),
-        [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
+        [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
         model,
         piAgentDirectory,
@@ -1124,6 +1188,11 @@ export function createApp(options: AppOptions = {}) {
       void previews.automatic(project, true).catch(() => {});
       void pruneCheckpoints(project);
     },
+    onTurnEnded: (project, end) => void pluginHooks.notify(project.workspacePath, "turn.completed", {
+      conversationId: end.conversationId,
+      status: end.status,
+      changes: end.changes.slice(0, HOOK_CHANGES_MAX).map(({ path, kind }) => ({ path, kind })),
+    }),
   });
   const invalidatePluginSessions = () => {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
@@ -1178,6 +1247,60 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list())
       if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
   }));
+  // Plugins' hooks: what they hear about in a project, and the one change one
+  // can make, to an image's request before it is generated.
+  const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
+  const pluginHooks = new PluginHooks({
+    resolve: (folder) => pluginServices.resolve(folder),
+    native: pluginServices.native,
+    onNotice: (folder, notice) => {
+      const project = projectAt(folder);
+      if (project) events.publish(project.id, "plugin.notice", notice);
+    },
+    onError: (plugin, event, err) => {
+      app.log.warn({ err, plugin, event }, "A plugin hook failed");
+      // The extension host logs a hook that failed in it; an answer the app can't use is logged here.
+      if (!(err instanceof ExtensionHostError))
+        pluginServices.logs.add(plugin, { level: "error", source: "call", text: `Hook ${event} failed: ${err instanceof Error ? err.message : String(err)}` });
+    },
+  });
+  tools.setImageHook(async (input, projectId) => {
+    const project = projects.get(projectId);
+    return project ? pluginHooks.beforeImage(project.workspacePath, input) : input;
+  });
+  projects.onAssetAdded = (project, asset) => void pluginHooks.notify(project.workspacePath, "asset.added", asset);
+  const fileWatches = new ProjectFileWatches((folder, change) => {
+    const project = projectAt(folder);
+    if (!project) return;
+    events.publish(project.id, "project.files.changed", change);
+    void pluginHooks.notify(folder, "files.changed", change);
+  });
+  /** How many event streams each project has open: it is open in the app while it has one. */
+  const openStreams = new Map<string, number>();
+  /** Watches an open project's files while one of its plugins wants to know when they change. */
+  const syncFileWatch = async (folder: string) => {
+    const wanted = await pluginHooks.wantsFiles(folder);
+    const project = projectAt(folder);
+    if (project && openStreams.has(project.id)) fileWatches.set(folder, wanted);
+    else fileWatches.close(folder);
+  };
+  pluginServices.onChange((folder) => {
+    for (const project of projects.list())
+      if ((!folder || project.workspacePath === folder) && (fileWatches.watching(project.workspacePath) || folder))
+        void syncFileWatch(project.workspacePath);
+  });
+  /** Packs the project for export or publishing, and tells its plugins before and after. */
+  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+    void pluginHooks.notify(project.workspacePath, "build.started", { purpose });
+    try {
+      const artifact = await build();
+      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
+      return artifact;
+    } catch (cause) {
+      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+      throw cause;
+    }
+  };
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1247,6 +1370,8 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
     void syncPluginAgents();
+    // Folders in development may have changed while the app was closed.
+    void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -1385,6 +1510,7 @@ export function createApp(options: AppOptions = {}) {
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
         ...(added ? { origin: added } : {}),
+        ...(added?.type === "development" && pluginDevelopment.error(entry.id) ? { developmentError: pluginDevelopment.error(entry.id) } : {}),
         ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
@@ -1414,6 +1540,7 @@ export function createApp(options: AppOptions = {}) {
           agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
           tools: contributes.tools?.length ?? 0,
           skills: entry.skills.length,
+          ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
         },
       };
     }));
@@ -1425,6 +1552,9 @@ export function createApp(options: AppOptions = {}) {
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
   });
   const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
+  const pluginDevelopment = new PluginDevelopment(pluginServices, pluginSources, options.pluginDevelopmentSettleMs === undefined ? {} : { settleMs: options.pluginDevelopmentSettleMs });
+  // Adding or uninstalling a plugin in development starts or stops watching its folder.
+  pluginServices.onChange(() => void pluginDevelopment.sync().catch(() => undefined));
   // The last check, shared by the startup check and every Plugins page opened within a few minutes of it.
   const pluginUpdates = {
     last: undefined as { at: number; result: Promise<PluginSourceUpdate[]> } | undefined,
@@ -1450,7 +1580,7 @@ export function createApp(options: AppOptions = {}) {
       },
       {
         required: ["path"], additionalProperties: false,
-        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 } },
+        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 }, development: { const: true } },
       },
     ],
   } as const;
@@ -1549,6 +1679,20 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
+    }
+  });
+  // A plugin made in the Plugin Builder, copied out as a package to publish under the person's own publisher.
+  app.post<{ Params: { publisher: string; name: string }; Body: { publisher: string; folder: string } }>("/plugin-store/:publisher/:name/export", {
+    schema: { body: { type: "object", required: ["publisher", "folder"], additionalProperties: false, properties: { publisher: { type: "string", minLength: 1, maxLength: 100 }, folder: { type: "string", minLength: 1, maxLength: 4096 } } } },
+  }, async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not found" });
+    try {
+      return { folder: await exportPlugin(entry, request.body.publisher.trim(), request.body.folder) };
+    } catch (cause) {
+      if (cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
     }
   });
   /** The names of the projects using each version of a plugin. */
@@ -1680,14 +1824,41 @@ export function createApp(options: AppOptions = {}) {
     return pluginUi;
   };
   const pageStorage = new PluginPageStorage();
+  const usageIndex = new UsageIndex(() => projects.list());
+  // What a plugin page may read about its project, each behind its own capability.
+  const pagePluginData = async (params: { projectId: string; publisher: string; name: string }, need: "project.history" | "project.usage") => {
+    const project = projects.get(params.projectId);
+    if (!project) return undefined;
+    const id = `${params.publisher}/${params.name}`;
+    const panel = (await pluginServices.panels(project.workspacePath)).find((item) => item.plugin === id);
+    return panel?.capabilities[need] ? project : undefined;
+  };
+  app.get<{ Params: { projectId: string; publisher: string; name: string }; Querystring: { limit?: string } }>("/projects/:projectId/plugin-data/:publisher/:name/history", async (request, reply) => {
+    const project = await pagePluginData(request.params, "project.history");
+    if (!project) return reply.code(403).send({ error: "This plugin can't read this project's history" });
+    const limit = request.query.limit === undefined ? 20 : Number(request.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > PLUGIN_UI_HISTORY_MAX) return reply.code(400).send({ error: `limit is a whole number from 1 to ${PLUGIN_UI_HISTORY_MAX}` });
+    return { turns: await projectHistory(project, conversations, limit) };
+  });
+  app.get<{ Params: { projectId: string; publisher: string; name: string } }>("/projects/:projectId/plugin-data/:publisher/:name/usage", async (request, reply) => {
+    const project = await pagePluginData(request.params, "project.usage");
+    if (!project) return reply.code(403).send({ error: "This plugin can't read this project's usage" });
+    return { rows: projectUsage((await usageIndex.stats()).rows, project.id) };
+  });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-panels", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const panels = await pluginServices.panels(project.workspacePath, locale);
+    // An open project reads its panels: from then on its files are watched if a plugin wants to know.
+    void syncFileWatch(project.workspacePath);
     if (!panels.length) return [];
     const server = await pluginUiServer();
-    return panels.map((panel) => ({ ...panel, url: server.panelUrl(panel.plugin, panel.version, panel.id) }));
+    // The revision makes a changed page a new address, so an open panel loads it again.
+    return panels.map((panel) => {
+      const url = server.panelUrl(panel.plugin, panel.version, panel.id);
+      return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
+    });
   });
   // Only a plugin the project uses, with a page, has storage there.
   const pagePlugin = async (projectId: string, publisher: string, name: string) => {
@@ -1871,6 +2042,11 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       return pluginChangeReply(reply, cause);
     }
+  });
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-preview", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginServices.preview(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -2141,6 +2317,7 @@ export function createApp(options: AppOptions = {}) {
             throw new ExampleError(cause instanceof Error ? cause.message : String(cause), 400);
           }
         }
+        await projects.storeSettings(project.id);
         return reply.code(201).send(project);
       }
       const type = request.body?.type ?? "web-game";
@@ -2155,6 +2332,7 @@ export function createApp(options: AppOptions = {}) {
           await projects.delete(project.id);
           throw cause;
         }
+        await projects.storeSettings(project.id);
       }
       return reply.code(201).send(project);
     } catch (cause) {
@@ -2633,12 +2811,14 @@ export function createApp(options: AppOptions = {}) {
       await driver.cleanup();
       agentPlaytests.delete(key);
     }
+    closePluginGame(project.id);
     await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
     await canvasStore.waitForProject(project.id);
     // A snapshot that is still being taken writes into the folder that is about to be removed.
     await checkpoints.settled(project);
     await pluginServices.closeProject(project.workspacePath).catch(() => {});
+    fileWatches.close(project.workspacePath);
     if (request.query.keep === "1") return reply.send({ movedTo: await projects.remove(project.id) });
     await projects.delete(project.id);
     return reply.code(204).send();
@@ -3103,7 +3283,7 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get<{ Querystring: { locale?: string } }>("/settings/providers", (request) => providerSummaries(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
-  registerUsageRoutes(app, new UsageIndex(() => projects.list()), () => providerSummaries());
+  registerUsageRoutes(app, usageIndex, () => providerSummaries());
   registerDiagnosticsRoutes(app, {
     logDirectory: options.logDirectory,
     summary: async () => {
@@ -3619,6 +3799,19 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     },
   );
+  // A gamepad map presses keys in the person's pages of the game; null turns it off.
+  app.put<{ Params: { projectId: string }; Body: { map: unknown } }>(
+    "/projects/:projectId/preview/input-map",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["map"], properties: { map: {} } } }, bodyLimit: 16 * 1024 },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const { map } = request.body;
+      if (map !== null && !isGamepadKeyMap(map)) return reply.code(400).send({ error: "Invalid input map" });
+      previews.setInputMap(project, map ?? undefined);
+      return reply.code(204).send();
+    },
+  );
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/tuning", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -4120,7 +4313,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projectCover(project.id)),
+          await buildArtifact(project, "publish", async () => artifacts.create(project, await projectCover(project.id))),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
@@ -4153,7 +4346,7 @@ export function createApp(options: AppOptions = {}) {
     if (building.has(project.id)) return reply.code(409).send({ error: "The web build is already being exported" });
     building.add(project.id);
     try {
-      const artifact = await artifacts.build(project);
+      const artifact = await buildArtifact(project, "export", () => artifacts.build(project));
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
@@ -4171,8 +4364,13 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
     try {
-      const [cover, coverState, logo] = await Promise.all([projects.cover(project.id), projects.coverState(project.id), projects.logo(project.id)]);
-      const archive = await exportProjectArchive(project, { library, ...(cover ? { cover: { contents: cover, mode: coverState.mode } } : {}), ...(logo ? { logo } : {}) });
+      // An archive of settings that can't be read would carry stand-ins for them.
+      await projects.readySettings(project.id);
+    } catch (cause) {
+      return reply.code(409).send({ error: (cause as Error).message });
+    }
+    try {
+      const archive = await exportProjectArchive(project, { library });
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
@@ -4195,7 +4393,18 @@ export function createApp(options: AppOptions = {}) {
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
     for (const event of events.since(project.id, cursor)) send(event);
-    keepOpen(events.subscribe(project.id, send));
+    const unsubscribe = events.subscribe(project.id, send);
+    openStreams.set(project.id, (openStreams.get(project.id) ?? 0) + 1);
+    void syncFileWatch(project.workspacePath);
+    keepOpen(() => {
+      unsubscribe();
+      const left = (openStreams.get(project.id) ?? 1) - 1;
+      if (left > 0) openStreams.set(project.id, left);
+      else {
+        openStreams.delete(project.id);
+        fileWatches.close(project.workspacePath);
+      }
+    });
   });
 
   app.get<{ Params: { operationId: string }; Querystring: { cursor?: string } }>("/settings/model-auth/:operationId/events", async (request, reply) => {
@@ -4234,6 +4443,8 @@ export function createApp(options: AppOptions = {}) {
     codexImages.close();
     await projectNaming.close();
     await pluginMcpHost.close();
+    await pluginDevelopment.close();
+    fileWatches.dispose();
     await pluginServices.close();
     await (await pluginUi?.catch(() => undefined))?.close();
     await cloudModels.setSession(null);
@@ -4244,6 +4455,8 @@ export function createApp(options: AppOptions = {}) {
     await agentRuntimes.close();
     setPluginAgentDefinitions([]);
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
+    await pluginGamesForPlugins.close();
+    for (const projectId of [...pluginGames.keys()]) closePluginGame(projectId);
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();

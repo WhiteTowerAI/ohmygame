@@ -101,7 +101,7 @@ describe("story runtime install", () => {
     expect(next.pending).toEqual({ version: shipped.version, files: ["story/shared/playable-audio.js"] });
     // The base the author changed stays recorded, and the newer file waits beside the project.
     expect(next.files["story/shared/playable-audio.js"]).toBe(shipped.files["story/shared/playable-audio.js"]);
-    expect(await read(root, `.ohmygame/story-runtime/${shipped.version}/story/shared/playable-audio.js`))
+    expect(await read(root, `.ohmygame/local/story-runtime/${shipped.version}/story/shared/playable-audio.js`))
       .toBe((await storyWebRuntimeModules())["story/shared/playable-audio.js"]);
   });
 });
@@ -232,8 +232,8 @@ describe("project guides", () => {
   it("records the guides that ship now, so changing them keeps earlier copies upgradable", () => {
     // When this fails because a guide changed, add the old hash to PROJECT_GUIDE_UPGRADES, then record the new one here.
     expect({ agents: sha(AGENT_INSTRUCTIONS), readme: sha(PROJECT_DOCUMENTATION) }).toEqual({
-      agents: "94f6d304d6d40626a6a18661113ebe4bdc2674117ec19b0e4b28c26e9fbbb35b",
-      readme: "6ebb841a7c5c875dc4664bba88e13afff779bfb12c4360a7c73c73a912d70abf",
+      agents: "b35b898bce87d299f531d1f2a53f9848dfacbe749b2ded64905258e4838a51fe",
+      readme: "0e821e2b173e3c85bb527199c62b7a7ca9c83111d3cade5af5605d9ff3e9c88f",
     });
     expect(PROJECT_GUIDE_UPGRADES["AGENTS.md"]).not.toContain(sha(AGENT_INSTRUCTIONS));
     expect(PROJECT_GUIDE_UPGRADES["README.md"]).not.toContain(sha(PROJECT_DOCUMENTATION));
@@ -241,7 +241,7 @@ describe("project guides", () => {
 
   it("tells the Agent how a web story's runtime and Scenes work", () => {
     expect(AGENT_INSTRUCTIONS).toContain("## Web stories");
-    expect(AGENT_INSTRUCTIONS).toContain(".ohmygame/story-runtime/<version>/");
+    expect(AGENT_INSTRUCTIONS).toContain(".ohmygame/local/story-runtime/<version>/");
   });
 
   it("leaves a guide the author changed when upgrading", async () => {

@@ -16,7 +16,7 @@ export async function readCanvasAssets(workspace: string): Promise<CanvasAssetMa
   return { ...manifest, assets: Object.assign(Object.create(null), manifest.assets) };
 }
 
-export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = []): Promise<CanvasAssetManifest> {
+export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = [], origin: "generated" | "imported" = "imported"): Promise<CanvasAssetManifest> {
   const manifest = await readCanvasAssets(project.workspacePath);
   let changed = false;
   for (const id of new Set(ids)) {
@@ -27,7 +27,7 @@ export async function ensureCanvasAssets(project: ProjectState, projects: Projec
       if (existingIds.includes(id)) continue;
       throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
     }
-    const file = await projects.materializeLibraryAsset(project.id, id);
+    const file = await projects.materializeLibraryAsset(project.id, id, origin);
     manifest.assets[id] = { ...(asset.audio ? { audio: asset.audio } : {}), ...(asset.model3d ? { model3d: asset.model3d } : {}), name: asset.name, path: file.path, libraryAssetId: id, ...(asset.prompt ? { prompt: asset.prompt } : {}) };
     changed = true;
   }

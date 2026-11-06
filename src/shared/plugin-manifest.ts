@@ -1,9 +1,13 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { CUSTOM_MODEL_APIS } from "./contracts.js";
+import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
+import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
+import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -125,7 +129,17 @@ const Capabilities = Type.Object(
     "project.selection": Type.Optional(Type.Boolean()),
     "project.files": Type.Optional(Literals(["read", "write"])),
     composer: Type.Optional(Type.Boolean()),
+    /** Pages read the project's turns that changed files. */
+    "project.history": Type.Optional(Type.Boolean()),
+    /** Pages read what the project's conversations used. */
+    "project.usage": Type.Optional(Type.Boolean()),
     agent: Type.Optional(Type.Boolean()),
+    /**
+     * Native code may play the project's game as the agent's game_use does
+     * (API 2.3.0). Native code is trusted; this asks the person, it doesn't
+     * contain a plugin that ignores it.
+     */
+    game: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),
@@ -170,6 +184,30 @@ const ProjectType = Type.Object(
     ),
     preview: Literals(["web", "web-build", "native"]),
     playtest: Type.Optional(Literals(["web"])),
+    gameUse: Type.Optional(
+      Type.Object(
+        {
+          operations: Type.Array(Literals<PluginGameUseOperation>(PLUGIN_GAME_USE_OPERATIONS), {
+            minItems: 1,
+            uniqueItems: true,
+          }),
+          input: Type.Optional(
+            Type.Array(Literals<PluginGameUseInput>(PLUGIN_GAME_USE_INPUT), {
+              minItems: 1,
+              uniqueItems: true,
+            }),
+          ),
+          maxFrame: Type.Optional(
+            Type.Integer({ minimum: 1, maximum: MAX_CAPTURE_FRAME }),
+          ),
+        },
+        {
+          additionalProperties: false,
+          description:
+            "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for",
+        },
+      ),
+    ),
     ready: Type.Optional(
       Type.Object(
         {
@@ -508,6 +546,67 @@ const Panel = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * A size the preview can show the game at, beside the built-in ones. It sets
+ * the game's viewport only; it doesn't emulate the device. Its size limits
+ * are game_use's.
+ */
+const PreviewDevice = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    width: Type.Integer({ minimum: 240, maximum: 4096 }),
+    height: Type.Integer({ minimum: 240, maximum: 4096 }),
+  },
+  { additionalProperties: false },
+);
+
+const FilterRow = (limit: number) =>
+  Type.Array(Type.Number({ minimum: -limit, maximum: limit }), { minItems: 3, maxItems: 3 });
+
+/**
+ * A colour matrix over the game as the person sees it. It changes red, green
+ * and blue only, keeps alpha, and names the colour space its coefficients are
+ * for and where they come from.
+ */
+const PreviewFilter = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    /** Where the coefficients come from, such as a paper, deficiency and severity. */
+    source: Text(300),
+    colorSpace: Literals(PREVIEW_FILTER_COLOR_SPACES),
+    matrix: Type.Array(FilterRow(PREVIEW_FILTER_MAX_COEFFICIENT), { minItems: 3, maxItems: 3 }),
+    offset: Type.Optional(FilterRow(1)),
+  },
+  { additionalProperties: false },
+);
+
+const KeyCode = Type.String({ pattern: KEY_CODE_PATTERN });
+const keyRecord = (names: readonly string[]) =>
+  Type.Object(Object.fromEntries(names.map((name) => [name, Type.Optional(KeyCode)])), { additionalProperties: false });
+
+/**
+ * A standard gamepad's buttons and sticks pressed as keys (`KeyboardEvent.code`),
+ * for a game that only reads the keyboard. Off until the person picks it.
+ */
+const InputMap = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    buttons: Type.Optional(keyRecord(GAMEPAD_BUTTONS)),
+    sticks: Type.Optional(
+      Type.Object(
+        Object.fromEntries(GAMEPAD_STICKS.map((stick) => [stick, Type.Optional(keyRecord(STICK_DIRECTIONS))])),
+        { additionalProperties: false },
+      ),
+    ),
+    /** How far a stick goes before it presses its key, from 0.1 to 0.9; 0.5 by default. */
+    deadZone: Type.Optional(Type.Number({ minimum: 0.1, maximum: 0.9 })),
+  },
+  { additionalProperties: false },
+);
+
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
@@ -515,6 +614,8 @@ const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** The publisher of plugins the person makes themselves. */
 export const PERSONAL_PUBLISHER = "personal";
+/** Publishers only OhMyGame and its Plugin Builder use, so no package from outside can. */
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 /** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
@@ -630,6 +731,13 @@ export const PluginManifestV2Schema = Type.Object(
           agents: list(Agent),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          previewDevices: list(PreviewDevice),
+          previewFilters: list(PreviewFilter),
+          inputMaps: list(InputMap),
+          /** Events the native entry hears about; see `PluginHookInputs`. */
+          hooks: Type.Optional(
+            Type.Array(Literals(PLUGIN_HOOKS), { minItems: 1, uniqueItems: true }),
+          ),
           canvasNodes: list(CanvasNode),
           canvasPresets: list(CanvasPreset),
         },
@@ -708,6 +816,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         ? "a native entrypoint needs the native capability"
         : "the native capability needs a native entrypoint",
     );
+  if (capabilities.game && !native)
+    issue("/capabilities/game", "only native code plays the game");
 
   for (const [id, field] of Object.entries(manifest.configuration ?? {})) {
     const path = `/configuration/${id}`;
@@ -740,6 +850,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "agents",
     "panels",
     "mcpServers",
+    "previewDevices",
+    "previewFilters",
+    "inputMaps",
     "canvasNodes",
     "canvasPresets",
   ] as const) {
@@ -758,6 +871,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   });
   if (contributes.tools && !native)
     issue("/contributes/tools", "tools run in the native entrypoint");
+  if (contributes.hooks && !native)
+    issue("/contributes/hooks", "hooks run in the native entrypoint");
   contributes.tools?.forEach((tool, index) => {
     if (agentToolName(manifest.id, tool.name).length > AGENT_TOOL_NAME_MAX)
       issue(
@@ -769,6 +884,23 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
   const commands = new Set(contributes.commands?.map((command) => command.id));
+  contributes.projectTypes?.forEach((type, index) => {
+    // Literal unions read as never in the inferred types, so the declaration is read as written.
+    const gameUse = type.gameUse as PluginGameUseSpec | undefined;
+    if (!gameUse) return;
+    const path = `/contributes/projectTypes/${index}/gameUse`;
+    if ((type.preview as string) !== "native")
+      issue(path, "only a \"native\" type runs its game through its plugin");
+    if (!native) issue(path, "needs a native entrypoint");
+    const acts = gameUse.operations.includes("act");
+    if (acts && !gameUse.input) issue(`${path}/input`, "act needs the input it takes");
+    if (!acts && gameUse.input) issue(`${path}/input`, "only act takes input");
+    const frames = gameUse.operations.includes("captureFrame");
+    if (frames && gameUse.maxFrame === undefined)
+      issue(`${path}/maxFrame`, "captureFrame needs the highest frame it can capture");
+    if (!frames && gameUse.maxFrame !== undefined)
+      issue(`${path}/maxFrame`, "only captureFrame takes a frame");
+  });
   contributes.projectTypes?.forEach((type, index) => {
     if (!type.ready) return;
     const path = `/contributes/projectTypes/${index}/ready`;
@@ -803,6 +935,11 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         issue(`${path}/slash`, `duplicate slash command ${command.slash}`);
       slashes.add(command.slash);
     }
+  });
+
+  contributes.inputMaps?.forEach((map, index) => {
+    const keys = [...Object.values(map.buttons ?? {}), ...Object.values(map.sticks ?? {}).flatMap((stick) => Object.values(stick ?? {}))];
+    if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
   });
 
   contributes.canvasNodes?.forEach((node, index) => {

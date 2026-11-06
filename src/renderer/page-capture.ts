@@ -13,13 +13,14 @@ export async function captureElementImage(
   const capturePage = window.ohMyGameDesktop?.capturePage;
   const bounds = element.getBoundingClientRect();
   if ((!capture && !capturePage) || bounds.width < 1 || bounds.height < 1) return undefined;
-  const png = capture ? await capture() : await capturePage!({
+  // The game's own capture is JPEG and the window's is PNG; decoding reads the format from the bytes.
+  const encoded = capture ? await capture() : await capturePage!({
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
   });
-  const image = await createImageBitmap(new Blob([png as BlobPart], { type: "image/png" }));
+  const image = await createImageBitmap(new Blob([encoded as BlobPart]));
   try {
     const width = Math.min(maxWidth, image.width);
     const height = Math.max(1, Math.round(image.height * width / image.width));

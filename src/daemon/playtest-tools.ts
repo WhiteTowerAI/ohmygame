@@ -1,13 +1,19 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
-import type {
-  GameRuntimeAdapter,
-  GameUseInputCapability,
-  GameUseObservationCapability,
-  GameUseOpenTarget,
-  GameUseSnapshot,
-  PlaytestAction,
-  PlaytestSnapshot,
+import { Check } from "typebox/value";
+import {
+  GAME_USE_OPERATIONS,
+  MAX_CAPTURE_FRAME,
+  supportsGameUseOperation,
+  type GameRuntimeAdapter,
+  type GameUseInputCapability,
+  type GameUseObservationCapability,
+  type GameUseOpenTarget,
+  type GameUseOperation,
+  type GameUseSnapshot,
+  type PlaytestAction,
+  type PlaytestCapture,
+  type PlaytestSnapshot,
 } from "../shared/playtest.js";
 
 const viewportSchema = Type.Object({
@@ -42,8 +48,15 @@ const semanticTargetSchema = Type.Union([
 const resetBridgeAction = Type.Object({ type: Type.Literal("bridge"), method: Type.Literal("reset") }, { additionalProperties: false });
 const valueBridgeAction = Type.Object({ type: Type.Literal("bridge"), method: Type.Union([Type.Literal("setSeed"), Type.Literal("step")]), value: Type.Number() }, { additionalProperties: false });
 
+const clickAction = Type.Object({ type: Type.Literal("click"), target: targetSchema }, { additionalProperties: false });
+/** A runtime without page elements clicks at a point. */
+const pointClickAction = Type.Object({
+  type: Type.Literal("click"),
+  target: Type.Object({ x: Type.Number({ minimum: 0, maximum: 8192 }), y: Type.Number({ minimum: 0, maximum: 8192 }) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+
 const inputActions = [
-  Type.Object({ type: Type.Literal("click"), target: targetSchema }, { additionalProperties: false }),
+  clickAction,
   Type.Object({ type: Type.Literal("type"), target: semanticTargetSchema, text: Type.String({ maxLength: 10_000 }) }, { additionalProperties: false }),
   Type.Object({
     type: Type.Literal("press"),
@@ -57,52 +70,111 @@ const inputActions = [
 
 const actionSchema = Type.Union([...inputActions, resetBridgeAction, valueBridgeAction]);
 
-const parameters = gameUseParameters(actionSchema);
+/** Every operation but captureFrame, which only a plugin's runtime has: the web runtime's tool as before. */
+const WEB_OPERATIONS = GAME_USE_OPERATIONS.filter((operation) => operation !== "captureFrame");
+
+/** The tool's input as the code reads it: every field any runtime's schema has. */
+const fullParameters = Type.Object({
+  operation: Type.Union(GAME_USE_OPERATIONS.map((operation) => Type.Literal(operation)) as [ReturnType<typeof Type.Literal<GameUseOperation>>]),
+  path: Type.Optional(Type.String()),
+  viewport: Type.Optional(viewportSchema),
+  sessionId: Type.Optional(Type.String()),
+  actions: Type.Optional(Type.Array(actionSchema)),
+  frame: Type.Optional(Type.Integer()),
+});
+type GameUseToolInput = typeof fullParameters;
+
+const parameters = gameUseParameters(actionSchema, WEB_OPERATIONS, { path: true });
 
 /**
  * The Playable Nodes player's bridge only resets, so its agent is not offered
  * setSeed or step; a web game may implement all of them.
  */
-const resetOnlyParameters = gameUseParameters(Type.Union([...inputActions, resetBridgeAction])) as unknown as typeof parameters;
+const resetOnlyParameters = gameUseParameters(Type.Union([...inputActions, resetBridgeAction]), WEB_OPERATIONS, { path: true });
 
-function gameUseParameters<Action extends TSchema>(action: Action) {
+/** What an outside agent's catalog lists: every operation any runtime has, checked again when called. */
+const catalogParameters = gameUseParameters(actionSchema, GAME_USE_OPERATIONS, { path: true, frame: MAX_CAPTURE_FRAME });
+
+function gameUseParameters(
+  action: TSchema,
+  operations: readonly GameUseOperation[],
+  { path, frame }: { path?: boolean; frame?: number } = {},
+): GameUseToolInput {
   return Type.Object({
-    operation: Type.Union([
-      Type.Literal("open"),
-      Type.Literal("inspect"),
-      Type.Literal("act"),
-      Type.Literal("capture"),
-      Type.Literal("recordStart"),
-      Type.Literal("recordStop"),
-      Type.Literal("close"),
-    ]),
-    path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })),
+    operation: Type.Union(operations.map((operation) => Type.Literal(operation))),
+    ...(path ? { path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })) } : {}),
     viewport: Type.Optional(viewportSchema),
     sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for every operation but open" })),
-    actions: Type.Optional(Type.Array(action, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
-  }, { additionalProperties: false });
+    ...(operations.includes("act") ? { actions: Type.Optional(Type.Array(action, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })) } : {}),
+    ...(frame ? { frame: Type.Optional(Type.Integer({ minimum: 1, maximum: frame, description: "The frame captureFrame runs the game to from its start; required for captureFrame" })) } : {}),
+  }, { additionalProperties: false }) as unknown as GameUseToolInput;
+}
+
+/**
+ * The tool's input for a plugin's runtime: only the operations and input it
+ * declares, clicks at a point, and no bridge.
+ */
+function pluginParameters(driver: GameRuntimeAdapter, maxFrame: number | undefined) {
+  const operations = GAME_USE_OPERATIONS.filter((operation) => supportsGameUseOperation(driver.capabilities, operation));
+  const input = driver.capabilities.input;
+  const actions = [
+    ...(input.includes("pointer") ? [pointClickAction] : []),
+    ...inputActions.slice(2).filter((action) => {
+      const type = (action.properties.type as { const?: string }).const;
+      return type === "wait" || (type === "press" && input.includes("keyboard")) || (type === "touch" && input.includes("touch")) || (type === "resize" && input.includes("resize"));
+    }),
+  ];
+  return gameUseParameters(Type.Union(actions), operations, { frame: operations.includes("captureFrame") ? maxFrame ?? 1 : undefined });
 }
 
 export function createGameUseTool(
   driver: GameRuntimeAdapter,
   resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>,
-  { bridge = "full" }: { bridge?: "full" | "reset" } = {},
-): ToolDefinition<typeof parameters> {
-  return defineTool<typeof parameters, unknown>({
+  {
+    bridge = "full",
+    catalog = false,
+    maxFrame,
+  }: {
+    bridge?: "full" | "reset";
+    /** List every operation any runtime has, as an outside agent's catalog does. */
+    catalog?: boolean;
+    /** The highest frame a plugin's captureFrame takes. */
+    maxFrame?: number;
+  } = {},
+): ToolDefinition<GameUseToolInput> {
+  const plugin = driver.capabilities.runtime === "plugin";
+  const frames = plugin && supportsGameUseOperation(driver.capabilities, "captureFrame");
+  return defineTool<GameUseToolInput, unknown>({
     name: "game_use",
     label: "Game Use",
-    description: "Use the current game runtime as a player: open and control the game, inspect interactive elements and canvas state, capture screenshots, review console and network failures, and call an optional deterministic game bridge. Open and act return a fresh state snapshot. Reuse the returned sessionId and close the session when finished.",
-    promptSnippet: "Use the current game with real player input, runtime inspection, and screenshots",
-    promptGuidelines: [
-      "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
-      "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
-      "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
-      "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
-    ],
-    parameters: bridge === "reset" ? resetOnlyParameters : parameters,
+    description: plugin
+      ? `Use the current game, which its engine's plugin runs outside OhMyGame: open a session${frames ? ", capture a frame of a fresh run" : ""}${supportsGameUseOperation(driver.capabilities, "capture") ? ", capture the current frame" : ""}${supportsGameUseOperation(driver.capabilities, "act") ? ", send input" : ""}, and close the session when finished. Reuse the returned sessionId.`
+      : "Use the current game runtime as a player: open and control the game, inspect interactive elements and canvas state, capture screenshots, review console and network failures, and call an optional deterministic game bridge. Open and act return a fresh state snapshot. Reuse the returned sessionId and close the session when finished.",
+    promptSnippet: plugin
+      ? "Use the current game through its engine's plugin, including screenshots"
+      : "Use the current game with real player input, runtime inspection, and screenshots",
+    promptGuidelines: plugin
+      ? [
+          "Use game_use to see the game after changing it; a successful build alone is not a playtest",
+          ...(frames ? ["captureFrame runs the game again from its start and captures that frame; it does not show what an open session shows now, and two runs may differ. Pick a frame after the game has loaded, and try a later one if the capture is blank or still loading"] : []),
+          "Close game sessions when finished",
+        ]
+      : [
+          "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
+          "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
+          "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
+          "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
+        ],
+    parameters: catalog ? catalogParameters : plugin ? pluginParameters(driver, maxFrame) : bridge === "reset" ? resetOnlyParameters : parameters,
     executionMode: "sequential",
     execute: async (_toolCallId, input, signal) => {
       if (!driver.available) throw new Error("Game use is not available in this environment");
+      if (!supportsGameUseOperation(driver.capabilities, input.operation)) {
+        // Say what's missing, as when a runtime that supports recording has no video.
+        if (input.operation === "recordStart" || input.operation === "recordStop") requireCapability(driver, "video", "observation");
+        if (input.operation === "capture" || input.operation === "captureFrame") requireCapability(driver, "screenshot", "observation");
+        throw new Error(`This project's game runtime does not support ${input.operation}`);
+      }
       if (input.operation === "open") {
         const target = await resolveOpenTarget(signal);
         signal?.throwIfAborted();
@@ -115,7 +187,8 @@ export function createGameUseTool(
         const result = await driver.request({
           operation: "open",
           target: resolvedTarget,
-          viewport: input.viewport ?? { width: 1280, height: 720 },
+          // A plugin's game runs at its own size unless asked for another.
+          ...(input.viewport ? { viewport: input.viewport } : plugin ? {} : { viewport: { width: 1280, height: 720 } }),
         }, signal);
         if (result.operation !== "open") throw new Error("Unexpected game use response");
         return snapshotResult(result.snapshot);
@@ -124,18 +197,13 @@ export function createGameUseTool(
         requireCapability(driver, "screenshot", "observation");
         const result = await driver.request({ operation: "capture", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
         if (result.operation !== "capture") throw new Error("Unexpected game use response");
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({
-              sessionId: result.capture.sessionId,
-              width: result.capture.width,
-              height: result.capture.height,
-              analysis: result.capture.analysis,
-            }) },
-            { type: "image", data: result.capture.data, mimeType: result.capture.mediaType },
-          ],
-          details: { playtestCapture: { ...result.capture, data: undefined } },
-        };
+        return captureResult(result.capture);
+      }
+      if (input.operation === "captureFrame") {
+        if (input.frame === undefined) throw new Error("frame is required for captureFrame");
+        const result = await driver.request({ operation: "captureFrame", sessionId: requiredSessionId(input.operation, input.sessionId), frame: input.frame }, signal);
+        if (result.operation !== "captureFrame") throw new Error("Unexpected game use response");
+        return captureResult(result.capture);
       }
       if (input.operation === "recordStart") {
         requireCapability(driver, "video", "observation");
@@ -164,6 +232,24 @@ export function createGameUseTool(
   });
 }
 
+function captureResult(capture: PlaytestCapture) {
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify({
+        sessionId: capture.sessionId,
+        width: capture.width,
+        height: capture.height,
+        ...(capture.source ? { source: capture.source, frame: capture.frame } : {}),
+        ...(capture.sourceWidth ? { sourceWidth: capture.sourceWidth, sourceHeight: capture.sourceHeight } : {}),
+        ...(capture.notes ? { notes: capture.notes } : {}),
+        analysis: capture.analysis,
+      }) },
+      { type: "image" as const, data: capture.data, mimeType: capture.mediaType },
+    ],
+    details: { playtestCapture: { ...capture, data: undefined } },
+  };
+}
+
 function requiredSessionId(operation: string, sessionId?: string): string {
   if (!sessionId) throw new Error(`sessionId is required for ${operation}`);
   return sessionId;
@@ -184,6 +270,14 @@ export function previewUrl(baseValue: string, relativeValue?: string): string {
 function withOpenPath(target: GameUseOpenTarget, path: string): GameUseOpenTarget {
   if (target.runtime !== "web") throw new Error("path is only supported by the web game runtime");
   return { ...target, url: previewUrl(target.url, path) };
+}
+
+const actionsSchema = Type.Array(actionSchema, { minItems: 1, maxItems: 20 });
+
+/** Actions from outside the tool, such as a plugin's: checked like the agent's, and against what the runtime takes. */
+export function checkedActions(driver: GameRuntimeAdapter, actions: unknown): PlaytestAction[] {
+  if (!Check(actionsSchema, actions)) throw new Error("act takes 1 to 20 actions of the kinds game_use takes");
+  return supportedActions(driver, actions as PlaytestAction[]);
 }
 
 function supportedActions(driver: GameRuntimeAdapter, actions: PlaytestAction[]): PlaytestAction[] {

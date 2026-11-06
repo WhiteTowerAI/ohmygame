@@ -7,11 +7,25 @@ import {
   addAccountProfile,
   deleteAccountProfile,
   listAccountProfiles,
+  moveAccountProfile,
+  updateAccountProfile,
 } from "./api.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { RotateCcw, Plus, RefreshCw, Trash2, X } from "./icons.js";
+import {
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  FolderOpen,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  X,
+} from "./icons.js";
 import { t } from "./i18n.js";
-import { Disclosure } from "./ui/index.js";
+import { Disclosure, DropdownMenu, type MenuEntry } from "./ui/index.js";
 
 /** Named references to CLI-owned configuration directories, with the CLI's own sign-in flow. */
 export function AgentAccountProfiles({
@@ -19,19 +33,23 @@ export function AgentAccountProfiles({
   defaultProfileId,
   onDefault,
   onLogin,
-  onRemoved,
+  onChanged,
   disabled,
 }: {
   runtime: AccountRuntimeId;
   defaultProfileId: string;
   onDefault: (id: string) => Promise<void>;
   onLogin: (id: string) => Promise<void>;
-  onRemoved: () => Promise<void>;
+  /** The list changed in a way others show: a name, the order, a directory or a removal. */
+  onChanged: () => Promise<void>;
   disabled: boolean;
 }) {
   const [profiles, setProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<AgentAccountProfileStatus>();
+  const [editing, setEditing] = useState<AgentAccountProfileStatus>();
+  const [editName, setEditName] = useState("");
+  const [editDirectory, setEditDirectory] = useState("");
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
   const [working, setWorking] = useState(false);
@@ -78,6 +96,7 @@ export function AgentAccountProfiles({
         ...current,
         {
           ...profile,
+          directory: profile.configDirectory ?? "",
           auth: {
             status: directory.trim() ? "unknown" : "signed-out",
             billing: "unknown",
@@ -90,6 +109,95 @@ export function AgentAccountProfiles({
       if (directory.trim()) setProfiles(await listAccountProfiles(runtime));
       else await onLogin(profile.id);
     });
+  }
+  function save(event: FormEvent) {
+    event.preventDefault();
+    if (!editing) return;
+    void run(async () => {
+      const name = editName.trim();
+      const directory = editDirectory.trim();
+      const change = {
+        ...(name !== editing.name ? { name } : {}),
+        ...(directory !== editing.directory ? { configDirectory: directory } : {}),
+      };
+      if (Object.keys(change).length) {
+        await updateAccountProfile(runtime, editing.id, change);
+        setProfiles(await listAccountProfiles(runtime));
+        await onChanged();
+      }
+      setEditing(undefined);
+    });
+  }
+  function menu(
+    profile: AgentAccountProfileStatus,
+    label: string,
+    index: number,
+  ): MenuEntry[] {
+    const move = (direction: -1 | 1) =>
+      void run(async () => {
+        await moveAccountProfile(runtime, profile.id, direction);
+        setProfiles(await listAccountProfiles(runtime));
+        await onChanged();
+      });
+    const browse = window.ohMyGameDesktop?.browseAccountDirectory;
+    const directoryItems: MenuEntry[] = [
+      ...(browse
+        ? [
+            {
+              label: t("codingAgents.profileOpenDirectory"),
+              icon: <FolderOpen size={14} />,
+              onSelect: () => void run(() => browse(runtime, profile.id)),
+            },
+          ]
+        : []),
+      {
+        label: t("codingAgents.profileCopyDirectory"),
+        icon: <Copy size={14} />,
+        onSelect: () =>
+          void run(() => navigator.clipboard.writeText(profile.directory)),
+      },
+    ];
+    if (profile.id === "system") return directoryItems;
+    return [
+      {
+        label: t("codingAgents.profileEdit"),
+        icon: <Pencil size={14} />,
+        onSelect: () => {
+          setEditing(profile);
+          setEditName(profile.name);
+          setEditDirectory(profile.directory);
+          setDeleting(undefined);
+          setAdding(false);
+          setError(undefined);
+        },
+      },
+      {
+        label: t("codingAgents.profileMoveUp"),
+        icon: <ChevronUp size={14} />,
+        // System default holds the first place.
+        disabled: index <= 1,
+        onSelect: () => move(-1),
+      },
+      {
+        label: t("codingAgents.profileMoveDown"),
+        icon: <ChevronDown size={14} />,
+        disabled: index === profiles.length - 1,
+        onSelect: () => move(1),
+      },
+      "separator",
+      ...directoryItems,
+      "separator",
+      {
+        label: t("codingAgents.profileDelete", { name: label }),
+        icon: <Trash2 size={14} />,
+        danger: true,
+        onSelect: () => {
+          setDeleting(profile);
+          setEditing(undefined);
+          setError(undefined);
+        },
+      },
+    ];
   }
   return (
     <section className="settings-detail-section provider-models agent-account-profiles">
@@ -119,6 +227,7 @@ export function AgentAccountProfiles({
             disabled={busy}
             onClick={() => {
               setAdding(!adding);
+              setEditing(undefined);
               setName("");
               setDirectory("");
               setError(undefined);
@@ -133,7 +242,7 @@ export function AgentAccountProfiles({
         role="radiogroup"
         aria-label={t("codingAgents.profileDefault")}
       >
-        {profiles.map((profile) => {
+        {profiles.map((profile, index) => {
           const label =
             profile.id === "system"
               ? t("codingAgents.profileSystem")
@@ -142,7 +251,7 @@ export function AgentAccountProfiles({
           const signedOut = profile.auth.status === "signed-out";
           return (
             <div className="provider-model-row is-compact" key={profile.id}>
-              <label title={profile.configDirectory}>
+              <label title={profile.directory}>
                 <input
                   type="radio"
                   name={`${runtime}-account-default`}
@@ -196,22 +305,22 @@ export function AgentAccountProfiles({
               >
                 {signedOut ? t("common.signIn") : <RotateCcw size={14} />}
               </button>
-              {profile.id !== "system" ? (
-                <button
-                  className="icon-button settings-provider-setting-edit settings-provider-delete"
-                  type="button"
-                  aria-label={t("codingAgents.profileDelete", { name: label })}
-                  title={t("codingAgents.profileDelete", { name: label })}
-                  aria-expanded={deleting?.id === profile.id}
-                  disabled={busy}
-                  onClick={() => {
-                    setDeleting(profile);
-                    setError(undefined);
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              ) : null}
+              <DropdownMenu
+                placement="bottom-end"
+                items={menu(profile, label, index)}
+                trigger={(props) => (
+                  <button
+                    {...props}
+                    className="icon-button settings-provider-setting-edit"
+                    type="button"
+                    aria-label={t("codingAgents.profileActions", { name: label })}
+                    title={t("codingAgents.profileActions", { name: label })}
+                    disabled={busy}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                )}
+              />
             </div>
           );
         })}
@@ -241,7 +350,7 @@ export function AgentAccountProfiles({
                   current.filter((profile) => profile.id !== deleting.id),
                 );
                 setDeleting(undefined);
-                await onRemoved();
+                await onChanged();
               })
             }
           >
@@ -256,6 +365,56 @@ export function AgentAccountProfiles({
             {t("common.cancel")}
           </button>
         </div>
+      ) : null}
+      {editing ? (
+        <form
+          className="agent-account-profile-form"
+          aria-label={t("codingAgents.profileEditTitle", { name: editing.name })}
+          onSubmit={save}
+        >
+          <div className="settings-detail-inline">
+            <input
+              className="settings-search-input"
+              aria-label={t("codingAgents.profileName")}
+              placeholder={t("codingAgents.profileName")}
+              value={editName}
+              maxLength={80}
+              required
+              autoFocus
+              disabled={busy}
+              onChange={(event) => setEditName(event.target.value)}
+            />
+            <button
+              className="settings-add-button"
+              type="submit"
+              disabled={busy || !editName.trim() || !editDirectory.trim()}
+            >
+              {t("common.save")}
+            </button>
+            <button
+              className="settings-secondary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => setEditing(undefined)}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+          {editing.managed ? null : (
+            <>
+              <input
+                className="settings-search-input"
+                aria-label={t("codingAgents.profileDirectory")}
+                placeholder={t("codingAgents.profileDirectory")}
+                value={editDirectory}
+                spellCheck={false}
+                disabled={busy}
+                onChange={(event) => setEditDirectory(event.target.value)}
+              />
+              <p className="settings-muted">{t("codingAgents.profileDirectoryHint")}</p>
+            </>
+          )}
+        </form>
       ) : null}
       {adding ? (
         <form className="agent-account-profile-form" onSubmit={add}>

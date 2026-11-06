@@ -41,11 +41,13 @@ const api = {
     }),
   ),
   listAccountProfiles: vi.fn(async (): Promise<AgentAccountProfileStatus[]> => [
-    { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
-    { id: "work", name: "Work", auth: { status: "signed-out", billing: "unknown" } },
+    { id: "system", name: "System default", directory: "/fixture/system", auth: { status: "signed-in", billing: "subscription" } },
+    { id: "work", name: "Work", directory: "/fixture/work", auth: { status: "signed-out", billing: "unknown" } },
   ]),
   loginAgentRuntime: vi.fn(async () => ({ command: "fixture-cli login" })),
   deleteAccountProfile: vi.fn(async (_runtime: string, _id: string) => {}),
+  updateAccountProfile: vi.fn(async (_runtime: string, id: string, change: { name?: string; configDirectory?: string }) => ({ id, name: change.name ?? "Work" })),
+  moveAccountProfile: vi.fn(async (_runtime: string, _id: string, _direction: -1 | 1) => {}),
   addAccountProfile: vi.fn(async (_runtime: string, name: string, configDirectory?: string) => ({ id: "new-account", name, configDirectory })),
   listAgentRuntimes: vi.fn(async () => [
     agent("claude-code-cli", "Claude Code", true),
@@ -89,6 +91,17 @@ afterEach(async () => {
 });
 
 type Props = Parameters<typeof AgentsSettings>[0];
+function setInput(input: HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Toggles an account's "…" menu and returns the items showing. */
+async function accountMenu(name: string): Promise<HTMLElement[]> {
+  await act(async () => host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click());
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+}
+
 async function render(props: Partial<Props> = {}): Promise<void> {
   await act(async () =>
     root.render(
@@ -449,34 +462,76 @@ it("selects the default account directly from its row", async () => {
 it.each([true, false])("confirms account deletion with managed=%s and resets the selected default", async (managed) => {
   api.listAgentRuntimes.mockResolvedValueOnce([{ ...agent("codex-cli", "Codex", true), defaultProfileId: "work" }]);
   api.listAccountProfiles.mockResolvedValueOnce([
-    { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
-    { id: "work", name: "Work", configDirectory: "/fixture/work", managed, auth: { status: "signed-out", billing: "unknown" } },
+    { id: "system", name: "System default", directory: "/fixture/system", auth: { status: "signed-in", billing: "subscription" } },
+    { id: "work", name: "Work", directory: "/fixture/work", configDirectory: "/fixture/work", managed, auth: { status: "signed-out", billing: "unknown" } },
   ]);
   await detail("codex-cli");
-  const buttons = () => [...host.querySelectorAll<HTMLButtonElement>("button")];
-  expect(buttons().some((button) => button.getAttribute("aria-label") === "Delete System default account")).toBe(false);
-  const remove = buttons().find((button) => button.getAttribute("aria-label") === "Delete Work account")!;
-  await act(async () => remove.click());
+  expect((await accountMenu("System default")).some((item) => item.textContent === "Delete System default account")).toBe(false);
+  await accountMenu("System default");
+  const remove = async () => {
+    const item = (await accountMenu("Work")).find((entry) => entry.textContent === "Delete Work account")!;
+    await act(async () => item.click());
+  };
+  await remove();
   const confirmation = () => host.querySelector<HTMLElement>(".settings-provider-delete-confirmation")!;
   expect(confirmation().textContent).toContain(managed ? "sign-in files and native history will be removed" : "existing CLI directory and files will be kept");
   expect(api.deleteAccountProfile).not.toHaveBeenCalled();
   await act(async () => [...confirmation().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
   expect(confirmation()).toBeNull();
-  await act(async () => remove.click());
+  await remove();
   await act(async () => confirmation().querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
   expect(api.deleteAccountProfile).toHaveBeenCalledWith("codex-cli", "work");
   expect(host.querySelector<HTMLInputElement>('input[aria-label="Use System default for new chats"]')?.checked).toBe(true);
-  expect(buttons().some((button) => button.getAttribute("aria-label") === "Delete Work account")).toBe(false);
+  expect(host.querySelector('button[aria-label="Actions for Work"]')).toBeNull();
   expect(confirmation()).toBeNull();
+});
+
+it.each([true, false])("edits an account with managed=%s, offering its directory only when connected by hand", async (managed) => {
+  const profiles = [
+    { id: "system", name: "System default", directory: "/fixture/system", auth: { status: "signed-in" as const, billing: "subscription" as const } },
+    { id: "work", name: "Work", directory: "/fixture/work", configDirectory: "/fixture/work", managed, auth: { status: "signed-in" as const, billing: "subscription" as const } },
+  ];
+  api.listAccountProfiles.mockResolvedValueOnce(profiles);
+  await detail("codex-cli");
+  const edit = (await accountMenu("Work")).find((item) => item.textContent === "Edit account")!;
+  await act(async () => edit.click());
+  const form = host.querySelector<HTMLFormElement>('form[aria-label="Edit Work"]')!;
+  const directory = form.querySelector<HTMLInputElement>('input[aria-label="Configuration directory"]');
+  expect(directory === null).toBe(managed);
+  await act(async () => setInput(form.querySelector<HTMLInputElement>('input[aria-label="Account name"]')!, "Studio"));
+  if (directory) await act(async () => setInput(directory, "/fixture/moved"));
+  await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(api.updateAccountProfile).toHaveBeenCalledWith("codex-cli", "work", managed ? { name: "Studio" } : { name: "Studio", configDirectory: "/fixture/moved" });
+  expect(host.querySelector('form[aria-label="Edit Work"]')).toBeNull();
+});
+
+it("moves accounts below System default, which keeps its place", async () => {
+  const auth = { status: "signed-in" as const, billing: "subscription" as const };
+  api.listAccountProfiles.mockResolvedValueOnce([
+    { id: "system", name: "System default", directory: "/fixture/system", auth },
+    { id: "work", name: "Work", directory: "/fixture/work", auth },
+    { id: "home", name: "Home", directory: "/fixture/home", auth },
+  ]);
+  await detail("codex-cli");
+  const item = (items: HTMLElement[], text: string) => items.find((entry) => entry.textContent === text) as HTMLButtonElement | undefined;
+  const system = await accountMenu("System default");
+  expect(item(system, "Move up")).toBeUndefined();
+  expect(item(system, "Copy directory path")).toBeDefined();
+  await accountMenu("System default");
+  const work = await accountMenu("Work");
+  expect(item(work, "Move up")!.disabled).toBe(true);
+  await act(async () => item(work, "Move down")!.click());
+  expect(api.moveAccountProfile).toHaveBeenCalledWith("codex-cli", "work", 1);
 });
 
 it("keeps the account and displays the error when deletion is refused", async () => {
   api.deleteAccountProfile.mockRejectedValueOnce(new Error("Wait for the agent to finish"));
   await detail("claude-code-cli");
-  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Delete Work account"]')!.click());
+  const remove = (await accountMenu("Work")).find((item) => item.textContent === "Delete Work account")!;
+  await act(async () => remove.click());
   await act(async () => host.querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("Wait for the agent to finish");
-  expect(host.querySelector('button[aria-label="Delete Work account"]')).not.toBeNull();
+  expect(host.querySelector('button[aria-label="Actions for Work"]')).not.toBeNull();
   expect(host.querySelector(".settings-provider-delete-confirmation")).not.toBeNull();
 });
 

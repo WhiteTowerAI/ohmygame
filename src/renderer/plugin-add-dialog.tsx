@@ -4,9 +4,10 @@ import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFi
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
 import { NativeCodeWarning } from "./plugin-consent-dialog.js";
+import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
-import { Alert, Badge, Button, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
+import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
 
@@ -80,6 +81,9 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
   });
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File>();
+  /** A folder typed in, where there's no desktop folder picker. */
+  const [folderPath, setFolderPath] = useState("");
+  const [development, setDevelopment] = useState(false);
   const [review, setReview] = useState<Review>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -133,15 +137,17 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
       void readSource({ type: "npm", name: name.trim(), registry: chosen });
     }
     else if (kind === "github") void readSource({ type: "github", url: url.trim() });
+    else if (folderPath.trim()) void readSource(folderSource(folderPath.trim()), folderPath.trim());
     else if (file) void readFile(file);
   }
+  const folderSource = (folder: string): PluginAddSource => ({ type: "directory", path: folder, ...(development ? { development: true as const } : {}) });
   async function chooseFolder(): Promise<void> {
     await run(async () => {
       const selected = await desktop?.selectPluginDirectory();
-      if (selected) setReview({ preview: await inspectAddedPlugin({ type: "directory", path: selected }), folder: selected });
+      if (selected) setReview({ preview: await inspectAddedPlugin(folderSource(selected)), folder: selected });
     });
   }
-  const canContinue = review || (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : file);
+  const canContinue = review || (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : folderPath.trim() || file);
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
     title={review ? t("pluginAdd.reviewTitle", { name: review.preview.displayName }) : t("pluginAdd.title")}
@@ -168,7 +174,9 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
         </> : null}
         {kind === "github" ? <Field label={t("pluginAdd.repository")} hint={t("pluginAdd.repositoryHint")}>{(props) => <Input {...props} autoFocus required disabled={busy} type="url" value={url} placeholder="https://github.com/publisher/plugin" spellCheck={false} onChange={(event) => setUrl(event.target.value)} />}</Field> : null}
         {kind === "local" ? <>
-          {desktop ? <Button disabled={busy} onClick={() => void chooseFolder()}>{t("pluginAdd.chooseFolder")}</Button> : null}
+          {desktop ? <Button disabled={busy} onClick={() => void chooseFolder()}>{t("pluginAdd.chooseFolder")}</Button>
+            : <Field label={t("pluginAdd.folder")} hint={t("pluginAdd.folderHint")}>{(props) => <Input {...props} disabled={busy} value={folderPath} placeholder="/Users/me/my-plugin" spellCheck={false} onChange={(event) => setFolderPath(event.target.value)} />}</Field>}
+          <Checkbox checked={development} disabled={busy} onChange={setDevelopment} label={t("pluginAdd.develop")} description={t("pluginAdd.developHint")} />
           <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={setFile} />
         </> : null}
       </>}
@@ -200,7 +208,9 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
     <NativeCodeWarning asks={preview.asks} />
     {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
     {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
+    {preview.hooks?.length ? <section><h3>{t("pluginHooks.heading")}</h3><ul>{preview.hooks.map((hook) => <li key={hook}>{hookLabel(hook)}</li>)}</ul></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
+    {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
     {others.length ? <p>{t(preview.appWide ? "pluginAdd.replacesVersions" : "pluginAdd.keepsVersions", { versions: others.join(", ") })}</p> : null}
     <Alert tone="info" title={t("pluginAdd.unreviewed")} />
@@ -210,5 +220,6 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
 function sourceLabel({ origin }: PluginAddPreview, local: string | undefined): string {
   if (origin?.type === "npm") return `${origin.package} · ${registryLabel(origin.registry)}`;
   if (origin?.type === "github") return `github.com/${origin.repository} · ${origin.commit.slice(0, 7)}`;
+  if (origin?.type === "development") return `${origin.folder} · ${t("plugins.inDevelopment")}`;
   return local ?? t("pluginAdd.local");
 }

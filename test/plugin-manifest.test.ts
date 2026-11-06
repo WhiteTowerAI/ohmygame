@@ -2,9 +2,12 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
+import { colorMatrixValues, isPreviewColorFilter } from "../src/shared/preview-filter.js";
+import { compileInputMap, isGamepadKeyMap } from "../src/shared/preview-input.js";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
@@ -279,6 +282,82 @@ describe("plugin manifest", () => {
         contributes: { themes: [{ id: "t", title: "T", dark: { color: 1 } }] },
       }),
     ).toContainEqual(expect.stringContaining("additional properties"));
+  });
+
+  it("lets only a native type with native code declare its game for game_use, with what each operation needs", () => {
+    const type = (gameUse: object, preview = "native") => messages({
+      ...minimal,
+      entrypoints: { native: "./native/index.mjs" },
+      capabilities: { native: true },
+      contributes: { projectTypes: [{ id: "t", title: "T", preview, gameUse }] },
+    });
+    expect(type({ operations: ["captureFrame"], maxFrame: 600 })).toEqual([]);
+    expect(type({ operations: ["act", "capture"], input: ["pointer", "keyboard"] })).toEqual([]);
+    expect(type({ operations: ["captureFrame"], maxFrame: 600 }, "web")).toEqual([
+      expect.stringContaining("only a \"native\" type"),
+    ]);
+    expect(type({ operations: ["captureFrame"] })).toEqual([expect.stringContaining("highest frame")]);
+    expect(type({ operations: ["capture"], maxFrame: 600 })).toEqual([expect.stringContaining("only captureFrame")]);
+    expect(type({ operations: ["act"] })).toEqual([expect.stringContaining("act needs the input")]);
+    expect(type({ operations: ["capture"], input: ["pointer"] })).toEqual([expect.stringContaining("only act")]);
+    // Text needs page elements; open and close every runtime has.
+    expect(type({ operations: ["act"], input: ["text"] })).not.toEqual([]);
+    expect(type({ operations: ["open"] })).not.toEqual([]);
+    expect(type({ operations: [] })).not.toEqual([]);
+    expect(type({ operations: ["captureFrame"], maxFrame: 100_001 })).not.toEqual([]);
+    expect(messages({
+      ...minimal,
+      contributes: { projectTypes: [{ id: "t", title: "T", preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } }] },
+    })).toContainEqual(expect.stringContaining("native entrypoint"));
+  });
+
+  it("adds preview devices by size alone, within game_use's limits", () => {
+    const devices = (previewDevices: object[]) => messages({ ...minimal, contributes: { previewDevices } });
+    expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);
+    expect(devices([{ id: "tiny", title: "Tiny", width: 100, height: 480 }])).not.toEqual([]);
+    expect(devices([{ id: "huge", title: "Huge", width: 800, height: 5000 }])).not.toEqual([]);
+    expect(devices([{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }])).not.toEqual([]);
+    expect(devices([
+      { id: "handheld", title: "A", width: 800, height: 480 },
+      { id: "handheld", title: "B", width: 480, height: 800 },
+    ])).toEqual(["/contributes/previewDevices/1/id duplicate id handheld"]);
+  });
+
+  it("adds colour filters that name their colour space and source, keep alpha, and stay in range", () => {
+    const grey = { id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] };
+    const filters = (filter: object) => messages({ ...minimal, contributes: { previewFilters: [filter] } });
+    expect(filters(grey)).toEqual([]);
+    expect(filters({ ...grey, offset: [0.1, 0, 0] })).toEqual([]);
+    const { source: _source, ...unsourced } = grey;
+    expect(filters(unsourced)).not.toEqual([]);
+    expect(filters({ ...grey, colorSpace: "display-p3" })).not.toEqual([]);
+    // Four columns would reach alpha.
+    expect(filters({ ...grey, matrix: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]] })).not.toEqual([]);
+    expect(filters({ ...grey, matrix: [[9, 0, 0], [0, 1, 0], [0, 0, 1]] })).not.toEqual([]);
+    expect(colorMatrixValues({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], offset: [0.1, 0.2, 0.3] }))
+      .toBe("1 0 0 0 0.1 0 1 0 0 0.2 0 0 1 0 0.3 0 0 0 1 0");
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(true);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0]] })).toBe(false);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(false);
+  });
+
+  it("maps a standard gamepad's buttons and sticks to keyboard codes", () => {
+    const maps = (map: object) => messages({ ...minimal, contributes: { inputMaps: [{ id: "pad", title: "Pad", ...map }] } });
+    expect(maps({ buttons: { a: "Space", up: "ArrowUp" }, sticks: { right: { down: "KeyS" } }, deadZone: 0.3 })).toEqual([]);
+    expect(maps({})).toEqual(["/contributes/inputMaps/0 presses no keys"]);
+    expect(maps({ buttons: { a: "Meta" } })).not.toEqual([]);
+    expect(maps({ buttons: { paddle: "Space" } })).not.toEqual([]);
+    expect(maps({ buttons: { a: "Space" }, deadZone: 0 })).not.toEqual([]);
+    const compiled = compileInputMap({ buttons: { home: "Escape" }, sticks: { right: { up: "KeyW" } } });
+    expect(compiled).toEqual({ buttons: [[16, "Escape"]], axes: [[3, -1, "KeyW"]], deadZone: 0.5 });
+    expect(isGamepadKeyMap(compiled)).toBe(true);
+    expect(isGamepadKeyMap({ ...compiled, axes: [[4, 1, "KeyW"]] })).toBe(false);
+    expect(isGamepadKeyMap({ ...compiled, buttons: [[0, "KeyW"], [1]] })).toBe(false);
+  });
+
+  it("asks the person before native code plays the game", () => {
+    expect(capabilityGrants({ capabilities: { native: true, game: true } })).toEqual(["game", "native"]);
+    expect(messages({ ...minimal, capabilities: { game: true } })).toEqual(["/capabilities/game only native code plays the game"]);
   });
 
   it("only accepts canonical project-relative paths for recognition", () => {

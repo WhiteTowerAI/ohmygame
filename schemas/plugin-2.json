@@ -178,7 +178,16 @@
         "composer": {
           "type": "boolean"
         },
+        "project.history": {
+          "type": "boolean"
+        },
+        "project.usage": {
+          "type": "boolean"
+        },
         "agent": {
+          "type": "boolean"
+        },
+        "game": {
           "type": "boolean"
         },
         "network": {
@@ -413,6 +422,71 @@
                     "const": "web"
                   }
                 ]
+              },
+              "gameUse": {
+                "type": "object",
+                "required": [
+                  "operations"
+                ],
+                "properties": {
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "inspect"
+                        },
+                        {
+                          "type": "string",
+                          "const": "act"
+                        },
+                        {
+                          "type": "string",
+                          "const": "capture"
+                        },
+                        {
+                          "type": "string",
+                          "const": "captureFrame"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "input": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "pointer"
+                        },
+                        {
+                          "type": "string",
+                          "const": "keyboard"
+                        },
+                        {
+                          "type": "string",
+                          "const": "touch"
+                        },
+                        {
+                          "type": "string",
+                          "const": "resize"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "maxFrame": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  }
+                },
+                "additionalProperties": false,
+                "description": "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for"
               },
               "ready": {
                 "type": "object",
@@ -1222,6 +1296,300 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "previewDevices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "previewFilters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "source",
+              "colorSpace",
+              "matrix"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "colorSpace": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "linearRGB"
+                  },
+                  {
+                    "type": "string",
+                    "const": "sRGB"
+                  }
+                ]
+              },
+              "matrix": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -4,
+                    "maximum": 4
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "inputMaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "buttons": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "b": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "x": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "y": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "back": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "start": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "up": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "down": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "left": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "right": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "home": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "sticks": {
+                "type": "object",
+                "properties": {
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "deadZone": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 0.9
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "asset.added"
+              },
+              {
+                "type": "string",
+                "const": "turn.completed"
+              },
+              {
+                "type": "string",
+                "const": "build.started"
+              },
+              {
+                "type": "string",
+                "const": "build.completed"
+              },
+              {
+                "type": "string",
+                "const": "files.changed"
+              },
+              {
+                "type": "string",
+                "const": "image.beforeGenerate"
+              }
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "canvasNodes": {
           "type": "array",

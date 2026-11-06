@@ -311,6 +311,10 @@ describe("project shell layout", () => {
       }, "conversation", "live"));
       await settle();
     }
+    // Streamed text renders at most every 50 ms.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
     expect(container.textContent).toContain("Working next next next");
     expect(formattedResponse).not.toHaveBeenCalled();
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -319,6 +323,43 @@ describe("project shell layout", () => {
     expect(
       daemon.requests.find((request) => request.route.endsWith("/branch"))?.body,
     ).toContain("history-entry");
+  });
+
+  it("applies streamed text together on a frame, at most every 50 ms, before any later event", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const daemon = await openProject(() => undefined, detail("history"));
+    await act(async () => daemon.send(1, "agent.started", { prompt: "Continue" }, "conversation", "live"));
+    await act(async () => daemon.send(2, "item.started", {
+      item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft", status: "inProgress" },
+    }, "conversation", "live"));
+    await settle();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    await act(async () => {
+      daemon.send(3, "item.agentMessage.delta", { itemId: "live-answer", delta: " one" }, "conversation", "live");
+      daemon.send(4, "item.agentMessage.delta", { itemId: "live-answer", delta: " two" }, "conversation", "live");
+    });
+    // Both tokens wait for one frame.
+    expect(frames).toHaveLength(1);
+    expect(container.textContent).not.toContain("Draft one");
+    await act(async () => frames[0]!(performance.now()));
+    expect(container.textContent).toContain("Draft one two");
+    // Text that follows soon after waits for a later frame.
+    await act(async () => daemon.send(5, "item.agentMessage.delta", { itemId: "live-answer", delta: " and" }, "conversation", "live"));
+    await act(async () => frames[1]!(performance.now() + 10));
+    expect(container.textContent).not.toContain("two and");
+    expect(frames).toHaveLength(3);
+    await act(async () => frames[2]!(performance.now() + 60));
+    expect(container.textContent).toContain("Draft one two and");
+    await act(async () => {
+      daemon.send(6, "item.agentMessage.delta", { itemId: "live-answer", delta: " three" }, "conversation", "live");
+      // The final text arrives before that frame and must not gain the token again.
+      daemon.send(7, "item.completed", {
+        item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft one two and three", status: "completed" },
+      }, "conversation", "live");
+    });
+    expect(container.textContent).toContain("Draft one two and three");
+    expect(container.textContent).not.toContain("three three");
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
@@ -453,6 +494,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -532,6 +575,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -554,6 +599,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -636,6 +683,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -667,6 +716,13 @@ describe("plugins in the project shell", () => {
       expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
       await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
       await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
+      // Changes that arrive before one render reach the page together.
+      const { mergeFileChanges } = await import("../src/renderer/project-shell.js");
+      const both = mergeFileChanges(mergeFileChanges(undefined, { paths: ["src/b.ts"] }), { paths: ["src/a.ts", ".env"] });
+      expect(both).toEqual({ paths: [".env", "src/a.ts", "src/b.ts"] });
+      expect(mergeFileChanges({ paths: Array.from({ length: 200 }, (_, index) => `f${index}`) }, { paths: ["g"] })).toMatchObject({ truncated: true });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} fileChange={both} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files", paths: ["src/a.ts", "src/b.ts"] }));
       page!.close();
     } finally {
       post.mockRestore();

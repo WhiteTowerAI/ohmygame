@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -18,6 +19,8 @@ import {
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { createApp } from "../src/daemon/app.js";
 import { NativePlugins } from "../src/daemon/native-plugins.js";
+import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/plugin-hooks.js";
+import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import {
@@ -25,10 +28,13 @@ import {
   availableProjectTypes,
   buildWebPreview,
   createTypedProject,
+  projectGameHooks,
+  projectGameUse,
   projectKind,
   projectKindAt,
   recognizeProjectTypes,
 } from "../src/daemon/project-types.js";
+import { PluginGameRuntime } from "../src/daemon/plugin-game-runtime.js";
 import {
   PluginGrants,
   projectFolderKey,
@@ -143,6 +149,39 @@ const SOURCES: Record<string, string> = {
   broken: `
     export function activate() { throw new Error("cannot start"); }
   `,
+  player: `
+    export function activate(context) {
+      context.registerTool("play", async () => {
+        if (!context.game) return "no game";
+        const session = await context.game.open({ viewport: { width: 320, height: 240 } });
+        const shot = await session.capture();
+        await session.close();
+        return { id: session.id, operations: session.capabilities.operations, shot };
+      });
+      context.registerTool("giveUp", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("enough")), 50);
+        return context.game.open({ signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("refused", () => context.game.open({ viewport: { width: 1, height: 1 } }).then(() => "opened", (error) => error.message));
+      context.registerTool("late", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("too slow")), 20);
+        return context.game.open({ viewport: { width: 999, height: 999 }, signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("hang", () => {
+        void context.game.open().catch(() => {});
+        return "waiting";
+      });
+    }
+  `,
+  "early-player": `
+    let early;
+    export async function activate(context) {
+      early = await context.game.open({ viewport: { width: 320, height: 240 } }).then((session) => session.id, (error) => error.message);
+      context.registerTool("early", () => early);
+    }
+  `,
 };
 
 const TOOLS: Record<string, string[]> = {
@@ -166,6 +205,8 @@ const TOOLS: Record<string, string[]> = {
   slowstart: ["pid"],
   other: ["pid"],
   broken: ["anything"],
+  player: ["play", "giveUp", "refused", "late", "hang"],
+  "early-player": ["early"],
 };
 
 let root: string;
@@ -178,6 +219,8 @@ const plugin = (name: string, version = "1.0.0"): ExtensionHostPlugin => ({
   tools: TOOLS[name] ?? [],
   commands: name === "tools" ? ["greet"] : [],
   projectTypes: [],
+  game: false,
+  hooks: [],
 });
 
 /** Two versions of one plugin, in their own folders. */
@@ -698,6 +741,67 @@ describe("extension hosts", () => {
         )
       ).message,
     ).toContain("shut down");
+  });
+
+  it("answers a plugin's context.game through the app, and ends its sessions with the plugin or host", async () => {
+    const extensionHosts = hosts();
+    const requests: { caller: { scope: string; plugin: string; generation: number }; request: unknown }[] = [];
+    const released: unknown[] = [];
+    let cancelled = false;
+    extensionHosts.serveGame({
+      handle: async (caller, request, signal) => {
+        requests.push({ caller, request });
+        if (request.operation === "open" && !request.viewport)
+          return new Promise((_resolve, reject) => signal.addEventListener("abort", () => { cancelled = true; reject(new Error("gave up")); }));
+        if (request.operation === "open" && request.viewport!.width < 240) throw new Error("viewport too small");
+        // Opens after the plugin gave up, as if the reply was already on its way.
+        if (request.operation === "open" && request.viewport!.width === 999) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return { sessionId: "late1", runtime: "web", capabilities: { operations: ["open", "close"] } };
+        }
+        if (request.operation === "open") return { sessionId: "s1", runtime: "web", capabilities: { operations: ["open", "capture", "close"] } };
+        if (request.operation === "capture") return { sessionId: "s1", width: 320 };
+        return null;
+      },
+      release: (what) => { released.push(what); },
+    });
+    const project = path.join(root, "player");
+    const player = { ...plugin("player"), game: true };
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "play" })).toEqual({
+      id: "s1",
+      operations: ["open", "capture", "close"],
+      shot: { sessionId: "s1", width: 320 },
+    });
+    expect(requests.map(({ request }) => request)).toEqual([
+      { operation: "open", viewport: { width: 320, height: 240 } },
+      { operation: "capture", session: "s1" },
+      { operation: "close", session: "s1" },
+    ]);
+    const generation = requests[0]!.caller.generation;
+    expect(requests[0]!.caller).toMatchObject({ scope: project, plugin: "test/player" });
+    // Giving up reaches the app; an error comes back as the plugin's.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "giveUp" })).toBe("enough");
+    await vi.waitFor(() => expect(cancelled).toBe(true));
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "refused" })).toBe("viewport too small");
+    // A plugin that doesn't ask for it has no context.game.
+    const other = path.join(root, "other");
+    expect(await extensionHosts.invoke({ scope: other, project: other, plugin: plugin("player"), tool: "play" })).toBe("no game");
+    // A session the app opened after the plugin gave up is closed for it.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "late" })).toBe("too slow");
+    await vi.waitFor(() => expect(requests.map(({ request }) => request)).toContainEqual({ operation: "close", session: "late1" }));
+    // A plugin's game can be played while it activates.
+    const early = path.join(root, "early-player");
+    expect(await extensionHosts.invoke({ scope: early, project: early, plugin: { ...plugin("early-player"), game: true }, tool: "early" })).toBe("s1");
+
+    // Unloading the plugin gives up its requests still running before its sessions end.
+    cancelled = false;
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "hang" })).toBe("waiting");
+    await vi.waitFor(() => expect(requests.at(-1)!.request).toEqual({ operation: "open" }));
+    await extensionHosts.deactivate(project, "test/player");
+    expect(cancelled).toBe(true);
+    expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
+    await extensionHosts.stop(project);
+    expect(released).toContainEqual({ scope: project, generation });
   });
 
   it("stops an idle host", async () => {
@@ -1371,6 +1475,65 @@ describe("project types", () => {
     }
   });
 
+  it("runs a native type's game for game_use through its project's host", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-types-game-"));
+    const dir = path.join(root, "packages/board-game");
+    await cp(await boardPackage("good"), dir, { recursive: true });
+    const manifestPath = path.join(dir, ".ohmygame-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.engines["ohmygame-api"] = "^2.3.0";
+    Object.assign(manifest.contributes.projectTypes[0], { preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } });
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const png = (await sharp({ create: { width: 320, height: 240, channels: 3, background: "#3070c0" } }).png().toBuffer()).toString("base64");
+    await writeFile(
+      path.join(dir, "index.mjs"),
+      `import { writeFile } from "node:fs/promises";
+      let opened = 0;
+      export function activate(context) {
+        context.registerProjectType("board", {
+          gameUse: async (input) => {
+            if (input.operation === "open") return { session: "board-" + ++opened, viewport: { width: 320, height: 240 } };
+            if (input.operation === "captureFrame") {
+              await writeFile(input.output, Buffer.from(${JSON.stringify(png)}, "base64"));
+              return { frame: input.frame };
+            }
+            return {};
+          },
+        });
+      }`,
+    );
+    const services = new PluginServices({ directory: data, hosts: { callTimeoutMs: 5_000, cancelGraceMs: 200, idleMs: 100 } });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.consent("acme/board", ["native"]);
+      const folder = path.join(data, "game");
+      await createTypedProject({ folder, type: "acme/board:board", name: "Game", services });
+      const found = await projectGameUse(folder, services);
+      expect(found).toEqual({ provider: "acme/board:board", version: "1.0.0", spec: { operations: ["captureFrame"], maxFrame: 600 } });
+      const runtime = new PluginGameRuntime({ ...found!, hooks: projectGameHooks(folder, services, found!) });
+      const opened = await runtime.request({ operation: "open", target: { runtime: "plugin", provider: found!.provider, projectPath: folder } });
+      if (opened.operation !== "open") throw new Error("not opened");
+      expect(opened.snapshot.viewport).toEqual({ width: 320, height: 240 });
+      const generation = await services.native.hostGeneration(folder);
+      // The open session keeps the host running past its idle time.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(await services.native.hostGeneration(folder)).toBe(generation);
+      const captured = await runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 });
+      expect(captured).toMatchObject({ operation: "captureFrame", capture: { width: 320, height: 240, source: "fresh-run", frame: 30 } });
+      // A host that stopped took the session with it.
+      await services.native.closeProject(folder);
+      await expect(runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 })).rejects.toThrow("restarted");
+      runtime.close();
+      // The person turning the plugin off takes the game away from game_use.
+      await services.setEnabled("acme/board", false);
+      expect(await projectGameUse(folder, services)).toBeUndefined();
+    } finally {
+      await services.close();
+      await rm(data, { recursive: true, force: true });
+    }
+  });
+
   it("takes on a folder that already holds the type's files without overwriting them", async () => {
     const { services, parent, cleanup } = await setup();
     try {
@@ -1486,6 +1649,9 @@ describe("plugin settings and commands", () => {
             { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
           ],
+          previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
+          inputMaps: [{ id: "pad", title: "Pad", buttons: { a: "Space", start: "Enter" }, sticks: { left: { left: "ArrowLeft", right: "ArrowRight" } } }],
+          previewFilters: [{ id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
         },
       }),
     );
@@ -1530,9 +1696,210 @@ describe("plugin settings and commands", () => {
       expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }]);
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
+      expect(await services.preview(folder)).toEqual({
+        devices: [{ id: "acme/keys:handheld", plugin: "acme/keys", title: "Handheld", width: 800, height: 480 }],
+        filters: [{ id: "acme/keys:grey", plugin: "acme/keys", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] }],
+        // Ready for the preview's bridge: button indexes and axis directions.
+        inputMaps: [{ id: "acme/keys:pad", plugin: "acme/keys", title: "Pad", map: { buttons: [[0, "Space"], [9, "Enter"]], axes: [[0, -1, "ArrowLeft"], [0, 1, "ArrowRight"]], deadZone: 0.5 } }],
+      });
     } finally {
       await services.close();
       await Promise.all([data, folder].map((item) => rm(item, { recursive: true, force: true })));
+    }
+  });
+});
+
+// --- Hooks -------------------------------------------------------------------
+
+/** A native plugin that hears `hooks`, with `code` as its activate's body. */
+async function hookPackage(name: string, hooks: string[], code: string) {
+  const dir = path.join(root, `packages/hooks-${name}`);
+  await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+  await writeFile(path.join(dir, "index.mjs"), `export async function activate(context) {\n${code}\n}`);
+  await writeFile(
+    path.join(dir, ".ohmygame-plugin/plugin.json"),
+    JSON.stringify({
+      id: `acme/${name}`,
+      version: "1.0.0",
+      engines: { "ohmygame-api": "^2.3.0" },
+      displayName: name,
+      description: "Hears about the project.",
+      entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true },
+      contributes: { hooks },
+    }),
+  );
+  return dir;
+}
+
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
+  const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
+  const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
+  const index = new PluginIndex(path.join(data, "plugin-index.json"));
+  const grants = new PluginGrants(path.join(data, "plugin-grants.json"));
+  await grants.load();
+  const resolve = (project: string) => resolveProjectPlugins({ folder: project, index, grants });
+  const runtime = new NativePlugins({ index, resolve, hosts: hosts({ onLog: options.onLog }), dataFolder: (id) => path.join(data, "plugin-data", id) });
+  const ids: string[] = [];
+  for (const dir of packages) {
+    const result = await index.add(dir);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    ids.push(result.entry.id);
+  }
+  const plugins = Object.fromEntries(ids.map((id) => [id, "1.0.0"]));
+  await writeProjectFile(folder, (file) => ({ ...file, plugins }), { type: "general", plugins });
+  const key = await projectFolderKey(folder);
+  for (const id of ids) {
+    await grants.consent(id, ["native"]);
+    await grants.approve(key, id, ["native"]);
+  }
+  const notices: PluginNotice[] = [];
+  const errors: Array<{ plugin: string; event: string; message: string }> = [];
+  const hooks = new PluginHooks({
+    resolve,
+    native: runtime,
+    onNotice: (_folder, notice) => notices.push(notice),
+    onError: (plugin, event, error) => errors.push({ plugin, event, message: error instanceof Error ? error.message : String(error) }),
+  });
+  return {
+    folder,
+    key,
+    runtime,
+    hooks,
+    notices,
+    errors,
+    cleanup: () => Promise.all([data, folder].map((dir) => rm(dir, { recursive: true, force: true }))),
+  };
+}
+
+const STYLE_PACK = `
+  context.registerHook("image.beforeGenerate", (input) => ({
+    prompt: input.prompt + ", pixel art, 16 colours",
+    ...(input.resolution ? { aspectRatio: "16:9" } : {}),
+  }));`;
+
+/** Checks the files a turn changed for anything that looks like a key. */
+const SECRET_CHECK = `
+  const { readFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+  context.registerHook("turn.completed", async (input) => {
+    const found = [];
+    for (const change of input.changes) {
+      if (change.kind === "removed") continue;
+      const text = await readFile(path.join(context.project.folder, change.path), "utf8");
+      if (/sk-[A-Za-z0-9]{20,}/.test(text)) found.push(change.path);
+    }
+    return found.length ? { notice: "Possible secret in " + found.join(", "), tone: "danger" } : undefined;
+  });`;
+
+describe("plugin hooks", () => {
+  it("lets a style pack change an image's prompt and settings, and records it", async () => {
+    const setup = await hookSetup([await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK)]);
+    try {
+      const configured = await setup.hooks.beforeImage(setup.folder, { prompt: "a knight", resolution: "1K", aspectRatio: "1:1" });
+      expect(configured).toEqual({
+        prompt: "a knight, pixel art, 16 colours",
+        resolution: "1K",
+        aspectRatio: "16:9",
+        requestedPrompt: "a knight",
+        pluginChanges: [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt", "aspectRatio"] }],
+      });
+      const sized = await setup.hooks.beforeImage(setup.folder, { prompt: "a castle", size: "1024x1024" });
+      expect(sized).toMatchObject({ prompt: "a castle, pixel art, 16 colours", size: "1024x1024", pluginChanges: [{ fields: ["prompt"] }] });
+      expect(setup.errors).toEqual([]);
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("refuses an image change a plugin may not make, and keeps the request", () => {
+    const sized = { prompt: "a cat", size: "1024x1024" } as const;
+    // A sized request can't switch to resolution and aspect ratio.
+    expect(() => applyImageChange(sized, { aspectRatio: "16:9" })).toThrow("uses size");
+    expect(() => applyImageChange(sized, { images: [] })).toThrow("can't change images");
+    expect(() => applyImageChange(sized, { prompt: "" })).toThrow("prompt");
+    expect(() => applyImageChange(sized, { size: "999x999" })).toThrow("size must be one of");
+    expect(() => applyImageChange(sized, "pixel art")).toThrow("object of changes");
+    expect(applyImageChange(sized, undefined)).toEqual({ request: sized, fields: [] });
+    // Setting what is already there changes nothing.
+    expect(applyImageChange(sized, { prompt: "a cat", size: "1024x1024" }).fields).toEqual([]);
+    expect(applyImageChange(sized, { imageModel: { provider: "openai", id: "gpt-image-1", extra: true } })).toEqual({
+      request: { ...sized, imageModel: { provider: "openai", id: "gpt-image-1" } },
+      fields: ["imageModel"],
+    });
+  });
+
+  it("tells plugins that hear an event, shows their notices, and survives one that fails", async () => {
+    const logged: Array<[string, string]> = [];
+    const setup = await hookSetup([
+      await hookPackage("secrets", ["turn.completed"], SECRET_CHECK),
+      await hookPackage("broken", ["turn.completed", "asset.added"], `context.registerHook("turn.completed", () => { throw new Error("broken on purpose"); });`),
+      await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK),
+    ], { onLog: (id, entry) => logged.push([id, `${entry.source}: ${entry.text}`]) });
+    try {
+      await writeFile(path.join(setup.folder, "config.js"), `export const key = "sk-${"a".repeat(24)}";\n`);
+      await writeFile(path.join(setup.folder, "game.js"), "export const speed = 3;\n");
+      const invoke = vi.spyOn(setup.runtime, "hook");
+      await setup.hooks.notify(setup.folder, "turn.completed", {
+        conversationId: "c1",
+        status: "completed",
+        changes: [{ path: "config.js", kind: "added" }, { path: "game.js", kind: "modified" }],
+      });
+      expect(setup.notices).toEqual([{ plugin: "acme/secrets", message: "Possible secret in config.js", tone: "danger" }]);
+      expect(setup.errors).toEqual([{ plugin: "acme/broken", event: "turn.completed", message: "broken on purpose" }]);
+      // The failure is in the plugin's log, named as a hook.
+      expect(logged).toContainEqual(["acme/broken", "call: Hook turn.completed failed: broken on purpose"]);
+      // Only the plugins that hear the event are asked; the style pack isn't.
+      expect(invoke.mock.calls.map(([id]) => id).sort()).toEqual(["acme/broken", "acme/secrets"]);
+      // A plugin that lists an event but never registered a handler fails quietly.
+      await setup.hooks.notify(setup.folder, "asset.added", { path: "assets/a.png", origin: "generated" });
+      expect(setup.errors.at(-1)).toMatchObject({ plugin: "acme/broken", event: "asset.added" });
+      // Hearing an event the manifest doesn't list is refused before the host is asked.
+      expect((await failure(setup.runtime.hook("acme/secrets", "build.started", { folder: setup.folder }))).code).toBe("unavailable");
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("refuses to register a hook the manifest doesn't list", async () => {
+    const setup = await hookSetup([await hookPackage("probe", ["turn.completed"], `
+      let refused = "registered";
+      try {
+        context.registerHook("build.started", () => {});
+      } catch (error) {
+        refused = error.message;
+      }
+      context.registerHook("turn.completed", () => ({ notice: refused }));`)]);
+    try {
+      await setup.hooks.notify(setup.folder, "turn.completed", { conversationId: "c1", status: "completed", changes: [] });
+      expect(setup.notices).toEqual([{ plugin: "acme/probe", message: "acme/probe does not declare a hook named build.started", tone: "default" }]);
+      expect(await setup.hooks.listeners(setup.folder, "build.started")).toEqual([]);
+      expect((await setup.hooks.listeners(setup.folder, "turn.completed")).map((entry) => entry.id)).toEqual(["acme/probe"]);
+    } finally {
+      await setup.cleanup();
+    }
+  });
+
+  it("watches a project's files, leaving out tools' own folders", async () => {
+    expect(watchedPath("src\\game.js")).toBe("src/game.js");
+    for (const ignored of [".git/index", "node_modules/a/b.js", ".ohmygame/assets.json", ".ohmygame/build/web/index.html"])
+      expect(watchedPath(ignored)).toBeUndefined();
+    const folder = await realpath(await mkdtemp(path.join(tmpdir(), "ohmygame-watch-")));
+    const changes: Array<{ paths: string[]; truncated?: boolean }> = [];
+    const watches = new ProjectFileWatches((_folder, change) => changes.push(change), { debounceMs: 50 });
+    try {
+      watches.set(folder, true);
+      expect(watches.watching(folder)).toBe(true);
+      await mkdir(path.join(folder, "node_modules"), { recursive: true });
+      await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
+      await writeFile(path.join(folder, "notes.md"), "# Notes");
+      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
+      watches.set(folder, false);
+      expect(watches.watching(folder)).toBe(false);
+    } finally {
+      watches.dispose();
+      await rm(folder, { recursive: true, force: true });
     }
   });
 });

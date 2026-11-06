@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
   ExtensionHostPlugin,
   PluginBuild,
@@ -7,6 +8,7 @@ import type {
 } from "../shared/extension-host-protocol.js";
 import type { CanvasNodeDefinition } from "../shared/canvas-plugin-nodes.js";
 import { projectTypePlugin } from "../shared/project-file.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   ExtensionHostError,
   type ExtensionHosts,
@@ -81,6 +83,8 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
     ),
+    game: manifest.capabilities?.game === true,
+    hooks: [...manifestHooks(manifest)],
   };
 }
 
@@ -209,6 +213,19 @@ export class NativePlugins {
     });
   }
 
+  /** Runs a plugin's handler for an event its manifest's `contributes.hooks` lists. */
+  async hook(id: string, event: string, options: PluginCallOptions): Promise<unknown> {
+    const { key, entry } = await this.#ready(options.folder, id);
+    if (options.version && options.version !== entry.version)
+      throw unavailable(`${id} is now ${entry.version}; this hook was for ${options.version}`);
+    if (!(manifestHooks(entry.manifest) as readonly string[]).includes(event))
+      throw unavailable(`${id} ${entry.version} doesn't hear ${event}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, options)),
+      hook: event,
+    });
+  }
+
   /**
    * Unloads what a project no longer allows: plugins it stopped asking for,
    * moved to another version, or the person turned off or revoked. Call it
@@ -241,6 +258,47 @@ export class NativePlugins {
         .filter((scope) => scope !== "app")
         .map((scope) => this.refreshProject(scope)),
     );
+  }
+
+  /**
+   * Restarts the hosts that imported a plugin, as when its package changed
+   * under the same version in development: a host keeps the modules it
+   * imported, even after turning the plugin off, so only a new one runs the
+   * new code. Each starts again on its next call.
+   */
+  async reload(id: string): Promise<void> {
+    await Promise.all(
+      this.#hosts.importers(id).map((scope) => this.#hosts.stop(scope)),
+    );
+  }
+
+  /** Which start of the project's running host this is; undefined when none runs. */
+  async hostGeneration(folder: string): Promise<number | undefined> {
+    return this.#hosts.generation(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /** Keeps the project's running host from stopping while idle; see `ExtensionHosts.hold`. */
+  async holdHost(folder: string): Promise<(() => void) | undefined> {
+    return this.#hosts.hold(await projectFolderKey(folder).catch(() => folder));
+  }
+
+  /**
+   * Answers project plugins' `context.game`: only a plugin on in the project
+   * that asks for `game`, checked on every request.
+   */
+  serveGame(bridge: Pick<PluginGameBridge, "handle" | "release">): void {
+    this.#hosts.serveGame({
+      handle: async ({ scope, project, generation, plugin }, request, signal) => {
+        if (scope === "app" || !project) throw unavailable("Only a project's plugins can play its game");
+        const entry = await this.#active(scope, plugin);
+        if (entry.manifest.capabilities?.game !== true)
+          throw unavailable(`${plugin} doesn't ask to play the game`);
+        return bridge.handle({ folder: scope, plugin, generation }, request, signal);
+      },
+      release: ({ scope, generation, plugin }) => {
+        if (scope !== "app") bridge.release({ folder: scope, generation, ...(plugin ? { plugin } : {}) });
+      },
+    });
   }
 
   /** Stops a project's host, as when the project is closed. */

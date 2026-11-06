@@ -1,0 +1,39 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "example/project-panel",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.3.0"
+  },
+  "displayName": "%plugin.name%",
+  "description": "%plugin.description%",
+  "icon": "./assets/icon.svg",
+  "ui": {
+    "major": 1
+  },
+  "contributes": {
+    "panels": [
+      {
+        "id": "main",
+        "title": "%panel.title%",
+        "icon": "./assets/icon.svg",
+        "area": "right",
+        "entry": "./panel/index.html"
+      }
+    ],
+    "commands": [
+      {
+        "id": "open",
+        "title": "%command.open%",
+        "run": {
+          "openPanel": "main"
+        },
+        "slots": [
+          {
+            "slot": "project.menu"
+          }
+        ]
+      }
+    ]
+  }
+}

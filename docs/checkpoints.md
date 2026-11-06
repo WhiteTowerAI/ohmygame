@@ -114,16 +114,17 @@ workflow. File modes retain only whether a file is executable.
 
 Snapshots include creative project files and workspace asset metadata. They
 exclude `node_modules` and `.git` anywhere, and these paths at the workspace root:
-`dist`, `build`, `out`, `.godot`, `.ohmygame`, `.ohmygame-install-pending`,
-`.data/agent-attachments`, and `canvas/jobs.json`.
+`dist`, `build`, `out`, `.godot`, `.ohmygame/local`, `.ohmygame/build`, the
+project's cover and logo in `.ohmygame/`, `.ohmygame-install-pending`, and
+`canvas/jobs.json`.
 
 Snapshots also leave out what the workspace's `.gitignore` files ignore, at any
 depth, with Git's rules: the deepest `.gitignore` that matches a path decides,
 `!` patterns re-include, and nothing below an ignored folder is read. This works
 without a Git repository. `.git/info/exclude` and global Git excludes are not
 read, because they differ between machines. Two kinds of path are always
-recorded whatever a `.gitignore` says: `.data/` and `canvas/` at the workspace
-root, which OhMyGame keeps together with the assets they describe, and the
+recorded whatever a `.gitignore` says: `.ohmygame/` and `canvas/` at the
+workspace root, which OhMyGame keeps together with the assets they describe, and the
 `.gitignore` files themselves. A `.gitignore` that is not a regular file, cannot
 be read, or is larger than 1 MiB ignores nothing.
 

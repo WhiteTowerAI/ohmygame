@@ -13,8 +13,12 @@ import {
   type HostMessage,
   type HostRequest,
   type PluginContext,
+  type PluginGame,
+  type PluginGameCallOptions,
+  type PluginGameRequest,
   type ToolHandler,
 } from "../shared/extension-host-protocol.js";
+import type { GameUseSnapshot } from "../shared/playtest.js";
 
 // The extension host process: loads plugins' native entries on request and
 // runs their tools. It is started by `ExtensionHosts` with an IPC channel and
@@ -26,6 +30,8 @@ interface LoadedPlugin {
   commands: Map<string, ToolHandler>;
   /** Project type hooks, keyed `<type>:<hook>`. */
   projectTypes: Map<string, ToolHandler>;
+  /** Event hooks, by event. */
+  hooks: Map<string, ToolHandler>;
   disposers: Array<() => void | Promise<void>>;
   deactivate?: () => void | Promise<void>;
 }
@@ -50,6 +56,68 @@ const project =
 
 function send(message: HostMessage) {
   if (process.connected) process.send?.(message, () => {});
+}
+
+/** `context.game` requests waiting for the daemon's `game-reply`. */
+const gameCalls = new Map<number, { resolve(value: unknown): void; reject(error: unknown): void }>();
+let nextGameCall = 1;
+
+function askGame(plugin: string, request: PluginGameRequest, signal?: AbortSignal): Promise<unknown> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("Game request cancelled"));
+  if (leaving) return Promise.reject(new Error("Extension host stopping"));
+  const id = nextGameCall++;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      if (!gameCalls.has(id)) return;
+      // The daemon may have opened the session already; one that arrives late is closed.
+      if (request.operation === "open")
+        gameCalls.set(id, {
+          resolve: (value) => {
+            const session = (value as { sessionId?: unknown } | null)?.sessionId;
+            if (typeof session === "string")
+              void askGame(plugin, { operation: "close", session }).catch(() => {});
+          },
+          reject: () => {},
+        });
+      else gameCalls.delete(id);
+      send({ type: "game-cancel", id });
+      reject(signal?.reason ?? new Error("Game request cancelled"));
+    };
+    const settled = () => signal?.removeEventListener("abort", abort);
+    gameCalls.set(id, {
+      resolve: (value) => { settled(); resolve(value); },
+      reject: (error) => { settled(); reject(error); },
+    });
+    signal?.addEventListener("abort", abort, { once: true });
+    send({ type: "game", id, plugin, request });
+  });
+}
+
+/** A plugin's `context.game`: each method one request to the daemon. */
+function pluginGame(plugin: string): PluginGame {
+  const ask = <T>(request: PluginGameRequest, options?: PluginGameCallOptions) =>
+    askGame(plugin, request, options?.signal) as Promise<T>;
+  return Object.freeze({
+    open: async (options: PluginGameCallOptions & { viewport?: { width: number; height: number } } = {}) => {
+      const snapshot = await ask<GameUseSnapshot>(
+        options.viewport ? { operation: "open", viewport: options.viewport } : { operation: "open" },
+        options,
+      );
+      const session = snapshot.sessionId;
+      return Object.freeze({
+        id: session,
+        capabilities: snapshot.capabilities,
+        snapshot,
+        inspect: (call?: PluginGameCallOptions) => ask({ operation: "inspect", session }, call),
+        act: (actions: never[], call?: PluginGameCallOptions) => ask({ operation: "act", session, actions }, call),
+        capture: (call?: PluginGameCallOptions) => ask({ operation: "capture", session }, call),
+        captureFrame: (frame: number, call?: PluginGameCallOptions) => ask({ operation: "captureFrame", session, frame }, call),
+        recordStart: (call?: PluginGameCallOptions) => ask({ operation: "recordStart", session }, call),
+        recordStop: (call?: PluginGameCallOptions) => ask({ operation: "recordStop", session }, call),
+        close: async (call?: PluginGameCallOptions) => { await ask({ operation: "close", session }, call); },
+      });
+    },
+  }) as PluginGame;
 }
 
 const cut = (text: string) =>
@@ -100,12 +168,13 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     tools: new Map(),
     commands: new Map(),
     projectTypes: new Map(),
+    hooks: new Map(),
     disposers: [],
   };
   // Only what the manifest declares can be registered, so the index, the
   // agent and the person see every tool before it runs.
   const register = (
-    kind: "tool" | "command" | "projectType",
+    kind: "tool" | "command" | "projectType" | "hook",
     declared: string[],
     handlers: Map<string, ToolHandler>,
     name: string,
@@ -152,9 +221,13 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
       });
       return { dispose: () => disposables.forEach((item) => item.dispose()) };
     },
+    registerHook: (event, handler) =>
+      register("hook", plugin.hooks, loaded.hooks, event, handler),
     onDispose(dispose) {
       loaded.disposers.push(dispose);
     },
+    // The daemon checks again on every request that the plugin may play.
+    ...(plugin.game && project ? { game: pluginGame(plugin.id) } : {}),
   };
   const module = (await import(pathToFileURL(entry).href)) as {
     activate?: (context: PluginContext) => unknown;
@@ -184,6 +257,7 @@ async function disposeAll(loaded: LoadedPlugin) {
   loaded.tools.clear();
   loaded.commands.clear();
   loaded.projectTypes.clear();
+  loaded.hooks.clear();
   for (const dispose of loaded.disposers.splice(0).reverse())
     await Promise.resolve()
       .then(dispose)
@@ -210,7 +284,9 @@ async function invoke(
       ? loaded?.commands
       : request.kind === "projectType"
         ? loaded?.projectTypes
-        : loaded?.tools
+        : request.kind === "hook"
+          ? loaded?.hooks
+          : loaded?.tools
   )?.get(request.name);
   if (!handler)
     throw new Error(
@@ -282,6 +358,13 @@ process.on("message", (message: HostRequest) => {
     case "cancel":
       calls.get(message.id)?.abort(new Error("Plugin call cancelled"));
       return;
+    case "game-reply": {
+      const call = gameCalls.get(message.id);
+      gameCalls.delete(message.id);
+      if (message.error !== undefined) call?.reject(new Error(message.error));
+      else call?.resolve(message.value);
+      return;
+    }
     case "deactivate":
       track(runningPlugin.run(message.plugin, () => deactivate(message.plugin))).then(
         () => send({ type: "result", id: message.id, value: null }),
@@ -315,6 +398,8 @@ async function leave() {
   leaving = true;
   for (const controller of calls.values())
     controller.abort(new Error("Extension host stopping"));
+  for (const call of gameCalls.values()) call.reject(new Error("Extension host stopping"));
+  gameCalls.clear();
   // A plugin still activating gets its cleanup too, once it is active.
   while (lifecycle.size) await Promise.allSettled([...lifecycle]);
   await Promise.allSettled([...plugins.keys()].map(deactivate));

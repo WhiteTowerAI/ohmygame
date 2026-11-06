@@ -85,7 +85,7 @@ import {
   type Model3DAnimationAction,
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
-import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -164,6 +164,7 @@ declare global {
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      browseAccountDirectory?: (runtime: AccountRuntimeId, profileId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
@@ -415,6 +416,14 @@ export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false):
 
 export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
   return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function updateAccountProfile(runtime: AccountRuntimeId, profileId: string, change: UpdateAgentAccountProfileRequest): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export function moveAccountProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
 }
 
 export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
@@ -824,6 +833,11 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
   void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
+}
+
+/** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
+export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
+  return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
 }
 
 /** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
@@ -1862,6 +1876,16 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
 const pluginFilesPath = (projectId: string, plugin: string) => `/projects/${encodeURIComponent(projectId)}/plugin-files/${plugin}`;
 
 /** A plugin page's listing of its project's files. */
+/** The project's latest turns that changed files, for a page with `project.history`. */
+export async function getPluginHistory(projectId: string, plugin: string, limit?: number): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/history${limit === undefined ? "" : `?limit=${limit}`}`);
+}
+
+/** What the project's conversations used, by day and model, for a page with `project.usage`. */
+export async function getPluginUsage(projectId: string, plugin: string): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/usage`);
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
@@ -1899,6 +1923,16 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 /** The plugin commands a project offers. */
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
+}
+
+/** Turns on a gamepad map in the person's pages of the project's game; null turns it off. */
+export async function setPreviewInputMap(projectId: string, map: import("../shared/preview-input.js").GamepadKeyMap | null): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/preview/input-map`, { method: "PUT", body: JSON.stringify({ map }) });
+}
+
+/** What a project's plugins add to its preview, such as devices. */
+export async function getProjectPluginPreview(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginPreview> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-preview?locale=${encodeURIComponent(language)}`);
 }
 
 /** What plugins changed in a project outside a turn, newest first. */

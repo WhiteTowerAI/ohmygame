@@ -9,8 +9,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas } from "../shared/plugins.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -99,6 +100,8 @@ export interface ProjectPanel {
   id: string;
   plugin: string;
   version: string;
+  /** The package's digest, which changes only when a plugin in development changes under the same version. */
+  revision: string;
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
@@ -164,7 +167,6 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 }
 
 /** Publishers whose names only the app and the Plugin Builder can give out. */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 export function assertAddablePlugin(id: string): void {
   const publisher = id.slice(0, id.indexOf("/"));
@@ -469,6 +471,47 @@ export class PluginServices {
     return commands;
   }
 
+  /** What a project's active plugins add to its preview. */
+  async preview(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginPreview> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const preview: ProjectPluginPreview = { devices: [], filters: [], inputMaps: [] };
+    if (!resolved?.ok) return preview;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      for (const device of entry.manifest.contributes?.previewDevices ?? [])
+        preview.devices.push({
+          id: `${entry.id}:${device.id}` as ProjectPreviewDevice["id"],
+          plugin: entry.id,
+          title: localizePluginString(entry, device.title, locale),
+          width: device.width,
+          height: device.height,
+        });
+      for (const filter of entry.manifest.contributes?.previewFilters ?? [])
+        preview.filters.push({
+          id: `${entry.id}:${filter.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, filter.title, locale),
+          source: localizePluginString(entry, filter.source, locale),
+          colorSpace: filter.colorSpace,
+          matrix: filter.matrix,
+          ...(filter.offset ? { offset: filter.offset } : {}),
+        });
+      for (const map of entry.manifest.contributes?.inputMaps ?? [])
+        preview.inputMaps.push({
+          id: `${entry.id}:${map.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, map.title, locale),
+          map: compileInputMap(map),
+        });
+    }
+    return preview;
+  }
+
   /** What a project's active plugins add to Asset Canvas, in `locale`. */
   async canvas(
     folder: string,
@@ -546,6 +589,7 @@ export class PluginServices {
           id: panel.id,
           plugin: entry.id,
           version: entry.version,
+          revision: entry.digest,
           title: localizePluginString(entry, panel.title, locale),
           area: panel.area,
           ...(panel.when ? { when: panel.when } : {}),
@@ -553,6 +597,8 @@ export class PluginServices {
             ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
             ...(capabilities.composer ? { composer: true } : {}),
             ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
+            ...(capabilities["project.history"] ? { "project.history": true } : {}),
+            ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
           },
           commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
           ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
@@ -706,8 +752,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
-    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  installManaged(source: string, { consent = true, before }: { consent?: boolean; before?: () => Promise<void> } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(async () => {
+      await before?.();
+      return this.#installManaged(source, consent);
+    });
   }
 
   async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
@@ -762,12 +811,13 @@ export class PluginServices {
   /**
    * Installs a package the person added from npm, GitHub or a file. It allows
    * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses.
+   * sheet. It can't take a name the app or the Plugin Builder uses. `before`
+   * runs first, with no other package changing, to call the install off.
    */
-  async installAdded(source: string): Promise<PluginIndexEntry> {
+  async installAdded(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
   }
 
   /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */

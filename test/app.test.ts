@@ -312,7 +312,8 @@ describe("daemon", () => {
     expect(configured.statusCode).toBe(200);
     expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
-    for (const previewViewport of ["mobile", "mobile-landscape"]) {
+    // A plugin's device is kept by its id, installed or not.
+    for (const previewViewport of ["mobile", "mobile-landscape", "acme/devices:handheld"]) {
       const runSettings = await app.inject({
         method: "PUT",
         url: `/projects/${project.id}/settings/run`,
@@ -333,6 +334,18 @@ describe("daemon", () => {
         previewViewport,
       });
     }
+
+    const unknownDevice = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: { startupDirectory: "apps/game", startupScript: "dev", previewPath: "/", previewViewport: "Not a device", ...(type === "general" ? { webPreviewEnabled: true } : {}) },
+    });
+    expect(unknownDevice.statusCode).toBe(400);
+    // A gamepad map is checked before it reaches the game's pages.
+    const inputMap = (map: unknown) => app.inject({ method: "PUT", url: `/projects/${project.id}/preview/input-map`, payload: { map } });
+    expect((await inputMap({ buttons: [[0, "Space"]], axes: [[0, -1, "ArrowLeft"]], deadZone: 0.5 })).statusCode).toBe(204);
+    expect((await inputMap(null)).statusCode).toBe(204);
+    expect((await inputMap({ buttons: [[0, "Meta"]], axes: [], deadZone: 0.5 })).statusCode).toBe(400);
 
     const invalid = await app.inject({
       method: "PUT",
@@ -454,7 +467,8 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html"]);
+    expect(JSON.parse(await readFile(path.join(duplicated.json().workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ version: 1, name: "Renamed copy" });
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -1080,8 +1094,8 @@ describe("daemon", () => {
 
     expect(uploaded.statusCode, uploaded.body).toBe(201);
     expect(uploaded.json()).toMatchObject({ batchId, relativePath: "references/dialogue.json", kind: "text" });
-    expect(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
-    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
+    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
     expect(metadata).not.toHaveProperty("absolutePath");
 
     const sent = await app.inject({
@@ -1168,7 +1182,7 @@ describe("daemon", () => {
       headers: { "content-type": "application/vnd.ohmygame.attachment" },
       payload: Buffer.from("hello"),
     });
-    const metadataPath = path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`);
+    const metadataPath = path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
 
     await writeFile(metadataPath, JSON.stringify({ ...metadata, size: 1 }));
@@ -1221,7 +1235,7 @@ describe("daemon", () => {
     expect(sent.statusCode).toBe(202);
 
     const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
-    const attachmentRoot = path.join(project.workspacePath, ".data", "agent-attachments");
+    const attachmentRoot = path.join(project.workspacePath, ".ohmygame", "local", "attachments");
     await utimes(path.join(attachmentRoot, expiredBatch), old, old);
     await utimes(path.join(attachmentRoot, claimedBatch), old, old);
     expect((await upload("fd2de1f6-0acf-4d68-84cb-d8066f33ffeb", "fresh.txt")).statusCode).toBe(201);

@@ -107,6 +107,8 @@ The device menu and Project settings offer **Mobile landscape** for horizontal
 phone games. Preview fits a 667:375 landscape frame within the editor panel;
 Play requests a 667 × 375 window. Set the preset in Project settings to save the default
 for future visits and project copies; the toolbar menu changes the current preview.
+Plugins can add more sizes to both menus
+([preview devices](plugins.md#in-the-app)).
 
 ![Mobile landscape selected in the preview device menu](assets/mobile-landscape-preview.png)
 
@@ -161,7 +163,19 @@ recreates the game document at its current route. A minimal host page, with no
 editor preload or daemon credentials, keeps the editor's top-level site so existing
 Preview saves remain available. Older standalone Play saves stay in their separate
 storage context and are not merged. Browser builds continue to use an iframe and
-separate popup, which reload the game on switching. Static file changes reload
+separate popup, which reload the game on switching.
+
+The view is drawn above the editor's whole page, so no editor or plugin UI can
+appear over the game, and it can only be hidden whole. When a menu, dialog or
+alert would cover it, a JPEG still of the game stands in and the view hides,
+which mutes it and stops its animation frames (its timers keep running,
+throttled). The still is taken as the person presses a control that may
+open one; switching or closing a tab takes none, because it hides or keeps the
+game (`src/renderer/desktop-game-preview.tsx`). Capture encodes on Electron's
+main process, which stalls every window while it runs. Anything meant to be
+drawn over the game belongs in the host page, as preview filters are.
+
+Static file changes reload
 active pages through a local event
 stream, while development servers retain their own HMR protocol. Changes that
 can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,
@@ -228,7 +242,9 @@ game drawn into one canvas only offers the `<canvas>` element.
 A plugin project type with `preview: "native"`, such as
 [TapTap Maker](plugins.md#taptap-maker), runs its game outside the app. These
 projects acquire no Web leases, create no Web player, and keep Web preview off;
-the plugin's own panel controls its preview.
+the plugin's own panel controls its preview. A type that declares `gameUse`
+lets `game_use` use its game through the plugin; see
+[plugin game runtimes](runtime.md#plugin-game-runtimes).
 
 ## Recording a game
 

@@ -5,7 +5,7 @@ import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js
 import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
-const IGNORED_DIRECTORIES = new Set([".data", ".git", ".ohmygame", "build", "dist", "node_modules", "out"]);
+const IGNORED_DIRECTORIES = new Set([".git", ".ohmygame", "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
 
 export class WorkspaceError extends Error {
