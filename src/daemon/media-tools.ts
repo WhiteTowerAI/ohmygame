@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { chmodSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -58,6 +58,12 @@ async function inputPixels(paths: readonly string[]): Promise<number> {
 }
 function ffmpegExecutable(): string {
   if (process.env.OHMYGAME_FFMPEG_PATH) return process.env.OHMYGAME_FFMPEG_PATH;
+  // Prefer a native Homebrew/system binary when available. Some macOS
+  // package managers unpack ffmpeg-static with a valid mode bit but a binary
+  // that Node cannot spawn (errno -88), while the native installation works.
+  for (const candidate of ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]) {
+    if (existsSync(candidate)) return candidate;
+  }
   try {
     // ffmpeg-static exports null when it has no binary for this platform.
     const binary = require("ffmpeg-static") as string | null;
