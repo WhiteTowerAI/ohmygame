@@ -2,6 +2,7 @@
 // and the Maker project type. The Maker CLI lives in the plugin's data folder,
 // shared by every project; its sign-in stays in the person's home folder.
 import * as maker from "./maker.mjs";
+import { gameUse } from "./game.mjs";
 
 export function activate(context) {
   const call = (handler) => (input, options) => {
@@ -35,5 +36,9 @@ export function activate(context) {
   );
   // A new Maker project starts empty apart from ohmygame.json; the panel
   // creates or connects the Maker project, which needs a signed-in account.
-  context.registerProjectType("maker", { createProject: () => null });
+  // game_use captures frames of fresh runs of the game.
+  context.registerProjectType("maker", {
+    createProject: () => null,
+    gameUse: call(gameUse),
+  });
 }

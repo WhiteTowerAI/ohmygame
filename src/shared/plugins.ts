@@ -2,20 +2,44 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
+import type { GamepadKeyMap } from "./preview-input.js";
 
 export type PluginOrigin =
-  | { type: "github"; repository: string; commit: string; release?: string }
-  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
+  /** `ref`: the branch or tag it was added from; without one, the default branch. */
+  | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
+  /** A folder on this computer being developed: it's added again whenever its files change. */
+  | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
-export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
+/** A registry the app knows by name, or another npm registry by its address, as `customNpmRegistry` writes it. */
+export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number] | `https://${string}`;
+
+/**
+ * Another npm registry's address, such as a company's or another mirror's:
+ * HTTPS, with no sign-in, query or trailing slash.
+ * Undefined when it can't be one. A registry that needs signing in isn't
+ * supported, as OhMyGame keeps no npm tokens.
+ */
+export function customNpmRegistry(value: string): `https://${string}` | undefined {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return undefined;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}` as `https://${string}`;
+}
 
 /** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
 export type PluginAddSource =
   /** `market`: opened from a market card, so only a version the market signs off will do. */
   | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
-  | { type: "directory"; path: string };
+  /** `development`: the folder is added again whenever its files change. */
+  | { type: "directory"; path: string; development?: true };
 
 /** A plugin published on npm that the market lists, at its newest version. */
 export interface MarketPlugin {
@@ -66,9 +90,13 @@ export interface PluginAddPreview {
   asks: string[];
   skills: number;
   mcpServers: string[];
+  /** Events the plugin's code hears about, from `contributes.hooks`. */
+  hooks?: string[];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];
+  /** With a version installed: what it asks that the person hasn't allowed yet, the only part asked again. */
+  newAsks?: string[];
   origin?: PluginOrigin;
 }
 
@@ -205,6 +233,18 @@ export interface PluginMcpResult {
 /** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
 export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
 
+/**
+ * The plugin ids an npm package may hold: its scope is what npm vouches for,
+ * so it's the publisher, and `ohmygame-plugin-` may lead the name. The last
+ * is the one to suggest. Undefined for a name that can't be a plugin's.
+ */
+export function npmPackagePluginIds(packageName: string): string[] | undefined {
+  const match = NPM_PLUGIN_PACKAGE.exec(packageName);
+  if (!match) return undefined;
+  const [, scope, name] = match as unknown as [string, string, string];
+  return [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
+}
+
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
 }
@@ -261,15 +301,19 @@ export interface StorePlugin {
   description: string;
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
-  /** The person's decisions; `null` before any. */
-  grants: { enabled: boolean; allowed: string[] } | null;
+  /** The person's decisions; `null` before any. `enabled` false stops it everywhere. */
+  grants: { enabled: boolean; allowed: string[]; everyProject?: boolean } | null;
   /** Ships with the app, so it can't be uninstalled. */
   bundled: boolean;
   /** Installed with the app from another repository; it can be uninstalled. */
   preinstalled?: boolean;
   origin?: PluginOrigin;
-  /** Only adds Skills, so it applies to every project it suits without a project turning it on. */
-  appWide: boolean;
+  /** Why its folder, in development, couldn't be added again the last time it changed. */
+  developmentError?: string;
+  /** On in every project it suits, unless a project turns it off. */
+  everyProject: boolean;
+  /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
+  quarantined?: true;
   categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
@@ -286,7 +330,7 @@ export interface StorePlugin {
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -297,6 +341,16 @@ export type StorePluginConfiguration = Record<
 >;
 
 /** A plugin command a project offers (GET /projects/:id/plugin-commands). */
+/** A theme a plugin adds: values for the theme tokens, in dark, light or both. */
+export interface PluginTheme {
+  /** `publisher/name:theme`. */
+  id: string;
+  plugin: string;
+  title: string;
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+}
+
 export interface ProjectPluginCommand {
   /** `publisher/name:command`. */
   id: string;
@@ -310,7 +364,84 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    | { native: string };
+    /** `build: "web"`: the app builds the game for the command first. */
+    | { native: string; build?: "web" };
+}
+
+/** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */
+export interface ProjectCanvasNode {
+  /** `publisher/name:node`. */
+  id: string;
+  plugin: string;
+  /** The plugin's name, in the asked language. */
+  pluginName: string;
+  title: string;
+  description?: string;
+  inputs: Array<{ id: string; title: string; accepts: CanvasNodeMedia; multiple?: boolean; optional?: boolean }>;
+  params: Array<{
+    key: string;
+    type: "text" | "number" | "boolean" | "select";
+    title: string;
+    description?: string;
+    default?: string | number | boolean;
+    options?: string[];
+    minimum?: number;
+    maximum?: number;
+  }>;
+  output: CanvasNodeMedia;
+}
+export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
+
+/** What a project's plugins add to Asset Canvas. */
+export interface ProjectPluginCanvas {
+  nodes: ProjectCanvasNode[];
+  presets: ProjectCanvasPreset[];
+}
+
+/** A group of nodes a plugin offers to add to a board (GET …/plugin-canvas/presets/:publisher/:name/:preset). */
+export interface ProjectCanvasPreset {
+  /** `publisher/name:preset`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
+}
+
+/** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */
+export interface ProjectPreviewDevice {
+  /** `publisher/name:device`, as a project's `previewViewport` names it. */
+  id: `${string}/${string}:${string}`;
+  plugin: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** A preview filter a project's plugin adds. */
+export interface ProjectPreviewFilter extends PreviewColorFilter {
+  /** `publisher/name:filter`. */
+  id: string;
+  plugin: string;
+  title: string;
+  /** Where its coefficients come from. */
+  source: string;
+}
+
+/** A gamepad input map a project's plugin adds, ready for the preview's bridge. */
+export interface ProjectInputMap {
+  /** `publisher/name:map`. */
+  id: string;
+  plugin: string;
+  title: string;
+  map: GamepadKeyMap;
+}
+
+/** What a project's plugins add to its preview. */
+export interface ProjectPluginPreview {
+  devices: ProjectPreviewDevice[];
+  filters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
@@ -329,18 +460,65 @@ export interface ProjectPluginChange {
   unrecorded?: boolean;
 }
 
+/** A newer package where an installed plugin came from: npm's `latest`, or a new commit on its GitHub branch or tag. */
+export interface PluginSourceUpdate {
+  id: string;
+  /** The npm version, or for GitHub the commit, it would read. */
+  version?: string;
+  commit?: string;
+  /** Read and reviewed in the Add plugin dialog, like any package. */
+  source: PluginAddSource;
+}
+
+/** One line of a plugin's log: what its native code printed, or something of its that failed. */
+export interface PluginLogEntry {
+  /** ISO time. */
+  at: string;
+  level: "info" | "warn" | "error";
+  /** `native`: its code printed it; `call`: a tool, command or hook failed; `host`: its extension host stopped; `mcp`: an MCP service failed; `panel`: a page hit an uncaught error. */
+  source: "native" | "call" | "host" | "mcp" | "panel";
+  text: string;
+}
+
+/** A plugin's log, credentials redacted, and whether it is quarantined. */
+export interface PluginLogView {
+  entries: PluginLogEntry[];
+  /** It stopped its extension host too often; it stays off until it is turned on again or OhMyGame restarts. */
+  quarantined: boolean;
+}
+
+/** What uninstalling a version, or a plugin's every version, removes and leaves. */
+export interface PluginUninstallPreview {
+  /** No version is left after it, so its permissions go too. */
+  last: boolean;
+  /** Saved settings and sign-ins removed with the last version, unless kept. */
+  settings: number;
+  /** The size of its data folder, removed with the last version unless kept. */
+  dataBytes: number;
+  /** Files its manifest says it leaves in projects; uninstalling doesn't touch them. */
+  projectFiles: string[];
+  /** Projects that use the removed version, which stop running it. */
+  projects: string[];
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;
   displayName: string;
   description: string;
-  /** The newest installed version, offered when turning it on. */
+  /** The newest installed version that works in the project, which turning it on gives. */
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
+  /** Installed versions that work in the project, newest first, to update or go back to. */
+  versions: string[];
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
-  /** Why a plugin the project asks for is not running. */
+  /** On in every project it suits, as set on the Plugins page. */
+  everyProject: boolean;
+  icon?: PluginIcon;
+  iconRevision?: string;
+  /** Why a plugin on here is not running. */
   status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
@@ -348,17 +526,7 @@ export interface ProjectPluginItem {
   consented: boolean;
 }
 
-/** A plugin a new project can turn on for itself, before the project exists (GET /project-plugins). */
-export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
-  /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
-  providesTypes: string[];
-  /** The project types it works in (`appliesTo`); absent means every type. */
-  appliesTo?: string[];
-}
-
 export interface ProjectPluginsView {
-  /** Plugins on for every project they work with; switched in Plugins. */
-  global: Array<{ id: string; displayName: string; description: string; icon?: PluginIcon; iconRevision?: string }>;
-  /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
+  /** Every plugin that suits the project, and any its file asks for; the type's plugin first. */
   plugins: ProjectPluginItem[];
 }

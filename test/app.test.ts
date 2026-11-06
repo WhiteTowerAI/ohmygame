@@ -43,6 +43,7 @@ describe("daemon", () => {
     const base = await app.listen({ host: "127.0.0.1", port: 0 });
     const stream = await fetch(`${base}/projects/activity/events`, { signal: streaming.signal });
     const streamed: unknown[] = [];
+    let names: { id: string; name: string }[] = [];
     void (async () => {
       const decoder = new TextDecoder();
       let buffer = "";
@@ -53,12 +54,16 @@ describe("daemon", () => {
         for (const block of blocks) {
           if (!block.startsWith("event: activity")) continue;
           // A snapshot also carries project names, so a new project can repeat the activity.
-          const { activity: current } = JSON.parse(block.split("data: ")[1]!);
+          const { activity: current, names: latestNames } = JSON.parse(block.split("data: ")[1]!);
+          names = latestNames;
           if (JSON.stringify(streamed.at(-1)) !== JSON.stringify(current)) streamed.push(current);
         }
       }
     })().catch(() => {});
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await vi.waitFor(() => expect(names.map((entry) => entry.id)).toEqual([project.id]));
+    await app.inject({ method: "PATCH", url: `/projects/${project.id}`, payload: { name: "Renamed" } });
+    await vi.waitFor(() => expect(names[0]?.name).toBe("Renamed"));
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     try {
       const response = await app.inject({
@@ -82,7 +87,7 @@ describe("daemon", () => {
       expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
       await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
       expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);
-      // A cancel starting publishes no event; the stream's in-memory check reports it.
+      // Cancellation is visible even before the pending prompt settles.
       await vi.waitFor(() => expect(streamed.at(-1)).toEqual([{ projectId: project.id, status: "cancelling" }]), { timeout: 3_000 });
     } finally {
       finish();
@@ -307,7 +312,8 @@ describe("daemon", () => {
     expect(configured.statusCode).toBe(200);
     expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
-    for (const previewViewport of ["mobile", "mobile-landscape"]) {
+    // A plugin's device is kept by its id, installed or not.
+    for (const previewViewport of ["mobile", "mobile-landscape", "acme/devices:handheld"]) {
       const runSettings = await app.inject({
         method: "PUT",
         url: `/projects/${project.id}/settings/run`,
@@ -328,6 +334,18 @@ describe("daemon", () => {
         previewViewport,
       });
     }
+
+    const unknownDevice = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: { startupDirectory: "apps/game", startupScript: "dev", previewPath: "/", previewViewport: "Not a device", ...(type === "general" ? { webPreviewEnabled: true } : {}) },
+    });
+    expect(unknownDevice.statusCode).toBe(400);
+    // A gamepad map is checked before it reaches the game's pages.
+    const inputMap = (map: unknown) => app.inject({ method: "PUT", url: `/projects/${project.id}/preview/input-map`, payload: { map } });
+    expect((await inputMap({ buttons: [[0, "Space"]], axes: [[0, -1, "ArrowLeft"]], deadZone: 0.5 })).statusCode).toBe(204);
+    expect((await inputMap(null)).statusCode).toBe(204);
+    expect((await inputMap({ buttons: [[0, "Meta"]], axes: [], deadZone: 0.5 })).statusCode).toBe(400);
 
     const invalid = await app.inject({
       method: "PUT",
@@ -449,7 +467,8 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html"]);
+    expect(JSON.parse(await readFile(path.join(duplicated.json().workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ version: 1, name: "Renamed copy" });
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -1075,8 +1094,8 @@ describe("daemon", () => {
 
     expect(uploaded.statusCode, uploaded.body).toBe(201);
     expect(uploaded.json()).toMatchObject({ batchId, relativePath: "references/dialogue.json", kind: "text" });
-    expect(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
-    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
+    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
     expect(metadata).not.toHaveProperty("absolutePath");
 
     const sent = await app.inject({
@@ -1163,7 +1182,7 @@ describe("daemon", () => {
       headers: { "content-type": "application/vnd.ohmygame.attachment" },
       payload: Buffer.from("hello"),
     });
-    const metadataPath = path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`);
+    const metadataPath = path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
 
     await writeFile(metadataPath, JSON.stringify({ ...metadata, size: 1 }));
@@ -1216,7 +1235,7 @@ describe("daemon", () => {
     expect(sent.statusCode).toBe(202);
 
     const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
-    const attachmentRoot = path.join(project.workspacePath, ".data", "agent-attachments");
+    const attachmentRoot = path.join(project.workspacePath, ".ohmygame", "local", "attachments");
     await utimes(path.join(attachmentRoot, expiredBatch), old, old);
     await utimes(path.join(attachmentRoot, claimedBatch), old, old);
     expect((await upload("fd2de1f6-0acf-4d68-84cb-d8066f33ffeb", "fresh.txt")).statusCode).toBe(201);
@@ -2241,6 +2260,35 @@ describe("web build export", () => {
     // Entry names are stored as plain text in the archive.
     expect(built.rawPayload.includes("assets/game.js")).toBe(true);
     expect(built.rawPayload.includes("build.mjs")).toBe(false);
+  }, 20_000);
+
+  it("builds a nested game with its workspace manager and root dependencies", async () => {
+    const app = await createBuildApp();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Workspace", type: "web-game" } })).json();
+    const game = path.join(project.workspacePath, "game");
+    const helper = path.join(project.workspacePath, "helper");
+    await mkdir(game);
+    await mkdir(helper);
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({
+      private: true, packageManager: "bun@1.4.2", workspaces: ["game", "helper"],
+      dependencies: { "build-helper": "workspace:*" },
+    }));
+    await writeFile(path.join(helper, "package.json"), JSON.stringify({ name: "build-helper", version: "1.0.0", main: "index.cjs" }));
+    await writeFile(path.join(helper, "index.cjs"), 'module.exports = "built"');
+    await writeFile(path.join(game, "package.json"), JSON.stringify({ name: "game", scripts: { build: "node build.cjs" } }));
+    await writeFile(path.join(game, "build.cjs"), `
+      const fs = require("node:fs");
+      fs.mkdirSync("dist");
+      fs.writeFileSync("dist/index.html", require("build-helper") + " " + process.env.npm_config_user_agent);
+    `);
+    const settings = await app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: {
+      startupDirectory: "game", startupScript: "dev", previewPath: "/", previewViewport: "fit",
+    } });
+    expect(settings.statusCode, settings.body).toBe(200);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    expect(built.statusCode, built.body).toBe(200);
+    expect(await readFile(path.join(game, "dist/index.html"), "utf8")).toMatch(/^built bun\//);
   }, 20_000);
 
   it("builds only games that publish", async () => {

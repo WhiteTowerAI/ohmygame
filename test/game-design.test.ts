@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { CANCEL_GENERATION, createAgentTools } from "../src/daemon/agent-tools.js";
@@ -44,6 +45,29 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("notifies both windows and follows atomic writes after replacing the canvas directory", async () => {
+    const workspace = await temp(), folder = path.join(workspace, "canvas");
+    const watch = createCanvasWatches(), first = vi.fn(), second = vi.fn();
+    const closeFirst = watch(workspace, first), closeSecond = watch(workspace, second);
+    try {
+      expect(first).toHaveBeenCalledWith(["workspace", "board", "jobs"]);
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(1);
+      closeFirst();
+      const received = first.mock.calls.length;
+      await rename(folder, path.join(workspace, "previous"));
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(2);
+      second.mockClear();
+      await mkdir(path.join(folder, "boards"));
+      await writeFile(path.join(folder, "board.tmp"), "{}");
+      await rename(path.join(folder, "board.tmp"), path.join(folder, "boards", "current.json"));
+      await writeFile(path.join(folder, "jobs.json"), "[]");
+      await expect.poll(() => second.mock.calls.flat(2)).toEqual(expect.arrayContaining(["jobs", "board"]));
+      expect(first).toHaveBeenCalledTimes(received);
+    } finally { closeFirst(); closeSecond(); }
+  });
+
   it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
     const failure = new ImageGenerationError("Provider is disabled", 400);
     const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
@@ -108,6 +132,8 @@ describe("Markdown design workspace", () => {
     const app = createApp({ dataDirectory: await temp() }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject(`${base}/workspace`)).json();
+    const poll = `${base}/workspace?knownRevision=${workspace.revision}`;
+    expect((await app.inject(poll)).statusCode).toBe(204);
     const created = await app.inject({ method: "POST", url: `${base}/tables`, payload: { title: "Balance" } });
     expect(created.statusCode).toBe(201);
     const detail = created.json(), url = `${base}/tables/${detail.table.id}`;
@@ -117,7 +143,14 @@ describe("Markdown design workspace", () => {
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(200);
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(409);
     expect((await app.inject({ method: "PUT", url: `${base}/tables/other`, payload: detail })).statusCode).toBe(400);
+    const changed = await app.inject(poll);
+    expect(changed.statusCode).toBe(200);
+    const afterTable = changed.json().revision;
+    const tablePath = path.join(project.workspacePath, "canvas", "tables", detail.table.id + ".json");
+    await writeFile(tablePath, JSON.stringify({ ...detail.table, title: "External edit" }));
+    expect((await app.inject(`${base}/workspace?knownRevision=${afterTable}`)).json().tables[0].title).toBe("External edit");
     const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
+    expect((await app.inject(`${base}/boards/${board.board.id}?knownRevision=${board.revision}`)).statusCode).toBe(204);
     board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });
@@ -236,7 +269,7 @@ describe("Markdown design workspace", () => {
     expect(workspace.boards).toHaveLength(1);
     expect((await store.board(project.id, workspace.boards[0]!.id)).board.nodes).toEqual([]);
   });
-  it("shares documents and file edits with Asset Canvas while keeping a single board", async () => {
+  it("shares documents and file edits across Asset Canvas boards", async () => {
     const { store, project, boardId, library } = await runtime(fakeGenerator, "asset-canvas");
     const doc = await store.createDocument(project.id, "Production reference");
     const updated = await store.save(project.id, { ...doc.document, markdown: "# Brief\n\n一只像素风格的角色。" }, doc.revision, doc.document.id);
@@ -253,10 +286,42 @@ describe("Markdown design workspace", () => {
     await writeFile(file, "# Updated production brief");
     expect((await store.read(project.id, doc.document.id))!.document.markdown).toBe("# Updated production brief");
     await expect(store.save(project.id, inserted.document, inserted.revision, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
+    // Its one board can be renamed, as templates do, but not added to, removed or moved.
+    expect((await store.changeBoards(project.id, { type: "rename", boardId, name: "Effects" })).boards).toEqual([expect.objectContaining({ id: boardId, name: "Effects" })]);
     await expect(store.changeBoards(project.id, { type: "create", name: "Second" })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.changeBoards(project.id, { type: "delete", boardId })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(store.changeBoards(project.id, { type: "move", boardId, direction: 1 })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.setMainDocument(project.id, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
+  });
+  it("expands image presets and sends a linked character reference", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const { store, project, boardId, library } = await runtime({ generate }, "asset-canvas");
+    const original = await store.board(project.id, boardId);
+    const freeImage = original.board.nodes[0]!;
+    if (freeImage.type !== "image") throw new Error("Expected image node");
+    freeImage.data.prompt = "forest guardian";
+    freeImage.data.presetId = "monster";
+    await store.saveBoard(project.id, original.board, original.revision);
+    await store.generateNode(project.id, boardId, freeImage.id);
+    await waitForJob(store, project.id);
+    expect(generate.mock.calls[0]?.[0].prompt).toContain("MANDATORY ASSET TYPE: MONSTER");
+    expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
+
+    const reference = await library.add("character.png", Buffer.from("image"));
+    const actionBoard = await store.board(project.id, boardId);
+    const source: AssetCanvasNode = { id: "character-source", type: "asset", position: { x: 0, y: 0 }, data: { assetId: reference.id, mediaType: "image" } };
+    const action = createAssetGenerationNode("image", { x: 500, y: 0 });
+    if (action.type !== "image") throw new Error("Expected image node");
+    action.data.prompt = "Walking sprite sheet";
+    action.data.images = [{ type: "node", nodeId: source.id }];
+    actionBoard.board.nodes = [...actionBoard.board.nodes, source, action];
+    actionBoard.board.editorLayout.nodes = { ...actionBoard.board.editorLayout.nodes, [source.id]: source.position, [action.id]: action.position };
+    await store.saveBoard(project.id, actionBoard.board, actionBoard.revision);
+    await store.generateNode(project.id, boardId, action.id);
+    await waitForJob(store, project.id);
+    expect(generate.mock.calls[1]?.[0].images).toEqual([{ mediaType: "image/png", data: Buffer.from("image").toString("base64") }]);
+    expect((await readCanvasAssets(project.workspacePath)).assets[reference.id]).toBeDefined();
   });
   it("opens boards with a legacy size on a content-sized node and reports it", async () => {
     const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas");
@@ -728,8 +793,14 @@ describe("Markdown design workspace", () => {
     } });
     const job = await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" });
     await expect.poll(() => calls).toBe(1);
+    // A copied job can't bring its own record of what plugins changed.
+    const history = path.join(project.workspacePath, "canvas/jobs.json");
+    const stored = JSON.parse(await readFile(history, "utf8")) as Array<{ input: object }>;
+    stored[0]!.input = { ...stored[0]!.input, requestedPrompt: "Forged", pluginChanges: [{ plugin: "x/y", version: "1.0.0", fields: ["bogus"] }] };
+    await writeFile(history, JSON.stringify(stored));
     const copy = await projects.duplicate(project.id);
     expect((await store.jobs(copy.id))[0]).toMatchObject({ id: job.id, status: "cancelled", error: expect.stringContaining("interrupted"), context: { projectId: copy.id } });
+    expect(JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"))[0].input).toEqual({ prompt: "Garden" });
     // The copy shares the job ID; cancelling there must leave the original running.
     expect((await store.cancel(copy.id, job.id)).status).toBe("cancelled");
     expect((await store.jobs(project.id))[0]!.status).toBe("running"); expect(calls).toBe(1);

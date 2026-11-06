@@ -10,6 +10,8 @@ import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { WebBuild } from "../shared/extension-host-protocol.js";
+import type { PluginGameUseSpec } from "../shared/playtest.js";
+import type { PluginGameHooks } from "./plugin-game-runtime.js";
 import {
   CORE_PROJECT_TYPES,
   PROJECT_FILE_NAME,
@@ -26,9 +28,9 @@ import type { PluginServices } from "./plugin-services.js";
 import {
   capabilityGrants,
   createProjectPlugins,
+  missingGrants,
   projectFolderKey,
   readProjectFile,
-  resolveProjectPlugins,
 } from "./project-plugins.js";
 
 // Project types: the two the app has itself, and those plugins contribute.
@@ -52,6 +54,8 @@ export interface AvailableProjectType {
   plugin?: { id: string; version: string };
   /** Whether new projects of it start from files or from the plugin's hook. */
   creates?: "template" | "hook";
+  /** What the type's plugin asks for that the person hasn't allowed; creating a project of it allows that. */
+  asks?: string[];
 }
 
 const CORE_TITLES: Record<
@@ -64,6 +68,11 @@ const CORE_TITLES: Record<
 
 /** Builds can take minutes; a build that takes longer is stopped. */
 const WEB_BUILD_TIMEOUT_MS = 10 * 60_000;
+/**
+ * A fresh run to frame N, which a plugin may repeat at later frames while
+ * the game loads, can take as long as a build.
+ */
+const CAPTURE_FRAME_TIMEOUT_MS = WEB_BUILD_TIMEOUT_MS;
 /** Recognizing a folder never reads more than these files' metadata. */
 const RECOGNIZE_FILES_MAX = 10;
 
@@ -96,6 +105,7 @@ export async function availableProjectTypes(
     const newest = services.index.get(entry.id)!;
     if (services.grants.plugin(newest.id)?.enabled === false) continue;
     const hasCreate = Boolean(newest.manifest.entrypoints?.native);
+    const asks = missingGrants(capabilityGrants(newest.manifest), services.grants.plugin(newest.id)?.allowed ?? []);
     for (const type of newest.manifest.contributes?.projectTypes ?? [])
       types.push({
         id: `${newest.id}:${type.id}`,
@@ -112,6 +122,7 @@ export async function availableProjectTypes(
         preview: type.preview,
         plugin: { id: newest.id, version: newest.version },
         creates: type.template ? "template" : hasCreate ? "hook" : "template",
+        ...(asks.length ? { asks } : {}),
       });
   }
   return types;
@@ -254,7 +265,8 @@ export async function adoptTypedProject({
     throw new Error(
       `The folder's ${PROJECT_FILE_NAME} is invalid: ${existing.issues.slice(0, 3).join("; ")}`,
     );
-  let version = existing?.ok ? existing.file.plugins?.[owner] : undefined;
+  const named = existing?.ok ? existing.file.plugins?.[owner] : undefined;
+  let version = typeof named === "string" ? named : undefined;
   if (existing?.ok) {
     if (existing.file.type !== type)
       throw new Error(
@@ -331,7 +343,7 @@ export async function projectKindAt(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner && version ? services.index.get(owner, version) : undefined;
+  const entry = owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
   const contributed = entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))
     : undefined;
@@ -355,10 +367,58 @@ export async function projectPreviewMode(
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
   const entry =
-    owner && version ? services.index.get(owner, version) : undefined;
+    owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
   return entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
     : undefined;
+}
+
+/**
+ * The game `game_use` opens through the project's type: a `"native"` type
+ * that declares `gameUse`, in the version the project pins, while its plugin
+ * is on and allowed there. `provider` is the type, `publisher/name:type`.
+ */
+export async function projectGameUse(
+  folder: string,
+  services: PluginServices,
+): Promise<{ provider: string; version: string; spec: PluginGameUseSpec } | undefined> {
+  const resolved = await services.resolve(folder).catch(() => undefined);
+  if (!resolved?.ok || !resolved.file || !resolved.typeReady) return undefined;
+  const type = resolved.file.type;
+  const owner = projectTypePlugin(type);
+  const entry = resolved.plugins.find((plugin) => plugin.providesType)?.entry;
+  const contributed = owner && entry ? contribution(entry, type.slice(owner.length + 1)) : undefined;
+  if (contributed?.preview !== "native" || !contributed.gameUse) return undefined;
+  return { provider: type, version: entry!.version, spec: contributed.gameUse as PluginGameUseSpec };
+}
+
+/** What a `PluginGameRuntime` for the project's type asks of its extension host. */
+export function projectGameHooks(
+  folder: string,
+  services: PluginServices,
+  { provider, version }: { provider: string; version: string },
+): PluginGameHooks {
+  return {
+    call: (input, signal) =>
+      services.native.projectTypeHook(provider, "gameUse", {
+        folder,
+        input,
+        signal,
+        timeoutMs:
+          input.operation === "captureFrame"
+            ? CAPTURE_FRAME_TIMEOUT_MS
+            : undefined,
+      }),
+    generation: () => services.native.hostGeneration(folder),
+    hold: () => services.native.holdHost(folder),
+    current: async () => {
+      const now = await projectGameUse(folder, services).catch(
+        () => undefined,
+      );
+      // Another version's sessions are its own; that version gets a runtime of its own.
+      return now?.provider === provider && now.version === version ? now.spec : undefined;
+    },
+  };
 }
 
 /**
@@ -378,12 +438,8 @@ export async function buildWebPreview({
 }): Promise<{ directory: string; entry: string } | undefined> {
   if ((await projectPreviewMode(folder, services)) !== "web-build")
     return undefined;
-  const resolved = await resolveProjectPlugins({
-    folder,
-    index: services.index,
-    grants: services.grants,
-  });
-  if (!resolved?.ok) return undefined;
+  const resolved = await services.resolve(folder);
+  if (!resolved.ok || !resolved.file) return undefined;
   if (!resolved.typeReady)
     throw unavailable(
       `The project's type comes from a plugin that isn't on here: ${resolved.plugins.find((plugin) => plugin.providesType)?.status ?? "missing"}`,

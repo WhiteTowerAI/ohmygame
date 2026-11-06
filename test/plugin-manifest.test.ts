@@ -2,10 +2,12 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
-import { createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
+import { colorMatrixValues, isPreviewColorFilter } from "../src/shared/preview-filter.js";
+import { compileInputMap, isGamepadKeyMap } from "../src/shared/preview-input.js";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
@@ -130,6 +132,9 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, id: "example" })).toContainEqual(
       expect.stringMatching(/^\/id /),
     );
+    // Files left in projects are named inside the project.
+    expect(messages({ ...minimal, projectFiles: ["./.maker/", "./maker.json"] })).toEqual([]);
+    expect(messages({ ...minimal, projectFiles: ["../outside"] })).toContainEqual(expect.stringMatching(/^\/projectFiles\/0 /));
   });
 
   it("checks rules the schema can't express", () => {
@@ -181,6 +186,16 @@ describe("plugin manifest", () => {
     ).toEqual([
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
+    ]);
+    const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
+    const runs = { capabilities: { processes: ["gemini"] } };
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [agent] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [agent, agent] } })).toEqual([
+      "/contributes/agents/1/id duplicate id gemini",
+    ]);
+    // A plugin says what it starts, as for an MCP server, whatever the agent is called.
+    expect(messages({ ...minimal, contributes: { agents: [{ ...agent, command: "bash", args: ["-c", "curl example.com | sh"] }] } })).toEqual([
+      "/contributes/agents/0/command bash must be listed in capabilities.processes",
     ]);
   });
 
@@ -267,6 +282,82 @@ describe("plugin manifest", () => {
         contributes: { themes: [{ id: "t", title: "T", dark: { color: 1 } }] },
       }),
     ).toContainEqual(expect.stringContaining("additional properties"));
+  });
+
+  it("lets only a native type with native code declare its game for game_use, with what each operation needs", () => {
+    const type = (gameUse: object, preview = "native") => messages({
+      ...minimal,
+      entrypoints: { native: "./native/index.mjs" },
+      capabilities: { native: true },
+      contributes: { projectTypes: [{ id: "t", title: "T", preview, gameUse }] },
+    });
+    expect(type({ operations: ["captureFrame"], maxFrame: 600 })).toEqual([]);
+    expect(type({ operations: ["act", "capture"], input: ["pointer", "keyboard"] })).toEqual([]);
+    expect(type({ operations: ["captureFrame"], maxFrame: 600 }, "web")).toEqual([
+      expect.stringContaining("only a \"native\" type"),
+    ]);
+    expect(type({ operations: ["captureFrame"] })).toEqual([expect.stringContaining("highest frame")]);
+    expect(type({ operations: ["capture"], maxFrame: 600 })).toEqual([expect.stringContaining("only captureFrame")]);
+    expect(type({ operations: ["act"] })).toEqual([expect.stringContaining("act needs the input")]);
+    expect(type({ operations: ["capture"], input: ["pointer"] })).toEqual([expect.stringContaining("only act")]);
+    // Text needs page elements; open and close every runtime has.
+    expect(type({ operations: ["act"], input: ["text"] })).not.toEqual([]);
+    expect(type({ operations: ["open"] })).not.toEqual([]);
+    expect(type({ operations: [] })).not.toEqual([]);
+    expect(type({ operations: ["captureFrame"], maxFrame: 100_001 })).not.toEqual([]);
+    expect(messages({
+      ...minimal,
+      contributes: { projectTypes: [{ id: "t", title: "T", preview: "native", gameUse: { operations: ["captureFrame"], maxFrame: 600 } }] },
+    })).toContainEqual(expect.stringContaining("native entrypoint"));
+  });
+
+  it("adds preview devices by size alone, within game_use's limits", () => {
+    const devices = (previewDevices: object[]) => messages({ ...minimal, contributes: { previewDevices } });
+    expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);
+    expect(devices([{ id: "tiny", title: "Tiny", width: 100, height: 480 }])).not.toEqual([]);
+    expect(devices([{ id: "huge", title: "Huge", width: 800, height: 5000 }])).not.toEqual([]);
+    expect(devices([{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }])).not.toEqual([]);
+    expect(devices([
+      { id: "handheld", title: "A", width: 800, height: 480 },
+      { id: "handheld", title: "B", width: 480, height: 800 },
+    ])).toEqual(["/contributes/previewDevices/1/id duplicate id handheld"]);
+  });
+
+  it("adds colour filters that name their colour space and source, keep alpha, and stay in range", () => {
+    const grey = { id: "grey", title: "Grey", source: "Rec. 709 luma", colorSpace: "linearRGB", matrix: [[0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722], [0.2126, 0.7152, 0.0722]] };
+    const filters = (filter: object) => messages({ ...minimal, contributes: { previewFilters: [filter] } });
+    expect(filters(grey)).toEqual([]);
+    expect(filters({ ...grey, offset: [0.1, 0, 0] })).toEqual([]);
+    const { source: _source, ...unsourced } = grey;
+    expect(filters(unsourced)).not.toEqual([]);
+    expect(filters({ ...grey, colorSpace: "display-p3" })).not.toEqual([]);
+    // Four columns would reach alpha.
+    expect(filters({ ...grey, matrix: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]] })).not.toEqual([]);
+    expect(filters({ ...grey, matrix: [[9, 0, 0], [0, 1, 0], [0, 0, 1]] })).not.toEqual([]);
+    expect(colorMatrixValues({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], offset: [0.1, 0.2, 0.3] }))
+      .toBe("1 0 0 0 0.1 0 1 0 0 0.2 0 0 1 0 0.3 0 0 0 1 0");
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(true);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[1, 0, 0], [0, 1, 0]] })).toBe(false);
+    expect(isPreviewColorFilter({ colorSpace: "sRGB", matrix: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]] })).toBe(false);
+  });
+
+  it("maps a standard gamepad's buttons and sticks to keyboard codes", () => {
+    const maps = (map: object) => messages({ ...minimal, contributes: { inputMaps: [{ id: "pad", title: "Pad", ...map }] } });
+    expect(maps({ buttons: { a: "Space", up: "ArrowUp" }, sticks: { right: { down: "KeyS" } }, deadZone: 0.3 })).toEqual([]);
+    expect(maps({})).toEqual(["/contributes/inputMaps/0 presses no keys"]);
+    expect(maps({ buttons: { a: "Meta" } })).not.toEqual([]);
+    expect(maps({ buttons: { paddle: "Space" } })).not.toEqual([]);
+    expect(maps({ buttons: { a: "Space" }, deadZone: 0 })).not.toEqual([]);
+    const compiled = compileInputMap({ buttons: { home: "Escape" }, sticks: { right: { up: "KeyW" } } });
+    expect(compiled).toEqual({ buttons: [[16, "Escape"]], axes: [[3, -1, "KeyW"]], deadZone: 0.5 });
+    expect(isGamepadKeyMap(compiled)).toBe(true);
+    expect(isGamepadKeyMap({ ...compiled, axes: [[4, 1, "KeyW"]] })).toBe(false);
+    expect(isGamepadKeyMap({ ...compiled, buttons: [[0, "KeyW"], [1]] })).toBe(false);
+  });
+
+  it("asks the person before native code plays the game", () => {
+    expect(capabilityGrants({ capabilities: { native: true, game: true } })).toEqual(["game", "native"]);
+    expect(messages({ ...minimal, capabilities: { game: true } })).toEqual(["/capabilities/game only native code plays the game"]);
   });
 
   it("only accepts canonical project-relative paths for recognition", () => {
@@ -1067,7 +1158,7 @@ describe("plugin releases", () => {
       await services.addBundled(bundled);
       expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0", "0.2.0"]);
       // There is one version in use: the newest.
-      expect((await services.appWide()).map((entry) => entry.version)).toEqual(["9.0.0"]);
+      expect((await services.everyProject()).filter((entry) => entry.id === "ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0"]);
     } finally {
       await services.close();
     }
@@ -1095,11 +1186,11 @@ describe("plugin releases", () => {
     }
   });
 
-  it("applies a plugin that only adds Skills by itself, to the projects it suits, in a fixed order", async () => {
+  it("turns a plugin that only adds Skills on in every project it suits, in a fixed order", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED, bundledOff: ["ohmygame/unity"] });
     try {
-      const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.appWide(project)).map((entry) => entry.id);
+      const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.everyProject(project)).map((entry) => entry.id);
       expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]));
       expect(await plugins()).not.toContain("ohmygame/unity");
       expect(await plugins()).not.toContain("ohmygame/godot");
@@ -1111,32 +1202,32 @@ describe("plugin releases", () => {
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/web-game-studio");
       // A kind that is a plugin type now matches by either name.
       expect(await plugins({ type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game" } })).toContain("ohmygame/game-studio");
-      const skills = await services.appWideSkills({ type: "general" });
+      const skills = await services.everyProjectSkills({ type: "general" });
       expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio", "blender-assets"]));
       expect(skills.find((skill) => skill.path.includes("game-studio"))).toMatchObject({ pluginDisplayName: "Game Studio", marketplaceDisplayName: "ohmygame" });
-      await services.setEnabled("ohmygame/game-studio", false);
+      await services.setEveryProject("ohmygame/game-studio", false);
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/game-studio");
     } finally {
       await services.close();
     }
   });
 
-  it("leaves a plugin that applies by itself out of what a project turns on", async () => {
+  it("loads a plugin on in every project once, even where its project file names it", async () => {
     const dir = await temporary();
     const folder = path.join(dir, "project");
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED });
     try {
       await services.ready();
+      const blender = services.index.get("ohmygame/blender")!;
+      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Blender");
+      expect(once.length).toBeGreaterThan(0);
       await mkdir(folder);
-      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
-      // A project file that names it doesn't load it a second time.
-      expect(await services.skills(folder)).toEqual([]);
-      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "1.0.0")).rejects.toThrow("applies to every project it suits");
-      await expect(createProjectPlugins({ folder: path.join(dir, "new"), type: "general", plugins: { "ohmygame/blender": "1.0.0" }, index: services.index, grants: services.grants }))
-        .rejects.toThrow("applies to every project it suits");
-      // Taking it out of the file still works.
-      await services.setProjectPlugin(folder, "ohmygame/blender", null);
-      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBeUndefined();
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": blender.version } }));
+      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Blender")).toEqual(once);
+      // Off in the project, the file says so, since it is on in every project.
+      await services.setProjectPlugin(folder, "ohmygame/blender", false);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBe(false);
+      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Blender")).toBe(false);
     } finally {
       await services.close();
     }
@@ -1182,14 +1273,15 @@ describe("plugin releases", () => {
       expect((await services.index.add(newer)).ok).toBe(true);
       await mkdir(folder);
       await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
-      const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
-      expect(resolved?.ok && resolved.plugins.map((plugin) => plugin.version)).toEqual(["1.0.0"]);
-      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "2.0.0")).rejects.toThrow("applies to every project it suits");
       // The project runs the version it names, so the newest doesn't apply beside it.
-      const project = { type: "general", workspacePath: folder };
-      expect(await services.appWide(project)).toEqual([]);
-      expect(await services.appWideSkills(project)).toEqual([]);
-      expect((await services.appWide({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
+      const resolved = await services.resolve(folder);
+      expect(resolved.ok && resolved.plugins.map((plugin) => [plugin.version, plugin.status])).toEqual([["1.0.0", "needs-consent"]]);
+      expect(await services.skills(folder)).toEqual([]);
+      expect((await services.everyProject({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
+      // Turning it on at its newest follows every project again.
+      await services.setProjectPlugin(folder, "ohmygame/blender", true);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins).toBeUndefined();
+      expect((await services.skills(folder)).length).toBeGreaterThan(0);
     } finally {
       await services.close();
     }
@@ -1236,12 +1328,20 @@ describe("plugin releases", () => {
       expect(services.index.entries().map((entry) => entry.id)).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]));
       // One that only adds Skills asks for nothing, so it is simply on.
       expect(services.grants.plugin("ohmygame/game-studio")).toEqual({ enabled: true, allowed: [] });
-      // It asks for consent when the person turns it on, and stays as they leave it.
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
+      // One that starts off allows nothing yet: it asks when the person first turns it on.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toBeUndefined();
+      expect(services.onInEveryProject("ohmygame/taptap-maker")).toBe(false);
       await services.consent("ohmygame/taptap-maker", ["native"]);
-      await services.grants.setEnabled("ohmygame/taptap-maker", true);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: ["native"] });
+      // Turning one on in every project, without allowing it, allows nothing at the next start either.
+      await services.setEveryProject("ohmygame/unreal-engine", true);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/unreal-engine")).toEqual({ enabled: true, allowed: [], everyProject: true });
+      // A plugin the person stopped everywhere stays stopped.
+      await services.setEnabled("ohmygame/godot", false);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/godot")?.enabled).toBe(false);
     } finally {
       await services.close();
     }

@@ -124,6 +124,19 @@ message waits for it. A turn in a plan, or a compaction, does not continue by
 itself. The card's switch, or the one on the agent's settings page, turns it off
 for that agent.
 
+Claude Code run with `-p` reports itself as `sdk-cli`, and subscription
+measurements show that label using the 5-hour limit about twice as fast as the
+interactive CLI for the same work
+([anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074);
+Anthropic has not confirmed it). **Report OhMyGame as the client**, on by default
+on Claude Code's settings page, sets `CLAUDE_CODE_ENTRYPOINT=ohmygame` for
+conversations: OhMyGame's own name, never another client's. Under any name but
+the `sdk-*` ones Claude Code also offers its claude.ai Artifact tools, so the
+switch sets `CLAUDE_CODE_DISABLE_ARTIFACT=1` too and the conversation keeps the
+tools it had under `sdk-cli`. Sign-in and model
+checks keep the CLI's default. Open conversations follow a change with their
+next message, as they do for a permission change.
+
 ![Claude Code and Codex quotas labeled as used (sample data)](assets/agent-usage-used-label.png)
 
 ![Compact quota percentages in the slash menu (sample data)](assets/agent-usage-compact.png)
@@ -166,11 +179,19 @@ setenv`, is not used: it only records whichever account was selected when
 OhMyGame started. To use that directory, import it with **Use an existing
 directory**; it then shares its sign-in and files with the terminal. New profiles
 have independent CLI settings, hooks, MCP servers, Skills and native history.
+System default stays first; **Move up** and **Move down** in another row's **⋯**
+menu set the order, which the chat header's account menu follows.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
 each agent's selection. With multiple profiles, the chat header offers an account
-menu showing the selected account name. Picking another account switches it
-without an additional confirmation. Wait for the current request to finish before switching.
+menu showing the selected account name and its shortest quota window's share
+used, such as the 5-hour one. The menu lists every account with that share and
+a ring per window; hovering or focusing an account shows its windows with how
+much is used and how long until each resets beside the menu. The times count
+down while the menu is open, from each account's last quota report. The
+system account is called **Default** there. Buttons beside the heading open
+the agent's account settings and check the accounts again.
+Picking another account switches it without an additional confirmation. Wait for the current request to finish before switching.
 Choosing the account the chat already uses changes nothing. When the selected
 account's model catalog does not offer the chat's model, the chat moves to the
 new-chat default model if that account offers it, otherwise to the first model
@@ -182,7 +203,20 @@ other account resumes the earlier context instead. `/compact` waits for that
 first message on the selected account. Other chats keep their accounts. No automatic
 rotation at usage limits is provided.
 
-Use an account row's delete action to remove a profile after confirmation. The
+**⋯ → Edit account** renames an account. An imported account can also point at
+another directory, which passes the same checks as an import and is refused
+during a turn or session startup. The account keeps its id, so its chats stay on
+it: deleting and adding it again would move them to System default. A chat whose
+native session is not in the new directory finds it expired and continues with a
+history handoff. A managed account's directory cannot change, because deleting it
+relies on that directory staying in the reserved folder.
+
+**⋯ → Open configuration directory** opens an account's directory, System
+default's included, to edit the CLI's own files, and **Copy directory path** copies
+it. OhMyGame has no editor for these files: their formats belong to the CLI, and
+the directory also holds its sign-in.
+
+Use **⋯ → Delete** to remove a profile after confirmation. The
 confirmation states whether its files will be removed: app-created profiles delete
 their managed configuration directory (including sign-in and native history),
 while imported profiles only disconnect from OhMyGame and keep their files.
@@ -296,8 +330,12 @@ plan mode, cancellation, errors and events are the same code.
   requires a rebuild. The next message
   continues it (`--resume`, `thread/resume`, the OpenCode session). Every edit
   or restore invalidates context, even when the native ID is unchanged. Later
-  Pi messages/model changes, cancellation, failure, legacy metadata and
-  interrupted writes also invalidate it. An expired native session triggers
+  Pi messages/model changes, unconfirmed cancellation, unrecoverable failure,
+  legacy metadata and interrupted writes also invalidate it. Codex retains its
+  thread after a confirmed stop, a terminal failed request or an explicit
+  request rejection; an exited app server resumes the thread on its next run.
+  Inputs rejected before startup are carried into the next turn.
+  An expired native session triggers
   one fresh-context retry with handoff rather than silently losing history.
 - **Handoff.** When an agent joins a conversation it has not seen, its first
   message carries a summary built from the stored record: recent turns and the
@@ -323,7 +361,7 @@ conversation manager or event database is needed.
 | Codex       | `codex app-server` JSON-RPC; one thread per conversation         | The thread's dynamic tools, answered over the same pipe | App server approval requests                         |
 | OpenCode    | `opencode serve` on loopback with its own password               | Remote MCP on the daemon with a turn token              | `permission.asked` events, answered on the server    |
 
-Each stdin stays open for the session. A CLI that no message has used for ten minutes is stopped; the next message starts a new process that resumes the same native session. Codex conversations with the same executable, environment and staged Skills share one app server, routed by thread; it stops with its last conversation. OpenCode keeps a server per conversation because its MCP servers, and so OhMyGame's tools, are registered for the whole instance. After **Stop**, once Claude Code has reported that the turn ended, the next message continues the same session and tells it the turn was stopped; other agents build a new context from a handoff. Native queue prioritization means
+Each stdin stays open for the session. A CLI that no message has used for ten minutes is stopped; the next message starts a new process that resumes the same native session. Codex conversations with the same executable, environment and staged Skills share one app server, routed by thread; it stops with its last conversation. OpenCode keeps a server per conversation because its MCP servers, and so OhMyGame's tools, are registered for the whole instance. After **Stop**, once Claude Code or Codex has reported that the turn ended, the next message continues the same session and tells it the turn was stopped. A forced stop still requires a history handoff, as does every OpenCode stop. Native queue prioritization means
 **Next**: after the current turn, before ordinary follow-ups. Mid-turn native
 injection is excluded because concurrent file writes cannot provide an
 independent checkpoint before delivery. Processes run in their
@@ -338,7 +376,8 @@ the daemon and child's executable/birth identity before killing anything.
 Private folders carry the daemon's ownership identity as well: startup reclaims
 verified orphans while preserving another live daemon's folders. Identity queries
 run asynchronously, one at a time, and concurrent requests for the same PID share
-a query. Ownership records are written in the background so starting a CLI or
+a query. Queries allow up to 30 seconds on Windows for PowerShell cold starts,
+and 10 seconds on other platforms. Ownership records are written in the background so starting a CLI or
 image job does not wait for PowerShell. Startup recovery still waits for identity
 checks before reclaiming anything. A crash before records are written can leave
 unrecorded folders or processes that startup recovery preserves.
@@ -431,7 +470,10 @@ asking, with feedback, so the agent adjusts instead of stopping; a bare
 OpenCode rejection would end its loop. Native agents are told that OhMyGame's
 tools, including `update_plan`, come from its `ohmygame` tool server under
 their CLI's MCP names. Claude's `ExitPlanMode` is declined with a pointer to
-`update_plan`, because OhMyGame reviews plans itself. Codex registers every
+`update_plan`, because OhMyGame reviews plans itself. Claude's
+`AskUserQuestion` is disallowed: an approval card cannot answer it. Claude asks
+with `questionnaire` while planning and in its reply otherwise, like every
+agent. Codex registers every
 OhMyGame tool when its thread starts, since a thread that begins in planning
 continues after the plan is approved; tools the current mode does not allow
 are refused when called.
@@ -496,7 +538,8 @@ protocol compatibility and model catalogs; they do not send inference prompts.
 ## Settings and API
 
 `agent-runtimes.json` in the data directory stores, per agent, `enabled`
-(default off), `permissionMode` (one of the
+(default off), `autoContinue` and, for Claude Code, `identifyAsOhMyGame` (both
+default on), `permissionMode` (one of the
 agent's own modes, default the one that asks nothing), an optional absolute
 `binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
@@ -504,9 +547,12 @@ back to the defaults. Credentials remain in the CLI's own store.
 | Route                                                     | Purpose                                                                |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |
-| `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `permissionMode`, `binaryPath` |
+| `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `identifyAsOhMyGame` (Claude Code), `permissionMode`, `binaryPath` |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
 | `GET /agent-runtimes/:id/profiles`, `POST /agent-runtimes/:id/profiles` | List or add Claude Code/Codex account configurations |
+| `PATCH /agent-runtimes/:id/profiles/:profileId` | Rename an account, or point an imported one at another directory |
+| `POST /agent-runtimes/:id/profiles/:profileId/move` | Move an account up or down; System default stays first |
+| `GET /agent-runtimes/:id/profiles/:profileId/directory` | The directory the desktop app opens for an account |
 | `DELETE /agent-runtimes/:id/profiles/:profileId` | Remove an account; managed files are deleted, imported files kept |
 | `PUT /projects/:p/conversations/:c/account-profile` | Select an account for the conversation |
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |

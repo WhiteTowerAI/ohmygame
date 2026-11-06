@@ -79,6 +79,61 @@
   min-height: 0;
 }
 
+/* An audio tile: the preview plays the sound, the name opens the details. */
+.library-audio-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.library-audio-play {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.library-audio-play > span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-app) 82%, transparent);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transition: opacity var(--duration-fast), transform var(--duration-fast);
+}
+
+.library-audio-play:hover > span,
+.library-audio-play:focus-visible > span,
+.library-audio-tile:is(.is-loading, .is-playing, .is-paused) .library-audio-play > span {
+  opacity: 1;
+}
+
+.library-audio-play:active > span {
+  transform: scale(0.94);
+}
+
+.library-audio-tile.is-playing .ui-media-preview {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.library-audio-play:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 /* details sheet */
 .library-sheet-preview {
   display: grid;

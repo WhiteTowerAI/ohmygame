@@ -20,6 +20,7 @@ import type { OpenAIImageSettingsStore } from "./openai-image-settings.js";
 import type { ProjectManager } from "./projects.js";
 import type { MediaProviderRegistry } from "./providers/registry.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
+import type { PluginModelProviders } from "./plugin-model-providers.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { isSeedanceProviderId } from "./seedance-models.js";
 import type { SeedanceSettingsStore } from "./seedance-settings.js";
@@ -85,7 +86,11 @@ export interface ProviderSettingsRouteOptions {
   providerEnabled: (id: string) => boolean;
   cloudModels: CloudModelsClient;
   modelAuth: ModelAuthManager;
+  /** Providers installed plugins add; they are set up on the plugin's page. */
+  pluginModelProviders: Pick<PluginModelProviders, "has">;
 }
+
+const PLUGIN_PROVIDER_ERROR = "This provider comes from a plugin. Set it up on the plugin's page.";
 
 /** Settings → Providers: provider connections, keys, custom providers, model lists, and sign-in. */
 export function registerProviderSettingsRoutes(app: FastifyInstance, options: ProviderSettingsRouteOptions): void {
@@ -108,6 +113,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     providerEnabled,
     cloudModels,
     modelAuth,
+    pluginModelProviders,
   } = options;
 
   app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
@@ -204,6 +210,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId", async (request, reply) => {
+    if (pluginModelProviders.has(request.params.providerId)) return reply.code(409).send({ error: PLUGIN_PROVIDER_ERROR });
     try {
       await removeProvider(request.params.providerId);
       return reply.code(204).send();
@@ -380,7 +387,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
       })),
       defaultApi: customProvider?.api ?? models[0]?.api ?? "openai-completions",
       defaultBaseUrl: runtime.getProvider(providerId)?.baseUrl ?? models[0]?.baseUrl,
-      canAddCustomModel: runtime.hasConfiguredAuth(providerId) && !runtime.isUsingOAuth(providerId),
+      canAddCustomModel: runtime.hasConfiguredAuth(providerId) && !runtime.isUsingOAuth(providerId) && !pluginModelProviders.has(providerId),
     };
   };
 
@@ -462,6 +469,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     const runtime = await getModelRuntime();
     const { providerId, modelId } = request.params;
     if (!isNative3DProvider(providerId) && !runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (pluginModelProviders.has(providerId)) return reply.code(409).send({ error: PLUGIN_PROVIDER_ERROR });
     try {
       if (isNative3DProvider(providerId)) await providerModelSettings.removeModel3D(providerId, modelId);
       else {
@@ -491,6 +499,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     "/settings/models/providers/:providerId/login",
     { schema: modelAuthLoginSchema },
     async (request, reply) => {
+      if (pluginModelProviders.has(request.params.providerId)) return reply.code(409).send({ error: PLUGIN_PROVIDER_ERROR });
       try {
         return reply.code(202).send({ operationId: await modelAuth.start(request.params.providerId, request.body.method) });
       } catch (cause) {
@@ -525,6 +534,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   });
 
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/credential", async (request, reply) => {
+    if (pluginModelProviders.has(request.params.providerId)) return reply.code(409).send({ error: PLUGIN_PROVIDER_ERROR });
     try {
       await modelAuth.logout(request.params.providerId);
       return reply.code(204).send();

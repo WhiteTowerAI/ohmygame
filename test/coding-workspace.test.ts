@@ -5,6 +5,7 @@ import {
   CodingWorkspace,
   PreviewView,
   playerViewport,
+  shownViewport,
   AssetsView,
   normalizePreviewPath,
   workspaceFileTree,
@@ -36,6 +37,20 @@ describe("coding workspace", () => {
     expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
     expect(playerViewport("fit")).toEqual({ width: 1280, height: 720 });
+    const handheld = { id: "acme/devices:handheld", plugin: "acme/devices", title: "Handheld", width: 800, height: 480 } as const;
+    expect(shownViewport(handheld.id, [handheld])).toEqual({ viewport: handheld.id, device: handheld });
+    expect(playerViewport(handheld.id, handheld)).toEqual({ width: 800, height: 480 });
+    // A device whose plugin is gone shows as Fit.
+    expect(shownViewport(handheld.id, [])).toEqual({ viewport: "fit" });
+    expect(shownViewport("tablet", [])).toEqual({ viewport: "tablet" });
+    const stage = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: handheld.id, device: handheld }));
+    expect(stage).toContain("viewer-stage-device");
+    expect(stage).toContain("--preview-device-ratio:800 / 480");
+    // In a browser, a plugin's filter is drawn over the preview's frame.
+    const filtered = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: "fit", filter: { colorSpace: "sRGB", matrix: [[0.3, 0.6, 0.1], [0.3, 0.6, 0.1], [0.3, 0.6, 0.1]] } }));
+    expect(filtered).toMatch(/style="filter:url\(#[^)]+\)"/);
+    expect(filtered).toContain('color-interpolation-filters="sRGB"');
+    expect(filtered).toContain('values="0.3 0.6 0.1 0 0 0.3 0.6 0.1 0 0 0.3 0.6 0.1 0 0 0 0 0 1 0"');
   });
 
   it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
@@ -138,12 +153,17 @@ describe("coding workspace", () => {
 
   it("puts Publish in the top bar for projects that can publish", () => {
     const idle = { publishing: false, agentBusy: false };
-    expect(publishAction({ type: "web-game" }, idle)).toEqual({ disabled: false, label: "Publish" });
-    expect(publishAction({ type: "general" }, idle)).toEqual({ disabled: false, label: "Publish" });
+    expect(publishAction({ type: "web-game" }, idle)).toEqual({ disabled: false, label: "Publish", builtIn: true });
+    expect(publishAction({ type: "general" }, idle)).toEqual({ disabled: false, label: "Publish", builtIn: true });
     expect(publishAction({ type: "web-game" }, { publishing: false, agentBusy: true })?.disabled).toBe(true);
-    expect(publishAction({ type: "web-game" }, { publishing: true, agentBusy: false })).toEqual({ disabled: true, label: "Publishing" });
-    expect(publishAction({ type: "godot-game" }, idle)).toEqual({ disabled: true, label: "Godot publishing is not available yet" });
+    expect(publishAction({ type: "web-game" }, { publishing: true, agentBusy: false })).toEqual({ disabled: true, label: "Publishing", builtIn: true });
+    expect(publishAction({ type: "godot-game" }, idle)).toEqual({ disabled: true, label: "Godot publishing is not available yet", builtIn: false });
     expect(publishAction({ type: "asset-canvas" }, idle)).toBeUndefined();
+    // Plugins' ways to publish make the button usable where the app has none.
+    expect(publishAction({ type: "asset-canvas" }, { ...idle, plugins: 1 })).toEqual({ disabled: false, label: "Publish", builtIn: false });
+    expect(publishAction({ type: "godot-game" }, { ...idle, plugins: 2 })).toEqual({ disabled: false, label: "Publish", builtIn: false });
+    expect(publishAction({ type: "general", pluginType: { preview: "native" } } as never, idle)?.disabled).toBe(true);
+    expect(publishAction({ type: "general", pluginType: { preview: "native" } } as never, { ...idle, plugins: 1 })).toMatchObject({ disabled: false, builtIn: false });
   });
 
   it("opens a Godot workspace on its code and leaves publishing to the top bar", () => {

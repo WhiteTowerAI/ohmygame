@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error The plugin's native code is plain JavaScript.
 import * as maker from "../plugins/taptap-maker/native/maker.mjs";
 // @ts-expect-error The plugin's native code is plain JavaScript.
+import { gameUse } from "../plugins/taptap-maker/native/game.mjs";
+// @ts-expect-error The plugin's native code is plain JavaScript.
 import { Cancelled, lingering, withLock } from "../plugins/taptap-maker/native/runtime.mjs";
 
 let directory: string, workspace: string;
@@ -97,6 +99,25 @@ beforeEach(async () => {
           await writeFile(file("preview.json"), JSON.stringify({ state: "failed", process_alive: false, install_state: "ready", error: await readFile(file("start-error"), "utf8") }));
           process.exitCode = 1;
         } else await writeFile(file("preview.json"), JSON.stringify({ state: "running", process_alive: true, install_state: "ready" }));
+      } else if (args[1] === "validate") {
+        // A fresh run captured at the frame asked for; validate-not-ready: Maker kept a later, still-loading one.
+        const frame = Number(args[args.indexOf("--screenshot-frame") + 1]);
+        const notReady = await has("validate-not-ready");
+        if (await has("validate-fails")) {
+          console.log(JSON.stringify({ ok: false, result: "FAIL", artifacts: [], error: "Runtime did not complete; log https://user:secret@example.com/log?token=abc", log_path: file("runtime.log"), invocation_path: "https://user:secret@example.com/invocation.json?token=abc" }));
+          process.exitCode = 1;
+        } else {
+          const png = file("screenshot.png");
+          await writeFile(png, "PNG " + frame);
+          console.log(JSON.stringify({
+            ok: !notReady,
+            result: notReady ? "FAIL" : "COMPLETED",
+            screenshot_assessment: { status: notReady ? "NOT_READY" : "REVIEW_REQUIRED", reasons: notReady ? ["near_black_or_transparent"] : [] },
+            artifacts: [{ kind: "screenshot", path: png, frame: notReady ? frame + 180 : frame, width: 960, height: 540 }],
+            ...(notReady ? { error: "Screenshot is not effective visual evidence" } : {}),
+          }));
+          if (notReady) process.exitCode = 1;
+        }
       } else process.exitCode = 1;
     } else process.exitCode = 1;
   `,
@@ -393,5 +414,72 @@ describe("TapTap Maker preview", () => {
   it("treats a preview whose window was closed as stopped, so it can start again", async () => {
     await preview({ state: "failed", process_alive: false, error: "Previous preview processes are no longer running. The stale session was retired safely." });
     expect(await maker.preview(context(), "status")).toEqual({ status: "stopped" });
+  });
+});
+
+describe("TapTap Maker game_use", () => {
+  beforeEach(async () => {
+    await mkdir(path.join(workspace, ".maker-mcp"), { recursive: true });
+    await writeFile(path.join(workspace, ".maker-mcp/config.json"), JSON.stringify({ project_id: "selected" }));
+    await writeFile(path.join(directory, "preview.json"), JSON.stringify({ state: "stopped", process_alive: false, install_state: "ready" }));
+  });
+  const validations = async () => (await calls()).filter((args) => args[0] === "preview" && args[1] === "validate");
+
+  it("captures a frame of a fresh run at the size asked for, starting nothing when opened", async () => {
+    const { session, viewport } = await gameUse(context(), { operation: "open", viewport: { width: 800, height: 600 } });
+    expect(viewport).toEqual({ width: 800, height: 600 });
+    expect(await calls()).toEqual([]);
+    const output = path.join(directory, "capture.image");
+    expect(await gameUse(context(), { operation: "captureFrame", session, output, frame: 30000 })).toEqual({ frame: 30000 });
+    expect(await readFile(output, "utf8")).toBe("PNG 30000");
+    expect(await validations()).toEqual([[
+      "preview", "validate", "--target-dir", workspace, "--mode", "screenshot", "--screenshot-frame", "30000", "--validate-timeout", "560", "--width", "800", "--height", "600", "--json",
+    ]]);
+  });
+
+  it("runs the game at its own size when no size was asked for", async () => {
+    const { session } = await gameUse(context(), { operation: "open" });
+    await gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "capture.image"), frame: 60 });
+    expect((await validations())[0]).not.toContain("--width");
+  });
+
+  it("passes on that the frame was still loading, with the later frame Maker kept", async () => {
+    await writeFile(path.join(directory, "validate-not-ready"), "");
+    const { session } = await gameUse(context(), { operation: "open" });
+    const result = await gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "capture.image"), frame: 60 });
+    expect(result).toEqual({ frame: 240, notes: expect.stringContaining("not ready (near_black_or_transparent)") });
+  });
+
+  it("leaves the person's running preview alone and asks for it to be stopped first", async () => {
+    await writeFile(path.join(directory, "preview.json"), JSON.stringify({ state: "running", process_alive: true, install_state: "ready" }));
+    const { session } = await gameUse(context(), { operation: "open" });
+    await expect(gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "capture.image"), frame: 60 }))
+      .rejects.toThrow("Ask the person to stop the preview");
+    expect((await calls()).map((args) => args[1])).toEqual(["status"]);
+  });
+
+  it("reports a run that captured nothing without credentials", async () => {
+    await writeFile(path.join(directory, "validate-fails"), "");
+    const { session } = await gameUse(context(), { operation: "open" });
+    const failure = await gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "capture.image"), frame: 60 }).catch((error: Error) => error);
+    expect(failure.message).toContain("Runtime did not complete");
+    expect(failure.message).toContain(`Runtime log: ${path.join(directory, "runtime.log")}`);
+    expect(failure.message).toContain("Invocation: https://example.com/invocation.json?token=***");
+    expect(failure.message).not.toContain("secret");
+    expect(failure.message).not.toContain("abc");
+  });
+
+  it("captures only in the project that opened the session, and only while it is open", async () => {
+    const { session } = await gameUse(context(), { operation: "open" });
+    const other = { ...context(), workspace: directory };
+    await expect(gameUse(other, { operation: "captureFrame", session, output: path.join(directory, "x"), frame: 1 })).rejects.toThrow("isn't open");
+    await gameUse(context(), { operation: "close", session });
+    await expect(gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "x"), frame: 1 })).rejects.toThrow("isn't open");
+    await expect(gameUse(context(), { operation: "capture", session })).rejects.toThrow("can't capture");
+  });
+
+  it("needs a connected Maker project to open", async () => {
+    await rm(path.join(workspace, ".maker-mcp"), { recursive: true });
+    await expect(gameUse(context(), { operation: "open" })).rejects.toThrow("Connect a Maker project");
   });
 });

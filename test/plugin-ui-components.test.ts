@@ -4,7 +4,7 @@ import { Blob as NodeBlob } from "node:buffer";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
-import { checkPlugin } from "../scripts/plugin-check.js";
+import { checkFolder, checkPlugin } from "../scripts/plugin-check.js";
 import { compareRuns } from "../scripts/plugin-ui-regression.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
@@ -960,6 +960,7 @@ describe("plugin check", () => {
     const manifest = { id: "acme/panel", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Panel", description: "A panel", icon: "./icon.svg", ui, contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }] }, ...extra };
     await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
     await writeFile(path.join(root, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@acme/panel", version: "1.0.0" }));
     await mkdir(path.join(root, "panel"));
     await writeFile(path.join(root, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>');
     for (const [file, text] of Object.entries(files)) await writeFile(path.join(root, "panel", file), text);
@@ -968,6 +969,35 @@ describe("plugin check", () => {
   const load = '<script type="module" src="/_ohmygame/ui/1/index.js"></script>';
   const messages = async (root: string, level: "error" | "warning") =>
     (await checkPlugin(root)).filter((finding) => finding.level === level).map((finding) => finding.message);
+
+  it("checks the npm name and version the package will be added by", async () => {
+    const root = await plugin({ "index.html": load });
+    const named = async (pkg: object) => {
+      await writeFile(path.join(root, "package.json"), JSON.stringify(pkg));
+      return messages(root, "error");
+    };
+    expect(await named({ name: "@acme/ohmygame-plugin-panel", version: "1.0.0" })).toEqual([]);
+    expect(await named({ name: "panel", version: "1.0.0" })).toEqual(["The package's name must be scoped by the plugin's publisher: @acme/panel"]);
+    expect(await named({ name: "@other/panel", version: "1.0.0" })).toEqual([expect.stringContaining("can only hold the plugin other/panel")]);
+    expect(await named({ name: "@acme/panel", version: "1.0.1" })).toEqual(["The package's version 1.0.1 isn't the plugin's 1.0.0"]);
+    // One that isn't published is only added from GitHub or a folder.
+    expect(await named({ name: "panel", private: true })).toEqual([]);
+    await rm(path.join(root, "package.json"));
+    expect(await messages(root, "warning")).toContainEqual(expect.stringContaining("There is no package.json"));
+  });
+
+  it("checks only what npm would publish from a folder", async () => {
+    const root = await plugin({ "index.html": load });
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@acme/panel", version: "1.0.0", files: [".ohmygame-plugin", "icon.svg", "panel"] }));
+    await mkdir(path.join(root, "drafts"));
+    await writeFile(path.join(root, "drafts", "old.html"), "<omg-nope></omg-nope>");
+    await writeFile(path.join(root, "panel", "notes.html.orig"), "<omg-nope></omg-nope>");
+    expect((await checkFolder(root)).filter((finding) => finding.level === "error")).toEqual([]);
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@acme/panel", version: "1.0.0", files: [".ohmygame-plugin", "panel"] }));
+    expect((await checkFolder(root)).map((finding) => finding.message)).toEqual([expect.stringMatching(/^\/icon \.\/icon\.svg is not in the package, as npm leaves it out/)]);
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@acme/panel", version: "1.0.0", files: ["panel"] }));
+    expect((await checkFolder(root)).map((finding) => finding.message)).toEqual([expect.stringContaining("plugin.json is missing or not JSON, as npm leaves it out")]);
+  });
 
   it("finds nothing wrong in the plugins the app ships or shows", async () => {
     for (const folder of ["plugins/taptap-maker", "packages/plugin-ui/gallery"]) expect(await messages(folder, "error"), folder).toEqual([]);

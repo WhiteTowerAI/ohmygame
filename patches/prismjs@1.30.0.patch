@@ -1,0 +1,7 @@
+diff --git a/prism.js b/prism.js
+index 13a9c6696089c7d588b09cef52a0e44033183c5f..dc087510ba4344eaf7cc3bf17760f53c570b6061 100644
+--- a/prism.js
++++ b/prism.js
+@@ -96 +96 @@ var Prism = (function (_self) {
+-					return tokens.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\u00a0/g, ' ');
++					return tokens.replace(/&/g, '&amp;').replace(/</g, '&lt;');

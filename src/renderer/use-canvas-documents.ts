@@ -1,3 +1,4 @@
+import { followCanvasChanges } from "./canvas-sync.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
@@ -60,7 +61,6 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
   const [saving, setSaving] = useState(false);
   const chain = useRef(Promise.resolve());
   const mounted = useRef(true);
-  const refreshCounter = useRef(0);
   const [version] = useState(() => workspaceVersion(projectId));
   const recoveryKey = `canvas-documents:${projectId}${version === "0" ? "" : `:${version}`}`;
   const generationKey = `canvas-document-generations:${projectId}`;
@@ -88,7 +88,7 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
   );
   const publish = useCallback(
     (value: CanvasWorkspaceDetail) => {
-      // Most polls find nothing new; keep the same state so the workspace does not re-render.
+      // Identical snapshots keep the workspace from re-rendering.
       const unchanged = current.current !== undefined && JSON.stringify(current.current) === JSON.stringify(value);
       current.current = value;
       if (mounted.current && !unchanged) setWorkspace(value);
@@ -107,17 +107,20 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     },
     [recoveryKey],
   );
-  const refresh = useCallback(async () => {
-    const requestId = ++refreshCounter.current;
-    const started = new Map(bases.current);
-    let next: CanvasWorkspaceDetail;
-    try { next = await getCanvasWorkspace(projectId); }
+  const readWorkspace = useCallback(async (conditional: boolean) => {
+    if (!mounted.current) return;
+    let next: CanvasWorkspaceDetail | undefined;
+    try {
+      const revision = conditional && current.current?.revision;
+      next = revision ? await getCanvasWorkspace(projectId, revision) : await getCanvasWorkspace(projectId);
+    }
     catch (cause) {
-      if (mounted.current && requestId === refreshCounter.current && !isDesktopClosing()) setLoadError(message(cause));
+      if (mounted.current && !isDesktopClosing()) setLoadError(message(cause));
       throw cause;
     }
-    if (!mounted.current || requestId !== refreshCounter.current) return;
+    if (!mounted.current) return;
     setLoadError(undefined);
+    if (!next) return;
     let recovered: Array<{
       base: CanvasDocumentDetail;
       local: CanvasMarkdownDocument;
@@ -143,12 +146,15 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
       };
       const old = bases.current.get(remote.id),
         local = current.current?.documents.find((doc) => doc.id === remote.id);
-      if (old && old !== started.get(remote.id)) return local ?? remote;
       const recovery = recovered.find((draft) => draft.local?.id === remote.id);
       const before = old ?? recovery?.base;
       const ours = local ? documentContent(local) : recovery?.local;
-      if (conflictRef.current?.local.id === remote.id)
-        return local ?? { ...remote, ...conflictRef.current.local };
+      const existingConflict = conflictRef.current;
+      if (existingConflict?.local.id === remote.id) {
+        if (existingConflict.remote.revision !== remote.revision)
+          reportConflict({ ...existingConflict, remote: remoteDetail });
+        return local ?? { ...remote, ...existingConflict.local };
+      }
       const merged =
         before && ours
           ? mergeCanvasDocumentContent(before.document, ours, remote)
@@ -183,24 +189,21 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     }
     publish(next);
   }, [projectId, publish, recoveryKey, reportConflict]);
+  // Reads and saves both advance the merge base. Apply them in order even when
+  // an external change arrives halfway through saving a batch of documents.
+  const refresh = useCallback((conditional = false) => {
+    const operation = chain.current.catch(() => {}).then(() => readWorkspace(conditional));
+    chain.current = operation;
+    return operation;
+  }, [readWorkspace]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
     if (closing || !enabled) return;
-    void refresh().catch(() => {});
-    // A hidden window shows nobody the external changes, so it refreshes again on return instead.
-    const run = () => {
-      if (!isDesktopClosing() && !window.document.hidden) void refresh().catch(() => {});
-    };
-    const timer = window.setInterval(run, 3000);
-    window.document.addEventListener("visibilitychange", run);
-    return () => {
-      window.clearInterval(timer);
-      window.document.removeEventListener("visibilitychange", run);
-    };
-  }, [refresh, closing, enabled]);
+    return followCanvasChanges(projectId, "workspace", () => refresh(true));
+  }, [projectId, refresh, closing, enabled]);
   const update = useCallback(
     (
       id: string,
@@ -329,9 +332,7 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [workspace, flush, conflict, closing]);
-  // A poll that finds nothing new keeps the same workspace, so a failed save
-  // is retried here, at the poll's pace, while the window is visible. Each
-  // retry waits for the last one, since a save can take longer than the pace.
+  // Failed saves retry independently of disk notifications, one at a time.
   useEffect(() => {
     if (!error || !workspace || conflict || closing || !enabled) return;
     let stopped = false;

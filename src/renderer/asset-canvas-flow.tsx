@@ -4,14 +4,17 @@ import type { TableNodeRuntime } from "./canvas-table-node.js";
 import type { DocumentNodeRuntime } from "./canvas-document-node.js";
 import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, ImageModelRef, ModelRef, ImageResolution, ImageAspectRatio, VideoModelRef, VideoResolution, VideoAspectRatio, AssetCanvasReference, Model3DGenerationConfig, Model3DActionId, Model3DOperation, Model3DOptions, AssetCanvasNodeType, AgentModel, ImageModel, MediaProviderStatus, VideoModel, Model3DModel, VideoGenerationReference } from "../shared/contracts.js";
 import type { Node } from "@xyflow/react";
+import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
 import type { AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { ProjectCanvasNode } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
 import { resolveModel3DConnection, resolveModel3D, DEFAULT_MODEL_3D_CONFIG, normalizeModel3DConfig } from "../shared/generation-config.js";
-import { combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, effectLibraryPrompt } from "../shared/asset-canvas.js";
 
 export const OUTPUT_HANDLE = "out";
 
@@ -36,6 +39,16 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   documentId?: string;
   documentRuntime?: DocumentNodeRuntime;
   prompt?: string;
+  effectBasePrompt?: string;
+  effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
+  effectRhythm?: "sample" | "quick" | "extended";
+  presetId?: CanvasImagePreset;
+  promptExpanded?: boolean;
+  actionDescription?: string;
+  materialStyle?: CanvasMaterialStyle;
+  sourceInput?: boolean;
+  pixelStyle?: PixelArtLevel;
+  generationMode?: "character-asset" | "continuous-actions" | "all-actions";
   promptSource?: AssetCanvasTextReference;
   text?: string;
   instruction?: string;
@@ -57,6 +70,11 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   videoAspectRatio?: VideoAspectRatio;
   duration?: number;
   images?: AssetCanvasReference[];
+  quickReskinMode?: "person-clothing";
+  sourceInputLabel?: string;
+  exampleImage?: string;
+  /** Prompt shown when a fixed template example is selected. */
+  examplePrompt?: string;
   references?: AssetCanvasReference[];
   referenceMode?: "frame" | "reference";
   referenceMentions?: Record<string, AssetCanvasReference>;
@@ -73,6 +91,10 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   assetDuration?: number;
   /** Width / height of the output media, known before it loads. */
   assetAspectRatio?: number;
+  assetWidth?: number;
+  assetHeight?: number;
+  /** Bytes, from the Library or the project's assets. */
+  assetSize?: number;
   name?: string;
   assetOrigin?: "Project" | "Library";
   assetError?: string;
@@ -82,8 +104,12 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   model3DRuntime?: Model3DNodeRuntime;
   animateRuntime?: Animate3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
+  /** A plugin node's `publisher/name:node`, its settings, and what feeds each input. */
+  node?: string;
+  params?: Record<string, string | number | boolean>;
+  inputs?: Record<string, AssetCanvasReference[]>;
+  pluginRuntime?: PluginNodeRuntime;
 };
-
 export type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType> & { title?: string; description?: string };
 
 export interface MediaNodeRuntime {
@@ -131,8 +157,9 @@ export type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating"
 export interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
   providers: MediaProviderStatus[];
+  onUploadSourceImage: (file: File) => void;
+  onSetSourceAsset: (asset: LibraryAsset) => void;
 }
-
 export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
   models: VideoModel[];
   providers: MediaProviderStatus[];
@@ -153,8 +180,26 @@ export interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
   models: Model3DModel[];
 }
 
+export interface PluginNodeRuntime {
+  /** Absent while the node's plugin is off or gone. */
+  definition?: ProjectCanvasNode;
+  /** What the last output is, known from the Library while the plugin is off. */
+  output?: ProjectCanvasNode["output"];
+  /** What is connected to each input, by input id. */
+  sources: Record<string, Array<{ nodeId?: string; name: string }>>;
+  generating: boolean;
+  busy: boolean;
+  error?: string;
+  onChange: (params: Record<string, string | number | boolean>) => void;
+  onRemoveInput: (input: string, index: number) => void;
+  onGenerate: () => void;
+  onCancel?: () => void;
+}
+
 export interface MediaReferenceView {
   assetId?: string;
+  /** Example image a connected template slot shows until it has an asset; generating uploads it. */
+  exampleUrl?: string;
   key: string;
   name: string;
   label: string;
@@ -203,7 +248,7 @@ export function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data
 }
 
 export function effectivePrompt(data: AssetCanvasFlowData, runtime?: MediaNodeRuntime): string {
-  return combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
+  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? "", data.pixelStyle));
 }
 
 export function titleCase(value: string): string {

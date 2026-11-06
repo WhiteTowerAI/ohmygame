@@ -66,7 +66,8 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
         id: mention.type === "plugin" ? `plugin:${mention.value.id}` : `skill:${mention.value.name}`,
         section: mention.type === "plugin" ? "Plugins" : "Skills",
         label: mention.type === "plugin" ? mention.value.displayName : mention.value.pluginDisplayName ? `${mention.value.pluginDisplayName}: ${skillName}` : skillName!,
-        description: mention.value.description,
+        // One that is off here is turned on when picked.
+        description: mention.type === "plugin" && mention.value.off ? t("contextMenu.turnsPluginOn", { description: mention.value.description }) : mention.value.description,
         source: mention.value.marketplaceDisplayName,
         mention,
       };

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -9,6 +9,7 @@ import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { ensureProjectDependencies } from "../project-dependencies.js";
+import { previewDependencyDirectory } from "../preview-launch.js";
 import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
@@ -40,16 +41,36 @@ export class ArtifactBuilder {
 
   /** The game as it would publish, without the size limit, for hosting elsewhere. */
   async build(project: ProjectState): Promise<Buffer> {
-    if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
-      throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
+    assertBuildable(project);
     return this.#create(project);
   }
 
+  /** The same build as `build`, as files in `destination`, an empty folder. */
+  async buildFolder(project: ProjectState, destination: string): Promise<void> {
+    assertBuildable(project);
+    await this.#withSource(project, async (source) => {
+      for (const file of await filesIn(source)) {
+        const target = path.join(destination, ...file.split("/"));
+        await mkdir(path.dirname(target), { recursive: true });
+        await cp(path.join(source, ...file.split("/")), target);
+      }
+    });
+  }
+
   async #create(project: ProjectState, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
-    let temporary: string | undefined;
     const media = maxBytes !== undefined && project.type === "interactive-story"
       ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
       : undefined;
+    try {
+      return await this.#withSource(project, (source) => createZip(source, false, cover, maxBytes, false, media));
+    } finally {
+      await media?.close();
+    }
+  }
+
+  /** Builds the project and hands `use` the folder of files it publishes. */
+  async #withSource<T>(project: ProjectState, use: (source: string) => Promise<T>): Promise<T> {
+    let temporary: string | undefined;
     try {
       let source: string;
       if (project.type === "interactive-story") {
@@ -63,11 +84,10 @@ export class ArtifactBuilder {
           : project.workspacePath;
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
-      return await createZip(source, false, cover, maxBytes, false, media);
+      return await use(source);
     } finally {
       this.#running.delete(project.id);
       if (temporary) await rm(temporary, { recursive: true, force: true });
-      await media?.close();
     }
   }
 
@@ -75,6 +95,12 @@ export class ArtifactBuilder {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
   }
+}
+
+/** Only games that play as a web page have a web build. */
+export function assertBuildable(project: ProjectState): void {
+  if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
+    throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
 }
 
 async function publishStartupDirectory(project: ProjectState): Promise<string> {
@@ -119,19 +145,20 @@ export async function createPluginArchive(source: string, maxBytes = 25 * 1024 *
   return createZip(source, true, undefined, maxBytes, preserveExecutable);
 }
 
-async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void, project?: ProjectState): Promise<string> {
+async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void, project: ProjectState): Promise<string> {
   const packageJson = await readPackageJson(workspacePath);
   if (packageJson) {
     const build = packageJson.scripts?.build;
     if (typeof build !== "string" || !build.trim()) {
       throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
     }
-    const { manager: packageManager } = await resolvePackageManager(workspacePath, project?.packageManager);
-    if (hasDependencies(packageJson)) {
-      await ensureProjectDependencies(workspacePath, packageManager,
-        (command, args) => run(command, args, workspacePath, track));
+    const dependencyDirectory = await previewDependencyDirectory(await realpath(project.workspacePath), workspacePath);
+    const { manager: packageManager } = await resolvePackageManager(dependencyDirectory, project.packageManager);
+    if (dependencyDirectory !== workspacePath || hasDependencies(packageJson)) {
+      await ensureProjectDependencies(dependencyDirectory, packageManager,
+        (command, args) => run(command, args, dependencyDirectory, track));
     }
-    await run(packageManagerCommand(packageManager), packageManagerRunArguments("build"), workspacePath, track);
+    await run(packageManagerCommand(packageManager), packageManagerRunArguments(packageManager, "build"), workspacePath, track);
     const output = await findBuildOutput(workspacePath);
     if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
     return output;

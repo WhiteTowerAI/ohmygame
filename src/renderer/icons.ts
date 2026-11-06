@@ -49,6 +49,7 @@ import {
   FlagIcon,
   FolderIcon,
   FolderOpenIcon,
+  GameboyIcon,
   GamepadIcon,
   GlobalIcon,
   GalleryIcon,
@@ -80,7 +81,6 @@ import {
   PlugCircleIcon,
   ProgrammingIcon,
   QuestionCircleIcon,
-  RefreshCircleIcon,
   RefreshIcon,
   RestartIcon,
   ScissorsIcon,
@@ -110,6 +110,7 @@ import {
   WalletIcon,
   WiFiIcon,
   WiFiOffIcon,
+  WidgetIcon,
   Widget4Icon,
   CheckReadIcon,
   CloudIcon,
@@ -124,6 +125,7 @@ import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types"
 import { createElement, forwardRef } from "react";
 
 export type IconComponent = SolarIcon;
+export const Widget = WidgetIcon;
 
 export const Check = forwardRef<SVGSVGElement, IconProps>(function Check({ size = 24, ...props }, ref) {
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M5 12.5L9.2 16.5L19 7", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
@@ -226,6 +228,7 @@ export {
   FlagIcon as Flag,
   FolderIcon as Folder,
   FolderOpenIcon as FolderOpen,
+  GameboyIcon as Gameboy,
   GamepadIcon as Gamepad2,
   GlobalIcon as Globe2,
   GalleryIcon as Image,
@@ -296,7 +299,6 @@ export {
   ShopIcon as Store,
   DangerCircleIcon as DangerCircle,
   DangerTriangleIcon as TriangleAlert,
-  RefreshCircleIcon as RefreshCircle,
   WalletIcon as Wallet,
   DatabaseIcon as Database,
   TextFieldIcon as TextField,

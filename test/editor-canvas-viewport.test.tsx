@@ -157,6 +157,8 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   expect(flow.props!.deleteKeyCode).toBeNull();
   const canvasOf = (id: string) => [...container.querySelectorAll<HTMLElement>('[data-testid="canvas"]')][id === "story" ? 0 : 1]!;
   const key = (target: Element) => act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true })); });
+  // Canvases render their own buttons; this is the one outside them.
+  const elsewhere = () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Elsewhere")!;
   const press = async (target: Element) => {
     await act(async () => { target.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
     await key(target);
@@ -164,11 +166,11 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   await press(canvasOf("assets"));
   expect(flow.deleted).toEqual(["assets"]);
   // A click outside every canvas leaves the keys where they were.
-  await press(container.querySelector("button")!);
+  await press(elsewhere());
   expect(flow.deleted).toEqual(["assets", "assets"]);
   // With the canvas used last hidden, the one in sight takes them.
   await act(async () => root.render(page(true)));
-  await press(container.querySelector("button")!);
+  await press(elsewhere());
   expect(flow.deleted).toEqual(["assets", "assets", "story"]);
   // Focus on an element around one canvas, as from the keyboard, hands it the keys.
   await act(async () => root.render(page(false)));

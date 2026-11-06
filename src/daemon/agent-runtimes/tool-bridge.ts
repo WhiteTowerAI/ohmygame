@@ -133,6 +133,7 @@ export class ToolBridge {
       outcome: { result: NativeToolResult; isError: boolean },
     ) => void,
     signal?: AbortSignal,
+    scope: "active" | "all" = "active",
   ): Promise<Record<string, unknown> | undefined> {
     const request =
       message && typeof message === "object"
@@ -163,7 +164,7 @@ export class ToolBridge {
       case "ping":
         return { jsonrpc: "2.0", id, result: {} };
       case "tools/list":
-        return { jsonrpc: "2.0", id, result: { tools: this.list() } };
+        return { jsonrpc: "2.0", id, result: { tools: this.list(scope) } };
       case "tools/call": {
         const name = typeof params.name === "string" ? params.name : "";
         const meta =

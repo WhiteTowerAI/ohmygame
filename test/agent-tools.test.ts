@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames, pluginChangeNote, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
@@ -12,7 +12,9 @@ import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
+import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
 import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
+import sharp from "sharp";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -81,6 +83,14 @@ describe("agent tools", () => {
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
+      // A native type's plugin runs its game whatever the web preview does; the app only makes its runtime for such a type.
+      const plugin = {
+        driver: { ...driver, capabilities: pluginGameCapabilities({ operations: ["captureFrame"], maxFrame: 600 }) },
+        resolveOpenTarget: async () => ({ runtime: "plugin" as const, provider: "a/b:c", projectPath: project.workspacePath }),
+        maxFrame: 600,
+      };
+      const gameUse = createAgentTools(project, runner, projects, undefined, undefined, plugin).find(({ name }) => name === "game_use");
+      expect((gameUse?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties?.frame).toMatchObject({ maximum: 600 });
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
     expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
@@ -278,7 +288,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
     expect(await readFile(path.join(project.workspacePath, relativePath))).toEqual(TEST_GLB);
     const model = (await listWorkspaceFiles(project.workspacePath)).find((file) => file.path === relativePath);
-    expect(model?.previewPath).toMatch(/^\.data\/asset-previews\/model-[0-9a-f-]+\.png$/);
+    expect(model?.previewPath).toMatch(/^\.ohmygame\/asset-previews\/model-[0-9a-f-]+\.png$/);
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
@@ -341,6 +351,30 @@ describe("agent tools", () => {
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
+  it("registers standalone image and frame processing tools", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-media-agent-tool-"));
+    const library = new AssetLibrary(dataDirectory);
+    const projects = new ProjectManager(dataDirectory, library);
+    await Promise.all([library.load(), projects.load()]);
+    const project = await projects.create("Media Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const tools = createAgentTools(project, runner, projects);
+    expect(tools.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "crop_image", "extract_gif_frames", "compose_gif", "image_grid_split", "video_frame_strip", "video_compose_frames",
+    ]));
+
+    const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: "red" } }).png().toBuffer();
+    await projects.addGeneratedAsset(project.id, "source.png", source);
+    const split = tools.find(({ name }) => name === "image_grid_split");
+    if (!split) throw new Error("Expected image_grid_split");
+    const splitResult = await split.execute("media-split", { sourcePath: "assets/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
+    const splitText = splitResult.content[0]?.type === "text" ? splitResult.content[0].text : "";
+    const splitPath = splitText.match(/(assets\/generated\/sprite-sheet-[^ ]+\.zip)/)?.[1];
+    expect(splitPath).toBeDefined();
+    expect(await readFile(path.join(project.workspacePath, splitPath!))).not.toHaveLength(0);
+  });
+
   it("registers playable_add_node only for Interactive Story and creates the Node", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
     const projects = new ProjectManager(dataDirectory);
@@ -401,5 +435,15 @@ describe("agent tools", () => {
     expect(failing.details).toMatchObject({ playableCheck: { mode: "publish", ok: false } });
     expect(text).toMatch(/publish validation issue/);
     expect(text).toContain("missing");
+  });
+});
+
+describe("image plugin changes", () => {
+  it("tells the agent which plugins changed an image's request, and the prompt used", () => {
+    expect(pluginChangeNote({})).toBe("");
+    expect(pluginChangeNote({ prompt: "a cat, pixel art", pluginChanges: [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt", "aspectRatio"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/style 1.0.0 (prompt, aspectRatio). The prompt used was: a cat, pixel art");
+    expect(pluginChangeNote({ prompt: "a cat", pluginChanges: [{ plugin: "acme/size", version: "2.0.0", fields: ["size"] }] }))
+      .toBe("\nPlugins in this project changed the request before it was generated: acme/size 2.0.0 (size).");
   });
 });

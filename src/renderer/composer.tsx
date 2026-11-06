@@ -75,12 +75,17 @@ interface ComposerProps {
   /** Plugin commands for the "/" list and the + menu; the project shell runs them. */
   pluginCommands?: ComposerPluginCommands;
   onPluginCommand?: (command: ProjectPluginCommand) => void;
+  /** Turns on a plugin that is off in the project, for mentioning it; false when the person declined. */
+  onTurnOnPlugin?: (plugin: ConversationCapabilities["plugins"][number]) => Promise<boolean>;
+  /** What the empty box asks for, in place of a change to the game. */
+  placeholder?: string;
 }
 
 export function Composer({
   projectId,
   conversationId,
   supportsDesign = false,
+  placeholder: idlePlaceholder,
   conversationReady,
   running,
   stopping,
@@ -103,6 +108,7 @@ export function Composer({
   capabilities,
   initialDraft,
   onInitialDraftHandled,
+  onTurnOnPlugin,
   onSubmit,
   onCompact,
   onContextUsage,
@@ -139,7 +145,11 @@ export function Composer({
   const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
   const input = useRef<PromptInput>(null);
+  // The text now, for a mention that goes in once its plugin is on.
+  const latestPrompt = useRef(prompt);
+  latestPrompt.current = prompt;
   useEffect(() => {
+    // compat: since beta.5.1, remove from beta.7 and 2026-12-03. Drafts with selectedPlugin.
     // A draft saved when a plugin sat in a slot before the text gets it back in the text, after its Skill as it was sent.
     const legacy = draftSession.getSnapshot().selectedPlugin;
     if (legacy) updateDraft((current) => {
@@ -246,6 +256,21 @@ export function Composer({
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery) {
+    // A plugin that is off here is turned on first, then mentioned.
+    if (mention.type === "plugin" && mention.value.off && onTurnOnPlugin) {
+      setAttachmentError(undefined);
+      const before = prompt;
+      void onTurnOnPlugin(mention.value).then(
+        // Text typed meanwhile stays; the plugin is on, so `@` puts it in at once.
+        (on) => { if (on && latestPrompt.current === before) insertSelectedMention(mention, query); },
+        (cause: unknown) => setAttachmentError(cause instanceof Error ? cause.message : String(cause)),
+      );
+      return;
+    }
+    insertSelectedMention(mention, query);
+  }
+
+  function insertSelectedMention(mention: ComposerMention, query?: ComposerMentionQuery) {
     // Plugins and Skills go where they are typed, any number of each.
     const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
     if (mention.type === "plugin") {
@@ -526,7 +551,7 @@ export function Composer({
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
         overlay={contextMenu.open ? contextMenu.overlay : null}
-        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
+        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : idlePlaceholder ?? t("composer.placeholder.change")}
         inputRef={input}
         onSelectionChange={setMentionCursor}
         value={prompt}

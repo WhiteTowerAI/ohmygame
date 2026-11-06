@@ -23,7 +23,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
@@ -71,7 +71,7 @@ interface AgentTimelineProps {
   onLimitResumeChange?: (on: boolean) => void;
 }
 
-const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+const WorkspaceLinkContext = createContext<{ projectId: string; workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({ projectId: "" });
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
@@ -84,7 +84,13 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline(props: AgentTimelineProps) {
+  return <ConversationTimeline key={props.turns[0]?.conversationId} {...props} />;
+});
+
+const HISTORY_PAGE = 40;
+
+function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -92,14 +98,48 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const turns = useMemo(() => mergeCompletedCompactionTurns(sourceTurns), [sourceTurns]);
-  const displays = useMemo(() => turns.map(turnDisplay), [turns]);
-  const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
+  const [oldest, setOldest] = useState<string>();
+  const requestedIndex = oldest ? turns.findIndex((turn) => turn.id === oldest) : -1;
+  const recentStart = Math.max(0, turns.length - HISTORY_PAGE);
+  const start = requestedIndex >= 0 ? Math.min(requestedIndex, recentStart) : recentStart;
+  const visible = useMemo(() => turns.slice(start), [turns, start]);
+  const anchor = useRef<{ element: HTMLElement; top: number; height: number } | null>(null);
+  const loadEarlier = useCallback(() => {
+    if (start === 0) return;
+    const element = selectionRoot?.closest<HTMLElement>(".agent-body, .floating-chat-thread");
+    if (element) anchor.current = { element, top: element.scrollTop, height: element.scrollHeight };
+    setOldest(turns[Math.max(0, start - HISTORY_PAGE)].id);
+  }, [selectionRoot, start, turns]);
+  useLayoutEffect(() => {
+    const previous = anchor.current;
+    if (previous) {
+      previous.element.scrollTop = previous.top + previous.element.scrollHeight - previous.height;
+      anchor.current = null;
+    }
+  }, [oldest]);
+  useEffect(() => {
+    const element = selectionRoot?.closest<HTMLElement>(".agent-body, .floating-chat-thread");
+    if (!start || !element) return;
+    let last = element.scrollTop;
+    const onScroll = () => {
+      const top = element.scrollTop;
+      if (top < last) {
+        if (top < 160) loadEarlier();
+        else if (!oldest) setOldest(turns[start].id);
+      }
+      last = top;
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  }, [selectionRoot, start, oldest, turns, loadEarlier]);
+  const displays = useMemo(() => visible.map(turnDisplay), [visible]);
+  const workspaceLinks = useMemo(() => ({ projectId, workspacePath, onOpenWorkspaceFile }), [projectId, workspacePath, onOpenWorkspaceFile]);
   const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
   const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");
   const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
-  const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
+  const latestUserId = turns.findLast((turn) => turn.items.some((item) => item.type === "userMessage"))?.items.find((item) => item.type === "userMessage")?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)
     .findLast((item) => item.status === "completed" && Boolean(item.text.trim()))
@@ -150,14 +190,15 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
       <PluginsContext.Provider value={plugins}>
         <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+          {start > 0 ? <Button size="sm" variant="ghost" onClick={loadEarlier}>{t("timeline.earlierMessages")}</Button> : null}
           <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
-            {turns.map((turn, index) => (
-              <LimitResumeContext.Provider key={turn.id} value={index === lastFailedIndex ? limitResumeControl : undefined}>
+            {visible.map((turn, index) => (
+              <LimitResumeContext.Provider key={turn.id} value={start + index === lastFailedIndex ? limitResumeControl : undefined}>
               <Turn
                 projectId={projectId}
                 turn={turn}
                 waitingForInput={turn.status === "inProgress" && waitingForInput}
-                steeringPending={steeringPending && index === latestSteeringIndex}
+                steeringPending={steeringPending && start + index === latestSteeringIndex}
                 changeControls={changeControls}
                 assistantControls={{
                   copiedItemId: copiedAssistantId,
@@ -187,7 +228,7 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
       </PluginsContext.Provider>
     </WorkspaceLinkContext.Provider>
   );
-});
+}
 
 interface UserControls {
   editing: boolean;
@@ -272,7 +313,7 @@ function SteeringActivity() {
 function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   projectId: string;
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
-  artifacts: ToolArtifact[];
+  artifacts: TurnDisplay["artifacts"];
   controls: AssistantControls;
   changes: ReactNode;
 }) {
@@ -779,6 +820,7 @@ function AgentErrorDetails({ error }: { error: ThreadItemError }) {
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
+  const { projectId } = useContext(WorkspaceLinkContext);
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
@@ -799,6 +841,7 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
   if (!expandable) return row;
   return (
     <LazyDetails className="tool-activity-details" summary={<summary>{row}</summary>}>
+      {item.artifact?.type === "image" ? <div className="tool-details"><ArtifactPreview projectId={projectId} artifact={item.artifact} /></div> : null}
       <ToolDetails item={item} />
     </LazyDetails>
   );
@@ -889,7 +932,7 @@ function ToolDetailBlock({ label, children }: { label: string; children: ReactNo
 }
 
 function hasToolDetails(item: ToolCallItem): boolean {
-  if (item.status === "failed" || item.truncated) return true;
+  if (item.status === "failed" || item.truncated || item.artifact?.type === "image") return true;
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
@@ -906,33 +949,34 @@ function formatToolValue(value: unknown): string {
   }
 }
 
-function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: ToolArtifact[] }) {
+function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: TurnDisplay["artifacts"] }) {
   return <div className="tool-artifacts">{artifacts.map((artifact) => <ArtifactPreview key={artifact.path} projectId={projectId} artifact={artifact} />)}</div>;
 }
 
 function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
-  const [url, setUrl] = useState<string>();
+  const [preview, setPreview] = useState<{ url: string; blob: Blob }>();
   const [target, visible] = useNearViewport<HTMLDivElement>();
   useEffect(() => {
     if (!visible) return;
     let disposed = false;
     let objectUrl: string | undefined;
-    setUrl(undefined);
+    setPreview(undefined);
     void getWorkspaceAsset(projectId, artifact.path).then((blob) => {
       if (disposed) return;
       objectUrl = URL.createObjectURL(blob);
-      setUrl(objectUrl);
+      setPreview({ url: objectUrl, blob });
     }).catch(() => undefined);
     return () => {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [artifact.path, projectId, visible]);
-  return <div ref={target} className="tool-artifact-preview">{!url ? null : artifact.type === "model"
-    ? <ModelPreview source={url} label={t("timeline.generated3d")} minHeight={320} />
+  return <div ref={target} className={artifact.type === "image" ? "tool-generated-image" : "tool-artifact-preview"}>{!preview ? null : artifact.type === "model"
+    ? <ModelPreview source={preview.url} label={t("timeline.generated3d")} minHeight={320} />
     : artifact.type === "video"
-      ? <video className="tool-artifact-video" src={url} controls preload="metadata" />
-    : <img className="tool-artifact-image" src={url} alt={t("timeline.generatedImage")} />}</div>;
+      ? <video className="tool-artifact-video" src={preview.url} controls preload="metadata" />
+    : <ImageGallery className="tool-generated-image-gallery" images={[{ ...preview, name: artifact.path.split("/").at(-1) }]}
+        alt={() => t("timeline.generatedImage")} />}</div>;
 }
 
 function preparingToolLabel(toolName: string): string {

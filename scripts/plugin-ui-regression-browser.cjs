@@ -134,7 +134,12 @@ app.whenReady().then(async () => {
     const { jobs, origins, profile } = JSON.parse(await readFile(jobFile, 'utf8'));
     app.setPath('userData', profile);
     const results = [];
-    for (const job of jobs) results.push(...(await runJob(job, origins)));
+    // Each page has its own window. Overlap their settling waits, with at most two
+    // Chromium renderers capturing full-height pictures at a time.
+    for (let i = 0; i < jobs.length; i += 2) {
+      const pages = await Promise.all(jobs.slice(i, i + 2).map(job => runJob(job, origins)));
+      results.push(...pages.flat());
+    }
     await writeFile(resultFile, JSON.stringify(results));
     clearTimeout(deadline);
     app.exit(0);

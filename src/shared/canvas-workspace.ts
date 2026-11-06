@@ -4,10 +4,12 @@ import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { Check } from "typebox/value";
 import type { AssetCanvasDocument, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "./asset-canvas.js";
+import { PIXEL_ART_LEVELS, type PixelArtLevel } from "./canvas-pixel-style.js";
 import type { CanvasMarkdownDocument } from "./canvas-document.js";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
 
+export type CanvasSyncScope = "workspace" | "board" | "jobs";
 export type CanvasBoard = AssetCanvasDocument & { id: string };
 export interface CanvasBoardDetail { board: CanvasBoard; revision: string }
 export interface CanvasWorkspaceIndex {
@@ -18,6 +20,7 @@ export interface CanvasWorkspaceIndex {
   tables?: Array<{ id: string; title: string }>;
 }
 export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents" | "tables"> {
+  revision?: string;
   documents: Array<CanvasMarkdownDocument & { revision: string; source: string; main: boolean }>;
   tables?: Array<CanvasTable & { revision: string; source: string }>;
   tableIssues?: Array<{ id: string; title: string; source: string; message: string }>;
@@ -53,6 +56,23 @@ export function isCanvasBoard(value: unknown): value is CanvasBoard {
   return typeof boardId === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(boardId) && isAssetCanvasDocument(canvas);
 }
 export function createCanvasBoard(id = crypto.randomUUID()): CanvasBoard { return { ...createAssetCanvasDocument(), id }; }
+
+/** An empty group for one pixel density, placed where pixel templates and presets expect it. */
+export function createPixelLevelGroup(pixelStyle: PixelArtLevel): Extract<AssetCanvasNode, { type: "group" }> {
+  return {
+    id: crypto.randomUUID(),
+    type: "group",
+    position: { x: -880 + PIXEL_ART_LEVELS.indexOf(pixelStyle) * 600, y: -360 },
+    width: 560,
+    height: 720,
+    data: { name: pixelStyle, pixelStyle },
+  };
+}
+
+function byId<T extends { id: string }>(items: readonly T[]) {
+  return new Map(items.map((item) => [item.id, item]));
+}
+
 export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanvasDocument, remote: AssetCanvasDocument): AssetCanvasDocument | undefined {
   const serialize = (value: unknown) => JSON.stringify(value, (_key, item) =>
     item && typeof item === "object" && !Array.isArray(item)
@@ -61,8 +81,13 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
   const equal = (a: unknown, b: unknown) => serialize(a) === serialize(b);
   const merge = <T>(a: T, b: T, c: T): T | undefined => equal(b, c) || equal(a, c) ? b : equal(a, b) ? c : undefined;
   const nodes: AssetCanvasNode[] = [];
-  for (const id of new Set([...local.nodes, ...remote.nodes].map((node) => node.id))) {
-    const before = base.nodes.find((node) => node.id === id), ours = local.nodes.find((node) => node.id === id), theirs = remote.nodes.find((node) => node.id === id);
+  const baseNodes = byId(base.nodes);
+  const localNodes = byId(local.nodes);
+  const remoteNodes = byId(remote.nodes);
+  for (const id of new Set([...localNodes.keys(), ...remoteNodes.keys()])) {
+    const before = baseNodes.get(id);
+    const ours = localNodes.get(id);
+    const theirs = remoteNodes.get(id);
     if (!ours && before) continue;
     if (!theirs && before) { if (!equal(before, ours)) return undefined; continue; }
     if (!ours || !theirs || !before) { if (ours && theirs && !equal(ours, theirs)) return undefined; nodes.push((ours ?? theirs)!); continue; }
@@ -70,8 +95,14 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if (equal(ours, theirs) || equal(before, theirs)) { nodes.push(ours); continue; }
     if (equal(before, ours)) { nodes.push(theirs); continue; }
     if (before.type !== ours.type || ours.type !== theirs.type) return undefined;
-    const position = merge(before.position, ours.position, theirs.position);
-    if (!position) return undefined;
+    // Relative position and parent form one coordinate space and must merge together.
+    const placement = merge(
+      { position: before.position, parentId: before.parentId },
+      { position: ours.position, parentId: ours.parentId },
+      { position: theirs.position, parentId: theirs.parentId },
+    );
+    if (!placement) return undefined;
+    const { position, parentId } = placement;
     const dimensions: { width?: number; height?: number } = {};
     for (const key of ["width", "height"] as const) {
       if (!equal(before[key], ours[key]) && !equal(before[key], theirs[key]) && !equal(ours[key], theirs[key])) return undefined;
@@ -89,11 +120,17 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       const value = merge(a, b, c);
       if (value !== undefined) data[key] = value;
     }
-    nodes.push({ ...ours, ...metadata, ...dimensions, position, data } as AssetCanvasNode);
+    const { parentId: _oldParentId, ...withoutParent } = ours;
+    nodes.push({ ...withoutParent, ...(parentId ? { parentId } : {}), ...metadata, ...dimensions, position, data } as AssetCanvasNode);
   }
   const edges = [];
-  for (const id of new Set([...local.edges, ...remote.edges].map((edge) => edge.id))) {
-    const before = base.edges.find((edge) => edge.id === id), ours = local.edges.find((edge) => edge.id === id), theirs = remote.edges.find((edge) => edge.id === id);
+  const baseEdges = byId(base.edges);
+  const localEdges = byId(local.edges);
+  const remoteEdges = byId(remote.edges);
+  for (const id of new Set([...localEdges.keys(), ...remoteEdges.keys()])) {
+    const before = baseEdges.get(id);
+    const ours = localEdges.get(id);
+    const theirs = remoteEdges.get(id);
     if (before && !ours) continue;
     if (before && !theirs) { if (!equal(before, ours)) return undefined; continue; }
     const edge = merge(before, ours, theirs);
@@ -109,6 +146,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if ("references" in data && data.references) data.references = data.references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId));
     if ("source" in data && data.source?.type === "node" && !ids.has(data.source.nodeId)) delete data.source;
     if ("promptSource" in data && data.promptSource && !ids.has(data.promptSource.nodeId)) delete data.promptSource;
+    if (node.type === "plugin") (data as typeof node.data).inputs = Object.fromEntries(Object.entries(node.data.inputs).map(([key, references]) => [key, references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId))]));
     return { ...node, data } as AssetCanvasNode;
   });
   const merged = {

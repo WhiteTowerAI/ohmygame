@@ -39,7 +39,11 @@ vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
   </>),
 }));
 
+const createPixelAssetTemplateProject = vi.fn(async (_category: string, _level: string) => ({ projectId: "pixel", nodeId: "start" }));
+vi.doMock(path.resolve("src/renderer/asset-canvas-template-project.ts"), () => ({ createPixelAssetTemplateProject }));
+
 const { Home } = await import("../src/renderer/home.js");
+const { pixelAssetTemplateCategories } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
 
@@ -49,18 +53,21 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("shows two rows of examples in Explore, so an example past the first row is there too", async () => {
+it("shows two rows of examples in Explore, above Asset templates, so an example past the first row is there too", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} />));
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} />));
 
   const shown = [...container.querySelectorAll(".home-explore-card")].map((card) => card.textContent);
   // Four columns by default: eight cards, including Last Bus in sixth place.
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
+  // Asset templates come after Explore.
+  const headings = [...container.querySelectorAll(".home-section-head h2")].map((heading) => heading.textContent);
+  expect(headings.indexOf("Asset templates")).toBeGreaterThan(headings.indexOf("Explore"));
 });
 
 it("creates the project from the prompt at once, and opens the new-project dialog from Blank project", async () => {
@@ -69,7 +76,7 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   document.body.appendChild(container);
   root = createRoot(container);
   const onCreate = vi.fn();
-  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={onCreate} onOpen={() => {}} />));
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={onCreate} onOpen={() => {}} onOpenAssetCanvas={() => {}} />));
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
 
   // The prompt names the project and picks its type, so there is nothing to fill in.
@@ -100,6 +107,30 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   await act(async () => button("Blank project").click());
   expect(document.querySelector('[role="dialog"] textarea')).toBeNull();
   expect(button("Create")).toBeDefined();
-  // Import folder needs the desktop folder picker.
-  expect(button("Import folder")).toBeUndefined();
+  // Choose project needs the desktop folder picker.
+  expect(button("Choose project")).toBeUndefined();
+});
+
+it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const onOpenAssetCanvas = vi.fn();
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} onOpenAssetCanvas={onOpenAssetCanvas} />));
+
+  // Every pixel category, then the effect library.
+  const cards = [...container.querySelectorAll<HTMLButtonElement>(".home-templates .home-template-card")];
+  expect(cards).toHaveLength(pixelAssetTemplateCategories().length + 1);
+  await act(async () => cards[0]!.click());
+  const dialog = document.querySelector<HTMLElement>(".pixel-template-density-dialog")!;
+  expect(dialog.querySelectorAll('input[type="radio"]')).toHaveLength(3);
+
+  await act(async () => {
+    dialog.querySelector<HTMLInputElement>('input[value="detailed"]')!.click();
+    dialog.querySelector<HTMLButtonElement>(".project-create-submit")!.click();
+  });
+  expect(createPixelAssetTemplateProject).toHaveBeenCalledWith(pixelAssetTemplateCategories()[0]!.id, "detailed");
+  expect(onOpenAssetCanvas).toHaveBeenCalledWith("pixel", "start");
+  expect(document.querySelector(".pixel-template-density-dialog")).toBeNull();
 });

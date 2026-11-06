@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPluginVersion } from "./api.js";
+import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
-import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
-import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
+import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
+import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -15,9 +15,9 @@ import type {
   PromptAttachment,
   PromptMode,
 } from "../shared/contracts.js";
-import { pluginAppliesTo, pluginProjectType, projectFileTypeFor } from "../shared/project-runtime.js";
-import type { ProjectPluginChoice } from "../shared/plugins.js";
+import { appWidePluginSuits, PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import "./project-create-dialog.css";
 
 /** What Home's prompt box hands over: it becomes the project's first message. */
@@ -28,8 +28,8 @@ export interface FirstMessage {
   mode: PromptMode;
   /** The type chosen on Home: one of the app's, or a plugin's `publisher/name:type`. */
   type?: string;
-  /** Plugins to turn on for this project alone once it exists. */
-  projectPlugins?: ProjectPluginChoice[];
+  /** Plugins the prompt mentions that are off, whose consent the person gave on Home. */
+  turnOn?: ConversationCapabilities["plugins"];
 }
 
 /** The first message, sent in the new project's first conversation. */
@@ -93,33 +93,42 @@ export function ProjectCreateDialog({
   const referenced = plugins.filter((plugin) =>
     mentions.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId),
   );
-  // Types the mentioned plugins can work in; a plugin that names no types fits all of them.
-  const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
-  // Plugins' own types, unless a mentioned plugin works only in some of the app's.
+  // Types every mentioned plugin works in, by the kind of project each makes; one with no `appliesTo` fits all.
+  const fits = (value: string) => referenced.every((plugin) => appWidePluginSuits(plugin.appliesTo, newProjectKind(value)));
+  const types = PROJECT_TYPES.filter(({ value }) => fits(value));
   const installedPluginTypes = usePluginProjectTypes();
-  const offersPluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length);
-  const pluginTypes = offersPluginTypes ? installedPluginTypes.types ?? [] : [];
+  // A plugin's type is a General project of that type, so a plugin for General projects fits it too.
+  const offersPluginTypes = referenced.every((plugin) => !plugin.appliesTo || plugin.appliesTo.some((name) => name === "general" || name.includes(":")));
+  const pluginTypes = (installedPluginTypes.types ?? []).filter((option) => fits(option.id));
   const offered = (value: string | undefined): value is string =>
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
   const preferred = firstMessage?.type ?? initialType;
+  // Else the type a mentioned plugin adds, then the first that fits.
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  const addedType = types.find(({ value }) => referenced.some((plugin) => kinds[value]?.startsWith(`${plugin.id}:`)))?.value
+    ?? pluginTypes.find((option) => referenced.some((plugin) => option.plugin?.id === plugin.id))?.id;
   const type: string = offered(chosenType) ? chosenType
     : offered(preferred) ? preferred
-    : pluginProjectType(isAppProjectType(preferred) ? preferred : initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
+    : addedType ?? types[0]?.value ?? pluginTypes[0]?.id ?? initialType;
   // The type asked for: the person's choice here, else Home's. Only a plugin's waits for plugins' types.
   const wanted = chosenType ?? preferred;
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
   // The plugin that adds the type turns on with the project, so creating allows what it asks for.
-  const { choices: pluginChoices, failed: pluginChoicesFailed, retry: retryPluginChoices } = useProjectPluginChoices();
-  const typePluginId = pluginTypes.find((option) => option.id === type)?.plugin?.id;
-  const typePlugin = pluginChoices?.find((plugin) => plugin.id === typePluginId);
-  // A plugin is allowed once even when it asks for nothing beyond its files.
-  const typePluginConsent = typePlugin && !typePlugin.consented ? typePlugin : undefined;
-  // Home's plugin type and that type's plugin load apart from the plugins.
+  const typeOption = pluginTypes.find((option) => option.id === type);
+  const typePluginConsent = typeOption?.plugin && typeOption.asks?.length
+    ? { id: typeOption.plugin.id, displayName: typeOption.title, capabilities: typeOption.asks }
+    : undefined;
+  // The mentioned plugins that are off and work in the type: creating the project turns them on.
+  // What the prompt and type are now decides, not what Home sent.
+  const turnOn = referenced.filter((plugin) => plugin.off && appWidePluginSuits(plugin.appliesTo, newProjectKind(type)));
+  // Those asking for more than the person allowed on Home say here what creating allows.
+  const allowedOnHome = new Map((firstMessage?.turnOn ?? []).map((plugin) => [plugin.id, plugin.asks ?? []]));
+  const turnOnConsent = turnOn.filter((plugin) => plugin.asks?.some((capability) => !allowedOnHome.get(plugin.id)?.includes(capability)));
+  // Home's plugin type loads apart from the plugins.
   const ready = pluginsPhase === "ready"
-    && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined)
-    && (isAppProjectType(type) || pluginChoices !== undefined);
+    && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Where a project without a chosen folder goes: Settings → General → Project location, else OhMyGame's own storage.
   const [defaultLocation, setDefaultLocation] = useState<{ location?: string; storage?: string }>({});
@@ -135,7 +144,7 @@ export function ProjectCreateDialog({
   const created = useRef<{ key: string; project: ProjectState; conversationId?: string } | undefined>(undefined);
   // Types are waited for when offered or when Home asked for a plugin's type.
   const typesFailed = installedPluginTypes.failed && (offersPluginTypes || !isAppProjectType(wanted));
-  const loadFailed = pluginsPhase === "error" || typesFailed || (pluginChoicesFailed && !isAppProjectType(type));
+  const loadFailed = pluginsPhase === "error" || typesFailed;
   const [shown, setShown] = useState(!direct);
 
   useEffect(() => {
@@ -163,12 +172,12 @@ export function ProjectCreateDialog({
   useEffect(() => {
     if (shown) return;
     // The type Home asked for may be gone; the person picks another rather than get the first.
-    if (loadFailed || typePluginConsent?.capabilities.length || (ready && type !== preferred)) setShown(true);
+    if (loadFailed || typePluginConsent?.capabilities.length || turnOnConsent.length || (ready && type !== preferred)) setShown(true);
     else if (ready && !started.current) {
       started.current = true;
       void submit();
     }
-  }, [shown, ready, loadFailed, typePluginConsent, type]);
+  }, [shown, ready, loadFailed, typePluginConsent, turnOnConsent.length, type]);
 
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
@@ -183,7 +192,7 @@ export function ProjectCreateDialog({
     setCreating(true);
     setError(undefined);
     try {
-      if (!types.length) throw new Error(t("createDialog.incompatiblePlugins"));
+      if (!offered(type)) throw new Error(t("createDialog.incompatiblePlugins"));
       const input = {
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(isAppProjectType(type) ? { type } : { projectType: type }),
@@ -194,12 +203,10 @@ export function ProjectCreateDialog({
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
       const project = created.current.project;
-      // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
-      for (const plugin of firstMessage?.projectPlugins ?? []) {
-        // A plugin's own type turns it on; the app's Godot type does not.
-        if (plugin.providesTypes.includes(type) || !pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type))) continue;
-        if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
-        await setProjectPluginVersion(project.id, plugin.id, plugin.version);
+      // The person allowed what these ask for on Home, or by creating it here.
+      for (const plugin of turnOn) {
+        if (plugin.asks?.length) await consentToPlugin(plugin.id, plugin.asks);
+        await setProjectPlugin(project.id, plugin.id, true);
       }
       const text = prompt.trim();
       if (!firstMessage || (!text && !firstMessage.attachments.length)) {
@@ -274,11 +281,17 @@ export function ProjectCreateDialog({
         {typePluginConsent?.capabilities.length ? (
           <div className="new-project-consent">
             <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
-            <ul className="project-plugins-capabilities">
-              {typePluginConsent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-            </ul>
+            <PluginCapabilityList capabilities={typePluginConsent.capabilities} />
+            <NativeCodeWarning asks={typePluginConsent.capabilities} />
           </div>
         ) : null}
+        {turnOnConsent.map((plugin) => (
+          <div className="new-project-consent" key={plugin.id}>
+            <p>{t("createDialog.pluginConsent", { name: plugin.displayName })}</p>
+            <PluginCapabilityList capabilities={plugin.asks!} />
+            <NativeCodeWarning asks={plugin.asks!} />
+          </div>
+        ))}
         {/* Only a folder shown by its path needs saying how it is used. */}
         <Field label={t("creator.workspace")} hint={workspacePath ? t("createDialog.usesFolder") : locationPath ? t("createDialog.newFolder") : undefined}>
           {(props) => (
@@ -301,13 +314,10 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {typesFailed || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {typesFailed ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
-            <Button size="sm" onClick={() => {
-              if (installedPluginTypes.failed) installedPluginTypes.retry();
-              if (pluginChoicesFailed) retryPluginChoices();
-            }}>{t("common.retry")}</Button>
+            <Button size="sm" onClick={installedPluginTypes.retry}>{t("common.retry")}</Button>
           </p>
         ) : null}
         {pluginsPhase === "error" ? (

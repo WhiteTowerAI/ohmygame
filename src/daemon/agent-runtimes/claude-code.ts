@@ -258,7 +258,14 @@ export class ClaudeCodeDriver implements NativeDriver {
     if (this.#mode(false) === "bypassPermissions")
       args.push("--allow-dangerously-skip-permissions");
     // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
-    args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
+    // AskUserQuestion would reach OhMyGame as an approval with no way to
+    // answer it. Claude asks with questionnaire while planning, and in its
+    // reply otherwise, as OhMyGame's own agent does.
+    args.push(
+      "--disallowedTools",
+      `mcp__${EXTERNAL_MCP_SERVER_NAME}`,
+      "AskUserQuestion",
+    );
     if (context.skillDirectories.length) {
       // Skills reach Claude Code as a plugin of this session's own.
       const skills = stagedSkillsRoot(

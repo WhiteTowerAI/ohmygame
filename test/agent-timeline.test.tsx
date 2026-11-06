@@ -38,6 +38,26 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it("opens long histories at their latest turns and reveals older messages", async () => {
+    const turns = Array.from({ length: 81 }, (_, i): Turn => ({
+      id: String(i), conversationId: "history", status: "completed",
+      items: [{ ...user(), id: "user-" + i, turnId: String(i), text: `Message [${i}]` }],
+    }));
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ThreadTimeline turns={turns} />));
+      expect(container.textContent).toContain("Message [80]");
+      expect(container.textContent).not.toContain("Message [40]");
+      const previous = () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Show earlier messages");
+      await act(async () => previous()!.click());
+      expect(container.textContent).toContain("Message [40]");
+      await act(async () => previous()!.click());
+      expect(container.textContent).toContain("Message [0]");
+      expect(previous()).toBeUndefined();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("places Branch in new chat immediately after Copy for every persisted completed response", () => {
     const response: ThreadItem = { id: "response", turnId: "turn-1", type: "agentMessage", text: "Done", status: "completed", phase: "final_answer", branchEntryId: "stored-response" };
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), response]} onBranch={() => {}} />);
@@ -1446,19 +1466,40 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
   });
 
-  it("places one response footer after generated artifacts", () => {
-    const html = renderToStaticMarkup(<AgentTimeline projectId="project-1" items={[
+  it("shows generated images only in their tool details, with enlargement and no trailing gallery", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const fetchImage = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Blob(["image"], { type: "image/png" })));
+    const items: ThreadItem[] = [
       user(),
       {
         ...tool(),
+        arguments: undefined,
+        tool: "generate_image",
         artifact: { type: "image", path: "generated/image.png", mediaType: "image/png" },
       },
       assistant("final", "Here is the image.", "final_answer"),
-    ]} />);
-
-    expect(html.match(/assistant-response-footer/g)).toHaveLength(1);
-    expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
-    expect(html.indexOf("tool-artifacts")).toBeLessThan(html.indexOf("assistant-response-footer"));
+    ];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      for (const activeTurnId of ["turn-1", undefined]) {
+        await act(async () => root.render(<AgentTimeline projectId="project-1" items={items} activeTurnId={activeTurnId} />));
+        await vi.waitFor(() => expect(container.querySelector('.tool-activity-details button[aria-label="Open Generated image"]')).not.toBeNull());
+        expect(container.querySelector(".tool-artifacts")).toBeNull();
+        expect(container.querySelector(".assistant-response img")).toBeNull();
+      }
+      expect(fetchImage).toHaveBeenCalledWith("/api/projects/project-1/files/raw?path=generated%2Fimage.png", expect.anything());
+      expect(container.querySelectorAll('button[aria-label="Copy response"]')).toHaveLength(1);
+      await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Generated image"]')!.click());
+      await vi.waitFor(() => expect(document.querySelector('.image-preview img')?.getAttribute("src")).toMatch(/^blob:/));
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      fetchImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders one response timestamp in the footer", () => {

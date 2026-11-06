@@ -178,27 +178,44 @@ interface StoredNativeSession {
   sessionId?: string;
   profileId?: string;
   interrupted?: true;
+  pendingUserMessageId?: string;
 }
 ```
 
 Only the latest matching `ready` marker on the current branch may resume.
-Write `active` before native work and `ready` only after successful completion
-or a stop the CLI reported as finished. Crashes, failed turns, other
-cancellations, and interrupted writes cannot reuse a previous ready context.
+Write `active` before native work and `ready` after successful completion or
+when the adapter confirms the native session can continue after a stop or
+failure. Unconfirmed cancellations and interrupted writes cannot reuse a
+previous ready context.
 Invalidate on every rewind/edit/restore, even if the native ID is unchanged, and
 after intervening Pi work, incompatible model changes, or legacy metadata.
 
 When the person stops a turn, an adapter may return `resumable` once the CLI
-itself has reported that the turn ended, so nothing of it is still running. Only
-Claude Code does this today, on its terminal `result`. The marker is then `ready`
+itself has reported that the turn ended, so nothing of it is still running.
+Claude Code does this on its terminal `result`, and Codex on the matching
+`turn/completed`. The marker is then `ready`
 with `interrupted`, and the next message, including after a restart, tells the
 agent the previous turn was stopped and may have left a tool partway. The agent
 keeps what it knew; a CLI that continues costs less at first but carries a larger
-context afterwards than a handoff does. Without that report, when the turn's end
-reports a failure that raced the stop such as a spent quota, or when the bounded
-interrupt wait ends in stopping the process, the context is rebuilt as for any
-other failed turn. Codex and OpenCode rebuild it for every stop until their turn
-ends are proven separate from the next turn's events.
+context afterwards than a handoff does. Without that report, or when the bounded
+interrupt wait forces the adapter closed, context is rebuilt. OpenCode still
+rebuilds after every stop.
+
+Codex also retains its thread after a terminal failed turn or an explicit
+`turn/start` rejection. If its app server exits, the next message starts another
+server and resumes that thread. A failure before submitting a turn likewise
+keeps an existing thread. An ambiguous `turn/start` transport failure, with no
+confirmed turn end, still invalidates context. An expired thread receives the
+fresh-context retry described below.
+If a request is rejected or the server exits before acknowledging a turn, the
+ready marker points to the first user message whose receipt was not confirmed.
+The next turn sends
+those user messages and images along with the new message, even after restart,
+without replaying the rest of the conversation or creating a new thread.
+Codex buffers turn notifications and tool/approval requests until `turn/start`
+returns the turn ID, then accepts only matching thread and turn IDs. Tool
+results belong to that turn; late results and terminal events cannot affect
+the next one. Manual compaction identifies its turn from `turn/started`.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
 handoff: recent visible turns, how a cut-off last turn ended, the tool failures
@@ -299,7 +316,11 @@ return. Auto mode depends on the model: Claude Code starts in default mode, or
 refuses to switch (`auto_mode_model`), for a model without it, and the session
 continues in default mode. The `PreToolUse` hook only marks a call as running and refuses
 `ExitPlanMode` and, while planning, file-changing tools; otherwise it gives no
-decision. `can_use_tool` requests become approval cards carrying Claude's
+decision. Claude's `AskUserQuestion` is disallowed, because Claude Code hands it to the
+host as a permission request that an approval card cannot answer. Claude asks
+with OhMyGame's `questionnaire` while planning and in its reply otherwise,
+like OhMyGame's own agent. Other
+`can_use_tool` requests become approval cards carrying Claude's
 `permission_suggestions`, which go back as `updatedPermissions` when the person
 always allows. Planning runs in Claude's default permission mode, not its plan
 mode, so Claude records the plan with `update_plan` rather than its own plan

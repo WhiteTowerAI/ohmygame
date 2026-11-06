@@ -1,3 +1,4 @@
+import { useListPage } from "./use-list-page.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Archive, FilePlus, Import, LayoutGrid, List, LoaderCircle, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -131,9 +132,10 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
     },
   ];
 
+  const page = useListPage(visibleProjects.length);
   const lists = layout === "grid" ? (
     <div className={`projects-grid${selection.selecting ? " is-selecting" : ""}`}>
-      {visibleProjects.map((project) => (
+      {visibleProjects.slice(0, page.limit).map((project) => (
         <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)}
           onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
       ))}
@@ -146,7 +148,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
         <span>{t("projects.type")}</span>
         <span>{t("projects.updated")}</span>
       </div>
-      {visibleProjects.map((project) => (
+      {visibleProjects.slice(0, page.limit).map((project) => (
         <div key={project.id} role="listitem">
           <ProjectRow project={project} agentStatus={activity.get(project.id)}
             onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
@@ -241,7 +243,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
               : <Button size="sm" icon={<Plus size={14} />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
           </div>
         ) : null}
-        {phase !== "error" && visibleProjects.length > 0 ? lists : null}
+        {phase !== "error" && visibleProjects.length > 0 ? <>{lists}{page.next}</> : null}
         {dropActive ? <div className="projects-drop-overlay" role="status"><div className="projects-drop-message"><Import size={28} /><span>{t("projects.importDropHint")}</span></div></div> : null}
       </div>
       {selection.bar}

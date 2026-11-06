@@ -19,7 +19,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
-import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
@@ -124,6 +124,7 @@ export type SessionFactory = (project: ProjectState, conversation: StoredConvers
 export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): ThreadItem[] {
   const items: ThreadItem[] = [];
   const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
+  const checkpointIndices = new Map<string, number>();
   const planCalls = new Set<string>();
   const questionnaireCalls = new Map<string, Extract<ThreadItem, { type: "userInputRequest" }>>();
   let turnId: string | undefined;
@@ -176,14 +177,14 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     if (entry.type === "custom" && entry.customType === TURN_END_ENTRY) {
       // The entry names the checkpoint of a message that is already listed; the message that comes next is not its concern.
       const end = parseStoredTurnEnd(entry.data);
-      const index = items.findIndex((item) => item.type === "userMessage" && item.checkpointId === end?.checkpoint);
+      const index = (end && checkpointIndices.get(end.checkpoint)) ?? -1;
       const item = items[index];
       if (end && item?.type === "userMessage") items[index] = { ...item, changes: { files: end.files, ...(end.items ? { items: end.items } : {}) } };
       continue;
     }
     if (entry.type === "custom" && entry.customType === CHECKPOINT_UNDONE_ENTRY) {
       const undone = parseStoredCheckpointUndone(entry.data);
-      const index = items.findIndex((item) => item.type === "userMessage" && item.checkpointId === undone?.checkpoint);
+      const index = (undone && checkpointIndices.get(undone.checkpoint)) ?? -1;
       const item = items[index];
       // The last undo of a turn says how it stands: one that left files as they are, until a later one puts those back too.
       if (undone && item?.type === "userMessage" && item.changes) {
@@ -240,6 +241,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const attachments = details?.attachments ?? parsed.attachments;
       const contexts = promptContextLabels(details?.attachmentContext ?? parsed.attachmentContext);
       if (text || images.length > 0 || attachments.length > 0) {
+        if (checkpoint && !checkpointIndices.has(checkpoint)) checkpointIndices.set(checkpoint, items.length);
         items.push({ id: entry.id, turnId, type: "userMessage", text, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(contexts.length ? { contexts } : {}), ...(checkpoint ? { checkpointId: checkpoint } : {}), timestamp });
         if (images.length) items.push({ id: `${entry.id}:images`, turnId, type: "imageRead", count: images.length, status: "completed", timestamp });
       }
@@ -393,11 +395,14 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 }
 
 interface AgentManagerOptions {
+  onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
+  /** Told once a run's turns are closed: how the run ended and the files its turns changed. */
+  onTurnEnded?: (project: ProjectState, end: { conversationId: string; status: "completed" | "failed" | "cancelled"; changes: CheckpointChangeItem[] }) => void;
   /** Told of every change to a conversation, and whether it now stands at a usage limit it could carry on from. */
   onLimitChange?: (projectId: string, conversationId: string, limitReached: boolean) => void;
   /** Takes the snapshot that closes a turn, and counts the files that differ between two snapshots. */
@@ -406,6 +411,8 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
+  /** Told when a call to an MCP server fails, so the plugin that runs it can log it. */
+  onMcpToolFailed?: (server: string, tool: string, message: string) => void;
 }
 
 interface UndoneChanges {
@@ -642,14 +649,14 @@ export class AgentManager {
         this.#forgetConversation(key);
   }
 
-  /** Reject removal during startup/work, then stop the profile's idle processes before deleting files. */
+  /** Reject a change during startup/work, then stop the profile's idle processes before its directory changes or goes. */
   async releaseAccountProfileSessions(runtime: AgentRuntimeId, profileId: string): Promise<void> {
     const matches = (session: CodingSession) => session.runtime === runtime && (session.profileId ?? "system") === profileId;
     const sessions = [...this.#sessions].filter(([, managed]) => matches(managed.session));
     await Promise.all(sessions.flatMap(([key]) => this.#activeTurns.get(key)?.ended ? [this.#turnClosed(key)] : []));
     // An unconstructed session does not yet expose its account. Retry once startup finishes.
     if (this.#sessionLoads.size || sessions.some(([key]) => this.#activeTurns.has(key) || this.#revisions.has(key)))
-      throw new Error("Wait for the agent to finish before deleting this account configuration");
+      throw new Error("Wait for the agent to finish before changing this account configuration");
     await Promise.all(sessions.map(([key]) => this.#forgetConversation(key)));
     await Promise.all([...this.#sessionDisposals].flatMap(([session, stopped]) => matches(session) ? [stopped] : []));
   }
@@ -1657,6 +1664,7 @@ export class AgentManager {
     // Set together with queueing the mutation that closes the turn, so whatever then waits in this queue comes after it.
     // Since the event that ended the run nothing from outside has had a turn: only promise callbacks ran in between.
     active.ended = true;
+    this.options.onActivityChange?.();
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
       // An edit can fail before its replacement message starts. Preserve the
@@ -1674,6 +1682,15 @@ export class AgentManager {
       const ends = await this.#turnEnds(project, active);
       this.#recordTurnEnds(projectId, active, ends);
       this.#activeTurns.delete(key);
+      if (!this.#closing) {
+        // A file several turns of the run changed is named once, as the last of them left it.
+        const changes = new Map(ends.flatMap((end) => end.items ?? []).map((item) => [item.path, item]));
+        try {
+          this.options.onTurnEnded?.(project, { conversationId: active.conversationId, status: result ?? "failed", changes: [...changes.values()] });
+        } catch {
+          // Listeners only hear about it.
+        }
+      }
       this.#denyApprovals(projectId, active);
       const questionnaire = this.#questionnaires.get(key);
       if (questionnaire) {
@@ -2212,6 +2229,8 @@ export class AgentManager {
       const item = current?.type === "dynamicToolCall" || current?.type === "mcpToolCall"
         ? current
         : toolThreadItem(active.turnId, itemId, event.toolCallId, event.toolName, undefined, "inProgress");
+      if (event.isError && item.type === "mcpToolCall" && item.server)
+        this.options.onMcpToolFailed?.(item.server, item.tool, result.output ?? "");
       this.#completeItem(projectId, active, {
         ...item,
         status: event.isError ? "failed" : "completed",
@@ -2339,6 +2358,7 @@ export class AgentManager {
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState, limitReached = false): void {
     this.#agentStates.set(conversationKey(projectId, conversationId), state);
+    this.options.onActivityChange?.();
     this.options.onLimitChange?.(projectId, conversationId, limitReached);
   }
 
@@ -2607,28 +2627,7 @@ function parseLocalAttachments(value: string): { visible: string; attachments: C
       return { visible: `${value.slice(0, index)}${value.slice(closingIndex + closing.length)}`, attachments: [], context: value.slice(index, closingIndex + closing.length) };
     }
   }
-  return parseLegacyLocalAttachments(value);
-}
-
-function parseLegacyLocalAttachments(value: string): { visible: string; attachments: ConversationAttachment[]; context: string } | undefined {
-  const marker = "\n\n[Attached local files]\n";
-  const index = value.lastIndexOf(marker);
-  if (index < 0) return undefined;
-  const attachments = value.slice(index + marker.length)
-    .split("\n")
-    .flatMap((line) => legacyAttachment(line));
-  return { visible: value.slice(0, index), attachments, context: value.slice(index) };
-}
-
-function legacyAttachment(line: string): ConversationAttachment[] {
-  const match = line.match(/^- (.+) \((image|text|document|audio|video|model|archive|binary), ([\d.]+) (B|KB|MB)\): /);
-  if (!match) return [];
-  const [, rawRelativePath, kind, amount, unit] = match;
-  const relativePath = rawRelativePath.replaceAll("\\_", "_");
-  const multiplier = unit === "MB" ? 1024 * 1024 : unit === "KB" ? 1024 : 1;
-  const size = Number(amount) * multiplier;
-  if (!Number.isFinite(size)) return [];
-  return [{ name: path.posix.basename(relativePath), relativePath, kind: kind as ConversationAttachment["kind"], size }];
+  return undefined;
 }
 
 function isConversationAttachment(value: unknown): value is ConversationAttachment {

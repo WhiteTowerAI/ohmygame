@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseAppRoute,
   pluginHash,
+  pluginsTabHash,
   projectsHash,
   type AppRoute,
 } from "./routes.js";
@@ -27,8 +28,13 @@ function returnHash(hash: unknown): string | undefined {
   )
     return;
   if (route.page === "home" && hash !== "#/" && hash !== "#/home") return;
-  if (route.page === "plugins") return pluginHash(route.pluginId);
+  if (route.page === "plugins") return pluginsPageHash(route);
   return hash;
+}
+
+/** A Plugins page link without what it only says once, such as `adds`; its tab stays. */
+function pluginsPageHash(route: Extract<AppRoute, { page: "plugins" }>): string {
+  return route.tab ? pluginsTabHash(route.tab) : pluginHash(route.pluginId);
 }
 
 function projectReturnHash(state: Record<string, unknown>): string {
@@ -47,9 +53,9 @@ function readLocation(previous: NavigationLocation): NavigationLocation {
   let state = historyState();
   if (
     route.page === "plugins" &&
-    hash !== pluginHash(route.pluginId)
+    hash !== pluginsPageHash(route)
   ) {
-    hash = pluginHash(route.pluginId);
+    hash = pluginsPageHash(route);
     window.history.replaceState(state, "", hash);
   }
   if (route.page === "project" && !returnHash(state.projectReturnTo)) {

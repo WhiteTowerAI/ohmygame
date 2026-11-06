@@ -21,7 +21,7 @@ import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { applicationMenuTemplate, isApplicationMenuLabels } from "./application-menu.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -38,8 +38,10 @@ import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type A
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
+import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
+import { isPreviewColorFilter } from "../shared/preview-filter.js";
 
 ignoreBrokenStdio();
 
@@ -105,6 +107,9 @@ const webGamePlayers = new WebGamePlayerWindows((state) => {
 const gameRecordings = new Map<string, GameRecordingState>();
 const gameRecordingStarts = new Set<string>();
 let quitting = false;
+// Startup opens the main window itself; until then a macOS `activate` (sent when
+// the app is relaunched, e.g. after an update) finds the service still starting.
+let startupComplete = false;
 let quitPending = false;
 let restartPending = false;
 let rendererClose: RendererCloseRequest | undefined;
@@ -157,7 +162,7 @@ const agentNotifications = new AgentNotifications({
     notificationTarget = target;
     if (!mainWindow || mainWindow.isDestroyed()) {
       // The new window takes the target once its page has loaded.
-      if (daemon && !quitting) openMainWindow().catch((error) => console.error(error));
+      if (daemon && startupComplete && !quitting) openMainWindow().catch((error) => console.error(error));
       return;
     }
     mainWindow.webContents.send("ohmygame:notification-target");
@@ -278,25 +283,32 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
-  if (process.platform === "win32" && senderWindow === mainWindow) {
-    senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
-  }
 });
+if (process.platform === "win32") {
+  handle("ohmygame:window-control", (event, action: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("Invalid window control source");
+    }
+    if (action === "minimize") mainWindow.minimize();
+    else if (action === "toggle-maximize") {
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      else mainWindow.maximize();
+    } else if (action === "close") mainWindow.close();
+    else throw new Error("Invalid window control");
+  });
+  handle("ohmygame:window-state", (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("Invalid window state source");
+    }
+    return { maximized: mainWindow.isMaximized() };
+  });
+}
 handle("ohmygame:set-application-menu-labels", (event, labels: unknown) => {
   // Hidden thumbnail windows run Scene code, so only the main window may name the menus.
   if (!mainWindow || event.sender !== mainWindow.webContents || !isApplicationMenuLabels(labels)) {
     throw new Error("Invalid application menu labels");
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(labels, process.platform)));
-});
-handle("ohmygame:popup-window-menu", (event, id: unknown, x: unknown, y: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || typeof id !== "string" ||
-      typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
-    throw new Error("Invalid window menu request");
-  }
-  const item = Menu.getApplicationMenu()?.getMenuItemById(id);
-  if (!item?.submenu) throw new Error(`Window menu is not available: ${id}`);
-  item.submenu.popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
@@ -307,6 +319,18 @@ handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!response.ok) throw new Error("Plugin directory is not available");
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid plugin directory");
+  const error = await shell.openPath(result.path);
+  if (error) throw new Error(error);
+});
+handle("ohmygame:browse-account-directory", async (event, runtime: unknown, profileId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
+  if (!isAccountRuntimeId(runtime) || !validRouteId(profileId) || !daemon) throw new Error("Invalid account");
+  const response = await fetch(`${daemon.runtime.url}/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/directory`, {
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) throw new Error("Account directory is not available");
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid account directory");
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
@@ -458,6 +482,11 @@ handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.capture(projectId);
 });
+handle("ohmygame:filter-web-game-player", (event, projectId: unknown, filter: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (filter !== null && !isPreviewColorFilter(filter)) throw new Error("Invalid game filter");
+  webGamePlayers.setFilter(projectId, filter ?? undefined);
+});
 handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unknown) => {
   requirePlayerSource(event.sender, projectId);
   const input = request as Partial<WebGamePlayerRequest> | null;
@@ -491,9 +520,9 @@ handle("ohmygame:runtime-state", (event) => {
   if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
   return daemon.state();
 });
-handle("ohmygame:restart-runtime", (event) => {
+handle("ohmygame:restart-runtime", (event, options: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
-  return daemon.restart();
+  return daemon.restart({ safeMode: (options as { safeMode?: unknown } | undefined)?.safeMode === true });
 });
 
 async function startGameRecording(projectId: string): Promise<void> {
@@ -503,8 +532,11 @@ async function startGameRecording(projectId: string): Promise<void> {
   let outcome: Promise<GameRecordingSaved>;
   try {
     const { contents, title } = await webGamePlayers.recordingTarget(projectId);
+    // The filter is off before the first frame is captured.
+    await webGamePlayers.setRecording(projectId, true);
     ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
   } catch (cause) {
+    void webGamePlayers.setRecording(projectId, false);
     if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
     throw cause;
   } finally {
@@ -513,11 +545,10 @@ async function startGameRecording(projectId: string): Promise<void> {
   if (gameRecordings.get(projectId)?.status !== "saving") {
     publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
   }
-  webGamePlayers.setRecording(projectId, true);
   void outcome.then(
     (saved) => publishGameRecording({ projectId, status: "idle", saved }),
     (cause: unknown) => publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) }),
-  ).finally(() => webGamePlayers.setRecording(projectId, false));
+  ).finally(() => void webGamePlayers.setRecording(projectId, false));
 }
 
 function publishGameRecording(state: GameRecordingState): void {
@@ -712,7 +743,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("activate", () => {
-  if (!daemon || mainWindow || quitting) return;
+  if (!daemon || !startupComplete || mainWindow || quitting) return;
   openMainWindow().catch((error) => {
     console.error(error);
     dialog.showErrorBox("OhMyGame could not open a window", error instanceof Error ? error.message : String(error));
@@ -768,6 +799,8 @@ try {
   }).catch((error) => { console.warn("Could not install the OhMyGame MCP launcher", error); return undefined; });
   clearExternalMcpApp = await markExternalMcpApp(dataDirectory).catch(() => undefined);
   daemon = new DaemonSupervisor({
+    // `--safe-mode` starts with no plugins running, for a plugin that breaks the app.
+    safeMode: process.argv.includes("--safe-mode"),
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
     dataDirectory,
     token: randomBytes(32).toString("base64url"),
@@ -829,6 +862,7 @@ try {
     updateFailure = failure;
   });
   await openMainWindow();
+  startupComplete = true;
   if (app.isPackaged) {
     updateChecks = new DesktopUpdateCheckScheduler(updater);
     updateChecks.start();
@@ -850,7 +884,7 @@ async function openMainWindow(): Promise<void> {
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
-    integratedMenuBar: true,
+    integratedWindowControls: true,
     beforeLoad: (window) => {
       mainWindow = window;
       if (process.platform === "win32") showWaitingOverlay();
@@ -861,6 +895,13 @@ async function openMainWindow(): Promise<void> {
         webGamePlayers.synchronize();
         updateChecks?.onFocus();
       });
+      if (process.platform === "win32") {
+        const sendWindowState = () => {
+          if (!window.isDestroyed()) window.webContents.send("ohmygame:window-state", { maximized: window.isMaximized() });
+        };
+        window.on("maximize", sendWindowState);
+        window.on("unmaximize", sendWindowState);
+      }
       window.on("focus", () => {
         updateChecks?.onFocus();
         if (process.platform !== "darwin") window.flashFrame(false);

@@ -99,8 +99,10 @@ automatic policy, idle collection, logs, and browser storage.
 ## First-run setup
 
 The home route reads the daemon's `/settings/onboarding` preference before
-opening the studio. The daemon stores version 1 state in `onboarding.json`
-under its data directory: `status` is `pending`, `completed`, or `skipped`,
+opening the studio. Meanwhile the window shows the sidebar and an empty main
+area, which shimmers without text if the wait passes 400 ms. The daemon stores
+version 1 state in `onboarding.json` under its data directory: `status` is
+`pending`, `completed`, or `skipped`,
 and `step` is `welcome`, `connect`, or `media`. Existing version 1 records
 remain valid. Atomic, serialized writes retain the current step across restarts.
 The connection step offers model providers and local coding agent CLIs; discovery
@@ -409,18 +411,55 @@ a system Chrome dependency to generated games.
 
 `game_use` is backed by a typed runtime adapter. The adapter advertises its
 runtime, supported project types, input methods, observations, deterministic
-operations, and whether it can be shown in watch mode. The daemon registers
-the tool only when the current project's type is included in those capabilities
-and, for General Game, its Web preview switch is enabled.
+operations, the operations it supports, and whether it can be shown in watch
+mode. The daemon registers the tool only when the current project's type is
+included in those capabilities and, for General Game, its Web preview switch
+is enabled, or when the project's plugin type brings a runtime of its own
+(below).
 
 The shipped adapter is `web` for `web-game`, `interactive-story` (the story
 opens its own page through the preview; one made before web stories is
 refused until the Story editor upgrades it), and configured Web previews in `general` projects
-and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
-their runtime bridges are added, they should implement the same adapter
-contract for launch or attach, input, screenshots, state, reset or stepping,
-and shutdown. An editor MCP connection alone is not a runtime adapter and
+and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. Their
+runtime bridges can come as [plugin game runtimes](#plugin-game-runtimes),
+for launch or attach, input, screenshots, state and shutdown. An editor MCP connection alone is not a runtime adapter and
 must not be presented as gameplay verification.
+
+### Plugin game runtimes
+
+A plugin's `native` project type that declares
+[`gameUse`](plugins.md#routes) gets `game_use` through its plugin
+(`src/daemon/plugin-game-runtime.ts`). The daemon makes one runtime per
+project, shared by its conversations, from the type the version pinned in
+`ohmygame.json` declares, while the plugin is on and allowed there. It makes
+the runtime again, closing its sessions, when the project moves to another
+version or that declaration changes. The tool then offers only
+the operations and input the type declares, with clicks at a point, no
+bridge and no `path`; each call checks again that the project's version
+still declares it. `captureFrame` runs the game again from its start and
+captures frame N. The result says `source: "fresh-run"` and the frame the
+plugin kept, which may be later than asked while the game loads. Two runs
+are not promised to match.
+
+- **Sessions.** The agent sees ids the daemon gives, never the plugin's own.
+  Each is tied to the host process that opened it: once that host stops, the
+  session ends without asking the new host about it. While one is open, the
+  host doesn't stop for being idle. A session unused for 10 minutes closes,
+  at most four are open per project, and one's requests run in order. An
+  open given up on still waits for the plugin, then closes what it opened;
+  closing a session that already ended succeeds.
+  As with the web runtime, a conversation reaches only the sessions it opened
+  and closes them when its run ends.
+- **Images.** For each capture the daemon makes a temporary folder and names
+  the file the plugin writes. It reads that file without following a link:
+  a regular file of at most 32 MiB, PNG or JPEG of at most 8192² pixels. It
+  scales the image to fit 1568 pixels and sends it on as JPEG, with the
+  source size when it was scaled down and the web runtime's blank check. The
+  folder is removed whatever happens. Native code is trusted, so these checks
+  catch mistakes, not a plugin set on harm.
+
+Plugins with the `game` capability play the same game from their native code
+(`context.game`, see [native code](plugins.md#native-code)).
 
 ### Optional game bridge
 
@@ -456,17 +495,49 @@ Each project lives under the daemon data directory:
 
 ```text
 projects/<project-id>/
-├── project.json   project identity and latest publication
-├── cover.webp     uploaded cover, retained while automatic mode is enabled
-├── cover-auto.webp last automatic cover, retained when a custom cover is applied
-├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
-├── cover-state.json explicit cover mode, including when no cover exists
-├── logo.webp      uploaded logo, shown in the sidebar instead of the icon
+├── project.json   this computer's record: id, folder, latest publication, when it changed
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
 └── session/       Pi session files, one per conversation
 ```
+
+OhMyGame's own files in the workspace are in `.ohmygame/`:
+
+```text
+.ohmygame/
+├── .gitignore        leaves local/ and build/ out of the project's repository
+├── assets.json       prompts, previews, Library links and origins of assets
+├── asset-previews/   preview images of generated assets
+├── cover.webp        uploaded cover, retained while automatic mode is enabled
+├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
+├── cover-state.json  explicit cover mode, including when no cover exists
+├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
+├── settings.json     the name, type, run and preview settings, appearance and
+│                     media model defaults: the project's record of them
+├── build/            what plugins build, such as a Godot web build
+└── local/            this computer's files: the last automatic cover
+                      (cover-auto.webp), agent attachments, Node thumbnails,
+                      newer story runtime files
+```
+
+Everything but `local/` and `build/` goes with the project into snapshots,
+exports and its repository, except that snapshots leave out the settings,
+cover and logo, so undoing a turn keeps them. `settings.json` is where the
+project's name and settings are: a start reads them from it, so an edit there,
+such as from Git, is what the next start shows. `project.json` holds them
+(`settings`) only while the folder can't take them: a new folder that is
+still empty, until its type or example fills it or something changes, or one
+that isn't there. A folder that isn't there shows by its folder name, and a
+`settings.json` that can't be read is never written over; until either is
+back, the project's settings can't change. A folder opened as a project
+again, as the same type, gets back its name and settings from it; a name
+typed when opening it wins. A `project.json` from before (`version: 1`) held
+them itself; they move to the folder when it loads. A project from an older OhMyGame keeps asset
+records, previews and attachments in `.data/`, its caches straight in
+`.ohmygame/`, and its covers and logo beside `project.json`; they move when
+the project loads, is imported, or a snapshot from before comes back. What is
+already in place is never replaced.
 
 Settings → General → **Project location** sets the folder new projects are
 made in when the dialog doesn't choose one: each gets a new subfolder named
@@ -494,7 +565,9 @@ Project lists receive names from the project activity stream, even after a
 short turn finishes. `/projects/activity` returns `{ activity, names }`, and
 `/projects/activity/events` streams the same snapshot as an `activity` SSE event
 whenever it changes; `names` contains only each project's `id`, `name` and
-optional `nameSource`. Stopping the daemon ends this and the other SSE streams
+optional `nameSource`. New connections receive the current snapshot. Changes to
+agent activity or the project list prompt one shared snapshot for all listening
+windows, including when a turn starts cancelling. Stopping the daemon ends this and the other SSE streams
 first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
@@ -505,16 +578,19 @@ account. The open project is marked; hovering a project lists its
 conversations, newest first, and the open project's list ends with **New
 conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
-Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
-window's menus in the UI language, then Back and Forward, with the system's
-window controls at its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
+Minimize, Maximize or Restore, and Close in the app's colours over the page's
+top right corner. The controls remain available when Community asks to unpublish
+a game or the application shows its error page. Back and Forward lead the
+sidebar and the project rail.
+The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel
 isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
 not have and Godot and plugin projects show disabled. It publishes to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
-without the upload size limit, to host elsewhere. Leaving through the rail, the
-menu or the title bar, and either export, saves the open design first.
+without the upload size limit, to host elsewhere. Leaving through the rail or
+the project's menu, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
@@ -536,8 +612,11 @@ project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
-these shortcuts wait for it to close. A pending desktop update shows above the account until
-it needs a restart. The sidebar collapses to icons, each naming itself in a
+these shortcuts wait for it to close. A desktop update that needs you is a
+blue pill at the account's end: a dot that opens to **Update** or **Restart** on
+hover, filling with the download's progress in between, and a warning that
+leads to About when the update failed. Collapsed, it sits above the account.
+The sidebar collapses to icons, each naming itself in a
 tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
 moment and the next ones show at once while the pointer moves along the icons.
 Its edge drags between
@@ -567,7 +646,7 @@ location. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
 being cancelled. Home waits while it is made. **Blank project** opens
-the dialog empty, and **Import folder** (desktop app) picks an existing folder,
+the dialog empty, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt
 box's type menu adds the enabled plugins that set up their own projects, such
@@ -575,7 +654,7 @@ as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
 mentions lead the first message in the order chosen. **Ideas**, in the row under
-the box with **Blank project** and **Import folder**, lists a few prompts for
+the box with **Blank project** and **Choose project**, lists a few prompts for
 the type that fill the box. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
@@ -622,6 +701,15 @@ front. A project without a preview, such as Godot without a web build, has no
 Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
+
+Long conversations open at the most recent 40 turns. Scroll toward the top
+or choose **Show earlier messages** to read the preceding turns.
+
+Generated images appear as small thumbnails inside their tool's details
+([example](assets/chat-generated-image-details.png)),
+with the same click-to-enlarge, copy and save actions as other chat images.
+They are not repeated below the response. The files remain in the project's
+`assets/generated/` folder, and the conversation keeps their references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
@@ -756,7 +844,7 @@ message and when its run ends. Finished, failed and cancelled turns show their
 net file changes in Chat. The project does not need Git; snapshot storage stays
 beside the workspace without changing its `.git`, branches or index. Snapshots
 leave out what the workspace's `.gitignore` files ignore, apart from OhMyGame's
-own `.data/` and `canvas/`, and snapshots that nothing names are pruned at most
+own `.ohmygame/` and `canvas/`, and snapshots that nothing names are pruned at most
 once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and
@@ -781,7 +869,7 @@ in the `--project-cover-*` variables in `src/renderer/styles.css`.
 
 **Appearance…** in the project menu, also at the top of project settings,
 changes how a project looks. Changes apply at once and are kept in
-`appearance` in `project.json`:
+`appearance` in `.ohmygame/settings.json`:
 
 - `icon` and `tone` replace the icon and background the ID picks. The icons are
   the 24 in `PROJECT_ICONS` (`src/shared/project-appearance.ts`), whose order
@@ -848,6 +936,9 @@ produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
 and symbolic links are skipped. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
+For a nested package, preview and publishing both select the package manager and
+install dependencies at the owning workspace root. The build script runs in the
+configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
 web games, General projects, and Interactive Stories, without the upload size

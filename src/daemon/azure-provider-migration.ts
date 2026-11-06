@@ -3,6 +3,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 
+// compat: since beta.4.8, remove from beta.6 and 2026-11-13. The whole file.
 // Pi 1.0.3 renamed this provider and does not move stored settings itself.
 const LEGACY_ID = "azure-openai-responses";
 const CURRENT_ID = "azure";

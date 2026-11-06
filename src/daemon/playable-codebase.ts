@@ -48,6 +48,7 @@ export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly 
     "8619c00f6a6ec09d6dfdaf99a2f84bc79fbd1214da156776701306fe9ba585ed",
     "6756f06173ada0f8dbd0f805df7be19c754468ce33b9834d1f1caa130c09181c",
     "1f2de44de2cc69a1d740b1152bad62060f3d8c8b511016dbb64f42e36c73e436",
+    "94f6d304d6d40626a6a18661113ebe4bdc2674117ec19b0e4b28c26e9fbbb35b",
   ],
   "README.md": [
     "311594a64abc80d5b1c8270e064375268f8bb3eff44e58f634c3d275208c65e2",
@@ -56,6 +57,7 @@ export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly 
     "0e99e5862388f7a8e3e3139f7d948f801b0fd843a8568a95e5635cffa4c0bbd4",
     "a9054d6e699cf6741d3056a2a121049363e17bf4ad9fa47df6954e8246086774",
     "cb267e6e75e349a899668e9b03ce37a9936e68f401f6bd8764223c3634d64b13",
+    "6ebb841a7c5c875dc4664bba88e13afff779bfb12c4360a7c73c73a912d70abf",
   ],
 };
 
@@ -94,7 +96,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them was made before web stories and cannot play, build, or publish until the Story editor upgrades it, which it does when the user opens the story there; ask the user to open it.
 
 - The runtime under \`story/\` is project code. Change it when the game needs something it does not do, and keep what the editor relies on: \`graph.json\` as the story's flow, the \`context\` every Scene's \`mount\` receives, the \`scene\` query parameter, and the one \`data-media="backdrop"\` background per Scene.
-- \`story/manifest.json\` records the runtime OhMyGame wrote. When it lists \`pending\` files, a newer runtime changed files you or the author changed; the newer ones are under \`.ohmygame/story-runtime/<version>/\`. Merge them into the project's files, keeping the project's changes, then remove \`pending\` from the manifest.
+- \`story/manifest.json\` records the runtime OhMyGame wrote. When it lists \`pending\` files, a newer runtime changed files you or the author changed; the newer ones are under \`.ohmygame/local/story-runtime/<version>/\`. Merge them into the project's files, keeping the project's changes, then remove \`pending\` from the manifest.
 - A Scene's code loads as a browser module, with no bundler: import project files by relative path, read text with \`await (await fetch(new URL("./script.txt", import.meta.url))).text()\`, and import JSON with \`with { type: "json" }\`. Packages from \`node_modules\` are not available.
 - The page may use browser storage for what belongs to the player across every game, such as lines read or pictures unlocked. Keep a game's progress in \`context.state\` and \`context.position\`, so saves, slots, and Continue stay right.
 - Media a Scene uses goes in \`graph.json\` \`assets\` as a project file, so publishing includes it.
@@ -135,7 +137,7 @@ This project is made of one graph plus ordinary browser source files. Every Node
 - \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playScene()\`.
 - \`editor/layout.json\` contains editor-only positions and viewport state.
 - \`schemas/\` contains the exact persisted JSON contracts.
-- \`.ohmygame/\` is editor cache, such as Node thumbnails. It is never published; leave it alone.
+- \`.ohmygame/\` is OhMyGame's own data, such as asset records and Node thumbnails. It is never published; leave it alone.
 
 ## Node API
 
@@ -396,6 +398,7 @@ export async function ensureNodeCodebaseContract(
   ]);
 }
 
+// compat: since beta.4.4, remove from beta.6 and 2026-11-10. Adds project-style to stories made before it.
 async function migratePlayableProjectStyle(
   workspacePath: string,
 ): Promise<void> {

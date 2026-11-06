@@ -2,7 +2,7 @@
 import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import type { LibraryAssetReference } from "../src/renderer/api.js";
 import type { LibraryAssetSummary } from "../src/shared/contracts.js";
 
@@ -125,6 +125,49 @@ it("opens details with the prompt, and opens the one project using an asset", as
   expect(document.querySelector(".library-sheet-props")?.textContent).toContain("640 × 480");
 });
 
+it("plays an audio tile in place, one at a time, and still opens its details from the name", async () => {
+  const play = vi.fn(async () => {});
+  const pause = vi.fn();
+  vi.stubGlobal("Audio", class {
+    paused = true;
+    src = "";
+    currentTime = 0;
+    listeners: Record<string, () => void> = {};
+    addEventListener(name: string, listener: () => void) { this.listeners[name] = listener; }
+    removeAttribute() { this.src = ""; }
+    play() { this.paused = false; this.listeners.play?.(); return play(); }
+    pause() { this.paused = true; this.listeners.pause?.(); pause(); }
+  });
+  const created = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:theme");
+  const revoked = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  onTestFinished(() => { created.mockRestore(); revoked.mockRestore(); });
+  await click(button("Play theme.mp3"));
+  expect(api.getLibraryAsset).toHaveBeenCalledWith("theme");
+  expect(play).toHaveBeenCalledTimes(1);
+  expect(document.querySelector(".library-audio-tile")?.classList.contains("is-playing")).toBe(true);
+  expect(document.querySelector(".ui-sheet")).toBeNull();
+  await click(button("Pause theme.mp3"));
+  expect(pause).toHaveBeenCalled();
+  expect(document.querySelector(".library-audio-tile")?.classList.contains("is-paused")).toBe(true);
+
+  await openTile("theme.mp3");
+  expect(document.querySelector(".ui-sheet .ui-dialog-title")?.textContent).toBe("theme.mp3");
+  // Opening the details stops the tile, so only the sheet's player is heard.
+  expect(document.querySelector(".library-audio-tile")?.className).toBe("library-audio-tile");
+  expect(revoked).toHaveBeenCalledWith("blob:theme");
+  await click(button("Close", document.querySelector(".ui-sheet")!));
+
+  // Deleting the sound while it plays stops it with its tile.
+  await click(button("Play theme.mp3"));
+  pause.mockClear();
+  const area = document.querySelector(".library-audio-tile")!.closest(".ui-context-area")!;
+  await act(async () => { area.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 1, clientY: 1 })); });
+  await click([...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) => item.textContent === "Delete")!);
+  await click(button("Delete", document.querySelector(".ui-dialog")!));
+  expect(tiles()).toEqual(["hero.webp", "intro.mp4"]);
+  expect(pause).toHaveBeenCalled();
+});
+
 it("deletes an asset used by projects everywhere after listing them", async () => {
   await openTile("hero.webp");
   await click(button("Delete", document.querySelector(".ui-sheet")!));
@@ -177,4 +220,28 @@ it("offers trimming for videos only, in its own dialog", async () => {
   expect(button("Save as new video", dialog).disabled).toBe(true);
   await click(button("Cancel", dialog));
   expect(document.querySelector(".ui-sheet .ui-dialog-title")?.textContent).toBe("intro.mp4");
+});
+
+it("resumes automatic paging when refresh replaces the end of a list of the same size", async () => {
+  const { useListPage } = await import("../src/renderer/use-list-page.js");
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private readonly notify: IntersectionObserverCallback) {}
+    target?: Element;
+    observe(target: Element) {
+      this.target = target;
+      observed.set(target, () => this.notify([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+    }
+    disconnect() { if (this.target) observed.delete(this.target); }
+  });
+  function List({ loading }: { loading: boolean }) {
+    const page = useListPage(100);
+    return <>{page.limit}{loading ? null : page.next}</>;
+  }
+  for (const loading of [false, true, false]) {
+    await act(async () => root!.render(<List loading={loading} />));
+    expect(observed.size).toBe(loading ? 0 : 1);
+  }
+  await act(async () => { observed.values().next().value!(); });
+  expect(container?.textContent).toContain("96");
 });

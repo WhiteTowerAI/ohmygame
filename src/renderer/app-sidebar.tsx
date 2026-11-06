@@ -17,7 +17,7 @@ import {
   MessageCircle,
   PanelToggle,
   Plug,
-  RefreshCircle,
+  RefreshCw,
   Search,
   Settings,
   UserRound,
@@ -34,8 +34,8 @@ import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
+import { hasWindowsWindowControls } from "./desktop-window-frame.js";
 import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
-import { hasWindowsTitleBar } from "./desktop-window-frame.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -43,7 +43,7 @@ export type SidebarActive = SidebarPage | "settings";
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
-const RECENT_LIMIT = 8;
+export const RECENT_LIMIT = 8;
 // Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
 const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
@@ -205,7 +205,7 @@ interface NavigationLike extends EventTarget {
 }
 
 /** Whether the window can go back and forward, as the title bars show it. */
-export function useHistoryState() {
+function useHistoryState() {
   const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
   const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
   const [state, setState] = useState(read);
@@ -221,13 +221,21 @@ export function useHistoryState() {
   return state;
 }
 
-function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
+function HistoryButtons({ history, onLeave = (go) => go() }: {
+  history: ReturnType<typeof useHistoryState>;
+  onLeave?: (go: () => void) => void;
+}) {
+  return <>
+    <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
+    <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
+  </>;
+}
+
+function SidebarItem({ icon, label, shortcut: keys, active = false, onClick }: {
   icon: ReactNode;
   label: string;
   /** The keyboard shortcut's keys, shown as keycaps at the end while the sidebar is expanded. */
   shortcut?: readonly string[];
-  /** Marks the icon, so it shows in the collapsed sidebar too. */
-  dot?: "accent" | "warning";
   active?: boolean;
   onClick: () => void;
 }) {
@@ -235,7 +243,7 @@ function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick
     <SidebarTip label={label}>
       <button type="button" className={`sidebar-item${active ? " is-active" : ""}`}
         aria-current={active ? "page" : undefined} onClick={onClick}>
-        <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
+        <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
         <span className="sidebar-item-label">{label}</span>
         {keys ? <span className="sidebar-item-shortcut">{keys.map((key) => <Kbd key={key}>{key}</Kbd>)}</span> : null}
       </button>
@@ -301,12 +309,16 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const projects = useRecentProjects(active);
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
+  // The Windows frame always shows them, disabled when there is nowhere to go,
+  // so the top row keeps its shape from the first launch on.
+  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
       <PanelToggle size={18} />
     </IconButton>
   );
+  const historyButtons = <HistoryButtons history={history} />;
   const foldRecent = () => setPreferences({ recentOpen: !recentOpen });
 
   return (
@@ -317,10 +329,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             the window: controls, back, forward, then the toggle. */}
         {mac ? (
           <div className="sidebar-titlebar">
-            {collapsed ? <>
-              <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => window.history.back()}><ArrowLeft size={16} /></IconButton>
-              <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => window.history.forward()}><ArrowRight size={16} /></IconButton>
-            </> : null}
+            {collapsed ? historyButtons : null}
             {toggleButton}
           </div>
         ) : null}
@@ -329,8 +338,12 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
             <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
+          {!collapsed && showWindowsHistory ? historyButtons : null}
           {mac || collapsed ? null : toggleButton}
         </div>
+        {/* Collapsed, the brand row is too narrow for back and forward, so they
+            sit at the top of the page beside the rail instead. */}
+        {collapsed && showWindowsHistory ? <div className="sidebar-history">{historyButtons}</div> : null}
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
           <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
@@ -371,8 +384,10 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <span className="sidebar-spacer" />
         <div className="sidebar-group">
-          <UpdateItem />
-          <AccountMenu active={active === "settings"} avatarSize={collapsed ? 28 : 24} onNavigate={onNavigate} />
+          <div className="sidebar-account-row">
+            <AccountMenu active={active === "settings"} avatarSize={collapsed ? 28 : 24} onNavigate={onNavigate} />
+            <UpdatePill />
+          </div>
         </div>
       </nav>
       {collapsed ? null : <SidebarResizer width={width} />}
@@ -542,21 +557,48 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const latest = useRecentProjects();
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
-  const history = useHistoryState();
   const [creating, setCreating] = useState(false);
-  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
-    <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
+    <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
+      {recent.map((project) => (
+        <RailProject key={project.id} project={project} open={openHash}
+          conversations={project.id === projectId ? conversations : undefined} />
+      ))}
+      <Tooltip content={t("sidebar.newProject")} placement="right-start">
+        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
+          <CirclePlus size={16} />
+        </button>
+      </Tooltip>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
+    </AppRail>
+  );
+}
+
+/**
+ * The narrow rail of a full-window workspace: back and forward, the way home,
+ * the workspace's own items, then search and the account.
+ */
+export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }: {
+  label: string;
+  onNavigate: (page: AppNavigationTarget) => void;
+  onLeave?: (go: () => void) => void;
+  children: ReactNode;
+}) {
+  const history = useHistoryState();
+  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
+  return (
+    <nav className="sidebar project-rail" aria-label={label}>
       {/* Back and forward lead the title bar: here, over the rail, beside the
           macOS window controls or at the window's edge where the system draws
-          the title bar; on Windows they follow the window's menus instead. */}
-      {!hasWindowsTitleBar() ? (
-        <div className="sidebar-titlebar">
-          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
-          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
-        </div>
-      ) : null}
+          the title bar. */}
+      <div className="sidebar-titlebar">
+        <HistoryButtons history={history} onLeave={onLeave} />
+      </div>
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
@@ -565,27 +607,14 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
           </button>
         </Tooltip>
       </div>
-      <div className="sidebar-group sidebar-recent">
-        {recent.map((project) => (
-          <RailProject key={project.id} project={project} open={openHash}
-            conversations={project.id === projectId ? conversations : undefined} />
-        ))}
-        <Tooltip content={t("sidebar.newProject")} placement="right-start">
-          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
-            <CirclePlus size={16} />
-          </button>
-        </Tooltip>
-      </div>
-      {creating ? <ProjectCreateDialog
-        onClose={() => setCreating(false)}
-        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
-        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
-      /> : null}
+      <div className="sidebar-group sidebar-recent">{children}</div>
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
-        <UpdateItem />
-        <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+        <div className="sidebar-account-row">
+          <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+          <UpdatePill />
+        </div>
       </div>
     </nav>
   );
@@ -634,32 +663,37 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   );
 }
 
-// A desktop update needs you only twice, to start it and to restart; it stays
-// out of sight otherwise. A failure leads to About, which says why.
-function UpdateItem() {
+// A desktop update needs you only twice, to start it and to restart, so it is a
+// small pill beside the account: its name opens on hover, it fills while the
+// release downloads, and it is gone otherwise. A failure leads to About, which says why.
+function UpdatePill() {
   const status = useDesktopUpdate()?.status;
   const updates = window.ohMyGameDesktop?.updates;
   if (!status || !updates) return null;
-  switch (status.type) {
-    case "available":
-      return <SidebarItem icon={<ArrowDownToLine size={18} />} dot="accent" label={t("sidebar.updateTo", { version: status.version })}
-        onClick={() => void updates.download()} />;
-    case "downloading":
-      return (
-        <div className="sidebar-item sidebar-update" role="progressbar" aria-label={t("sidebar.downloadingUpdate")}
-          title={t("sidebar.downloadProgress", { percent: status.percent })} aria-valuenow={status.percent} aria-valuemin={0} aria-valuemax={100}>
-          <span className="sidebar-item-icon" aria-hidden="true"><ArrowDownToLine size={18} /></span>
-          <span className="sidebar-item-label">{t("sidebar.downloadProgress", { percent: status.percent })}</span>
-          <span className="sidebar-update-bar" style={{ width: `${status.percent}%` }} />
-        </div>
-      );
-    case "ready":
-      return <SidebarItem icon={<RefreshCircle size={18} />} dot="accent" label={t("sidebar.restartToUpdate")}
-        onClick={() => void updates.install()} />;
-    case "error":
-      return <SidebarItem icon={<DangerCircle size={18} />} dot="warning" label={t("sidebar.updateFailed")}
-        onClick={() => openSettings("about")} />;
-    default:
-      return null;
+  if (status.type === "downloading") {
+    return (
+      <div className="sidebar-update-progress" role="progressbar" aria-label={t("sidebar.downloadingUpdate")}
+        title={t("sidebar.downloadProgress", { percent: status.percent })}
+        aria-valuenow={status.percent} aria-valuemin={0} aria-valuemax={100}>
+        <span className="sidebar-update-fill" style={{ width: `${status.percent}%` }} />
+        <span className="sidebar-update-percent">{status.percent}%</span>
+      </div>
+    );
   }
+  const action = status.type === "available"
+    ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
+    : status.type === "ready"
+      ? { icon: <RefreshCw size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      : status.type === "error"
+        ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
+        : undefined;
+  if (!action) return null;
+  return (
+    <SidebarTip label={action.label}>
+      <button type="button" className={`sidebar-update${status.type === "error" ? " is-warning" : ""}`}
+        aria-label={action.label} onClick={action.run}>
+        {action.icon}<span>{action.name}</span>
+      </button>
+    </SidebarTip>
+  );
 }

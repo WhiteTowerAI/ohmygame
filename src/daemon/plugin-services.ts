@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { watch, type FSWatcher } from "node:fs";
-import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -8,8 +9,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition } from "../shared/plugins.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -27,13 +29,19 @@ import {
   type PluginPackageResult,
 } from "./plugin-index.js";
 import { PluginValues } from "./plugin-values.js";
+import { PluginLogs, redactCredentials } from "./plugin-logs.js";
 import {
   capabilityGrants,
+  missingGrants,
+  onInEveryProject,
   PluginGrants,
   projectFolderKey,
   projectSkills,
   resolveProjectPlugins,
   setProjectPlugin,
+  type PluginScope,
+  type ProjectKind,
+  type ProjectPlugins,
 } from "./project-plugins.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 
@@ -92,6 +100,8 @@ export interface ProjectPanel {
   id: string;
   plugin: string;
   version: string;
+  /** The package's digest, which changes only when a plugin in development changes under the same version. */
+  revision: string;
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
@@ -117,9 +127,6 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/wechat-minigame",
 ];
 
-/** What deciding whether an app-wide plugin suits a project needs to know of it. */
-export type AppWideProject = { type: string; pluginType?: { id: string } | undefined; workspacePath?: string };
-
 export interface PluginServicesOptions {
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
@@ -128,11 +135,29 @@ export interface PluginServicesOptions {
   bundled?: string;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
-  /** Bundled plugins that start off, such as one in beta, until the person turns them on. */
+  /** Bundled plugins that start off in every project, such as one in beta, until the person turns them on. */
   bundledOff?: readonly string[];
+  /** What the project in a folder (its real path) is, for matching plugins' `appliesTo`. */
+  projectKind?: PluginScope["kind"];
+  /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
+  safeMode?: boolean;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
+/** How agent sessions name a plugin's MCP server: unique to the plugin and server, and short. */
+function pluginMcpServerName(id: string, server: string): string {
+  return `plugin-${createHash("sha256").update(id).digest("hex").slice(0, 12)}-v2-${server}`;
+}
+
+/** The bytes of the files under a folder, not following links; 0 when it doesn't exist. */
+async function folderBytes(folder: string): Promise<number> {
+  const entries = await readdir(folder, { withFileTypes: true, recursive: true }).catch(() => []);
+  let bytes = 0;
+  for (const entry of entries)
+    if (entry.isFile()) bytes += (await lstat(path.join(entry.parentPath, entry.name)).catch(() => undefined))?.size ?? 0;
+  return bytes;
+}
+
 function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRegistration {
   return {
     path: file,
@@ -142,7 +167,6 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 }
 
 /** Publishers whose names only the app and the Plugin Builder can give out. */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 export function assertAddablePlugin(id: string): void {
   const publisher = id.slice(0, id.indexOf("/"));
@@ -156,10 +180,15 @@ export class PluginServices {
   readonly native: NativePlugins;
   /** The person's values for plugins' `configuration` fields. */
   readonly values: PluginValues;
+  /** Started in safe mode, so no plugin runs. */
+  readonly safeMode: boolean;
+  /** What each plugin printed and what of its failed, since the app started. */
+  readonly logs = new PluginLogs((plugin) => this.values.secrets(plugin));
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
   #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
+  readonly #projectKind: PluginScope["kind"];
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
@@ -182,18 +211,20 @@ export class PluginServices {
 
   constructor(options: PluginServicesOptions) {
     this.index = new PluginIndex(path.join(options.directory, "index.json"));
-    this.grants = new PluginGrants(path.join(options.directory, "grants.json"));
-    this.hosts = new ExtensionHosts(options.hosts);
+    this.safeMode = options.safeMode ?? false;
+    this.grants = new PluginGrants(path.join(options.directory, "grants.json"), { safeMode: this.safeMode });
+    this.hosts = new ExtensionHosts({ ...options.hosts, onLog: (plugin, entry) => this.logs.add(plugin, entry) });
     this.values = new PluginValues(
       path.join(options.directory, "configuration.json"),
     );
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);
+    this.#projectKind = options.projectKind;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
       index: this.index,
-      grants: this.grants,
+      resolve: (folder) => this.resolve(folder),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
       dataFolder: (id) => this.dataFolder(id),
@@ -234,11 +265,7 @@ export class PluginServices {
   ): Promise<ToolDefinition[]> {
     await this.ready();
     this.#watch(folder);
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
     const tools: ToolDefinition[] = [];
     for (const plugin of resolved.plugins) {
@@ -255,28 +282,54 @@ export class PluginServices {
     return tools;
   }
 
-  /**
-   * The plugins that apply without a project turning them on, those that only
-   * add Skills, so there is nothing to allow: each at its newest version,
-   * unless the person turned it off. With a project, only those that suit it,
-   * leaving out any it names an older version of, which it runs instead.
-   */
-  async appWide(project?: AppWideProject): Promise<PluginIndexEntry[]> {
+  /** What deciding which plugins are on in a project needs. */
+  get scope(): PluginScope {
+    return { index: this.index, grants: this.grants, startsOff: this.#bundledOff, kind: this.#projectKind };
+  }
+
+  /** Every plugin on in the project in a folder, or that its file asks for, and whether each runs. */
+  async resolve(folder: string): Promise<ProjectPlugins> {
     await this.ready();
-    const resolved = project?.workspacePath
-      ? await resolveProjectPlugins({ folder: project.workspacePath, index: this.index, grants: this.grants }).catch(() => undefined)
-      : undefined;
-    const named = new Set(resolved?.ok ? resolved.plugins.map((plugin) => plugin.id) : []);
+    return resolveProjectPlugins({ folder, ...this.scope });
+  }
+
+  /** Whether a plugin is on in every project it suits. */
+  onInEveryProject(id: string): boolean {
+    return onInEveryProject(this.scope, id);
+  }
+
+  /**
+   * The plugins on in every project, each at its newest version, that run
+   * without anything left to allow; with a kind, only those that suit it. A
+   * new project starts with these.
+   */
+  async everyProject(kind?: ProjectKind): Promise<PluginIndexEntry[]> {
+    await this.ready();
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      if (!entry || named.has(id) || !isAppWidePlugin(entry.manifest) || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) return [];
-      return !project || appWidePluginSuits(entry.manifest.appliesTo, project) ? [entry] : [];
+      const grant = this.grants.plugin(id);
+      if (!entry || pluginApiIssue(entry.manifest) || grant?.enabled === false || !this.onInEveryProject(id)) return [];
+      if (missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length) return [];
+      return !kind || appWidePluginSuits(entry.manifest.appliesTo, kind) ? [entry] : [];
     });
   }
 
-  /** The Skills of `appWide`, in a fixed order: when two share a name, agents keep the first. */
-  async appWideSkills(project?: AppWideProject): Promise<PluginSkillRegistration[]> {
-    return (await this.appWide(project)).flatMap((entry) => entry.skills.map((skill) => skillRegistration(entry, path.join(entry.root, skill.path))));
+  /**
+   * The newest version of each installed plugin that this app can run and
+   * that isn't disabled everywhere. What a plugin adds to the app itself,
+   * such as model providers, comes from these, whatever projects turn on.
+   */
+  async installed(): Promise<PluginIndexEntry[]> {
+    await this.ready();
+    return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = this.index.get(id);
+      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false ? [entry] : [];
+    });
+  }
+
+  /** The Skills of `everyProject`, as a new project's agent would load them. */
+  async everyProjectSkills(kind?: ProjectKind): Promise<PluginSkillRegistration[]> {
+    return (await this.everyProject(kind)).flatMap((entry) => entry.skills.map((skill) => skillRegistration(entry, path.join(entry.root, skill.path))));
   }
 
   /**
@@ -285,11 +338,7 @@ export class PluginServices {
   async skills(folder: string): Promise<PluginSkillRegistration[]> {
     await this.ready();
     this.#watch(folder);
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
     return projectSkills(resolved).map((skill) => skillRegistration(this.index.get(skill.plugin)!, path.join(skill.root, skill.path)));
   }
@@ -310,11 +359,7 @@ export class PluginServices {
   async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
     await this.ready();
     this.#watch(folder);
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return {};
     const servers: Record<string, McpServerDefinition> = {};
     for (const plugin of resolved.plugins) {
@@ -322,10 +367,17 @@ export class PluginServices {
       if (plugin.status !== "active" || !entry) continue;
       for (const server of entry.manifest.contributes?.mcpServers ?? []) {
         const definition = await this.#mcpDefinition(entry, server);
-        if (definition) servers[`plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${server.id}`] = definition;
+        if (definition) servers[pluginMcpServerName(entry.id, server.id)] = definition;
       }
     }
     return servers;
+  }
+
+  /** The installed plugin a session's MCP server name belongs to. */
+  mcpServerPlugin(name: string): string | undefined {
+    const prefix = /^plugin-[0-9a-f]{12}-v2-/.exec(name)?.[0];
+    if (!prefix) return undefined;
+    return this.index.entries().find((entry) => pluginMcpServerName(entry.id, "") === prefix)?.id;
   }
 
   /** How to start one of a plugin's MCP servers, unless a setting is missing or a value breaks a rule. */
@@ -375,6 +427,8 @@ export class PluginServices {
    */
   async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
     await this.ready();
+    // Trying it starts the server's command, which safe mode doesn't run.
+    if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to test this.");
     const checked = await indexPluginPackage(root);
     if (!checked.ok) throw new Error("Prepare a valid draft before testing");
     const server = checked.entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
@@ -398,11 +452,7 @@ export class PluginServices {
     locale: PluginLocale = "en",
   ): Promise<ProjectCommand[]> {
     await this.ready();
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
     const commands: ProjectCommand[] = [];
     for (const plugin of resolved.plugins) {
@@ -421,17 +471,113 @@ export class PluginServices {
     return commands;
   }
 
+  /** What a project's active plugins add to its preview. */
+  async preview(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginPreview> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const preview: ProjectPluginPreview = { devices: [], filters: [], inputMaps: [] };
+    if (!resolved?.ok) return preview;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      for (const device of entry.manifest.contributes?.previewDevices ?? [])
+        preview.devices.push({
+          id: `${entry.id}:${device.id}` as ProjectPreviewDevice["id"],
+          plugin: entry.id,
+          title: localizePluginString(entry, device.title, locale),
+          width: device.width,
+          height: device.height,
+        });
+      for (const filter of entry.manifest.contributes?.previewFilters ?? [])
+        preview.filters.push({
+          id: `${entry.id}:${filter.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, filter.title, locale),
+          source: localizePluginString(entry, filter.source, locale),
+          colorSpace: filter.colorSpace,
+          matrix: filter.matrix,
+          ...(filter.offset ? { offset: filter.offset } : {}),
+        });
+      for (const map of entry.manifest.contributes?.inputMaps ?? [])
+        preview.inputMaps.push({
+          id: `${entry.id}:${map.id}`,
+          plugin: entry.id,
+          title: localizePluginString(entry, map.title, locale),
+          map: compileInputMap(map),
+        });
+    }
+    return preview;
+  }
+
+  /** What a project's active plugins add to Asset Canvas, in `locale`. */
+  async canvas(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginCanvas> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const canvas: ProjectPluginCanvas = { nodes: [], presets: [] };
+    if (!resolved?.ok) return canvas;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      const pluginName = text(entry.manifest.displayName);
+      for (const node of entry.manifest.contributes?.canvasNodes ?? [])
+        canvas.nodes.push({
+          id: `${entry.id}:${node.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(node.title),
+          ...(node.description ? { description: text(node.description) } : {}),
+          inputs: (node.inputs ?? []).map((input) => ({ ...input, title: text(input.title) })),
+          params: Object.entries(node.params ?? {}).map(([key, param]) => ({
+            key,
+            ...param,
+            title: text(param.title),
+            ...(param.description ? { description: text(param.description) } : {}),
+          })),
+          output: node.output,
+        });
+      for (const preset of entry.manifest.contributes?.canvasPresets ?? [])
+        canvas.presets.push({
+          id: `${entry.id}:${preset.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(preset.title),
+          ...(preset.description ? { description: text(preset.description) } : {}),
+        });
+    }
+    return canvas;
+  }
+
+  /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
+  async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
+    const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
+    if (!entry || !preset) return undefined;
+    const file = path.join(entry.root, preset.board);
+    const bytes = await readFile(file);
+    if (bytes.length > CANVAS_PRESET_MAX_BYTES) throw new Error(`${preset.board} is too large`);
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    const problem = canvasPresetIssue(value);
+    if (problem) throw new Error(`${preset.board} ${problem}`);
+    const board = value as Partial<CanvasPresetBoard>;
+    return { nodes: board.nodes!, edges: board.edges ?? [] };
+  }
+
   /** The panels of a project's active plugins, with what their pages may ask the host for. */
   async panels(
     folder: string,
     locale: PluginLocale = "en",
   ): Promise<ProjectPanel[]> {
     await this.ready();
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     if (!resolved?.ok) return [];
     const panels: ProjectPanel[] = [];
     for (const plugin of resolved.plugins) {
@@ -443,6 +589,7 @@ export class PluginServices {
           id: panel.id,
           plugin: entry.id,
           version: entry.version,
+          revision: entry.digest,
           title: localizePluginString(entry, panel.title, locale),
           area: panel.area,
           ...(panel.when ? { when: panel.when } : {}),
@@ -450,6 +597,8 @@ export class PluginServices {
             ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
             ...(capabilities.composer ? { composer: true } : {}),
             ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
+            ...(capabilities["project.history"] ? { "project.history": true } : {}),
+            ...(capabilities["project.usage"] ? { "project.usage": true } : {}),
           },
           commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
           ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
@@ -463,11 +612,7 @@ export class PluginServices {
     await this.ready();
     const at = id.lastIndexOf(":");
     const pluginId = id.slice(0, at);
-    const resolved = await resolveProjectPlugins({
-      folder,
-      index: this.index,
-      grants: this.grants,
-    });
+    const resolved = await this.resolve(folder);
     const plugin = resolved?.ok
       ? resolved.plugins.find((item) => item.id === pluginId)
       : undefined;
@@ -491,7 +636,7 @@ export class PluginServices {
     const owner = projectTypePlugin(type);
     if (!owner) return { ready: true };
     await this.ready();
-    const resolved = await resolveProjectPlugins({ folder, index: this.index, grants: this.grants }).catch(() => undefined);
+    const resolved = await this.resolve(folder).catch(() => undefined);
     const plugin = resolved?.ok ? resolved.plugins.find((item) => item.id === owner) : undefined;
     const entry = plugin?.status === "active" ? plugin.entry : undefined;
     const check = entry?.manifest.contributes?.projectTypes?.find((item) => `${owner}:${item.id}` === type)?.ready;
@@ -589,13 +734,10 @@ export class PluginServices {
       // goes; a version installed apart stays.
       for (const other of this.index.versions(result.entry.id))
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
-      const decided = this.grants.plugin(result.entry.id);
-      if (decided?.enabled === false) continue;
-      // One that starts off asks for consent when the person turns it on.
-      if (!decided && this.#bundledOff.has(result.entry.id)) {
-        await this.grants.setEnabled(result.entry.id, false);
-        continue;
-      }
+      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
+      // One that starts off asks for consent when the person turns it on, and
+      // only that consent counts: a record of where it is on allows nothing.
+      if (this.#bundledOff.has(result.entry.id)) continue;
       await this.grants.consent(
         result.entry.id,
         capabilityGrants(result.entry.manifest),
@@ -610,8 +752,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
-    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  installManaged(source: string, { consent = true, before }: { consent?: boolean; before?: () => Promise<void> } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(async () => {
+      await before?.();
+      return this.#installManaged(source, consent);
+    });
   }
 
   async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
@@ -666,12 +811,13 @@ export class PluginServices {
   /**
    * Installs a package the person added from npm, GitHub or a file. It allows
    * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses.
+   * sheet. It can't take a name the app or the Plugin Builder uses. `before`
+   * runs first, with no other package changing, to call the install off.
    */
-  async installAdded(source: string): Promise<PluginIndexEntry> {
+  async installAdded(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
   }
 
   /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
@@ -682,8 +828,33 @@ export class PluginServices {
     return entry;
   }
 
-  uninstall(id: string, version?: string): Promise<void> {
-    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version));
+  /**
+   * Uninstalls a version, or every version. The last one takes the plugin's
+   * grants with it and, unless `keepData`, its settings and data folder;
+   * kept, a later install finds them again.
+   */
+  uninstall(id: string, version?: string, options: { keepData?: boolean } = {}): Promise<void> {
+    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version, options.keepData ?? false));
+  }
+
+  /** A plugin's log, its saved secrets and anything shaped like a credential redacted. */
+  log(id: string): PluginLogView {
+    return { entries: this.logs.read(id), quarantined: this.native.quarantined(id) };
+  }
+
+  /** What uninstalling a version, or every version, removes and leaves. */
+  async uninstallPreview(id: string, version?: string): Promise<Omit<PluginUninstallPreview, "projects">> {
+    await this.ready();
+    const removed = version
+      ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
+      : this.index.versions(id);
+    const last = removed.length > 0 && removed.length === this.index.versions(id).length;
+    return {
+      last,
+      settings: last ? this.values.count(id) : 0,
+      dataBytes: last ? await folderBytes(this.dataFolder(id)) : 0,
+      projectFiles: [...new Set(removed.flatMap((entry) => entry.manifest.projectFiles ?? []))].sort(),
+    };
   }
 
   /** Installing and uninstalling share folders, so one can't delete what the other just placed. */
@@ -693,7 +864,7 @@ export class PluginServices {
     return run;
   }
 
-  async #uninstall(id: string, version?: string): Promise<void> {
+  async #uninstall(id: string, version: string | undefined, keepData: boolean): Promise<void> {
     await this.ready();
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
@@ -703,7 +874,7 @@ export class PluginServices {
     const last = !this.index.versions(id).length;
     if (last) {
       await this.grants.forget(id);
-      await this.values.forget(id);
+      if (!keepData) await this.values.forget(id);
     }
     // Hosts let go of the removed versions before their files go.
     await this.changed();
@@ -712,19 +883,42 @@ export class PluginServices {
       if (inside && !inside.startsWith("..") && !path.isAbsolute(inside))
         await rm(entry.root, { recursive: true, force: true });
     }
-    if (last) await rm(this.dataFolder(id), { recursive: true, force: true });
+    if (last && !keepData) {
+      await rm(this.dataFolder(id), { recursive: true, force: true });
+      this.logs.forget(id);
+    }
+  }
+
+  /** Drops what was kept when the last version was uninstalled, before a package from elsewhere takes the id. */
+  async forgetKeptData(id: string): Promise<void> {
+    await this.ready();
+    if (this.index.versions(id).length) return;
+    await this.values.forget(id);
+    await rm(this.dataFolder(id), { recursive: true, force: true });
+    this.logs.forget(id);
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */
   async consent(id: string, allowed: readonly string[]): Promise<void> {
     await this.ready();
+    // What's allowed belongs to an installed plugin, so a package added later under its id asks again.
+    if (!this.index.get(id)) throw new Error(`${id} is not installed`);
     await this.grants.consent(id, allowed);
     await this.changed();
   }
 
-  /** The app switch; turning a plugin back on releases a quarantine. */
+  /** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+  async setEveryProject(id: string, on: boolean): Promise<void> {
+    await this.ready();
+    if (!this.index.get(id)) throw new Error(`${id} is not installed`);
+    await this.grants.setEveryProject(id, on);
+    await this.changed();
+  }
+
+  /** The switch that stops a plugin everywhere; turning it back on releases a quarantine. */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     await this.ready();
+    if (enabled && this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
     await this.grants.setEnabled(id, enabled);
     if (enabled) this.native.release(id);
     await this.changed();
@@ -746,22 +940,15 @@ export class PluginServices {
     await this.changed(folder);
   }
 
-  /** Turns a plugin on in a project at a version, or off with `null`. */
+  /** Turns a plugin on in a project, at a version or its newest, or off. */
   async setProjectPlugin(
     folder: string,
     id: string,
-    version: string | null,
-    initialType?: string,
+    on: boolean,
+    options: { version?: string; initialType?: string } = {},
   ): Promise<void> {
     await this.ready();
-    await setProjectPlugin({
-      folder,
-      id,
-      version,
-      index: this.index,
-      grants: this.grants,
-      ...(initialType ? { initialType } : {}),
-    });
+    await setProjectPlugin({ folder, id, on, ...options, ...this.scope });
     await this.changed(folder);
   }
 
@@ -898,7 +1085,7 @@ export class PluginServices {
     if (!Check(input, options.input ?? {})) throw new PluginToolSchemaError(id, "input", input, options.input ?? {});
     // A session made before a version change must not run the new code with
     // this version's schemas.
-    const value = await this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version });
+    const value = await this.#redacting(entry.id, this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version }));
     const output = tool.output ? this.#schema(entry, tool.output) : undefined;
     if (output && !Check(output, value)) throw new PluginToolSchemaError(id, "output", output, value);
     return value;
@@ -912,7 +1099,7 @@ export class PluginServices {
   async runCommand(
     entry: PluginIndexEntry,
     command: PluginCommand,
-    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress">,
+    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress" | "build">,
   ): Promise<unknown> {
     const { run } = command;
     const id = `${entry.id}:${command.id}`;
@@ -920,12 +1107,22 @@ export class PluginServices {
     if (!("native" in run)) throw new PluginCommandInputError(`${id} runs in the app`);
     if (!run.input) {
       if (options.input !== undefined) throw new PluginCommandInputError(`${id} takes no input`);
-      return this.native.runCommand(id, { ...options, version: entry.version });
+      return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version }));
     }
     const schema = this.#schema(entry, run.input);
     const input = options.input ?? {};
     if (!Check(schema, input)) throw new PluginToolSchemaError(id, "input", schema, input);
-    return this.native.runCommand(id, { ...options, version: entry.version, input });
+    return this.#redacting(entry.id, this.native.runCommand(id, { ...options, version: entry.version, input }));
+  }
+
+  /** A plugin's error reaches a toast, a page or an agent as its log does, with its secrets taken out. */
+  async #redacting<T>(plugin: string, call: Promise<T>): Promise<T> {
+    try {
+      return await call;
+    } catch (cause) {
+      if (cause instanceof Error) cause.message = redactCredentials(cause.message, this.values.secrets(plugin));
+      throw cause;
+    }
   }
 
   /** A tool whose schema can't be read still shows, and says why it can't run. */

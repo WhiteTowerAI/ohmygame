@@ -25,6 +25,27 @@ async function setup() {
 }
 
 describe("project file management", () => {
+  it("supports bounded directory listings while preserving the complete asset index and metadata", async () => {
+    const { app, project, base } = await setup();
+    await mkdir(path.join(project.workspacePath, "场景", "deep"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "场景", "hero.png"), "image");
+    await writeFile(path.join(project.workspacePath, "场景", "deep", "game.ts"), "source");
+    await writeAssetMetadata(project.workspacePath, "场景/hero.png", { origin: "generated", prompt: "Hero" });
+    const root = await app.inject({ method: "GET", url: `${base}?directory=` });
+    expect(root.statusCode, root.body).toBe(200);
+    expect(root.json()).toContainEqual({ path: "场景", size: 0, directory: true });
+    expect(root.json<WorkspaceFile[]>().some((file) => file.path.startsWith("场景/"))).toBe(false);
+    const children = await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent("场景")}` });
+    expect(children.statusCode, children.body).toBe(200);
+    expect(children.json()).toContainEqual({ path: "场景/deep", size: 0, directory: true });
+    expect(children.json()).toContainEqual(expect.objectContaining({ path: "场景/hero.png", size: 5, origin: "generated", prompt: "Hero", mediaType: "image" }));
+    expect((await app.inject({ method: "GET", url: base })).json()).toContainEqual({ path: "场景/deep/game.ts", size: 6 });
+    for (const directory of ["..", ".ohmygame", "C:\\Windows", "场景/hero.png"]) {
+      expect((await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent(directory)}` })).statusCode).toBe(400);
+    }
+    expect((await app.inject({ method: "GET", url: `${base}?directory=missing` })).statusCode).toBe(404);
+  });
+
   it("creates, renames and deletes files and folders without overwriting other files", async () => {
     const { app, project, base } = await setup();
     expect((await app.inject({ method: "POST", url: base, payload: { name: "src", kind: "folder" } })).statusCode).toBe(201);
@@ -75,10 +96,10 @@ describe("project file management", () => {
   it("keeps provenance across folder renames and leaves Library copies intact after deletion", async () => {
     const { app, project, base } = await setup();
     await mkdir(path.join(project.workspacePath, "media"));
-    await mkdir(path.join(project.workspacePath, ".data", "asset-previews"), { recursive: true });
+    await mkdir(path.join(project.workspacePath, ".ohmygame", "asset-previews"), { recursive: true });
     await writeFile(path.join(project.workspacePath, "media", "hero.png"), "local bytes");
-    await writeFile(path.join(project.workspacePath, ".data", "asset-previews", "hero.jpg"), "preview");
-    await writeAssetMetadata(project.workspacePath, "media/hero.png", { origin: "generated", purpose: "asset", prompt: "hero", previewPath: ".data/asset-previews/hero.jpg" });
+    await writeFile(path.join(project.workspacePath, ".ohmygame", "asset-previews", "hero.jpg"), "preview");
+    await writeAssetMetadata(project.workspacePath, "media/hero.png", { origin: "generated", purpose: "asset", prompt: "hero", previewPath: ".ohmygame/asset-previews/hero.jpg" });
     const saved = await app.inject({ method: "POST", url: `/projects/${project.id}/assets/library?path=media/hero.png` });
     expect(saved.statusCode, saved.body).toBe(201);
     const asset = saved.json<LibraryAsset>();
@@ -92,7 +113,7 @@ describe("project file management", () => {
     expect((await app.inject({ method: "DELETE", url: `${base}?path=art` })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(200);
     expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: {}, purposes: {}, libraryAssets: {}, prompts: {}, previews: {} });
-    await expect(readFile(path.join(project.workspacePath, ".data", "asset-previews", "hero.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(project.workspacePath, ".ohmygame", "asset-previews", "hero.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("reads legacy upload/reference provenance and changes its use when it becomes a canvas asset", async () => {
@@ -128,7 +149,7 @@ describe("project file management", () => {
     try {
       await writeFile(path.join(outside, "secret.txt"), "outside");
       await symlink(outside, path.join(project.workspacePath, "linked"));
-      for (const entry of ["../project.json", ".", "linked/secret.txt", ".data/assets.json"]) {
+      for (const entry of ["../project.json", ".", "linked/secret.txt", ".ohmygame/assets.json"]) {
         expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(entry)}` })).statusCode).toBe(400);
         expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(entry)}`, payload: { name: "new.ts" } })).statusCode).toBe(400);
       }

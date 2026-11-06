@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
+import type { ProjectType } from "../shared/contracts.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
-import { listProjectPluginChoices, listProjectTypes, waitForRuntime, type AvailableProjectType } from "./api.js";
-import type { ProjectPluginChoice } from "../shared/plugins.js";
+import { listProjectTypes, type AvailableProjectType } from "./api.js";
 import { Package, Plus } from "./icons.js";
 import { t } from "./i18n.js";
 import { pluginBrowseHash } from "./routes.js";
-import { projectTypeDescription, projectTypeLabel, ProjectTypeMark } from "./project-types.js";
+import { isAppProjectType, projectTypeDescription, projectTypeLabel, ProjectTypeMark } from "./project-types.js";
 import type { SelectOption } from "./ui/index.js";
 
 // What a new project can be: one of the app's own types, or a type a plugin
@@ -15,10 +14,6 @@ import type { SelectOption } from "./ui/index.js";
 
 /** The menu entry that leads to plugins adding more types rather than choosing one. */
 export const MORE_TYPES = "more-types";
-
-export function isAppProjectType(value: string): value is ProjectType {
-  return (PROJECT_TYPE_IDS as readonly string[]).includes(value);
-}
 
 /**
  * The types installed and enabled plugins add, besides those the app names
@@ -41,21 +36,13 @@ export function usePluginProjectTypes(): { types?: AvailableProjectType[]; faile
   return { types, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
-/** The enabled plugins a new project can turn on; `choices` is undefined until they load. */
-export function useProjectPluginChoices(): { choices?: ProjectPluginChoice[]; failed: boolean; retry: () => void } {
-  const [choices, setChoices] = useState<ProjectPluginChoice[]>();
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setFailed(false);
-    void waitForRuntime()
-      .then(() => listProjectPluginChoices())
-      .then((result) => { if (active) setChoices(result); })
-      .catch(() => { if (active) setFailed(true); });
-    return () => { active = false; };
-  }, [attempt]);
-  return { choices, failed, retry: () => setAttempt((value) => value + 1) };
+/** What a new project of a type will be, for matching plugins' `appliesTo`: a plugin's type is a general project its plugin runs. */
+export function newProjectKind(type: string): { type: string; pluginType?: { id: string } } {
+  if (isAppProjectType(type)) {
+    const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+    return kinds[type] ? { type, pluginType: { id: kinds[type] } } : { type };
+  }
+  return { type: "general", pluginType: { id: type } };
 }
 
 /** The type menu's options: the app's types, plugins' types, any others the caller adds, then 更多类型…. */

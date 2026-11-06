@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Home } from "./home.js";
 // Only lazy routes use this; loading it eagerly keeps it ahead of styles.css as before code splitting.
 import "./plugin-builder.css";
-import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginBuilderHash, pluginHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
 import { PageFrame } from "./page-frame.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
@@ -12,10 +12,11 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import type { PluginTryTarget } from "./plugin-try.js";
 import { pluginMentionToken } from "../shared/plugins.js";
 import { t } from "./i18n.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { createConversation, createProject, getProject, listPluginThemes, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { syncPluginTheme } from "./appearance.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
+import { Onboarding, OnboardingArrival, OnboardingLoadError, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { CommandMenuHost } from "./command-menu.js";
 import { useNotificationTargets } from "./agent-notifications.js";
@@ -52,11 +53,16 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   const [start, setStart] = useState<OnboardingStart>();
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
+  const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
 
   // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+  }, [serviceGeneration]);
+  // A plugin theme follows its plugin: updated with it, gone with it.
+  useEffect(() => {
+    void syncPluginTheme(listPluginThemes);
   }, [serviceGeneration]);
 
   // A Playtest window that cannot play asks for its project's editor.
@@ -74,16 +80,22 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
       onFinish={async (status, next) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setStart(next); setWelcoming(true); navigate("#/"); }} />;
   }
-  if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
-  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
+  if (route.page === "home" && !onboarding.state) {
+    return onboarding.error
+      ? <OnboardingLoadError error={onboarding.error} onRetry={onboarding.retry} />
+      : <PageFrame active="home" onNavigate={navigateToSidebarPage}><OnboardingLoading /></PageFrame>;
+  }
+  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} conversationId={route.conversationId}
+    onOpenConversation={(conversationId, replace) => navigate(pluginBuilderHash(route.sessionId, conversationId), { replace })} onNavigate={navigateToSidebarPage} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} tab={route.tab} onPluginChange={navigateToPlugin}
+      onTabChange={tab => navigate(pluginsTabHash(tab), { replace: true, state: historyState() })} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout>;
   if (route.page === "home") {
-    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
+    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
@@ -107,6 +119,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
+      initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
+      onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
       showStoryMap={playtestEditorProjectId === route.projectId}
       onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
@@ -133,6 +147,14 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
     navigate(projectHash(projectId, view));
+  }
+
+  // Home's creation templates open their new canvas on the node to start from.
+  function openAssetCanvasProject(projectId: string, nodeId?: string): void {
+    setInitialPrompt(undefined);
+    setInitialDraft(undefined);
+    setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
+    navigate(projectHash(projectId));
   }
 
   async function tryPlugin({ mention, turnOn, newProjectType }: PluginTryTarget, prompt: string, projectId?: string): Promise<void> {

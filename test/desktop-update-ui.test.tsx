@@ -79,10 +79,11 @@ it("shows recovery actions and routes retry to the failed update phase", async (
   button("Network settings").click();
   expect(onSectionChange).toHaveBeenCalledWith("network");
 
-  // The sidebar flags the failure and leads to About, which explains it.
-  const sidebarItem = container.querySelector<HTMLButtonElement>('.sidebar button[title="Update failed"]');
-  expect(sidebarItem?.querySelector(".sidebar-dot.is-warning")).not.toBeNull();
-  sidebarItem!.click();
+  // The sidebar's pill turns to a warning and leads to About, which explains it.
+  const pill = container.querySelector<HTMLButtonElement>('.sidebar-account-row .sidebar-update[aria-label="Update failed"]');
+  expect(pill?.classList.contains("is-warning")).toBe(true);
+  expect(pill?.textContent).toBe("Issue");
+  pill!.click();
   expect(window.location.hash).toBe("#/settings/about");
 });
 
@@ -143,9 +144,11 @@ it("shows one update action and keeps download and restart controls tied to thei
     <SettingsPage section="about" onNavigate={() => {}} onSectionChange={() => {}} />,
   ));
   const action = () => container.querySelector<HTMLButtonElement>(".settings-about-actions button");
-  const sidebarItem = () => container.querySelector<HTMLElement>(".sidebar .sidebar-group:last-child > :not(.sidebar-account)");
+  // The sidebar's pill sits at the account's end; its name shows on hover, its full label to assistive tech.
+  const sidebarItem = () => container.querySelector<HTMLElement>(".sidebar-account-row > :not(.sidebar-account)");
   expect(action()?.textContent).toBe("Download update");
-  expect(sidebarItem()?.textContent).toBe("Update to 0.0.0-beta.4.7");
+  expect(sidebarItem()?.getAttribute("aria-label")).toBe("Update to 0.0.0-beta.4.7");
+  expect(sidebarItem()?.textContent).toBe("Update");
   sidebarItem()!.click();
   expect(updates.download).toHaveBeenCalledOnce();
   updates.download.mockClear();
@@ -159,11 +162,13 @@ it("shows one update action and keeps download and restart controls tied to thei
   expect(container.textContent).toContain("Downloading update (50%)");
   expect(sidebarItem()?.getAttribute("role")).toBe("progressbar");
   expect(sidebarItem()?.getAttribute("aria-valuenow")).toBe("50");
-  expect(sidebarItem()?.textContent).toBe("Downloading 50%");
+  expect(sidebarItem()?.textContent).toBe("50%");
+  expect(sidebarItem()?.querySelector<HTMLElement>(".sidebar-update-fill")?.style.width).toBe("50%");
 
   await act(async () => notify({ ...available, status: { type: "ready", version: "0.0.0-beta.4.7" } }));
   expect(action()?.textContent).toBe("Restart to update");
-  expect(sidebarItem()?.textContent).toBe("Restart to update");
+  expect(sidebarItem()?.getAttribute("aria-label")).toBe("Restart to update");
+  expect(sidebarItem()?.textContent).toBe("Restart");
   sidebarItem()!.click();
   expect(updates.install).toHaveBeenCalledOnce();
   updates.install.mockClear();

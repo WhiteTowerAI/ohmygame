@@ -46,12 +46,15 @@ the same placeholders. Leaving arguments empty selects framework defaults;
 own supported flags; unknown scripts receive the environment variables only.
 
 Package-manager selection uses the explicit setting, `package.json.packageManager`,
-lockfile, then npm. Settings display the detected manager and its source, and
+lockfile, then npm. A pnpm workspace manifest also selects pnpm when there is
+no lockfile. Settings display the detected manager and its source, and
 check availability without running project code or installing dependencies.
 Missing Bun/pnpm/Yarn remains an actionable configuration error rather than
 silently changing managers. The packaged app includes Node/npm; other managers
-must be available to the application. Before installation changes `node_modules`,
-the selected executable is checked against the environment passed to the child.
+must be available to the application. On macOS the packaged app also searches
+the login shell's `PATH` after the bundled runtime and inherited `PATH`. Before
+installation changes `node_modules`, the selected executable is checked against
+the environment passed to the child.
 
 Dependencies install at the owning workspace/lockfile root. Dependency manifests,
 workspace definitions and lockfiles form a fingerprint; dependency or manager
@@ -64,7 +67,8 @@ servers; configure a separate browser script or command for their Web output.
 Failed or cancelled installs leave a pending marker for a clean retry.
 **Reinstall dependencies and restart** forces that retry. Installation has a
 two-minute limit; the server has
-30 seconds to respond after launch. The log panel shows phases, elapsed startup
+30 seconds to respond after launch. A timeout reports the URL OhMyGame probed
+alongside recent server output so you can compare the listening address. The log panel shows phases, elapsed startup
 time, directory, command, manager and the last 8 KiB of process output.
 
 ## Automatic policy and idle collection
@@ -85,6 +89,9 @@ missing dev script; Start and Play always report it. Generated dependencies, hid
 runtime log/PID/temp files do not trigger retries.
 
 **Stop preview** cancels installation/startup or stops the running service.
+On Windows the daemon asks the process tree to exit. If Windows refuses the
+entire request, the daemon immediately retries with forced termination. A tree
+that accepts any part of the request still gets time to shut down.
 That manual pause survives reopening the project during the current application
 session; file changes and agent completion respect it. **Start preview** or Play
 resumes it. Service recovery also pauses automatic startup until the user resumes.
@@ -100,6 +107,8 @@ The device menu and Project settings offer **Mobile landscape** for horizontal
 phone games. Preview fits a 667:375 landscape frame within the editor panel;
 Play requests a 667 × 375 window. Set the preset in Project settings to save the default
 for future visits and project copies; the toolbar menu changes the current preview.
+Plugins can add more sizes to both menus
+([preview devices](plugins.md#in-the-app)).
 
 ![Mobile landscape selected in the preview device menu](assets/mobile-landscape-preview.png)
 
@@ -154,7 +163,19 @@ recreates the game document at its current route. A minimal host page, with no
 editor preload or daemon credentials, keeps the editor's top-level site so existing
 Preview saves remain available. Older standalone Play saves stay in their separate
 storage context and are not merged. Browser builds continue to use an iframe and
-separate popup, which reload the game on switching. Static file changes reload
+separate popup, which reload the game on switching.
+
+The view is drawn above the editor's whole page, so no editor or plugin UI can
+appear over the game, and it can only be hidden whole. When a menu, dialog or
+alert would cover it, a JPEG still of the game stands in and the view hides,
+which mutes it and stops its animation frames (its timers keep running,
+throttled). The still is taken as the person presses a control that may
+open one; switching or closing a tab takes none, because it hides or keeps the
+game (`src/renderer/desktop-game-preview.tsx`). Capture encodes on Electron's
+main process, which stalls every window while it runs. Anything meant to be
+drawn over the game belongs in the host page, as preview filters are.
+
+Static file changes reload
 active pages through a local event
 stream, while development servers retain their own HMR protocol. Changes that
 can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,
@@ -221,7 +242,9 @@ game drawn into one canvas only offers the `<canvas>` element.
 A plugin project type with `preview: "native"`, such as
 [TapTap Maker](plugins.md#taptap-maker), runs its game outside the app. These
 projects acquire no Web leases, create no Web player, and keep Web preview off;
-the plugin's own panel controls its preview.
+the plugin's own panel controls its preview. A type that declares `gameUse`
+lets `game_use` use its game through the plugin; see
+[plugin game runtimes](runtime.md#plugin-game-runtimes).
 
 ## Recording a game
 

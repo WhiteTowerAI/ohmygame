@@ -310,7 +310,13 @@ describe("UsageIndex", () => {
       content: "x".repeat(9 * 1024 * 1024),
       timestamp: NOW + 2 * MINUTE,
     } as never);
-    respond(session, { at: NOW + 4 * MINUTE, input: 20, output: 2 });
+    // A spanning assistant record still needs its usage after the large message body.
+    respond(session, {
+      at: NOW + 4 * MINUTE,
+      input: 20,
+      output: 2,
+      text: "界".repeat(2 * 1024 * 1024),
+    });
 
     const stats = await new UsageIndex(() => [project]).stats();
 
@@ -494,6 +500,7 @@ function respond(
     provider = "anthropic",
     model = "claude-opus-5-5",
     api = "anthropic-messages",
+    text = "Done",
   }: {
     at: number;
     input: number;
@@ -502,6 +509,7 @@ function respond(
     provider?: string;
     model?: string;
     api?: string;
+    text?: string;
   },
 ): string {
   vi.setSystemTime(at);
@@ -510,7 +518,7 @@ function respond(
     api,
     provider,
     model,
-    content: [{ type: "text", text: "Done" }],
+    content: [{ type: "text", text }],
     stopReason: "stop",
     usage: {
       input,

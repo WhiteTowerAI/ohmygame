@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -21,6 +22,8 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { CanvasError } from "./canvas-files.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
+import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
+import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
@@ -77,6 +80,12 @@ const mediaModelParameter = () => Type.Object({
   id: Type.String({ description: "Provider model ID" }),
 }, { description: "Override the project or global default generation model" });
 
+const imageSourceParameter = Type.String({ minLength: 1 });
+const imageParameters = {
+  sourcePath: imageSourceParameter,
+  format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+};
+const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: MAX_MEDIA_FRAMES });
 const audioToolSettings = {
   pitch: Type.Optional(Type.Integer({ minimum: -12, maximum: 12 })),
   volume: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
@@ -101,7 +110,12 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget> },
+  playtest?: {
+    driver: GameRuntimeAdapter;
+    resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>;
+    /** The highest frame a plugin's captureFrame takes. */
+    maxFrame?: number;
+  },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
 ): PiToolDefinition[] {
@@ -135,6 +149,27 @@ export function createAgentTools(
         details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType } },
       };
     } finally { await tools.removeRun(run.id); }
+  };
+  const imageSource = async (sourcePath: string) => {
+    const source = await getWorkspaceMedia(project.workspacePath, sourcePath);
+    if (!source.contentType.startsWith("image/")) throw new Error("This tool requires an image file");
+    return source.absolutePath;
+  };
+  const saveMedia = async (name: string, process: () => Promise<MediaOutput | MediaOutput[]>, signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    return withMediaTask(async () => {
+      signal?.throwIfAborted();
+      const result = await process();
+      signal?.throwIfAborted();
+      const outputs = Array.isArray(result) ? result : [result];
+      const batchId = randomUUID();
+      const artifacts = [];
+      for (const output of outputs) {
+        const relativePath = await projects.addGeneratedAsset(project.id, `${name}-${batchId}-${output.name}`, output.bytes);
+        artifacts.push({ type: "image" as const, path: relativePath, mediaType: output.mediaType });
+      }
+      return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
+    });
   };
   return [defineTool({
     name: "questionnaire",
@@ -298,11 +333,11 @@ export function createAgentTools(
         const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
         const fileName = `image-${run.id}.${extension}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-          prompt: input.prompt,
+          prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
         return {
-          content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
+          content: [{ type: "text", text: `Generated image saved to ${relativePath}${pluginChangeNote(run)}` }],
           details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
         };
       } finally {
@@ -518,6 +553,134 @@ export function createAgentTools(
       durationSeconds: input.durationSeconds, loop: input.loop, output: input.output ?? { format: input.format },
     }, input.prompt, "music", signal),
   }), defineTool({
+    name: "crop_image",
+    label: "Crop Image",
+    description: "Extract a rectangle in source pixels.",
+    parameters: Type.Object({
+      ...imageParameters,
+      left: Type.Integer({ minimum: 0 }),
+      top: Type.Integer({ minimum: 0 }),
+      width: Type.Integer({ minimum: 1 }),
+      height: Type.Integer({ minimum: 1 }),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "crop_image",
+        async () =>
+          cropImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "extract_gif_frames",
+    label: "Extract GIF Frames",
+    description: "Extract all GIF frames as numbered PNG images.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "extract_gif_frames",
+        async () =>
+          extractGifFrames({ inputPath: await imageSource(input.sourcePath) }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "compose_gif",
+    label: "Compose GIF",
+    description:
+      "Compose ordered frames into a looping GIF; normalize dimensions without cropping.",
+    parameters: Type.Object({
+      framePaths: framePathsParameter,
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "compose_gif",
+        async () =>
+          composeGif(
+            await Promise.all(input.framePaths.map(imageSource)),
+            input.fps,
+            signal,
+          ),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "image_grid_split",
+    label: "Split Image Grid",
+    description: "Split a sprite sheet into row-major grid cells. The result is a ZIP containing numbered frame images and a manifest.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1, description: "Sprite sheet image path in the current project workspace" }),
+      columns: Type.Integer({ minimum: 1, maximum: 100 }),
+      rows: Type.Integer({ minimum: 1, maximum: 100 }),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+      includeManifest: Type.Optional(Type.Boolean()),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("image/")) throw new Error("image_grid_split requires an image file");
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
+      });
+    },
+  }), defineTool({
+    name: "video_frame_strip",
+    label: "Pull Video Strip",
+    description: "Create an ordered frame strip from a video for animation inspection, using FFmpeg and returning a ZIP of frames.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1 }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120, description: "Sampling rate" })),
+      startTime: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
+      duration: Type.Optional(Type.Number({ minimum: 0.01, maximum: 300 })),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpg")])),
+      includeManifest: Type.Optional(Type.Boolean({ description: "Include a JSON frame index in the ZIP; defaults to true" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("video/")) throw new Error("video_frame_strip requires a video file");
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
+        return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+      });
+    },
+  }), defineTool({
+    name: "video_compose_frames",
+    label: "Compose Video",
+    description: "Compose project image frames into an MP4 or looping GIF using FFmpeg.",
+    parameters: Type.Object({
+      framePaths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: MAX_MEDIA_FRAMES }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+      format: Type.Optional(Type.Union([Type.Literal("mp4"), Type.Literal("gif")])),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const framePaths = await Promise.all(input.framePaths.map(async (framePath) => {
+        const source = await getWorkspaceMedia(project.workspacePath, framePath);
+        if (!source.contentType.startsWith("image/")) throw new Error(`Frame is not an image: ${framePath}`);
+        return source.absolutePath;
+      }));
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const output = await composeVideo({ ...input, framePaths, signal });
+        const relativePath = await projects.addGeneratedAsset(project.id, `composed-${randomUUID()}.${output.name.split(".").pop()}`, output.bytes);
+        const artifact = output.mediaType === "video/mp4" ? { type: "video" as const, path: relativePath, mediaType: "video/mp4" as const } : undefined;
+        return { content: [{ type: "text", text: `Composed ${input.format ?? "mp4"} saved to ${relativePath}` }], details: { ...(artifact ? { artifact } : {}), media: { path: relativePath, mediaType: output.mediaType } } };
+      });
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
     description: "Create game scene audio combining dialogue, sound effects, ambience and music. Use Seed Audio with a text prompt or a Speaker ID. Duration is a target, not an exact cut. Save audio and metadata companions to the project.",
     parameters: Type.Object({ ...audioToolSettings, prompt: Type.String({ minLength: 1, maxLength: 2744 }), model: Type.Optional(mediaModelParameter()), durationSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 120 })) }),
@@ -686,9 +849,20 @@ export function createAgentTools(
         details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
       };
     },
-  })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
+  })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
     : [])];
+}
+
+/**
+ * Whether the project's game can be played through this runtime: a plugin's,
+ * which is only made for a type that declares it, or the web runtime for a
+ * project with a web game.
+ */
+export function offersGameUse(project: ProjectState, driver: GameRuntimeAdapter): boolean {
+  if (driver.capabilities.runtime === "plugin") return true;
+  return (driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project))
+    && (project.type !== "general" || supportsWebPreview(project));
 }
 
 /** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */
@@ -696,8 +870,10 @@ export const CANCEL_GENERATION = Symbol("cancel generation");
 
 /** The nodes whose output a node's generation uses: its reference images, a video's references and a 3D source. */
 function nodeReferences(data: unknown): string[] {
-  const { images, references, source } = (data ?? {}) as Record<string, unknown>;
-  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source]
+  const { images, references, source, inputs } = (data ?? {}) as Record<string, unknown>;
+  // A plugin node's inputs, by input id.
+  const pluginInputs = inputs && typeof inputs === "object" ? Object.values(inputs).flatMap((value) => Array.isArray(value) ? value : []) : [];
+  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source, ...pluginInputs]
     .flatMap((reference) => reference && typeof reference === "object" && (reference as { type?: unknown }).type === "node" && typeof (reference as { nodeId?: unknown }).nodeId === "string" ? [(reference as { nodeId: string }).nodeId] : []);
 }
 
@@ -709,4 +885,11 @@ function findAnimationAction(library: readonly Model3DAnimationAction[], name: s
   const words = wanted.split(/\s+/).filter(Boolean);
   const suggestions = library.filter((action) => words.some((word) => action.name.toLowerCase().includes(word))).slice(0, 8).map((action) => action.name);
   throw new Error(`Unknown animation "${name}".${suggestions.length ? ` Similar names: ${suggestions.join(", ")}.` : ""}`);
+}
+
+/** Tells the agent which plugins changed an image's request before it was generated, and to what. */
+export function pluginChangeNote(run: Pick<ToolRun, "prompt" | "pluginChanges">): string {
+  if (!run.pluginChanges?.length) return "";
+  const who = run.pluginChanges.map((change) => `${change.plugin} ${change.version} (${change.fields.join(", ")})`).join("; ");
+  return `\nPlugins in this project changed the request before it was generated: ${who}.${run.pluginChanges.some((change) => change.fields.includes("prompt")) ? ` The prompt used was: ${run.prompt}` : ""}`;
 }

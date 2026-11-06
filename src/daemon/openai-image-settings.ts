@@ -71,6 +71,7 @@ export class OpenAIImageSettingsStore {
     return { baseUrl: endpoint, apiKey: key };
   }
 
+  // compat: since beta.4.7, remove from beta.6 and 2026-11-13. Settings saved before the model list.
   /** Undefined preserves the legacy discovered catalog until the user saves a list. */
   models(): ImageModel[] | undefined {
     return this.#settings?.models

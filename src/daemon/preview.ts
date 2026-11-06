@@ -29,6 +29,7 @@ import {
   terminateProjectProcess,
 } from "./process-lifecycle.js";
 import { GAME_TUNING_FILES, type GameTuningScalar } from "../shared/game-tuning.js";
+import type { GamepadKeyMap } from "../shared/preview-input.js";
 import { createPreviewProxy, type PreviewProxy } from "./preview-proxy.js";
 import {
   previewDependencyDirectory,
@@ -100,6 +101,8 @@ const WEB_BUILD_COMMAND = "Build web version";
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #proxies = new Map<string, PreviewProxy>();
+  /** The gamepad map each project's person chose, by project; kept while the app runs. */
+  readonly #inputMaps = new Map<string, GamepadKeyMap>();
   readonly #static = new Map<string, { close(): Promise<void> }>();
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, PreviewOperation>();
@@ -175,6 +178,13 @@ export class PreviewManager {
   /** Gives the running game the values it should use, now and when pages connect. */
   setTuning(project: Pick<ProjectState, "id">, values: Record<string, GameTuningScalar>): void {
     this.#proxies.get(project.id)?.setTuning(values);
+  }
+
+  /** The gamepad map the person chose for the project's game, now and for later starts; none turns it off. */
+  setInputMap(project: Pick<ProjectState, "id">, map: GamepadKeyMap | undefined): void {
+    if (map) this.#inputMaps.set(project.id, map);
+    else this.#inputMaps.delete(project.id);
+    this.#proxies.get(project.id)?.setInputMap(map);
   }
 
   /** Starts or stops picking in one preview page; false when no preview is running. */
@@ -542,6 +552,7 @@ export class PreviewManager {
           );
           assertCurrent();
           args = packageManagerRunArguments(
+            manager,
             project.startupScript ?? "dev",
             previewScriptArguments(
               manifest.scripts[project.startupScript ?? "dev"],
@@ -672,6 +683,7 @@ export class PreviewManager {
       }
       proxyHandle = proxy;
       this.#proxies.set(project.id, proxy);
+      proxy.setInputMap(this.#inputMaps.get(project.id));
       void this.options.tuning?.refresh(project).catch(() => {});
       await this.#saveProxyPort(project, Number(new URL(proxy.url).port));
       assertCurrent();
@@ -1047,7 +1059,7 @@ async function waitUntilReady(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    withOutput(`Preview did not become ready within ${timeoutMs}ms`, output()),
+    withOutput(`Preview did not become ready at ${url} within ${timeoutMs}ms`, output()),
   );
 }
 

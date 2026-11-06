@@ -6,7 +6,7 @@ import {
   type ProjectPackageManager,
 } from "../shared/contracts.js";
 
-const LOCKFILE_MANAGERS: ReadonlyArray<
+const PACKAGE_MANAGER_FILES: ReadonlyArray<
   readonly [string, ProjectPackageManager]
 > = [
   ["pnpm-lock.yaml", "pnpm"],
@@ -14,6 +14,7 @@ const LOCKFILE_MANAGERS: ReadonlyArray<
   ["bun.lockb", "bun"],
   ["bun.lock", "bun"],
   ["package-lock.json", "npm"],
+  ["pnpm-workspace.yaml", "pnpm"],
 ];
 
 export function isProjectPackageManager(
@@ -45,14 +46,16 @@ export async function resolvePackageManager(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  for (const [lockfile, manager] of LOCKFILE_MANAGERS) {
-    if (await exists(path.join(workspacePath, lockfile)))
-      return { manager, source: lockfile };
-  }
-  return {
+  return (await packageManagerFromFiles(workspacePath)) ?? {
     manager: "npm",
     source: "Default: no package manager declaration or lockfile",
   };
+}
+
+export async function packageManagerFromFiles(directory: string) {
+  for (const [file, manager] of PACKAGE_MANAGER_FILES) {
+    if (await exists(path.join(directory, file))) return { manager, source: file };
+  }
 }
 
 /** Resolve against the environment actually used by the child, including bundled Node/npm. */
@@ -144,10 +147,12 @@ export function packageManagerInstallArguments(
 }
 
 export function packageManagerRunArguments(
+  manager: ProjectPackageManager,
   script: string,
   arguments_: string[] = [],
 ): string[] {
-  return ["run", script, ...(arguments_.length ? ["--", ...arguments_] : [])];
+  if (manager === "npm" && arguments_.length) return ["run", script, "--", ...arguments_];
+  return ["run", script, ...arguments_];
 }
 
 async function exists(target: string): Promise<boolean> {
