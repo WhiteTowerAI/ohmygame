@@ -15,12 +15,28 @@ interface AssetMetadata {
   purposes: Record<string, LibraryAssetPurpose>;
 }
 
+/** What the project records of its assets; a file this version can't read reads as empty. */
 export async function readAssetMetadata(workspacePath: string): Promise<AssetMetadata> {
+  return await loadAssetMetadata(workspacePath).catch(() => undefined) ?? emptyMetadata();
+}
+
+/**
+ * The records to change, or undefined when the file is one this version
+ * can't read, such as a newer version's or one left damaged. Such a file stays
+ * as it is: a change then records nothing rather than replace every record
+ * with the one it adds, and the work around it goes on.
+ */
+async function loadAssetMetadata(workspacePath: string): Promise<AssetMetadata | undefined> {
+  let text: string;
   try {
-    const parsed: unknown = JSON.parse(await readFile(path.join(workspacePath, ASSET_METADATA_FILE), "utf8"));
-    return parseAssetMetadata(parsed) ?? emptyMetadata();
+    text = await readFile(path.join(workspacePath, ASSET_METADATA_FILE), "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? emptyMetadata() : undefined;
+  }
+  try {
+    return parseAssetMetadata(JSON.parse(text));
   } catch {
-    return emptyMetadata();
+    return undefined;
   }
 }
 
@@ -29,7 +45,8 @@ export async function writeAssetMetadata(
   assetPath: string,
   values: { prompt?: string; previewPath?: string; libraryAssetId?: string; origin?: LibraryAssetOrigin; purpose?: LibraryAssetPurpose },
 ): Promise<void> {
-  const metadata = await readAssetMetadata(workspacePath);
+  const metadata = await loadAssetMetadata(workspacePath);
+  if (!metadata) return;
   if (values.prompt) metadata.prompts[assetPath] = values.prompt;
   if (values.previewPath) metadata.previews[assetPath] = values.previewPath;
   if (values.libraryAssetId) metadata.libraryAssets[assetPath] = values.libraryAssetId;
@@ -39,7 +56,8 @@ export async function writeAssetMetadata(
 }
 
 export async function renameAssetMetadata(workspacePath: string, from: string, to: string): Promise<void> {
-  const metadata = await readAssetMetadata(workspacePath);
+  const metadata = await loadAssetMetadata(workspacePath);
+  if (!metadata) return;
   let changed = false;
   const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.libraryAssets, metadata.origins, metadata.purposes];
   for (const entries of records) {
@@ -55,7 +73,8 @@ export async function renameAssetMetadata(workspacePath: string, from: string, t
 }
 
 export async function deleteAssetMetadata(workspacePath: string, assetPath: string): Promise<string[]> {
-  const metadata = await readAssetMetadata(workspacePath);
+  const metadata = await loadAssetMetadata(workspacePath);
+  if (!metadata) return [];
   const previews = Object.entries(metadata.previews).filter(([entry]) => entry === assetPath || entry.startsWith(`${assetPath}/`)).map(([, preview]) => preview);
   let changed = false;
   const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.libraryAssets, metadata.origins, metadata.purposes];

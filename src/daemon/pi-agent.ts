@@ -46,13 +46,6 @@ export function ensureOhMyGamePiEnvironment(agentDir: string): Promise<void> {
 
 async function configure(agentDir: string): Promise<void> {
   await mkdir(agentDir, { recursive: true });
-  const settings = SettingsManager.create(agentDir, agentDir);
-  const packages = settings.getGlobalSettings().packages ?? [];
-  const migratedPackages = withoutOhMyGameManagedPiPackages(packages);
-  if (migratedPackages !== packages) {
-    settings.setPackages(migratedPackages);
-    await settings.flush();
-  }
   await ensurePluginCreatorSkill(agentDir);
 }
 

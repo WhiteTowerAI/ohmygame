@@ -398,6 +398,7 @@ export async function ensureNodeCodebaseContract(
   ]);
 }
 
+// compat: since beta.4.4, remove from beta.6 and 2026-11-10. Adds project-style to stories made before it.
 async function migratePlayableProjectStyle(
   workspacePath: string,
 ): Promise<void> {

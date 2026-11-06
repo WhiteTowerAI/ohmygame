@@ -17,6 +17,7 @@ export const AUDIO_VOICE_ID_MAX_LENGTH = 256;
 export const AUDIO_VOICE_ID_PATTERN = "^[A-Za-z0-9_-]+$";
 export const DOUBAO_SPEECH_PROVIDER_NAME = "Doubao Speech";
 export const DOUBAO_SEED_AUDIO_PROVIDER_NAME = "Doubao Seed Audio";
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles in saved canvases and assets, here and below.
 /** Kept only to validate legacy Asset Canvas reference aliases on load. */
 export const AUDIO_REFERENCE_ID_PATTERN = "^(Audio|Image)[1-9][0-9]*$";
 

@@ -1,3 +1,4 @@
+// compat: since beta.5.4, remove from beta.7 and 2026-12-04. For the entries below; one added later notes its own release. A canvas older than an entry's removal shows its saved wording as it is.
 /**
  * Template wording that earlier versions saved into canvases, keyed by the
  * string that replaced it, so those canvases show today's text in the current

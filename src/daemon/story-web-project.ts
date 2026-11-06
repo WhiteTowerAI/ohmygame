@@ -250,6 +250,7 @@ export async function upgradeToWebStory(
  * refused while it has them, so upgrading drops them along with the shell's
  * connections. The shell's files stay where they are.
  */
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Stories from before web stories.
 function withoutLegacyGraphFields(value: Record<string, unknown>): { graph: NodeGraph; removed: string[] } {
   const { shell, destinations, ...rest } = value;
   const removed = [...(shell !== undefined ? ["shell"] : []), ...(destinations !== undefined ? ["destinations"] : [])];

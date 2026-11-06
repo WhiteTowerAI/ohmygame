@@ -114,7 +114,8 @@ isolated projects and agent settings. Neither directory belongs in a PR.
 Keep each PR focused on one feature, bug fix, documentation change, chore, or
 refactor. Use the [module map](docs/README.md#where-to-change-things) to find
 related code, documents, and tests. Update public behavior documentation when
-your change affects it.
+your change affects it. A change to stored data or a public contract follows
+the [compatibility rules](docs/compatibility.md).
 
 Maintainers update [CHANGELOG.md](CHANGELOG.md) during release preparation.
 Ordinary contribution PRs do not need a changelog entry; explain user-visible

@@ -108,6 +108,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async #customModels(runtime: ModelRuntime, provider: CustomProviderDetails, signal?: AbortSignal): Promise<ImageModel[]> {
+    // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Custom providers before modelConfigurationVersion 2.
     if (provider.modelConfigurationVersion !== 2) {
       const models = await this.#compatibleModels(runtime, provider.id, signal);
       await this.options.migrateLegacyModels?.(provider.id, models);

@@ -178,6 +178,7 @@ function windowsNpmCodexCandidates(
   const target = `${arch === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`;
   const root = path.join(directory, "node_modules", "@openai", "codex");
   const platformPackage = `codex-win32-${arch}`;
+  // compat: the vendor/ and codex/ paths go when the oldest supported Codex CLI ships bin/ in its platform package.
   // npm may nest or hoist the optional platform package. Older releases kept
   // vendor/ in the main package and used codex/ instead of bin/.
   return [

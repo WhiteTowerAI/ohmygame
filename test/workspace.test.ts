@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile } from "../src/daemon/workspace.js";
+import { deleteAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "../src/daemon/asset-metadata.js";
 
 describe("workspace inspection", () => {
   it("lists immediate children without descending into nonempty or excluded folders", async () => {
@@ -77,6 +78,27 @@ describe("workspace inspection", () => {
         path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg",
       },
     ]);
+  });
+
+  it("leaves Asset metadata it can't read unchanged instead of replacing it", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, "assets"));
+    await mkdir(path.join(workspace, ".data"));
+    await writeFile(path.join(workspace, "assets", "image.webp"), "image");
+    const file = path.join(workspace, ".data", "assets.json");
+    for (const unreadable of [
+      JSON.stringify({ version: 2, prompts: { "assets/image.webp": "A forest shrine" } }),
+      "{ \"version\": 1, <<<<<<< HEAD",
+    ]) {
+      await writeFile(file, unreadable);
+      // Each change still goes through, recording nothing, so nothing around it is left half done.
+      await writeAssetMetadata(workspace, "assets/other.webp", { prompt: "A lake" });
+      await renameAssetMetadata(workspace, "assets/image.webp", "assets/moved.webp");
+      await expect(deleteAssetMetadata(workspace, "assets/image.webp")).resolves.toEqual([]);
+      expect(await readFile(file, "utf8")).toBe(unreadable);
+      // Reading still works; it only knows nothing of the file's records.
+      await expect(listWorkspaceFiles(workspace, "assets")).resolves.toEqual([{ path: "assets/image.webp", size: 5, mediaType: "image" }]);
+    }
   });
 
   it("reads bounded text and reports binary files", async () => {
