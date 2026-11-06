@@ -826,6 +826,11 @@ export async function setStorePluginEnabled(id: string, enabled: boolean): Promi
   void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
 }
 
+/** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
+export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
+  return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
+}
+
 /** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
 export function readPluginLog(id: string): Promise<PluginLogView> {
   return request(`/plugin-store/${pluginPath(id)}/log`);

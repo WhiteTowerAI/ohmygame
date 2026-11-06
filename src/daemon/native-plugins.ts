@@ -260,6 +260,18 @@ export class NativePlugins {
     );
   }
 
+  /**
+   * Restarts the hosts that imported a plugin, as when its package changed
+   * under the same version in development: a host keeps the modules it
+   * imported, even after turning the plugin off, so only a new one runs the
+   * new code. Each starts again on its next call.
+   */
+  async reload(id: string): Promise<void> {
+    await Promise.all(
+      this.#hosts.importers(id).map((scope) => this.#hosts.stop(scope)),
+    );
+  }
+
   /** Which start of the project's running host this is; undefined when none runs. */
   async hostGeneration(folder: string): Promise<number | undefined> {
     return this.#hosts.generation(await projectFolderKey(folder).catch(() => folder));

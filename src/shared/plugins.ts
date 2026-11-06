@@ -8,7 +8,9 @@ import type { GamepadKeyMap } from "./preview-input.js";
 export type PluginOrigin =
   /** `ref`: the branch or tag it was added from; without one, the default branch. */
   | { type: "github"; repository: string; commit: string; ref?: string; release?: string }
-  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
+  /** A folder on this computer being developed: it's added again whenever its files change. */
+  | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
 export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
@@ -18,7 +20,8 @@ export type PluginAddSource =
   /** `market`: opened from a market card, so only a version the market signs off will do. */
   | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
-  | { type: "directory"; path: string };
+  /** `development`: the folder is added again whenever its files change. */
+  | { type: "directory"; path: string; development?: true };
 
 /** A plugin published on npm that the market lists, at its newest version. */
 export interface MarketPlugin {
@@ -212,6 +215,18 @@ export interface PluginMcpResult {
 /** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
 export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
 
+/**
+ * The plugin ids an npm package may hold: its scope is what npm vouches for,
+ * so it's the publisher, and `ohmygame-plugin-` may lead the name. The last
+ * is the one to suggest. Undefined for a name that can't be a plugin's.
+ */
+export function npmPackagePluginIds(packageName: string): string[] | undefined {
+  const match = NPM_PLUGIN_PACKAGE.exec(packageName);
+  if (!match) return undefined;
+  const [, scope, name] = match as unknown as [string, string, string];
+  return [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
+}
+
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
 }
@@ -275,6 +290,8 @@ export interface StorePlugin {
   /** Installed with the app from another repository; it can be uninstalled. */
   preinstalled?: boolean;
   origin?: PluginOrigin;
+  /** Why its folder, in development, couldn't be added again the last time it changed. */
+  developmentError?: string;
   /** On in every project it suits, unless a project turns it off. */
   everyProject: boolean;
   /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */

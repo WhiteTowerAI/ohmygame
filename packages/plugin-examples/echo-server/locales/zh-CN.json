@@ -1,0 +1,5 @@
+{
+  "plugin.name": "回声服务",
+  "plugin.description": "agent 可以调用的本地 MCP 服务。",
+  "mcp.title": "回声服务"
+}

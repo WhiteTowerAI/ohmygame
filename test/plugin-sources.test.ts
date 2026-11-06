@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractTarball } from "../src/daemon/archive-extraction.js";
 import { PluginMarketError, type MarketRelease } from "../src/daemon/plugin-market.js";
+import { PluginDevelopment } from "../src/daemon/plugin-development.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
 
@@ -446,6 +447,24 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("adds only what npm would publish from a folder", async () => {
+    const { sources, services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    await writeFile(path.join(folder, "package.json"), JSON.stringify({ name: "@acme/maker", version: "1.0.0", files: [".ohmygame-plugin", "skills"] }));
+    await mkdir(path.join(folder, "node_modules", ".bin"), { recursive: true });
+    await writeFile(path.join(folder, "node_modules", "dependency.js"), "");
+    if (process.platform !== "win32") await symlink("../dependency.js", path.join(folder, "node_modules", ".bin", "tool"));
+    await mkdir(path.join(folder, ".git"));
+    await writeFile(path.join(folder, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(folder, "notes.md"), "Not published");
+    await writeFile(path.join(folder, "skills", "make", "draft.md.orig"), "");
+    const source = { type: "directory", path: folder } as const;
+    await sources.install(source, (await sources.inspect(source, "en")).digest);
+    const { root } = services.index.get("acme/maker")!;
+    expect((await readdir(root, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "package.json", "skills", "skills/make", "skills/make/SKILL.md"]);
+    await close();
+  });
+
   it("installs the folder that was reviewed, not what it became", async () => {
     const { sources, services, directory, close } = await setup();
     const folder = await folderPackage(directory);
@@ -470,6 +489,85 @@ describe("PluginSources", () => {
     expect((await lstat(root)).isSymbolicLink()).toBe(false);
     expect(await readFile(path.join(root, "skills", "make", "SKILL.md"), "utf8")).toBe(skill);
     await close();
+  });
+
+  describe("in development", () => {
+    const develop = (folder: string) => ({ type: "directory", path: folder, development: true }) as const;
+
+    it("adds the folder again in place, without a review, and only as the same plugin", async () => {
+      const { sources, services, directory, close } = await setup();
+      const folder = await folderPackage(directory);
+      const preview = await sources.inspect(develop(folder), "en");
+      expect(preview.origin).toEqual({ type: "development", folder: await realpath(folder) });
+      await sources.install(develop(folder), preview.digest);
+      expect(await sources.developmentFolders()).toEqual(new Map([["acme/maker", await realpath(folder)]]));
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(false);
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(true);
+      const entry = services.index.get("acme/maker", "1.0.0")!;
+      expect(entry.digest).not.toBe(preview.digest);
+      expect(await readFile(path.join(entry.root, "skills", "make", "SKILL.md"), "utf8")).toContain("Then check it.");
+      // A new version keeps the old one for the projects that name it.
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker", "1.1.0", { capabilities: { native: true }, entrypoints: { native: "./index.mjs" } }));
+      await writeFile(path.join(folder, "index.mjs"), "export function activate() {}\n");
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(true);
+      expect(services.index.versions("acme/maker").map((item) => item.version).sort()).toEqual(["1.0.0", "1.1.0"]);
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/other"));
+      await expect(sources.refreshDevelopment("acme/maker")).rejects.toThrow("now holds acme/other");
+      await close();
+    });
+
+    it("can't develop a plugin installed from elsewhere, even with the same contents", async () => {
+      const bytes = tgz(...pluginEntries("package/"));
+      const pack = npmPackage("@acme/maker", bytes);
+      const { sources, directory, close } = await setup(pack.routes, pack.files);
+      const preview = await sources.inspect(npm, "en");
+      await sources.install(preview.source!, preview.digest);
+      const folder = await folderPackage(directory);
+      await expect(sources.inspect(develop(folder), "en")).rejects.toThrow("already installed from npm");
+      // Nor from a second folder once one is in development.
+      await close();
+      const other = await setup();
+      const first = await folderPackage(other.directory);
+      await other.sources.install(develop(first), (await other.sources.inspect(develop(first), "en")).digest);
+      const second = path.join(other.directory, "second");
+      await cp(first, second, { recursive: true });
+      await expect(other.sources.inspect(develop(second), "en")).rejects.toThrow("in development");
+      await other.close();
+    });
+
+    it("watches the folder, restarts the plugin's hosts after a change, and says why one can't be added", async () => {
+      const { sources, services, directory, close } = await setup();
+      const folder = await folderPackage(directory);
+      await sources.install(develop(folder), (await sources.inspect(develop(folder), "en")).digest);
+      const reload = vi.spyOn(services.native, "reload");
+      const development = new PluginDevelopment(services, sources, { settleMs: 20 });
+      await development.sync();
+      const before = services.index.get("acme/maker")!.digest;
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+      await vi.waitFor(() => expect(services.index.get("acme/maker")!.digest).not.toBe(before), { timeout: 5000 });
+      await development.settled();
+      expect(reload).toHaveBeenCalledWith("acme/maker");
+      // What npm leaves out, such as node_modules, changes nothing.
+      reload.mockClear();
+      await mkdir(path.join(folder, "node_modules"), { recursive: true });
+      await writeFile(path.join(folder, "node_modules", "x.js"), "");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await development.settled();
+      expect(reload).not.toHaveBeenCalled();
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), "{");
+      await vi.waitFor(() => expect(development.error("acme/maker")).toContain("isn't a valid plugin"), { timeout: 5000 });
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker"));
+      await vi.waitFor(() => expect(development.error("acme/maker")).toBeUndefined(), { timeout: 5000 });
+      await services.uninstall("acme/maker");
+      await development.sync();
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Again.\n`);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(services.index.get("acme/maker")).toBeUndefined();
+      expect((await readFile(path.join(folder, "skills", "make", "SKILL.md"), "utf8"))).toContain("Again.");
+      await development.close();
+      await close();
+    });
   });
 
   it("keeps an installed plugin's approvals and settings from a package of another source", async () => {
