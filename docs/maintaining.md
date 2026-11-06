@@ -96,6 +96,8 @@ remaining work and an actionable next step before closing it.
    For a major release (for example beta 5), also add a one-line entry to the
    **News** section of both `README.md` and `README.zh-CN.md`, linking its
    release notes, and remove the oldest entry so at most three remain.
+   Also list compatibility code that is due with `git grep -n "compat:"` and
+   remove it in a PR into `dev` first; see [compatibility](compatibility.md).
 2. Verify the release candidate's public checks and relevant platform, model,
    OAuth, and cloud integration behavior. Record environment-dependent checks
    that remain outstanding. When a change affects packaging or the installer,
@@ -126,3 +128,20 @@ disappeared, and retarget any PRs that GitHub moved to `main` back to `dev`.
 For an urgent released-version fix, start a `fix/<short-name>` branch from
 `main` and open a PR into `main`. After review and verification, synchronize
 `main` back into `dev` through a merge PR so the fix is included in later releases.
+
+## Publishing the plugin author packages
+
+`@ohmygame/plugin-ui`, `@ohmygame/plugin-cli` and `create-ohmygame-plugin`
+carry the plugin API version, `PLUGIN_HOST_API_VERSION` in
+`src/shared/plugin-manifest.ts`, and a test keeps their `version` equal to it.
+When a release raises that version, publish all three from that release's
+commit, signed in to npm as a member of the `@ohmygame` organization:
+
+```sh
+(cd packages/plugin-ui && npm publish --access public)
+(cd packages/plugin-cli && npm publish --access public)
+(cd packages/create-ohmygame-plugin && npm publish)
+```
+
+The last two build their `dist/` from the app's code before packing
+(`prepack`), so run them from a checkout with dependencies installed.

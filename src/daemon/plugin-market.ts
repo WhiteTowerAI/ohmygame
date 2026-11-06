@@ -4,13 +4,16 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { RESERVED_PUBLISHERS } from "./plugin-services.js";
+import { RESERVED_PUBLISHERS } from "../shared/plugin-manifest.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
 // package's contents don't: the index carries npm's own signature over each
 // version's checksum, so an index or a mirror that lies about a package can't
 // get it installed (PluginSources checks the download against that checksum).
+
+/** The index the ohmygame-plugins job publishes; `OHMYGAME_PLUGIN_INDEX_URL` replaces it, and an empty one turns the market off. */
+export const PLUGIN_INDEX_URL = "https://plugins.ohmygame.ai/plugins/index.json";
 
 const POINTER_MAX_BYTES = 4 * 1024;
 const INDEX_MAX_BYTES = 32 * 1024 * 1024;

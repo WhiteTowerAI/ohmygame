@@ -19,9 +19,10 @@ const official: StorePlugin = {
   examples: [],
   settings: [],
   skills: [],
-  adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
+  adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 },
 };
-const added: StorePlugin = { ...official, id: "acme/review", displayName: "Community Review", bundled: false };
+const added: StorePlugin = { ...official, id: "acme/review", displayName: "Community Review", bundled: false,
+  origin: { type: "github", repository: "acme/review", commit: "a".repeat(40) } };
 const made: StorePlugin = { ...official, id: "personal/notes", displayName: "My Notes", bundled: false };
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -95,10 +96,10 @@ describe("Plugin library", () => {
     const betaCard = cards.find(card => card.querySelector(".plugin-card-name")?.textContent === "Studio")!;
     expect(betaCard.querySelector(".ui-badge")?.textContent).toBe("Beta");
     expect(betaCard.querySelector('[aria-label="Turn Studio on in every project"]')).not.toBeNull();
-    expect(section("Personal").querySelector(".ui-badge")).toBeNull();
+    expect(cards.filter(card => card.querySelector(".ui-badge"))).toEqual([betaCard]);
   });
 
-  it("groups plugins by category and those the person made under Personal", async () => {
+  it("groups others' plugins by category, and keeps the person's own under Mine", async () => {
     await act(async () =>
       root.render(
         <PluginsSettings
@@ -110,15 +111,17 @@ describe("Plugin library", () => {
     expect(section("Other plugins").textContent).toContain("Studio");
     expect(section("Other plugins").textContent).toContain("Community Review");
     expect(section("Other plugins").textContent).not.toContain("My Notes");
-    expect(section("Personal").querySelectorAll(".plugin-card-name")).toHaveLength(1);
-    expect(section("Personal").textContent).toContain("My Notes");
-    // The AI workspaces follow the Personal plugins.
-    expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Edit My Notes");
     const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Turn Studio on in every project"]')!;
     await act(async () => toggle().click());
     expect(saved).toEqual({ on: false });
     expect(toggle().getAttribute("aria-checked")).toBe("false");
     expect(window.location.hash).toBe("#/plugins");
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === "Mine")!.click());
+    expect(section("Your plugins").querySelectorAll(".plugin-card-name")).toHaveLength(1);
+    expect(section("Your plugins").textContent).toContain("My Notes");
+    expect(section("Your plugins").textContent).toContain("Create a plugin with AI");
+    // The AI workspaces follow the person's plugins.
+    expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Edit My Notes");
   });
 
   it("shows AI workspaces as cards and asks before deleting one", async () => {

@@ -21,6 +21,7 @@ export function canvasGroupExecutionPlan(
           ? [data.promptSource]
           : []),
         ...("source" in data && data.source ? [data.source] : []),
+        ...(node.type === "plugin" ? Object.values(node.data.inputs).flat() : []),
       ];
       return [
         node.id,

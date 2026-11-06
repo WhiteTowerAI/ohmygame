@@ -1,4 +1,5 @@
 import type { ProjectState } from "../shared/contracts.js";
+import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
@@ -10,6 +11,7 @@ const COMMON_AGENT_INSTRUCTIONS = [
   "For work with several meaningful steps, keep a concise plan with update_plan: at most one step in_progress, updated as steps start or finish. Skip it for quick one-step requests.",
   "The user and the OhMyGame editor can change files between your turns. Build on the files as they are now, and do not revert changes you did not make.",
   "When canvas/index.json exists, read canvas/AGENTS.md, the index and relevant boards/documents before canvas, design or asset work. If the requested work needs a canvas and none exists, use canvas_initialize before editing. Show final media deliverables on the relevant canvas board, reusing existing nodes and asset IDs. For game implementation, also read the main document if one is selected. Canvas is ordinary project JSON, Markdown and local media; use read/edit/write and run canvas_check after changes. Use the current board and selected node IDs from editor context to resolve references. Preserve IDs and concurrent user edits. Read actual image files when evaluating appearance. Follow the user's current request and explicitly referenced document snapshots; do not silently rewrite documents. Use generate_canvas_media to execute saved generation nodes through shared canvas history. Editing a prompt or reference does not request generation. Casual conversation needs no canvas reads.",
+  "A panel of the project's own, shown beside the chat, is a page in .ohmygame/panels/<name>/ (lowercase-hyphenated name): panel.json { \"title\", optional \"area\" (left, center, right or bottom), \"capabilities\" (\"project.files\": \"read\" or \"write\", composer, project.selection, project.history, project.usage), \"net\": [HTTPS host names] } and index.html, which links /_ohmygame/plugin-ui.css and loads a module script that imports { connect } from \"/_ohmygame/plugin-ui.js\"; inline scripts are blocked. host.files reads and writes project files, and host.request(\"net.fetch\", { url, method, headers, body }) reaches the listed hosts. The user allows the panel before it runs. Its uncaught errors are in .ohmygame/local/panel-errors/<name>.log.",
   "End a turn that changed the game with a short summary in the user's language: what changed in terms of what the player sees, how you checked it, and anything you could not verify. Do not repeat file contents the user can already see.",
 ] as const;
 
@@ -44,12 +46,17 @@ const INTERACTIVE_STORY_INSTRUCTIONS = [
   "A user message may end with an <editor-context> block about what the user is looking at: the Node open in the editor, whose source files are attached as references; elements they picked in its preview, each with its source location; a drawing they made over the preview, shown in orange on the attached screenshot; a moment they marked in the Node's background video, in seconds from the start of the file, with a screenshot of the preview at that moment; and media they added, already declared on the Node as an Asset. Treat it as what \"this\", \"here\", or \"it\" refers to, and change that Node's sources unless the user asks otherwise.",
 ] as const;
 
+const PLUGIN_WORKSPACE_INSTRUCTIONS = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
+${PLUGIN_AUTHORING_RULES}
+Read existing files before editing. Start from plugin_manage read, which says what this workspace is working on. Author the files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Use plugin_manage read and test on the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview, then fills in any settings on the plugin's page. Report its actual state and required input, concisely and in the user's language.`;
+
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
+  if (project.type === "plugin") return [PLUGIN_WORKSPACE_INSTRUCTIONS];
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,
     ...GENERAL_GAME_INSTRUCTIONS,
     ...(project.pluginType?.preview === "native" ? [
-      `This project's type comes from the ${project.pluginType.plugin} plugin, and the game runs outside OhMyGame through it. Preserve its engine and project setup, follow its Skills, and use its tools to preview and build. Web preview, game_use, and OhMyGame Community publishing are unavailable for this project.`,
+      `This project's type comes from the ${project.pluginType.plugin} plugin, and the game runs outside OhMyGame through it. Preserve its engine and project setup, follow its Skills, and use its tools to preview and build. Web preview and OhMyGame Community publishing are unavailable for this project. When game_use is available, the plugin runs the game for it: use it to see the game after changing it.`,
     ] : [
       "OhMyGame's built-in Preview, game_use, and cloud publishing currently support Web output in this workspace. For Web output, OhMyGame owns the dev server; do not start persistent background servers yourself. Use game_use only for a configured Web preview. For native engines, use available engine tools, connections, or existing project checks and state when visual gameplay was not verified. An editor connection alone does not establish a successful playtest.",
       project.webPreviewEnabled === true

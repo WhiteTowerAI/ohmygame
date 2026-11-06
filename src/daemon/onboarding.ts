@@ -24,6 +24,7 @@ export class OnboardingStore {
   async load(): Promise<void> {
     try {
       const value = JSON.parse(await readFile(this.#filePath, "utf8"));
+      // compat: since beta.5.1, remove from beta.7 and 2026-12-03. The "media" step.
       // Setup's last step was "media" before it became "start".
       const step = value?.step === "media" ? "start" : value?.step;
       if (

@@ -7,7 +7,7 @@ import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginPageStorage } from "../src/daemon/plugin-page-storage.js";
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
 import { PAGE_TOKENS } from "../src/renderer/plugin-frame.js";
-import { pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
+import { pageFilePaths, pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -393,7 +393,37 @@ describe("plugin pages", () => {
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();
+    // Text, files or both go in the composer; the person sends them.
+    const fill = (params: unknown) => readPluginUiRequest({ id: 14, method: "composer.fill", params }).ok;
+    expect(fill({ text: "Fix the boss fight" })).toBe(true);
+    expect(fill({ attachments: [{ name: "feedback.md", data: "Too hard", type: "text/markdown" }] })).toBe(true);
+    expect(fill({ text: "See the shot", attachments: [{ name: "shot.png", data: new Blob(["png"], { type: "image/png" }) }] })).toBe(true);
+    expect(fill({})).toBe(false);
+    expect(fill({ text: "" })).toBe(false);
+    expect(fill({ attachments: [{ name: "../escape.md", data: "x" }] })).toBe(false);
+    expect(fill({ attachments: [{ name: "a.md", data: 5 }] })).toBe(false);
+    expect(fill({ attachments: [{ name: "a.md", data: "x", type: "not a type" }] })).toBe(false);
+    expect(fill({ attachments: Array.from({ length: 11 }, (_, index) => ({ name: `${index}.md`, data: "x" })) })).toBe(false);
+    // What a page reads about its project needs its own capability.
+    expect(pluginUiRefusal("history.list", {})).toContain("project.history capability");
+    expect(pluginUiRefusal("history.list", { "project.history": true })).toBeUndefined();
+    expect(pluginUiRefusal("usage.get", { "project.history": true })).toContain("project.usage capability");
+    expect(pluginUiRefusal("usage.get", { "project.usage": true })).toBeUndefined();
+    expect(readPluginUiRequest({ id: 15, method: "history.list", params: { limit: 100 } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 16, method: "history.list", params: { limit: 101 } }).ok).toBe(false);
+    // Pages don't hear about hidden files, which they can't use.
+    expect(pageFilePaths(["src/main.ts", ".env", ".private/key.txt", "assets/.cache/x.png"])).toEqual(["src/main.ts"]);
     expect(pluginUiRefusal("project.info", {})).toBeUndefined();
+    // net.fetch reaches HTTPS hosts on the default port, for a page listing some.
+    expect(pluginUiRefusal("net.fetch", {})).toContain("net capability");
+    expect(pluginUiRefusal("net.fetch", { net: ["api.example.com"] })).toBeUndefined();
+    const fetchAsk = (params: unknown) => readPluginUiRequest({ id: 17, method: "net.fetch", params }).ok;
+    expect(fetchAsk({ url: "https://api.example.com/v1", method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).toBe(true);
+    expect(fetchAsk({ url: "http://api.example.com/v1" })).toBe(false);
+    expect(fetchAsk({ url: "https://user@api.example.com/" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com:444/" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com/", method: "TRACE" })).toBe(false);
+    expect(fetchAsk({ url: "https://api.example.com/", body: 5 })).toBe(false);
     // A frame showing a plugin page stays within that plugin version's files.
     const ui = "http://127.0.0.1:9000";
     const from = `${ui}/acme/panel/1.0.0/ui/panel.html`;
@@ -402,6 +432,9 @@ describe("plugin pages", () => {
     expect(pluginFrameNavigationAllowed(from, `${ui}/acme/panel/1.0.1/ui/panel.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "https://example.com/?data=x", ui)).toBe(false);
     expect(pluginFrameNavigationAllowed(from, "about:blank", ui)).toBe(false);
+    // And a project's own panel within its folder.
+    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/stats/other.html`, ui)).toBe(true);
+    expect(pluginFrameNavigationAllowed(`${ui}/_project/p1/stats/index.html`, `${ui}/_project/p1/other/index.html`, ui)).toBe(false);
     expect(pluginFrameNavigationAllowed("http://127.0.0.1:5173/game", "https://example.com", ui)).toBe(true);
   });
 

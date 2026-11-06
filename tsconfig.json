@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "scripts/prepare-*.ts", "scripts/plugin-schema.ts", "scripts/plugin-ui-contract.ts", "scripts/plugin-check.ts", "scripts/plugin-ui-regression.ts", "packages/plugin-ui/**/*.d.ts", "scripts/test-agent-runtime-live.ts", "vite.config.ts", "vitest.windows.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "scripts/prepare-*.ts", "scripts/plugin-schema.ts", "scripts/plugin-ui-contract.ts", "scripts/plugin-check.ts", "scripts/build-plugin-packages.ts", "packages/plugin-cli/src/**/*.ts", "packages/create-ohmygame-plugin/src/**/*.ts", "scripts/plugin-ui-regression.ts", "packages/plugin-ui/**/*.d.ts", "scripts/test-agent-runtime-live.ts", "vite.config.ts", "vitest.windows.config.ts"]
 }

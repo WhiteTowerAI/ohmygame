@@ -4,6 +4,7 @@ import path from "node:path";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { AGENT_INSTRUCTIONS, PROJECT_DOCUMENTATION, PROJECT_GUIDE_UPGRADES, resolveWorkspaceMutationPath } from "./playable-codebase.js";
 import { STORY_WEB_DIRECTORY, STORY_WEB_ENTRY, storyWebRuntimeModules } from "./story-web-bundle.js";
+import { STORY_RUNTIME_UPDATES_DIRECTORY } from "../shared/project-layout.js";
 
 /**
  * A web story is an Interactive Story project that plays as its own page:
@@ -15,7 +16,7 @@ import { STORY_WEB_DIRECTORY, STORY_WEB_ENTRY, storyWebRuntimeModules } from "./
 /** Records which runtime OhMyGame wrote, and each file as it wrote it. */
 export const STORY_WEB_MANIFEST = `${STORY_WEB_DIRECTORY}/manifest.json`;
 /** Where a newer runtime waits for the files the author changed, in the editor cache. */
-export const STORY_WEB_UPDATES = ".ohmygame/story-runtime";
+export const STORY_WEB_UPDATES = STORY_RUNTIME_UPDATES_DIRECTORY;
 
 export interface StoryWebManifest {
   version: string;
@@ -23,7 +24,7 @@ export interface StoryWebManifest {
   files: Record<string, string>;
   /**
    * Files the author changed that a newer runtime also changes. The newer
-   * file is under `.ohmygame/story-runtime/<version>/` for the Agent to merge.
+   * file is under `.ohmygame/local/story-runtime/<version>/` for the Agent to merge.
    */
   pending?: { version: string; files: string[] };
 }
@@ -249,6 +250,7 @@ export async function upgradeToWebStory(
  * refused while it has them, so upgrading drops them along with the shell's
  * connections. The shell's files stay where they are.
  */
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Stories from before web stories.
 function withoutLegacyGraphFields(value: Record<string, unknown>): { graph: NodeGraph; removed: string[] } {
   const { shell, destinations, ...rest } = value;
   const removed = [...(shell !== undefined ? ["shell"] : []), ...(destinations !== undefined ? ["destinations"] : [])];

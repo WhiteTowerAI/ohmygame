@@ -13,22 +13,27 @@ from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
+The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
+the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
+**Installed** has a dot when an installed plugin has an update.
 
-- **Installed** groups plugins by their `categories` into **Game creation**,
+- **Installed** holds what others made: bundled, prepared, and added from npm or
+  GitHub. It groups them by their `categories` into **Game creation**,
   **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
-  shows up to six cards and a **View all**. **Personal** comes next: the
-  plugins the person made (`personal/<name>`), ending with **Create a plugin
-  with AI**, then the AI workspaces. Search shows every match in one list.
+  shows up to six cards and a **View all**. A **Category** filter narrows them
+  to what they add; **Skills** lists each of their Skills on its own instead.
+  Search shows every match in one list.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning on one that
   asks for more than was allowed asks first, saying it will run in every
   project it suits. One stopped everywhere from its page says **Disabled** and
   has no switch.
-- **Browse** lists every plugin with its source and what it adds, and filters by
-  source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
-  come first, under **Featured** and **On npm**, leaving out what's installed.
-- **Skills** lists each plugin's Skills, with the person's own under **Personal**.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins under
+  **Featured** and **On npm**, filtered by what they add. One that's installed
+  says so and opens its page.
+- **Mine** holds what the person can edit: **Create a plugin with AI**, the
+  plugins they made (`personal/<name>`) or added from this computer, then the AI
+  workspaces.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -91,13 +96,165 @@ the daemon. `context.project.folder` is the project and
 type hooks the manifest declares can be registered. A tool, native command
 or MCP server may set `timeoutSeconds` (up to 3600) for calls that
 download or build. A native command with `changesFiles: false` runs
-without the project's write lock and leaves no change to undo.
+without the project's write lock and leaves no change to undo. One with
+`build: "web"` gets `build.folder`: the game's web build, made as Export web
+build makes it and under the same rules (not while the agent works, a web
+export or a publish runs, nor for a project without a web build), removed
+once the call ends. Only making the build holds up an export or a publish,
+not the plugin's own upload that follows.
 `progress(message, { url })` carries an https link the person needs, such
 as a device sign-in page; it is never dropped as frequent updates are. For a
 command the app runs, every message arrives as `plugin.command.progress`;
 the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
+
+With `capabilities.game` (API 2.3.0), a project's context has `game`: the
+project's game as the agent's [`game_use`](runtime.md#agent-game-use) plays
+it, through the same runtime and so within the same session limits.
+`game.open()` returns a session whose methods (`inspect`, `act`, `capture`,
+`captureFrame`, `recordStart`, `recordStop`, `close`) each take a `signal`.
+The host asks the daemon (`game` and `game-reply` messages,
+`src/daemon/plugin-game-bridge.ts`), which checks on every request that the
+plugin is on in the project and asks for `game`. Its sessions are its own and
+end when it is unloaded or its host stops. A recording goes to the Library
+named for the plugin, for at most 60 seconds. The plugin that runs a native
+type's game can't play it this way. Like every capability, `game` is the
+person's say for code they trust; it doesn't contain native code that
+ignores it.
+
+Native code isn't sandboxed: the [security model](plugin-security.md) says what
+that means and what the person approves. Wherever `native` is allowed (adding a
+plugin, turning it on, creating a project that turns it on) the app warns that
+its code runs with the person's own access (`NativeCodeWarning`).
+
+### Hooks
+
+`contributes.hooks` lists the events a plugin's native code hears about in
+a project, and `context.registerHook(event, handler)` registers a handler
+for one; the entry can't register an event the manifest doesn't list.
+What each handler receives is `PluginHookInputs` in
+`src/shared/plugin-hooks.ts`, and `src/daemon/plugin-hooks.ts` runs them.
+Only plugins that are on in the project hear anything, in its extension
+host, and the add review and the plugin's page list the events.
+
+| Event | When | Input |
+| --- | --- | --- |
+| `asset.added` | A generated asset is saved in the project, or a Library asset is added to it | `path`, `origin` (`generated` or `imported`), `prompt` |
+| `turn.completed` | A run's turns are closed, however the run ended | `conversationId`, `status`, `changes` (each file once, at most 500) |
+| `build.started`, `build.completed` | Around packing the project for export or publishing | `purpose`, then `status` with `bytes` or `error` |
+| `files.changed` | Files changed, in OhMyGame or outside it | `paths` (at most 200 every half second), `truncated` |
+| `image.beforeGenerate` | Before an image is generated in the project, by an agent, the canvas or the app | `prompt`, `imageModel`, `size` or `resolution` and `aspectRatio`, `transparentBackground`, `references` |
+
+Every hook but `image.beforeGenerate` only hears: nothing waits for it,
+and it can't stop or change what happened. It may return
+`{ notice, tone }`, which the project shows as a toast under the plugin's
+id (at most 300 characters, five in ten seconds); `tone` is `default` or
+`danger`. A hook that fails or takes over 30 seconds goes in the plugin's
+[log](#when-a-plugin-misbehaves) and nothing else happens; so does an
+`image.beforeGenerate` answer the app can't use. `.git`, `node_modules` and `.ohmygame` aren't
+watched, and a project's files are watched only while it is open and one
+of its plugins hears `files.changed` or has a page with `project.files`.
+
+`image.beforeGenerate` may return the fields it changes: `prompt` (at most
+8,000 characters), `imageModel` (`{ provider, id }`), `transparentBackground`,
+and `size`, or `resolution` and `aspectRatio`, in the kind the request
+already uses. It can't add or remove reference images. Plugins run in the
+project's order, each seeing the one before's changes, before the image's
+model is resolved; one that fails, takes over 10 seconds, or answers with
+a field or value it can't set changes nothing. The Library keeps the
+prompt as it was generated, with `requestedPrompt` and `pluginChanges`
+(which plugin and version changed which fields), and shows them on the
+asset; the agent's result says which plugins changed the request and the
+prompt used.
+
+## When a plugin misbehaves
+
+- **Log.** `PluginLogs` (`src/daemon/plugin-logs.ts`) keeps each plugin's
+  last 500 lines since the app started, in memory: what its native code
+  printed through `console` while it ran (the host tags it with the plugin,
+  so one host's plugins stay apart), its failed tools, commands and hooks,
+  its host stopping under it, a failed call to its MCP service from an
+  agent, and its panels' uncaught errors, which the page bridge sends and
+  the app posts to `POST /plugin-store/:publisher/:name/log`. `GET` on the
+  same route returns it with the plugin's saved secrets, and what looks like
+  a key, token or URL password, replaced by `[redacted]`, so what the app
+  shows or copies has been through that. A failed tool's or command's error
+  loses the plugin's saved secrets the same way before it reaches a toast, a
+  page or an agent (`PluginServices.callTool`, `runCommand`). A failed command's toast and a
+  panel's first error offer **View log**; the log has **Turn off** and
+  **Copy log**.
+- **Quarantine.** A plugin blamed for three host crashes or hangs within
+  five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
+  page and card say it stopped, and it stays so until it is turned on again
+  or the app restarts.
+- **A panel that stops answering.** While a page with the bridge shows, the
+  app pings it every five seconds and the bridge answers by itself. After
+  fifteen seconds without an answer the app offers to wait, reload the
+  panel, or turn the plugin off.
+- **Safe mode.** Started with `--safe-mode`, or restarted with plugins off
+  from the service-stopped notice or the Plugins page's Add menu, the
+  service (`OHMYGAME_SAFE_MODE=1`) reads every plugin as off
+  (`PluginGrants`): nothing native, no MCP service, no panel, no plugin
+  type. Saved choices don't change, plugins can't be turned on, and the
+  Plugins page offers to restart normally. Electron can't tell a key held
+  at launch without native code, so there is no Shift shortcut.
+
+## Canvas nodes
+
+`contributes.canvasNodes` adds nodes to the Asset Canvas add menu, under
+**Plugins**, one submenu per plugin with more than one node. A node lists up
+to 8 `inputs` (`{ id, title, accepts, multiple?, optional? }`, where
+`accepts` is `image`, `text`, `audio`, `video` or `model`), up to 16 `params`
+(`text`, `number` with `minimum`/`maximum`, `boolean`, or `select` with
+`options`, each with an optional `default`), one `output` of the same kinds,
+and `run.native`, a command the native entry registers with
+`registerCommand`. Canvas nodes came in API 2.3.0, so a plugin with them asks
+for `^2.3.0`. Titles take `%key%` locale strings.
+
+```json
+"canvasNodes": [{
+  "id": "pixelate",
+  "title": "%pixelate.title%",
+  "inputs": [{ "id": "image", "title": "%pixelate.image%", "accepts": "image" }],
+  "params": { "size": { "type": "number", "title": "%pixelate.size%", "default": 8, "minimum": 2, "maximum": 64 } },
+  "output": "image",
+  "run": { "native": "pixelate" }
+}]
+```
+
+On the board the node is `type: "plugin"` with `data.node`
+(`publisher/name:id`), `data.params`, and `data.inputs`, a list of references
+per input id. Each input has its own port; a drop elsewhere fills the first
+input that takes that kind and has room. Text and Document nodes give
+`text`, image, video, audio and 3D nodes and Library assets give their file,
+and another plugin node gives its output.
+
+Running the node starts a canvas job (`toolId: "plugin-node"`). The command
+gets `{ params, inputs, output }`: every param with its default filled in,
+each input as `[{ type: "text", text }]` or
+`[{ type, path, contentType }]`, and `output`, an empty folder for the
+result. It returns `{ text }` for a `text` output (up to 100,000
+characters), or `{ file }`, a regular file inside `output` whose kind
+matches the node's output, up to 512 MB. The app adds that file to the
+Library and sets `data.assetId`. A missing required input, a param that
+doesn't fit, or a plugin that is off fails the job with a message. Rerunning
+with the same params, inputs and output reuses the last result. A node whose
+plugin is off stays on the board with its links and last output, and says
+so; it runs again when the plugin is turned back on. Plugin nodes take part in
+[out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
+like the app's own nodes.
+
+`contributes.canvasPresets` offers ready-made groups of nodes under
+**Presets** in the same menu: `{ id, title, description?, board }`, where
+`board` is a JSON file in the package holding `{ nodes, edges }` in the
+board's own node format. A preset holds up to 200 nodes of the kinds that
+stand alone (text, image, video, audio, 3D, group and plugin nodes) and no
+outputs or Library assets (no `assetId` anywhere). Installing and
+`plugin:check` refuse one that breaks these rules or links to a node it
+doesn't hold. Adding a preset gives its nodes new ids, keeps the links
+between them, and puts them in a new group named after it where the menu
+was opened.
 
 ## Modules
 
@@ -106,21 +263,25 @@ shows it in the call's progress.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
+| Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
 
@@ -177,10 +338,26 @@ shows it in the call's progress.
   new project's first message goes back into the composer. A `%key%` message
   comes from the plugin's locale files in the language the prompt request
   names (`?locale=`). A failed or missing check lets the prompt through.
+- A `native` type with a native entry may declare `gameUse` (API 2.3.0):
+  the game [`game_use`](runtime.md#plugin-game-runtimes) opens through the
+  type's native `gameUse` hook. `operations` lists what it does besides
+  `open` and `close`: `inspect`, `act` (with the `input` it takes:
+  `pointer`, `keyboard`, `touch`, `resize`), `capture` (the session's
+  current frame) and `captureFrame` (a fresh run from the start, captured at
+  a `frame` up to `maxFrame`). The hook gets `GameUseHookInput`
+  (`src/shared/extension-host-protocol.ts`), one request at a time per
+  session: `open` names the plugin's own session, and a capture writes a PNG
+  or JPEG to the `output` path the app chose and may return the `frame` it
+  kept and `notes` about it.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
+- Canvas nodes: `GET /projects/:id/plugin-canvas?locale=` lists the
+  [canvas nodes](#canvas-nodes) and presets of the project's active plugins;
+  `GET /projects/:id/plugin-canvas/presets/:publisher/:name/:preset` gives a
+  preset's nodes and edges. A node runs through the canvas
+  `POST …/nodes/:nodeId/generate` route.
 - Pages: `GET /projects/:id/plugin-panels`,
   `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
   page's [project files](#plugin-pages) under
@@ -194,6 +371,8 @@ shows it in the call's progress.
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
 - Market: `GET /plugin-market?locale=` gives the
   [listing](#the-plugin-market); installing uses the Adding routes.
+- Themes: `GET /plugin-themes?locale=` lists the themes of the plugins that
+  are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
   `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
@@ -282,6 +461,66 @@ same path that checks a package with `indexPluginPackage` and copies it under
 removed, later releases included. Bundled plugins are indexed from `plugins/`
 and can't be uninstalled.
 
+## Model providers
+
+`contributes.providers` adds chat model providers to Settings → Providers.
+`PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
+the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
+installed, runs in this app and isn't disabled everywhere; projects' plugin
+switches don't apply. It follows installs, updates and setting changes.
+
+- `api` and `baseUrl` say how to reach it, as for a provider the person adds.
+- `apiKey` names a `secret` configuration field. The provider joins once the
+  person sets that field on the plugin's page, and leaves when it is cleared.
+  The app reads the key itself; the plugin's native code still gets secrets
+  only with `capabilities.secrets`. A provider without `apiKey` sends a
+  placeholder key, for services that need none.
+- `models` lists models; unless the app knows a model's id, it gets a 128K
+  context and 16K output. With `discoverModels`, refreshing the catalog also
+  reads the endpoint's model list, as adding a provider does, and skips models
+  that only make media.
+- Settings shows where the provider comes from, its base URL and whether the
+  key is set, with a link to the plugin's page. It can be turned off there
+  like any provider; signing in, removing it or adding models is refused.
+
+## Coding agents
+
+`contributes.agents` (plugin API 2.3.0) adds coding agents that speak the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP) to Settings →
+Agents, such as Gemini CLI (`gemini --acp`). The plugin says how to start the
+agent; OhMyGame starts it and drives it with one generic driver,
+`AcpDriver` (`src/daemon/agent-runtimes/acp.ts`). An agent is
+`agent.<publisher>.<name>.<id>` while its plugin is installed, runs in this
+app and isn't disabled everywhere; projects' plugin switches don't apply.
+`src/daemon/plugin-agents.ts` turns the manifest into the agent's definition.
+
+- `command` is the program, found on PATH and in the usual install folders as
+  the built-in agents are, and `args` start ACP on its stdio. `command` must
+  be listed in `capabilities.processes`, as an MCP server's is, so the add
+  review shows it; this covers only the program OhMyGame starts, not what the
+  agent runs afterwards, which its own permissions decide. Like a built-in
+  agent, it is off until the person turns it on in Settings → Agents, which
+  first shows the whole command line; only its `--version` runs before that.
+  `installUrl` and `loginCommand` are shown when it is missing or signed out.
+- Checking it runs `command --version`, then starts an ACP session in an empty
+  folder to read its models and reasoning levels from the session's config
+  options. An agent that answers `auth_required` shows as signed out. One
+  that offers no choice of model gets a single model named after it.
+- A conversation runs one process and one ACP session. OhMyGame offers no file
+  system or terminal of its own, so the agent uses its own tools. Its tools
+  reach the agent as an MCP server over HTTP when the agent supports one;
+  their token lasts as long as the process but answers only while a turn runs.
+  Its instructions go with the session's first prompt, with the Skills it can
+  read. A later process loads the session again (`session/load`, or
+  `session/resume`); an agent that can do neither starts a new session with a
+  summary of the conversation.
+- Its permission modes are **Its rules**, where what the agent asks becomes an
+  approval card, and **Allow all**. Planning turns switch to the agent's `plan`
+  or read-only mode when it has one and refuse whatever it asks.
+- Stop sends `session/cancel`. Tool calls show with Pi's names where the ACP
+  kind says which (`execute`, `read`, `edit`), and OhMyGame's own tools show
+  what they returned.
+
 ## Making a plugin
 
 The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
@@ -291,6 +530,14 @@ refuses any other publisher, so it can't replace what the app or a publisher
 ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
 as any package is checked.
 
+- Each AI workspace is a hidden project of type `plugin`, made with the
+  workspace's folder (`PluginWorkspaceProjects` in `plugin-setup.ts`). Its
+  conversations are the project's, so they run, queue, undo and pick models and
+  coding agents as any project's do; `PluginSetupManager.agentTools` adds
+  `plugin_manage` for that project, and `agent-prompts.ts` gives it the authoring
+  rules. `GET /projects` leaves these projects out, and deleting the workspace
+  deletes its project. A workspace from before this gets its project, with its
+  conversation moved in, the first time it is read.
 - Installing from the builder allows what the plugin asks for, since the person
   reviewed it and chose Install. `install_plugin`, which the agent calls in a
   game conversation, allows nothing: the person turns such a plugin on in a
@@ -303,6 +550,44 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
+- **Export as a package…** on a personal plugin's page
+  (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
+  copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
+  `package.json`, README and publish workflow a new package gets from the
+  [template](#tools-for-plugin-authors). Project templates' `.gitignore` files
+  go back to `gitignore`, as npm needs. Nothing installed changes.
+
+## Tools for plugin authors
+
+Authors outside this repository use the app's own checks through two npm
+packages built from it by `bun run plugin-packages:build`
+(`scripts/build-plugin-packages.ts`), versioned with `PLUGIN_HOST_API_VERSION`
+like `@ohmygame/plugin-ui`:
+
+- **`@ohmygame/plugin-cli`** (`packages/plugin-cli/`), the `ohmygame-plugin`
+  command. `check [folder]` checks what npm would publish from a folder;
+  `pack [folder]` runs the author's `npm pack`, checks the `.tgz` unpacked as
+  adding it would, and keeps it only without errors. Both run
+  `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
+  version adding from npm refuses (the scope must be the publisher, and
+  `ohmygame` and `personal` are kept), then the page checks against the page
+  components' contracts, which ship in the package. It also ships the manifest's
+  JSON Schema as `plugin.schema.json`. In this repository, `bun run
+  plugin:check <folder>` does the same as `check`.
+- **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
+  `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:
+  a manifest, a `package.json` named `@publisher/name` with a `files` list,
+  both locales, a README, a GitHub Actions workflow that publishes with
+  provenance, and any of a Skill, a panel with a command, native code with a
+  tool, a local MCP server and a project type. Every combination passes `check`.
+- **Examples** in `packages/plugin-examples/`, one for each part, made from the
+  template under the publisher `example`.
+
+What a folder publishes is chosen by `src/daemon/plugin-pack.ts` with
+npm-packlist, npm's own rules: `files`, `.npmignore` or else `.gitignore`, the
+files npm always keeps or drops, and declared `bundleDependencies`. A folder
+without `package.json` leaves out what one would (`node_modules`, lockfiles).
+Tests compare it with `npm pack --dry-run` where npm is installed.
 
 ## Adding a plugin
 
@@ -314,21 +599,46 @@ the source again and refuses a package whose digest isn't the one reviewed.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
-| npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| npm, from `registry.npmjs.org`, `registry.npmmirror.com` or another registry's address | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
-| This computer | A folder (desktop app) or an uploaded `.tgz` | As any package |
+| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
+- **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
+  and **Another registry…**, which takes a public registry's address over HTTPS,
+  with no sign-in, query or trailing slash
+  (`customNpmRegistry`). OhMyGame doesn't sign in to registries, so one that
+  answers 401 or 403 is refused with a message saying so. The choice is
+  remembered in the renderer's local storage and also applies to market cards.
+  A package downloads from the registry's own host or from `registry.npmjs.org`,
+  where a mirror points a version it hasn't copied yet; either way it has to
+  match the registry's SHA-512. The origin stays the registry chosen, even when a
+  market version came from npm instead, so updates are looked for there.
 - A package allows nothing when it's added. What it asks for waits for the person
   to approve it, on its page or when they turn it on in a project's Plugins sheet.
   One that only adds Skills asks for nothing, so it applies right away and replaces
   its older versions.
 - A package joins an installed plugin only from the same source: the same npm
-  scope or GitHub repository. Approvals and settings belong to the id, so from
+  scope or GitHub repository. npm and npmmirror count as one source; another
+  registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
   anywhere else, and from this computer always, the person uninstalls it first,
   which clears them. Other contents under an installed version are refused; a
   new release needs a new version.
 - A folder is copied to a private temporary folder before it's reviewed or
   installed, so it can't change between the two checks that matter.
+- **Develop** adds a folder in development (`src/daemon/plugin-development.ts`):
+  its origin is `{ type: "development", folder }`, and the app watches the
+  folder (not `node_modules` or `.git`) and, 300 ms after a change, adds it again
+  without a review, replacing its version in place. A new version keeps the old
+  one for projects that name it. The hosts running its native code restart, as a
+  host keeps the modules it imported; its panels reload, as a panel's address
+  carries its package digest; Skills, manifest and MCP servers are read again
+  with the sessions that changes restart. More than the person allowed still
+  waits for them. An error, such as a broken manifest or another id, keeps the
+  last copy and shows on the plugin's page until a change fixes it. It never
+  shares an id with a plugin from elsewhere, even one with the same contents, nor
+  with another folder. Uninstalling stops watching and never touches the folder.
+  At startup each folder is added again for edits made meanwhile. A theme in
+  use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
   (`PluginServices.installAdded`), so a package can't stand in for what the app or
   the Plugin Builder provides.
@@ -338,16 +648,39 @@ the source again and refuses a package whose digest isn't the one reviewed.
   `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
   each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
-  its page. Nothing updates a package by itself: adding it again is the update.
+  its page; a GitHub origin keeps the branch or tag it was added from.
+
+### Updates
+
+Nothing updates a package by itself: adding a newer one is the update.
+`GET /plugin-store/updates` (`PluginSources.updates`) looks where each
+plugin's newest version came from, at startup and when the Plugins page opens,
+reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
+GitHub branch or tag is at now. An npm version the market blocked or turned
+away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
+opens the same review as Add plugin, at that version or commit; the market's
+own update comes first when it has one. A package from this computer has
+nowhere to look, so its page says to add it again.
+
+- The review lists what the new version asks for and marks what the person
+  hasn't allowed yet (`newAsks`); what was allowed stays with the plugin, so
+  only that is asked again.
+- A project that names a version keeps it. Its Plugins sheet moves it to any
+  installed version that works there, newer or older, which is also how it goes
+  back. One that follows the plugin for every project gets the newest.
+- `GET /plugin-store/:publisher/:name/usage` names the projects using each
+  version, and the plugin's page offers to remove older versions none uses.
 
 ## The plugin market
 
 The market lists the plugins published on npm. A job in the
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
 finds them, runs the same package checks as the app, and publishes an index file.
-`src/daemon/plugin-market.ts` reads it from the address in
-`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
-HTTP on this computer), there's no market and nothing is read.
+`src/daemon/plugin-market.ts` reads it from
+`https://plugins.ohmygame.ai/plugins/index.json` (`PLUGIN_INDEX_URL`), on
+Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
+or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
+nothing is read.
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
   file, then the index it names if that changed, checks the index against the
@@ -361,7 +694,7 @@ HTTP on this computer), there's no market and nothing is read.
   counts for nothing, since nothing signed says when a package was published: after
   npm retires a key, versions signed only with it need publishing again. The
   package then comes
-  from the chosen registry or the other one and has to match that SHA-512, so the
+  from the chosen registry, falling back to npm and npmmirror, and has to match that SHA-512, so the
   index and a mirror can't get a changed package installed. A card's review and
   install both need that signed entry, so one gone from the index is refused rather
   than read from the registry. Registry metadata isn't needed, since a mirror can
@@ -373,7 +706,7 @@ HTTP on this computer), there's no market and nothing is read.
 - **Source verified** means npm's provenance names the repository, or the
   repository's `package.json` names the package. Stars show only then. Weekly
   downloads come from npm.
-- **After installing.** A plugin added from npm shows **Update available** when the
+- **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
@@ -385,7 +718,19 @@ HTTP on this computer), there's no market and nothing is read.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
+on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
+projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
+values for the theme tokens (`THEME_TOKENS` in
+`src/shared/plugin-manifest.ts`: the grey ramp, accent, category hues and
+syntax colours) in `dark`, `light` or both. Settings › Appearance offers the
+themes of the plugins the person has on (`GET /plugin-themes`) beside the
+palettes; a chosen theme sets its values over the neutral greys, for the
+appearances it covers, and its plugin's pages get them with the other page
+tokens. The choice keeps the values, so it applies at launch, follows the
+plugin's updates and falls back to the neutral palette once the plugin is
+switched off or uninstalled. Themes set colours only: the app's own styles
+don't read font, radius or spacing tokens throughout yet. `ui.preview` lets its pages
 load page components still in preview, and `ui.major` says which major its
 pages use, so an app without it can say which way to go (see
 [Page components](#page-components)).
@@ -417,12 +762,26 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
   `plugins/` only switches off; uninstalling it is refused.
+- **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
+  whether it is the last version, the saved settings and size of the data
+  folder that go with the last one, the projects that use the version, and
+  the manifest's `projectFiles`, which stay. The last version always takes
+  what the person allowed; `?keepData=true` on the `DELETE` keeps its
+  settings and data folder for a later install from the same npm scope or
+  GitHub repository. A package from anywhere else that takes the id, or one
+  from this computer, starts without them (`PluginServices.forgetKeptData`).
+  A project's Plugins sheet
+  offers an installed version in place of an uninstalled one, and for an
+  uninstalled plugin, finding it in Plugins or removing it from the project.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
   built-in ones.
 - **Commands** show in the slots `composer.slash` (and every command with a
-  `slash` name), `composer.add` and `project.menu`. A prompt is sent, or
+  `slash` name), `composer.add`, `project.menu` and `project.publish`, the
+  Publish menu, after the app's own entries. The Publish button opens for a
+  project with no web build, such as a Maker game, once a plugin offers a way
+  to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
   put in the composer with `insert`; `openPanel` brings the panel forward;
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
@@ -431,6 +790,37 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked
   before the plugin runs.
+- **Preview devices** (`contributes.previewDevices`, API 2.3.0) of a
+  project's active plugins follow the built-in sizes in the preview's device
+  menu and in Project settings (`GET /projects/:id/plugin-preview`). A device
+  is an `id`, a `title`, and a `width` and `height` from 240 to 4096, the
+  same limits as `game_use`. It sets the game's viewport only and doesn't
+  emulate the device. A project saves it as `publisher/name:device`; while its
+  plugin is off or gone, the preview shows Fit.
+- **Preview filters** (`contributes.previewFilters`, API 2.3.0) are colour
+  matrices the person can turn on from the same menu, for that visit only,
+  such as a colour-vision simulation. A filter gives a 3 × 3 `matrix` over
+  red, green and blue, an optional `offset`, the `colorSpace` its coefficients
+  are for (`linearRGB` or `sRGB`), and its `source` (where the coefficients
+  come from, such as the paper, deficiency and severity), shown as the item's
+  tooltip. Alpha is always kept. A filter only changes what the person sees:
+  in the desktop app the game's host page draws it in Preview and Play, and it
+  is off while the person records; no cover is taken while one is on; the
+  agent's playtests and screenshots are never filtered.
+- **Gamepad maps** (`contributes.inputMaps`, API 2.3.0) press keys for a game
+  that only reads the keyboard. A map names a standard gamepad's `buttons`
+  (`a`, `b`, `x`, `y`, `leftBumper`, `rightBumper`, `leftTrigger`,
+  `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `up`, `down`,
+  `left`, `right`, `home`) and the `left` and `right` `sticks`' directions,
+  each as a `KeyboardEvent.code`, and a stick's `deadZone` (0.1 to 0.9, 0.5 by
+  default). Maps are off until the person picks one from the preview's device
+  menu; the choice is kept per project on that device and sent with `PUT
+  /projects/:id/preview/input-map`. The preview's bridge in each of the
+  person's pages of the game (never an AI test's) polls the pad while the page
+  has focus and sends key presses and releases there. It lets every key go on
+  blur, on disconnect and when the map changes. A game that reads the gamepad
+  itself stops the map, so the same input doesn't arrive twice. The events
+  aren't trusted ones, so a game that checks `isTrusted` ignores them.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
@@ -524,7 +914,23 @@ The app also draws around and over a page, with what a page can't change:
   10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused. The page hears a
-  `files` event when the project's files may have changed.
+  `files` event when the project's files may have changed: after an agent's
+  turn or its own change, without `paths`, and when the app sees files
+  change, in OhMyGame or outside it, with the `paths` and `truncated` that
+  `files.changed` hooks get.
+- **Composer.** With `capabilities.composer`,
+  `host.request("composer.fill", { text, attachments })` puts text after
+  what the composer holds and adds up to ten files, each
+  `{ name, data, type }` with `data` a string or Blob, within the limits of
+  files the person attaches. The person sends it; no page can.
+- **History and usage.** Read-only, each with its own capability.
+  `capabilities["project.history"]` lets `host.request("history.list",
+  { limit })` read the project's latest turns that changed files, newest
+  first: the conversation, when and what the person asked (cut to 2,000
+  characters), the files and whether they were undone; `limit` is 1 to 100,
+  20 by default. `capabilities["project.usage"]` lets
+  `host.request("usage.get")` read the project's tokens, turns and time by
+  day and model, and nothing about other projects (`src/daemon/plugin-data.ts`).
 
 ### Page components
 
@@ -639,6 +1045,56 @@ bundled: add it from that folder with **Add plugin…**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
 
+## Project panels
+
+A project can hold panels of its own, without a plugin: each is a folder in
+`.ohmygame/panels/<name>/`, with a lowercase, hyphenated name, holding
+`panel.json` and its page (`src/shared/project-panels.ts`,
+`src/daemon/project-panels.ts`). They travel with the project, in its
+[snapshots](checkpoints.md) and [archives](project-archives.md), so the
+project's agent can write and change them like any other file. A project
+shows at most 12, each of at most 500 files and folders.
+
+```json
+{
+  "title": "Level stats",
+  "entry": "index.html",
+  "area": "right",
+  "capabilities": { "project.files": "read" },
+  "net": ["api.example.com"]
+}
+```
+
+`entry` is `index.html` and `area` is `right` when left out. `capabilities`
+are those of a [plugin page](#plugin-pages), `project.files`, `composer`,
+`project.selection`, `project.history` and `project.usage`; a panel runs no
+native code and has no commands. `net` lists at most 20 host names the page
+may reach with `host.request("net.fetch", { url, method, headers, body })`:
+the daemon makes the request, HTTPS on the default port only, with no cookies,
+a redirect returned to the page rather than followed, a 30-second limit, and
+the answer's body as text of at most 5 MB, with only its `content-type`,
+`content-length`, `etag`, `last-modified`, `location` and `retry-after`
+headers. Unknown keys make the panel unusable, and the panel shows why in
+place of its page.
+
+A panel runs only after the person allows what it asks for, in the panel
+itself. What they allowed is kept with the app's data for the project, never
+in its folder, so a project that is imported, duplicated or opened elsewhere
+asks again, and so does one whose `panel.json` asks for something else. A
+change to its page alone doesn't ask again: what it can do is still only what
+was allowed.
+
+The page is served like a plugin's, from
+`/_project/<project id>/<name>/` on the plugin page server, with the same
+sandbox, CSP and bridge, under the plugin id `_project/<name>`, which no
+plugin can have. The app reads a project's panels again after each turn, so
+one the agent adds or changes shows, or reloads, when the turn ends. Errors
+the page doesn't catch go to `.ohmygame/local/panel-errors/<name>.log`,
+where the agent can read them, rather than to a plugin's log.
+
+Making a project panel into a plugin, and trying it in Plugin Builder, wait
+for the Builder redesign (#713).
+
 ## Plugin icons
 
 `icon` in the manifest is optional: a path to an image in the package, such as
@@ -670,12 +1126,13 @@ type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
 plugin SVG text is never inserted into the renderer DOM.
 
 In Plugin Builder's Overview, click the icon beside the plugin name to upload an
-image, choose a package image path, or restore the default. This editor is available
+image, pick one of the PNG, WebP or SVG images already in the package, or restore
+the default (`src/renderer/plugin-icon-picker.tsx`). This editor is available
 after a valid draft has been prepared. Changes save to the draft; use Install plugin
 or Update plugin to apply them. Uploads use content-addressed filenames under
 `assets/` and preserve existing package files. Icon edits refresh the content
 revision and clear saved checks; stale icon saves and installations are rejected.
-Image path previews only read valid PNG/WebP/SVG files from that draft.
+The package's thumbnails only read valid PNG/WebP/SVG files from that draft.
 
 ## Connections
 
@@ -737,7 +1194,11 @@ for that plugin.
   its plugins and approves it for its folder.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
-  look in `GODOT_PATH`, the PATH and the usual install folders;
+  look in `GODOT_PATH`, the PATH and the usual install folders. On Windows
+  that includes Godot's release names (`Godot_v4.3-stable_win64.exe`, never
+  its `_console` wrapper, newest first), WinGet and Scoop folders, and Godot
+  Engine in every Steam library, on any drive. A download unpacked elsewhere
+  still needs the setting.
   `native/godot.mjs` does that lookup for both the tools and the MCP server,
   which `native/mcp.mjs` starts through `npx` (Node.js with npx is needed).
   Check the actual engine version and import/run logs
@@ -780,17 +1241,28 @@ the project has no web preview and isn't published to Community.
 - **Agent:** the `maker` MCP server starts from the same pinned install with
   `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` and offers Maker's tools; tools
   take the project's absolute `target_dir`. The `maker_preview` tool controls
-  the same preview as the panel. Local previews never submit remotely;
+  the same preview as the panel. `game_use` captures frames of fresh runs
+  (`preview validate --mode screenshot`), at the size the agent asked for or
+  the preview window's. Opening a session starts nothing. A capture refuses
+  while the preview runs, since only the person stops theirs, runs one at a
+  time per project, and passes on Maker's word when the frame was still
+  loading and Maker kept a later one. The Runtime gets 560 seconds within
+  the host's 10-minute limit, enough for 30,000 frames at 60 FPS plus startup.
+  A failed capture includes the Runtime log and invocation paths, with
+  credentials removed. Local previews never submit remotely;
   `maker_build_current_directory` commits, pushes and builds the bound branch,
   leaving out the excluded files unless they are already tracked. The TapTap
   Release Skill uses the person's signed-in `taptap-cli` for the store page,
   Spark version binding and review, and asks before installing it and before
   each approval-gated write.
+- **Publish menu:** in a Maker project, "Submit a build to Maker…" and
+  "Release on TapTap…" put the request in the composer with its Skill, for
+  the person to send.
 
 See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
-Skills. Authenticated Maker creation, preview, build and publication still
-need a Maker account to check by hand.
+Skills. Authenticated Maker creation, preview, `game_use` captures, build and
+publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 

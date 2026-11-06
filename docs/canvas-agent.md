@@ -131,6 +131,24 @@ their saved outputs must be synchronized before dependent nodes can start.
 Failed or cancelled nodes cause their dependents to be skipped; independent nodes
 still run. Circular generation references prevent the batch from starting.
 Text nodes use their own selected model, falling back to the default text model.
+Each canvas job records `upstream`, what every node it read gave when it
+started (`asset:<id>`, or a hash of the text). A node whose last finished run
+read something that has changed since, and every node after it that made
+something, shows **Out of date**; clicking that, which first asks and says how
+many generations can run, or **Regenerate from here** in the node's menu, runs
+the node and the nodes after it one at a time in the daemon
+(`POST …/boards/:boardId/nodes/:nodeId/regenerate`, 202 with the planned node
+ids). The first node runs again; the rest reuse their output when nothing they
+read changed. A failure stops the chain before what reads it. On an image with
+something after it that runs, **Run with several images…** picks 2 to 10 PNG,
+JPEG or WebP Library images, its button saying how many generations can run,
+and copies the chain once per image, each in
+its own group below the original named after the image (keeping the pixel
+density its groups gave each image), then runs every copy. A chain doesn't
+write text, so neither Regenerate from here nor Run with several images is
+offered, and the route answers 409, while a Text node a model writes or a
+Document sits between the node and something that runs after it, or while the
+nodes after it read each other in a loop.
 Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
 it, and drag the heading to move its entire tree. The empty frame interior
 allows marquee selection of its children. Dropping a node with its center
@@ -159,7 +177,9 @@ Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
 connections supply source material to AI generation. Connecting an image to a
 Document adds a generation reference; use Insert image to put it in the Markdown.
 Generation saves the current board and documents first, then reads the referenced
-nodes' saved text, Markdown and actual image output from the workspace. Image
+nodes' saved text, Markdown and actual image output from the workspace. A run
+starts unless what its own node reads changed during the request; edits elsewhere
+on the board don't stop it, so parallel chains don't stop each other. Image
 references require a language model that accepts images. A node cannot reference
 itself or, for Document nodes, another node pointing to the same document.
 
@@ -193,6 +213,14 @@ applied only when the saved source is unchanged. Otherwise it remains a candidat
 for explicit adoption. Invalid or incomplete output preserves the table, and AI
 instructions and valid candidates survive reloads. Adopting an AI draft is one
 table undo step.
+
+In the Select tool, left-drag on empty canvas draws a selection box; dragging a
+node moves the selection. Shift-click, Cmd-click or Ctrl-click toggles a node in
+the selection.
+Middle-drag or hold Space and left-drag to pan without changing the active tool.
+The hand tool also pans with a left drag. Right-click opens the context menu.
+Space in fields, editors, buttons and media controls keeps its normal behavior.
+Wheel panning and trackpad pinch zoom are available in either tool.
 
 Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
 Enter confirms an active input-method composition or a video `@` reference
@@ -357,7 +385,8 @@ node's left and right edges, independently of the outside port icons. Drag from
 either an input or an output to connect compatible nodes. Click a port, or focus
 it and press Enter or Space, to add a compatible context or continuation node.
 Creating that node also establishes its reference as one undo step; it does not
-start model generation.
+start model generation. A plugin's node ([Canvas nodes](plugins.md#canvas-nodes))
+has one input port per input it declares.
 
 Choose **Pick from canvas** in a node's instruction editor, or in its input port
 menu, to select sources on the current board. Compatible nodes stay readable and

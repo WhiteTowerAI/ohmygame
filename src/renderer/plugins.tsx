@@ -1,14 +1,14 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, Server, Sparkles, Store } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
-import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, readPluginMarket, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
+import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
+import { groupStorePlugins, marketContributions, MarketPluginCard, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
-import { settingsHash } from "./routes.js";
+import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { PluginAddDialog } from "./plugin-add-dialog.js";
@@ -23,21 +23,22 @@ const PLUGIN_GROUPS = [
   { id: "other", categories: [] },
 ] as const;
 
-type CatalogTab = "installed" | "browse" | "skills";
-type BrowseSource = "all" | "public" | "personal";
 
 function storePluginGroup(plugin: StorePlugin) {
   return PLUGIN_GROUPS.find(group => group.categories.some(category => plugin.categories?.includes(category)))?.id ?? "other";
 }
 
-/** A plugin the person made themselves. */
-const madeByPerson = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`);
+/** The person's own: one they made, or one added from this computer. Installed plugins get updates; these get edited. */
+const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || (!plugin.bundled && !plugin.preinstalled && !plugin.origin);
 
-export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, onTryPlugin }: {
+export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
   /** Opens the marketplace filtered to plugins that add this, as 更多类型… in the new-project dialog does. */
   adds?: PluginContribution;
+  /** The tab the route names; a plugin's page and back keep the one last shown. */
+  tab?: PluginsTab;
   onPluginChange: (pluginId?: string) => void;
+  onTabChange?: (tab: PluginsTab) => void;
   onTryPlugin: TryPlugin;
 }) {
   const serviceGeneration = useReadyRuntimeGeneration();
@@ -46,15 +47,25 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [addOpen, setAddOpen] = useState(false);
   const [market, setMarket] = useState<PluginMarketListing>();
   const [adding, setAdding] = useState<MarketPlugin>();
-  const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
+  const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
+  const [updating, setUpdating] = useState<PluginSourceUpdate>();
+  const [safeMode, setSafeMode] = useState(false);
+  const runtimeService = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.runtimeService;
+  const restart = (mode: boolean) => void runtimeService?.restart({ safeMode: mode }).catch((cause: unknown) => setError(errorMessage(cause)));
+  const [tab, showTab] = useState<PluginsTab>(routeTab ?? (initialAdds ? "discover" : "installed"));
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<BrowseSource>("all");
   const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
+  const [kind, setKind] = useState<PluginContribution | "all">("all");
+  useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
   useEffect(() => {
     if (!initialAdds) return;
-    setTab("browse");
+    showTab("discover");
     setAdds(initialAdds);
   }, [initialAdds]);
+  function setTab(next: PluginsTab): void {
+    showTab(next);
+    onTabChange?.(next);
+  }
   const [error, setError] = useState<string>();
 
   async function load(): Promise<void> {
@@ -92,6 +103,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     return () => clearInterval(timer);
   }, [serviceGeneration]);
 
+  // Where installed plugins came from is checked when the page opens, and again after one is added.
+  const readUpdates = () => void waitForRuntime().then(readPluginUpdates).then(setUpdates, () => {});
+  useEffect(readUpdates, [serviceGeneration]);
+  useEffect(() => { void waitForRuntime().then(readPluginStatus).then((status) => setSafeMode(status.safeMode), () => {}); }, [serviceGeneration]);
+  const added = (id: string) => void reload().then(() => { readUpdates(); onPluginChange(id); });
+
   function createWithAi(): void {
     void openPluginBuilder().catch(cause => setError(errorMessage(cause)));
   }
@@ -100,75 +117,55 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const groups = groupStorePlugins(store);
   const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
-  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(everyProject.busy)}
+  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
     onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
-  // Plugins group by what they are for; each card says whether it is on in every project.
-  const published = matching.filter(({ plugin }) => !madeByPerson(plugin));
-  const made = matching.filter(({ plugin }) => madeByPerson(plugin));
-  // Only categories some plugin falls in, so no choice leads to an empty page.
-  const installedIds = new Set(groups.map(group => group.plugin.id));
-  const onMarket = (market?.plugins ?? []).filter(plugin => !installedIds.has(plugin.id));
-  const categories = PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || groups.some(group => storePluginContributions(group.plugin).includes(kind)) || onMarket.some(plugin => marketContributions(plugin).includes(kind)));
-  const browsed = matching.filter(({ plugin }) => (source === "all" || (plugin.bundled || plugin.preinstalled ? "public" : "personal") === source)
-    && (adds === "all" || storePluginContributions(plugin).includes(adds)));
-  const listed = source === "public" ? [] : onMarket.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
-    && (adds === "all" || marketContributions(plugin).includes(adds)));
-  const marketCards = (plugins: MarketPlugin[]) => <div className="plugins-grid">
-    {plugins.map(plugin => <MarketPluginCard key={plugin.id} plugin={plugin} onOpen={() => setAdding(plugin)} />)}
-  </div>;
-  const skills = groups.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })));
-  const visibleSkills = skills.filter(({ plugin, skill }) => `${skill.name} ${skill.description} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery));
+  const others = groups.filter(({ plugin }) => !isMine(plugin));
+  const updatable = others.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.browseMarket"), icon: <Store size={14} />, onSelect: () => setTab("browse") },
     { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },
+    // For a plugin that breaks the app: everything starts again with no plugin running.
+    ...(runtimeService && !safeMode ? ["separator" as const, { label: t("pluginSafeMode.restartSafe"), icon: <RotateCcw size={14} />, onSelect: () => restart(true) }] : []),
   ];
-  const searchCopy = tab === "skills"
-    ? { placeholder: t("plugins.searchSkills"), label: t("plugins.searchSkillsLabel") }
-    : { placeholder: t("plugins.search"), label: t("plugins.searchLabel") };
-  const createCard = (kind: "plugin" | "skill") => <button type="button" className="plugin-card plugin-card-create" onClick={createWithAi}>
-    <span className="plugin-tile"><Sparkles size={18} /></span>
-    <span className="plugin-card-text">
-      <strong>{kind === "skill" ? t("plugins.createSkillWithAi") : t("plugins.createPluginWithAi")}</strong>
-      <small>{t("plugins.createWithAiHint")}</small>
-    </span>
-  </button>;
+  // Only what some plugin adds, so no choice leads to an empty page.
+  const kindFilter = (value: PluginContribution | "all", onChange: (value: PluginContribution | "all") => void, offered: PluginContribution[]) =>
+    <div className="plugins-filters">
+      <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={value} onChange={onChange} options={[
+        { value: "all", label: t("plugins.allContributions") },
+        ...PLUGIN_CONTRIBUTIONS.filter(item => item === value || offered.includes(item)).map(item => ({ value: item, label: t(`plugins.contributions.${item}`) })),
+      ]} />
+    </div>;
 
-  const installedTab = normalizedQuery ? (
-    matching.length ? <>
-      <div className="plugins-grid">{[...published, ...made].map(card)}</div>
-    </> : <Empty title={t("plugins.noMatch")} />
-  ) : <>
-    {PLUGIN_GROUPS.map(group => ({ id: group.id, plugins: published.filter(({ plugin }) => storePluginGroup(plugin) === group.id) }))
-      .filter(group => group.plugins.length)
-      .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} cards={group.plugins.map(card)} />)}
-    <section className="plugins-section" aria-label={t("plugins.personal")}>
-      <h2>{t("plugins.personal")} <span className="plugins-count">{made.length}</span></h2>
-      <div className="plugins-grid">
-        {made.map(card)}
-        {createCard("plugin")}
-      </div>
-    </section>
-    <PluginBuilderSessions />
+  // Installed: what others made, by what it is for. Skills are a kind of content, so they are a filter here.
+  const installed = matching.filter(({ plugin }) => !isMine(plugin) && (kind === "all" || storePluginContributions(plugin).includes(kind)));
+  const skills = kind === "skills" ? others.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })))
+    .filter(({ plugin, skill }) => `${skill.name} ${skill.description} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery)) : [];
+  const installedTab = <>
+    {others.length ? kindFilter(kind, setKind, [...new Set(others.flatMap(({ plugin }) => storePluginContributions(plugin)))]) : null}
+    {kind === "skills" ? skills.length
+      ? <div className="plugins-grid">{skills.map(({ plugin, skill }) => <StoreSkillCard key={`${plugin.id}:${skill.id}`} plugin={plugin} skill={skill} onOpen={() => onPluginChange(plugin.id)} />)}</div>
+      : <Empty title={t("plugins.noMatchingSkills")} />
+      : !installed.length ? <Empty title={normalizedQuery || kind !== "all" ? t("plugins.noMatch") : t("plugins.noneInstalled")}
+        action={<Button icon={<Package size={14} />} onClick={() => setTab("discover")}>{t("plugins.discoverTab")}</Button>} />
+      : normalizedQuery ? <div className="plugins-grid">{installed.map(card)}</div>
+      : PLUGIN_GROUPS.map(group => ({ id: group.id, plugins: installed.filter(({ plugin }) => storePluginGroup(plugin) === group.id) }))
+        .filter(group => group.plugins.length)
+        .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} cards={group.plugins.map(card)} />)}
   </>;
 
-  const browsedCards = <div className="plugins-grid">
-    {browsed.map(group => <StorePluginBrowseCard key={group.plugin.id} group={group} onOpen={() => onPluginChange(group.plugin.id)} />)}
+  // Discover: the market, to get plugins from. One already installed opens its page.
+  const installedIds = new Set(groups.map(group => group.plugin.id));
+  const marketPlugins = market?.plugins ?? [];
+  const listed = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
+    && (adds === "all" || marketContributions(plugin).includes(adds)));
+  const marketCards = (plugins: MarketPlugin[]) => <div className="plugins-grid">
+    {plugins.map(plugin => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
+      onOpen={() => installedIds.has(plugin.id) ? onPluginChange(plugin.id) : setAdding(plugin)} />)}
   </div>;
-  const browseTab = <>
-    <div className="plugins-filters">
-      <Select<BrowseSource> size="sm" label={t("plugins.sourceFilter")} value={source} onChange={setSource} options={[
-        { value: "all", label: t("plugins.allSources") },
-        { value: "public", label: t("plugins.officialSource") },
-        { value: "personal", label: t("plugins.otherSources") },
-      ]} />
-      <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={adds} onChange={setAdds} options={[
-        { value: "all", label: t("plugins.allContributions") },
-        ...categories.map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
-      ]} />
-    </div>
+  const discoverTab = <>
+    {marketPlugins.length ? kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))]) : null}
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
     {listed.some(plugin => plugin.featured) ? <section className="plugins-section" aria-label={t("plugins.marketFeatured")}>
@@ -179,70 +176,76 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       <h2>{t("plugins.marketListed")}</h2>
       {marketCards(listed.filter(plugin => !plugin.featured))}
     </section> : null}
-    {browsed.length ? listed.length ? <section className="plugins-section" aria-label={t("plugins.installed")}>
-      <h2>{t("plugins.installed")}</h2>
-      {browsedCards}
-    </section> : browsedCards : listed.length ? null : <Empty title={t("plugins.noMatch")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+    {listed.length ? null : <Empty title={normalizedQuery || adds !== "all" ? t("plugins.noMatch") : t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
     </div>} />}
   </>;
 
-  const skillCard = ({ plugin, skill }: typeof skills[number]) =>
-    <StoreSkillCard key={`${plugin.id}:${skill.id}`} plugin={plugin} skill={skill} onOpen={() => onPluginChange(plugin.id)} />;
-  const pluginSkills = visibleSkills.filter(entry => !madeByPerson(entry.plugin));
-  const personalSkills = visibleSkills.filter(entry => madeByPerson(entry.plugin));
-  const skillsTab = normalizedQuery && !visibleSkills.length ? <Empty title={t("plugins.noMatchingSkills")} /> : <>
-    {pluginSkills.length ? <section className="plugins-section" aria-label={t("plugins.fromPlugins")}>
-      <h2>{t("plugins.fromPlugins")} <span className="plugins-count">{pluginSkills.length}</span></h2>
-      <div className="plugins-grid">{pluginSkills.map(skillCard)}</div>
-    </section> : null}
-    <section className="plugins-section" aria-label={t("plugins.personal")}>
-      <h2>{t("plugins.personal")} <span className="plugins-count">{personalSkills.length}</span></h2>
+  // Mine: what the person can edit: a new one with AI, the AI workspaces, and their own plugins.
+  const mine = matching.filter(({ plugin }) => isMine(plugin));
+  const mineTab = <>
+    <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
+      <h2>{t("plugins.minePlugins")}</h2>
       <div className="plugins-grid">
-        {personalSkills.map(skillCard)}
-        {createCard("skill")}
+        <button type="button" className="plugin-card plugin-card-create" onClick={createWithAi}>
+          <span className="plugin-tile"><Sparkles size={18} /></span>
+          <span className="plugin-card-text">
+            <strong>{t("plugins.createPluginWithAi")}</strong>
+            <small>{t("plugins.createWithAiHint")}</small>
+          </span>
+        </button>
+        {mine.map(card)}
       </div>
     </section>
+    <PluginBuilderSessions />
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
 
   return <section className="plugins-page">
+    {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
+      ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
+      {t("pluginSafeMode.hint")}
+    </Alert></div> : null}
     {pluginId ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={pluginId} group={detail} market={market} onUpdate={setAdding} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
+        ? <StorePluginDetail key={pluginId} group={detail} market={market} updates={updates} onUpdate={setAdding}
+          onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
         : phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => void load()} />}
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
-        <SearchInput value={query} onChange={setQuery} placeholder={searchCopy.placeholder} label={searchCopy.label} />
+        <SearchInput value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} />
         <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
           <Button {...props} variant="primary" icon={<CirclePlus size={14} />}>{t("plugins.add")}</Button>
         )} />
       </div>} />
-      <Tabs<CatalogTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
-        { value: "installed", label: t("plugins.installedTab"), count: phase === "ready" ? groups.length : undefined },
-        { value: "browse", label: t("plugins.browseTab") },
-        { value: "skills", label: t("plugins.skills"), count: phase === "ready" ? skills.length : undefined },
+      <Tabs<PluginsTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
+        { value: "installed", label: t("plugins.installedTab"), attention: updatable ? t("plugins.updatesAvailable") : undefined },
+        { value: "discover", label: t("plugins.discoverTab") },
+        { value: "mine", label: t("plugins.mineTab") },
       ]} />
-      <div className="plugins-panel" role="tabpanel" aria-label={tab === "installed" ? t("plugins.installedTab") : tab === "browse" ? t("plugins.browseTab") : t("plugins.skills")}>
+      <div className="plugins-panel" role="tabpanel" aria-label={t(`plugins.${tab}Tab`)}>
         {phase === "ready" && (error ?? everyProject.error) ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
         {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
         {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
-        {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}
+        {phase === "ready" ? tab === "discover" ? discoverTab : tab === "mine" ? mineTab : installedTab : null}
       </div>
     </>}
-    {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {everyProject.dialog}
-    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); added(id); }} /> : null}
+    {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}
   </section>;
 
   function showCatalog(): void {
-    onPluginChange();
+    // Back to the tab the plugin was opened from.
+    if (onTabChange) onTabChange(tab);
+    else onPluginChange();
   }
 }
 
@@ -255,7 +258,7 @@ function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): R
   const [expanded, setExpanded] = useState(false);
   const limited = !expanded && cards.length > INSTALLED_PLUGIN_LIMIT;
   return <section className="plugins-section" aria-label={title}>
-    <h2>{title} <span className="plugins-count">{cards.length}</span></h2>
+    <h2>{title}</h2>
     <div className="plugins-grid">{limited ? cards.slice(0, INSTALLED_PLUGIN_LIMIT) : cards}</div>
     {cards.length > INSTALLED_PLUGIN_LIMIT ? <div><Button variant="ghost" size="sm" onClick={() => setExpanded((current) => !current)}>
       {expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: cards.length })}

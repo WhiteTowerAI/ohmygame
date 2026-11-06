@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PlayableThumbnailManifest } from "../shared/playable-editor.js";
+import { NODE_THUMBNAILS_DIRECTORY } from "../shared/project-layout.js";
 
 /**
- * Node thumbnails are editor cache under `.ohmygame/thumbnails/`: one WebP
+ * Node thumbnails are editor cache under `.ohmygame/local/thumbnails/`: one WebP
  * screenshot per Node, plus the content hash of the Node it shows. They are
  * never part of the graph, the layout, or a published project.
  */
-const THUMBNAIL_DIRECTORY = ".ohmygame/thumbnails";
+const THUMBNAIL_DIRECTORY = NODE_THUMBNAILS_DIRECTORY;
 const NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const HASH_PATTERN = /^[0-9a-f]{8,64}$/;
 

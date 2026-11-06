@@ -334,15 +334,15 @@ describe("workspace checkpoints", () => {
       "dist/index.js": "built",
       "build/index.js": "built",
       "out/index.js": "built",
-      ".ohmygame/thumbnails/scene.png": "thumbnail",
+      ".ohmygame/local/thumbnails/scene.png": "thumbnail",
       ".ohmygame-install-pending": "",
-      ".data/agent-attachments/notes.txt": "attachment",
+      ".ohmygame/local/attachments/notes.txt": "attachment",
     };
     const game = await project({
       ...kept,
       "src/game.ts": "one",
       "src/dist/tiles.json": "one",
-      ".data/assets.json": '{"one":true}',
+      ".ohmygame/assets.json": '{"one":true}',
     });
     const store = new CheckpointStore();
     const before = await store.snapshot(game);
@@ -355,12 +355,12 @@ describe("workspace checkpoints", () => {
       "node_modules/added/index.js": "new",
       "src/game.ts": "two",
       "src/dist/tiles.json": "two",
-      ".data/assets.json": "{}",
+      ".ohmygame/assets.json": "{}",
     });
 
     const restored = await store.restore(game, before);
     expect(restored.changed).toEqual([
-      ".data/assets.json",
+      ".ohmygame/assets.json",
       "src/dist/tiles.json",
       "src/game.ts",
     ]);
@@ -369,7 +369,7 @@ describe("workspace checkpoints", () => {
       "node_modules/added/index.js": "new",
       "src/game.ts": "one",
       "src/dist/tiles.json": "one",
-      ".data/assets.json": '{"one":true}',
+      ".ohmygame/assets.json": '{"one":true}',
     });
   });
 
@@ -467,7 +467,7 @@ describe("workspace checkpoints", () => {
   it("keeps OhMyGame's own files and every .gitignore whatever a .gitignore says", async () => {
     const game = await project({
       ".gitignore": ".data/\ncanvas/\n.gitignore\n*.json\n",
-      ".data/assets.json": "{}",
+      ".ohmygame/assets.json": "{}",
       "canvas/board.json": "{}",
       "levels/one.json": "{}",
       "levels/.gitignore": "*\n",
@@ -477,7 +477,7 @@ describe("workspace checkpoints", () => {
     const commit = await store.snapshot(game);
     for (const kept of [
       ".gitignore",
-      ".data/assets.json",
+      ".ohmygame/assets.json",
       "canvas/board.json",
       "levels/.gitignore",
     ])

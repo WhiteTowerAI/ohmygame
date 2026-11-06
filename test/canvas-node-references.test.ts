@@ -4,6 +4,7 @@ import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/
 import { MAX_TEXT_NODE_REFERENCES } from "../src/shared/asset-canvas-schema.js";
 import { connectCanvasNodes, disconnectCanvasReference, connectionRelation, removeNodesAndReferences, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 import { createCanvasClipboard, duplicateCanvasSelection, parseCanvasClipboard } from "../src/renderer/asset-canvas-clipboard.js";
+import { canvasChainRuns } from "../src/shared/canvas-chains.js";
 import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
 import { imageModelsForProvider } from "../src/daemon/image-models.js";
 
@@ -95,6 +96,15 @@ describe("Image node reference capacity", () => {
   );
 });
 
+it("counts the generations a chain can run, leaving out what makes nothing", () => {
+  const later: AssetCanvasNode = { ...image, id: "later", data: { ...image.data, images: [ref(image.id)] } };
+  const nodes = [source, { ...image, data: { ...image.data, images: [ref(source.id)] } }, later];
+  expect(canvasChainRuns(nodes, image.id)).toBe(2);
+  expect(canvasChainRuns(nodes, source.id)).toBe(2);
+  expect(canvasChainRuns(nodes, later.id)).toBe(1);
+  expect(canvasChainRuns(nodes, "gone")).toBe(0);
+});
+
 it("disconnects only the chosen semantic reference and preserves library inputs and unrelated links", () => {
   const distinct = { ...image, id: "target", data: { ...image.data, images: [{ type: "library" as const, assetId: "kept" }], promptSource: ref(source.id) } };
   const next = connectCanvasNodes([source, image, distinct], image.id, distinct.id, "image-reference");
@@ -106,4 +116,30 @@ it("disconnects only the chosen semantic reference and preserves library inputs 
   const promptRemoved = disconnectCanvasReference(removed, distinct.id, source.id, "media-prompt");
   expect(promptRemoved[2]!.data.promptSource).toBeUndefined();
   expect(promptRemoved[2]!.data.images).toEqual([{ type: "library", assetId: "kept" }]);
+});
+
+it("connects plugin node inputs by port and media, and keeps them through save, removal and disconnection", () => {
+  const definition = {
+    id: "acme/frames:blend", plugin: "acme/frames", pluginName: "Frames", title: "Blend", params: [], output: "image" as const,
+    inputs: [{ id: "base", title: "Base", accepts: "image" as const }, { id: "layers", title: "Layers", accepts: "image" as const, multiple: true }, { id: "note", title: "Note", accepts: "text" as const, optional: true }],
+  };
+  const plugin = { id: "blend", type: "plugin" as const, position, data: { node: definition.id, params: { strength: 2 }, inputs: {} as Record<string, Array<ReturnType<typeof ref>>> } };
+  // Without its plugin a node takes nothing; with it, a drop fills the port it lands on, else the first that fits.
+  expect(connectionRelation(image, plugin, "out", [], [], [])).toBeUndefined();
+  expect(connectionRelation(image, plugin, "out", [], [], [], [], [], [definition])).toBe("plugin-input:base");
+  expect(connectionRelation(image, plugin, "out", [], [], [], [], [], [definition], "layers")).toBe("plugin-input:layers");
+  expect(connectionRelation(image, plugin, "out", [], [], [], [], [], [definition], "note")).toBeUndefined();
+  expect(connectionRelation(source, plugin, "out", [], [], [], [], [], [definition])).toBe("plugin-input:note");
+  let flow = connectCanvasNodes([source, image, plugin], image.id, plugin.id, "plugin-input:base");
+  const connected = flow[2]!;
+  // A single input that is full passes the next image to the multiple one; the same source isn't added twice.
+  expect(connectionRelation({ ...image, id: "other" }, connected, "out", [], [], [], [], [], [definition])).toBe("plugin-input:layers");
+  expect(connectionRelation(image, connected, "out", [], [], [], [], [], [definition], "base")).toBeUndefined();
+  expect(toAssetCanvasNode(connected)).toEqual({ ...plugin, data: { ...plugin.data, inputs: { base: [ref(image.id)] } } });
+  expect(isAssetCanvasDocument(canvas([source, image, toAssetCanvasNode(connected)]))).toBe(true);
+  flow = connectCanvasNodes(flow, source.id, plugin.id, "plugin-input:note");
+  expect(removeNodesAndReferences(flow, new Set([image.id])).find((node) => node.id === plugin.id)!.data.inputs).toEqual({ base: [], note: [ref(source.id)] });
+  expect(disconnectCanvasReference(flow, plugin.id, source.id, "plugin-input:note")[2]!.data.inputs).toEqual({ base: [ref(image.id)], note: [] });
+  // After an update drops the note input, the next connection drops what the node kept for it.
+  expect(connectCanvasNodes(flow, image.id, plugin.id, "plugin-input:layers", ["base", "layers"])[2]!.data.inputs).toEqual({ base: [ref(image.id)], layers: [ref(image.id)] });
 });

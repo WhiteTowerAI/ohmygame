@@ -3,10 +3,10 @@ import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "../shared/
 import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
 import { t } from "./i18n.js";
 
-export interface LocalCanvasAsset { projectId: string; path: string; name: string; revision: number; error?: string }
+export interface LocalCanvasAsset { projectId: string; path: string; name: string; revision: number; size?: number; error?: string }
 export function canvasAssetSources(projectId: string, assets: readonly CanvasAssetCatalogEntry[], unavailable: readonly UnavailableCanvasAsset[] = []): ReadonlyMap<string, LocalCanvasAsset> {
   return new Map([
-    ...assets.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: Date.parse(asset.createdAt) }]),
+    ...assets.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: Date.parse(asset.createdAt), size: asset.size }]),
     ...unavailable.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: 0, error: asset.status === "missing" ? t("assets.fileMissing", { path: asset.path }) : t("assets.fileUnavailable", { path: asset.path }) }]),
   ]);
 }
@@ -24,7 +24,9 @@ export function useWorkspaceAssetUrl(
   filePath: string,
   revision = 0,
   libraryAssetId?: string,
-): { url?: string; error?: string; loading: boolean; retry(): void } {
+  /** False waits to download the file, such as until its canvas node is on screen. */
+  enabled = true,
+): { url?: string; error?: string; loading: boolean; size?: number; retry(): void } {
   const assets = useContext(CanvasAssets);
   const local = libraryAssetId ? assets.byId.get(libraryAssetId) : assets.byPath.get(JSON.stringify([projectId, filePath]));
   if (local) { projectId = local.projectId; filePath = local.path; revision = local.revision; libraryAssetId = undefined; }
@@ -34,6 +36,7 @@ export function useWorkspaceAssetUrl(
   const [state, setState] = useState<{ key?: string; url?: string; error?: string; loading: boolean }>({ loading: false });
 
   useEffect(() => {
+    if (!enabled) return;
     if (!projectId && !libraryAssetId) {
       setState({ key: resourceKey, loading: false });
       return;
@@ -52,9 +55,10 @@ export function useWorkspaceAssetUrl(
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, filePath, revision, libraryAssetId, local?.error, resourceKey, attempt]);
+  }, [projectId, filePath, revision, libraryAssetId, local?.error, resourceKey, attempt, enabled]);
 
-  return { ...(state.key === resourceKey ? state : { error: local?.error, loading: !!(projectId || libraryAssetId) }), retry };
+  const current = state.key === resourceKey ? state : { error: local?.error, loading: enabled && !!(projectId || libraryAssetId) };
+  return { ...current, size: local?.size, retry };
 }
 
 function errorMessage(error: unknown): string {

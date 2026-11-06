@@ -146,7 +146,10 @@ export function capabilityGrants(
   if (capabilities["project.files"])
     grants.add(`project.files:${capabilities["project.files"]}`);
   if (capabilities.composer) grants.add("composer");
+  if (capabilities["project.history"]) grants.add("project.history");
+  if (capabilities["project.usage"]) grants.add("project.usage");
   if (capabilities.agent) grants.add("agent");
+  if (capabilities.game) grants.add("game");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])
@@ -195,8 +198,12 @@ interface GrantsFile {
 export class PluginGrants {
   #data: GrantsFile = { schema: 1, plugins: {}, projects: {} };
   #queue: Promise<unknown> = Promise.resolve();
+  readonly #safeMode: boolean;
 
-  constructor(private readonly file: string) {}
+  /** In safe mode every plugin reads as off; what is saved doesn't change. */
+  constructor(private readonly file: string, options: { safeMode?: boolean } = {}) {
+    this.#safeMode = options.safeMode ?? false;
+  }
 
   /**
    * Reads the decisions. A missing file, or one that isn't JSON any more,
@@ -230,7 +237,8 @@ export class PluginGrants {
   }
 
   plugin(id: string): PluginGrant | undefined {
-    return this.#data.plugins[id];
+    const grant = this.#data.plugins[id];
+    return this.#safeMode ? { ...grant, allowed: grant?.allowed ?? [], enabled: false } : grant;
   }
 
   project(folderKey: string, id: string) {

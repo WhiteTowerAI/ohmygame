@@ -182,6 +182,7 @@ export class ProviderModelSettingsStore {
     };
   }
 
+  // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Moves custom providers to modelConfigurationVersion 2; the branches for version 1 go with it.
   /** Import the models the previous version already exposed once, then honour the saved choices. */
   async migrateLegacyImageModels(id: string, images: ImageModel[], apply: () => Promise<void>): Promise<void> {
     const current = await this.customProvider(id);

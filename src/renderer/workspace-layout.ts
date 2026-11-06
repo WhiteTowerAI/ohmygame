@@ -13,7 +13,7 @@ const STORAGE_KEY = "ohmygame-workspace-layout";
 const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
-export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas";
+export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas" | "plugin";
 /** What a built-in panel is called, on its tab and wherever it says something about itself. */
 export function panelTitle(panel: WorkspacePanel): string {
   return panel === "code" || panel === "assets" ? t(`workspace.tab.${panel}`) : t(`panels.${panel}`);
@@ -34,6 +34,8 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
   "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
   "asset-canvas": ["chat", "canvas", "code"],
+  // A plugin workspace: its Overview, then its files.
+  plugin: ["chat", "plugin", "code"],
 };
 
 /** The panels a project offers: its type's, less the game where it has no preview. */
@@ -105,6 +107,7 @@ export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes): 
   const saved = readLayout();
   if (saved) return saved;
   const layout = presetLayout("default", offered, homes);
+  // compat: since beta.5.1, remove from beta.7 and 2026-12-03. The ohmygame:chat-layout setting.
   // The chat-side setting this replaced still decides where the chat first opens.
   if (!legacyChatRight() || !layout.left.panels.includes("chat")) return { layout, known: [] };
   const moved = movePanel(layout, "chat", "right");

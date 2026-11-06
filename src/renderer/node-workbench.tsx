@@ -93,7 +93,7 @@ export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, overlay,
   </section>;
 }
 
-export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, onUpload, onClose, onSelect }: {
+export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, multiple, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];
   /** Limits the initial view to assets associated with the current project. */
@@ -104,10 +104,16 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
   onUpload?: () => void;
   uploading?: boolean;
   includeReferences?: boolean;
+  /** Picks several: items toggle, and the footer's button hands over the picks once there are at least `min`. */
+  multiple?: { min: number; max: number; action: (count: number) => string; onSubmit: (assets: LibraryAsset[]) => void };
   onClose: () => void;
-  onSelect: (asset: LibraryAsset) => void;
+  onSelect?: (asset: LibraryAsset) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState<LibraryAsset[]>([]);
+  const toggle = (asset: LibraryAsset) => setPicked((current) => current.some((item) => item.id === asset.id)
+    ? current.filter((item) => item.id !== asset.id)
+    : current.length >= (multiple?.max ?? Infinity) ? current : [...current, asset]);
   const [filters, setFilters] = useState<LibraryAssetFilters>({ includeReferences, ...(projectId ? { projectId } : {}) });
   const dialog = useRef<HTMLElement>(null);
   // Parents may pass a fresh onClose each render; depending on it would re-run this effect and steal focus from search.
@@ -137,8 +143,12 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
         </div>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? t("nodeWorkbench.noMatch") : t("nodeWorkbench.empty")}</p> : null}
-          {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} onSelect={() => onSelect(asset)} />)}
+          {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} {...(multiple ? { selected: picked.some((item) => item.id === asset.id) } : {})} onSelect={() => multiple ? toggle(asset) : onSelect?.(asset)} />)}
         </div>
+        {multiple ? <footer className="library-picker-footer">
+          <span>{t("nodeWorkbench.pickedCount", { count: picked.length, max: multiple.max })}</span>
+          <button type="button" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</button>
+        </footer> : null}
       </section>
     </div>,
     document.body,
@@ -146,11 +156,11 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
 }
 
 /** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
-function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect: () => void }) {
+function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset; selected?: boolean; onSelect: () => void }) {
   const [item, visible] = useNearViewport<HTMLButtonElement>();
   const badge = assetTypeBadge(asset.mediaType);
   const title = asset.prompt ?? asset.name;
-  return <button type="button" ref={item} onClick={onSelect} title={title}>
+  return <button type="button" ref={item} onClick={onSelect} title={title} aria-pressed={selected} className={selected ? "is-selected" : undefined}>
     <span className="story-video-picker-thumbnail">
       <AssetThumbnail asset={asset} visible={visible} />
       {badge ? <span className="story-video-picker-badge">{badge}</span> : null}

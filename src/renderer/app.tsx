@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Home } from "./home.js";
 // Only lazy routes use this; loading it eagerly keeps it ahead of styles.css as before code splitting.
 import "./plugin-builder.css";
-import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginBuilderHash, pluginHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
 import { PageFrame } from "./page-frame.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
@@ -12,7 +12,8 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import type { PluginTryTarget } from "./plugin-try.js";
 import { pluginMentionToken } from "../shared/plugins.js";
 import { t } from "./i18n.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { createConversation, createProject, getProject, listPluginThemes, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { syncPluginTheme } from "./appearance.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Onboarding, OnboardingArrival, OnboardingLoadError, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
@@ -59,6 +60,10 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   useEffect(() => {
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
   }, [serviceGeneration]);
+  // A plugin theme follows its plugin: updated with it, gone with it.
+  useEffect(() => {
+    void syncPluginTheme(listPluginThemes);
+  }, [serviceGeneration]);
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
@@ -80,12 +85,14 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       ? <OnboardingLoadError error={onboarding.error} onRetry={onboarding.retry} />
       : <PageFrame active="home" onNavigate={navigateToSidebarPage}><OnboardingLoading /></PageFrame>;
   }
-  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
+  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} conversationId={route.conversationId}
+    onOpenConversation={(conversationId, replace) => navigate(pluginBuilderHash(route.sessionId, conversationId), { replace })} onNavigate={navigateToSidebarPage} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} tab={route.tab} onPluginChange={navigateToPlugin}
+      onTabChange={tab => navigate(pluginsTabHash(tab), { replace: true, state: historyState() })} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout>;
   if (route.page === "home") {
     return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;

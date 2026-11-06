@@ -7,7 +7,7 @@ const compactionMerges = new WeakMap<Turn, WeakMap<Turn, Turn>>();
 export interface TurnDisplay {
   user?: Extract<ThreadItem, { type: "userMessage" }>;
   work: WorkDisplayItem[];
-  artifacts: ToolArtifact[];
+  artifacts: Exclude<ToolArtifact, { type: "image" }>[];
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
   working: boolean;
@@ -106,10 +106,10 @@ function turnDurationMs(items: ThreadItem[]): number {
   return timestamps.length >= 2 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
 }
 
-function collectArtifacts(items: ThreadItem[]): ToolArtifact[] {
+function collectArtifacts(items: ThreadItem[]): TurnDisplay["artifacts"] {
   const seen = new Set<string>();
   return items.flatMap((item) => {
-    if ((item.type !== "dynamicToolCall" && item.type !== "mcpToolCall") || !item.artifact || seen.has(item.artifact.path)) return [];
+    if ((item.type !== "dynamicToolCall" && item.type !== "mcpToolCall") || !item.artifact || item.artifact.type === "image" || seen.has(item.artifact.path)) return [];
     seen.add(item.artifact.path);
     return [item.artifact];
   });

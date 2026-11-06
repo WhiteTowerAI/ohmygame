@@ -17,7 +17,7 @@ import {
   MessageCircle,
   PanelToggle,
   Plug,
-  RefreshCircle,
+  RefreshCw,
   Search,
   Settings,
   UserRound,
@@ -43,7 +43,7 @@ export type SidebarActive = SidebarPage | "settings";
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
-const RECENT_LIMIT = 8;
+export const RECENT_LIMIT = 8;
 // Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
 const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
@@ -309,7 +309,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const projects = useRecentProjects(active);
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
-  const showWindowsHistory = hasWindowsWindowControls() && (history.back || history.forward);
+  // The Windows frame always shows them, disabled when there is nowhere to go,
+  // so the top row keeps its shape from the first launch on.
+  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
@@ -555,12 +557,42 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const latest = useRecentProjects();
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
-  const history = useHistoryState();
   const [creating, setCreating] = useState(false);
-  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
-    <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
+    <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
+      {recent.map((project) => (
+        <RailProject key={project.id} project={project} open={openHash}
+          conversations={project.id === projectId ? conversations : undefined} />
+      ))}
+      <Tooltip content={t("sidebar.newProject")} placement="right-start">
+        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
+          <CirclePlus size={16} />
+        </button>
+      </Tooltip>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
+    </AppRail>
+  );
+}
+
+/**
+ * The narrow rail of a full-window workspace: back and forward, the way home,
+ * the workspace's own items, then search and the account.
+ */
+export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }: {
+  label: string;
+  onNavigate: (page: AppNavigationTarget) => void;
+  onLeave?: (go: () => void) => void;
+  children: ReactNode;
+}) {
+  const history = useHistoryState();
+  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
+  return (
+    <nav className="sidebar project-rail" aria-label={label}>
       {/* Back and forward lead the title bar: here, over the rail, beside the
           macOS window controls or at the window's edge where the system draws
           the title bar. */}
@@ -575,22 +607,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
           </button>
         </Tooltip>
       </div>
-      <div className="sidebar-group sidebar-recent">
-        {recent.map((project) => (
-          <RailProject key={project.id} project={project} open={openHash}
-            conversations={project.id === projectId ? conversations : undefined} />
-        ))}
-        <Tooltip content={t("sidebar.newProject")} placement="right-start">
-          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
-            <CirclePlus size={16} />
-          </button>
-        </Tooltip>
-      </div>
-      {creating ? <ProjectCreateDialog
-        onClose={() => setCreating(false)}
-        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
-        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
-      /> : null}
+      <div className="sidebar-group sidebar-recent">{children}</div>
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
@@ -666,7 +683,7 @@ function UpdatePill() {
   const action = status.type === "available"
     ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
     : status.type === "ready"
-      ? { icon: <RefreshCircle size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      ? { icon: <RefreshCw size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
       : status.type === "error"
         ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;

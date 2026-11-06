@@ -1,4 +1,9 @@
+import { colorMatrixValues, isPreviewColorFilter } from "../shared/preview-filter.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
+
+const SVG = "http://www.w3.org/2000/svg";
+/** The filter over the game, drawn on the frame so it covers every page the game loads. */
+const filterStyle = document.head.appendChild(document.createElement("style"));
 
 // No preload, editor code, or daemon credentials enter this WebContents.
 // Keeping the editor's top-level site also preserves existing iframe saves.
@@ -15,4 +20,20 @@ Object.assign(window, {
     frame.replaceWith(next);
     frame = next;
   }),
+  setFilter: (filter: unknown) => {
+    document.getElementById("ohmygame-filter")?.closest("svg")?.remove();
+    filterStyle.textContent = "";
+    if (!isPreviewColorFilter(filter)) return;
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("style", "position:absolute;width:0;height:0");
+    const definition = svg.appendChild(document.createElementNS(SVG, "filter"));
+    definition.id = "ohmygame-filter";
+    definition.setAttribute("color-interpolation-filters", filter.colorSpace);
+    const matrix = definition.appendChild(document.createElementNS(SVG, "feColorMatrix"));
+    matrix.setAttribute("type", "matrix");
+    matrix.setAttribute("values", colorMatrixValues(filter));
+    document.body.append(svg);
+    filterStyle.textContent = "iframe{filter:url(#ohmygame-filter)}";
+  },
 });
