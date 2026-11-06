@@ -150,8 +150,16 @@ export interface AgentAccountProfile {
 }
 
 export interface AgentAccountProfileStatus extends AgentAccountProfile {
+  /** The folder the CLI uses for this account, System default's included. */
+  directory: string;
   auth: { status: AgentRuntimeAuthStatus; account?: string; billing: AgentRuntimeBilling };
   limits?: AgentUsageLimit[];
+}
+
+/** Only a directory the person connected can change; the app keeps its own where it put them. */
+export interface UpdateAgentAccountProfileRequest {
+  name?: string;
+  configDirectory?: string;
 }
 
 export interface AgentRuntimeStatus {

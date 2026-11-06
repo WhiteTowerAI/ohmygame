@@ -166,6 +166,8 @@ setenv`, is not used: it only records whichever account was selected when
 OhMyGame started. To use that directory, import it with **Use an existing
 directory**; it then shares its sign-in and files with the terminal. New profiles
 have independent CLI settings, hooks, MCP servers, Skills and native history.
+System default stays first; **Move up** and **Move down** in another row's **⋯**
+menu set the order, which the chat header's account menu follows.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
 each agent's selection. With multiple profiles, the chat header offers an account
@@ -188,7 +190,20 @@ other account resumes the earlier context instead. `/compact` waits for that
 first message on the selected account. Other chats keep their accounts. No automatic
 rotation at usage limits is provided.
 
-Use an account row's delete action to remove a profile after confirmation. The
+**⋯ → Edit account** renames an account. An imported account can also point at
+another directory, which passes the same checks as an import and is refused
+during a turn or session startup. The account keeps its id, so its chats stay on
+it: deleting and adding it again would move them to System default. A chat whose
+native session is not in the new directory finds it expired and continues with a
+history handoff. A managed account's directory cannot change, because deleting it
+relies on that directory staying in the reserved folder.
+
+**⋯ → Open configuration directory** opens an account's directory, System
+default's included, to edit the CLI's own files, and **Copy directory path** copies
+it. OhMyGame has no editor for these files: their formats belong to the CLI, and
+the directory also holds its sign-in.
+
+Use **⋯ → Delete** to remove a profile after confirmation. The
 confirmation states whether its files will be removed: app-created profiles delete
 their managed configuration directory (including sign-in and native history),
 while imported profiles only disconnect from OhMyGame and keep their files.
@@ -521,6 +536,9 @@ back to the defaults. Credentials remain in the CLI's own store.
 | `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `permissionMode`, `binaryPath` |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
 | `GET /agent-runtimes/:id/profiles`, `POST /agent-runtimes/:id/profiles` | List or add Claude Code/Codex account configurations |
+| `PATCH /agent-runtimes/:id/profiles/:profileId` | Rename an account, or point an imported one at another directory |
+| `POST /agent-runtimes/:id/profiles/:profileId/move` | Move an account up or down; System default stays first |
+| `GET /agent-runtimes/:id/profiles/:profileId/directory` | The directory the desktop app opens for an account |
 | `DELETE /agent-runtimes/:id/profiles/:profileId` | Remove an account; managed files are deleted, imported files kept |
 | `PUT /projects/:p/conversations/:c/account-profile` | Select an account for the conversation |
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |

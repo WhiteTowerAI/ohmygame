@@ -198,6 +198,9 @@ const NAMED_UNFINISHED_FILES = 10;
 
 const MAX_PREVIEW_PICKS = 6;
 
+/** How often streamed text renders: often enough to read as it arrives, far less than once a token. */
+const TEXT_INTERVAL_MS = 50;
+
 export function ProjectShell({
   projectId,
   conversationId,
@@ -427,23 +430,31 @@ export function ProjectShell({
     let disposed = false;
     setGameTuning(undefined);
     // Streamed text arrives a token per event, and applying one renders the
-    // whole project. Text waits for the next frame to go in together; any other
-    // event applies it first, so events still apply in order.
+    // whole project, about 10 ms with its panels open. Text waits to go in
+    // together, at most every TEXT_INTERVAL_MS and on a frame; any other event
+    // applies it first, so events still apply in order.
     let text: RuntimeEvent[] = [];
     let frame = 0;
+    let applied = -Infinity;
     const applyText = () => {
       cancelAnimationFrame(frame);
       frame = 0;
+      if (!text.length) return;
+      applied = performance.now();
       const pending = text;
       text = [];
       for (const event of pending) dispatch({ type: "runtime-event", event });
+    };
+    const awaitTextFrame = (now: number) => {
+      if (now - applied < TEXT_INTERVAL_MS) frame = requestAnimationFrame(awaitTextFrame);
+      else applyText();
     };
     const dropText = () => { cancelAnimationFrame(frame); frame = 0; text = []; };
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         if (event.type === "item.agentMessage.delta" || event.type === "item.reasoning.textDelta") {
           text.push(event);
-          frame ||= requestAnimationFrame(applyText);
+          frame ||= requestAnimationFrame(awaitTextFrame);
           return;
         }
         applyText();

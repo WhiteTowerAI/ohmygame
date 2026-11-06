@@ -14247,6 +14247,7 @@ summary.work-summary:hover {
 .agent-account-profile-form { display: grid; gap: 8px; }
 .agent-account-profile-form .settings-detail-inline > input,
 .agent-account-profile-form .settings-detail-inline > button,
+.agent-account-profile-form > input,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: 12px; }
 .chat-account-selector { min-width: 0; }
 

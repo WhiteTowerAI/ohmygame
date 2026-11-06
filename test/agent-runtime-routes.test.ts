@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { ConversationManager } from "../src/daemon/conversations.js";
@@ -384,6 +384,52 @@ describe("coding agent routes", () => {
     await reopened.load();
     expect(reopened.get(runtime).defaultProfileId).toBe("system");
     expect(reopened.profiles(runtime)).toEqual([{ id: "system", name: "System default" }]);
+  });
+
+  it("renames, reorders and repoints accounts while their ids and managed directories stay", async () => {
+    const { call, dataDirectory } = await start();
+    const runtime = "codex-cli";
+    await call("PATCH", `/agent-runtimes/${runtime}`, { binaryPath: path.join(dataDirectory, "missing-cli") });
+    const first = path.join(dataDirectory, "first-home");
+    const moved = path.join(dataDirectory, "moved-home");
+    await mkdir(first);
+    await mkdir(moved);
+    await writeFile(path.join(first, "auth.json"), "kept");
+    const imported = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Imported", configDirectory: first })).body;
+    const managed = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Managed" })).body;
+    const url = (id: string) => `/agent-runtimes/${runtime}/profiles/${id}`;
+
+    expect((await call<AgentAccountProfile>("PATCH", url(managed.id), { name: " Studio " })).body).toMatchObject({ id: managed.id, name: "Studio", configDirectory: managed.configDirectory, managed: true });
+    expect((await call("PATCH", url(managed.id), { configDirectory: moved })).status).toBe(400);
+    expect((await call("PATCH", url("system"), { name: "Mine" })).status).toBe(400);
+    expect((await call("PATCH", url("missing"), { name: "Mine" })).status).toBe(404);
+    expect((await call("PATCH", url(imported.id), {})).status).toBe(400);
+    expect((await call("PATCH", url(imported.id), { configDirectory: managed.configDirectory })).status).toBe(400);
+
+    const taken = path.join(dataDirectory, "taken-home");
+    await mkdir(taken);
+    const other = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Other", configDirectory: taken })).body;
+    expect((await call("PATCH", url(imported.id), { configDirectory: taken })).status).toBe(400);
+    expect((await call("DELETE", url(other.id))).status).toBe(204);
+
+    const repointed = (await call<AgentAccountProfile>("PATCH", url(imported.id), { configDirectory: moved })).body;
+    expect(repointed).toMatchObject({ id: imported.id, name: "Imported", managed: false });
+    expect(repointed.configDirectory).toBe(await realpath(moved));
+    expect(await readFile(path.join(first, "auth.json"), "utf8")).toBe("kept");
+    const directory = await call<{ path: string }>("GET", `${url(imported.id)}/directory`);
+    expect(directory.body.path).toBe(repointed.configDirectory);
+
+    expect((await call("POST", `${url("system")}/move`, { direction: 1 })).status).toBe(400);
+    expect((await call("POST", `${url(imported.id)}/move`, { direction: 2 })).status).toBe(400);
+    expect((await call("POST", `${url(imported.id)}/move`, { direction: 1 })).status).toBe(204);
+    // The end of the list holds it there.
+    expect((await call("POST", `${url(imported.id)}/move`, { direction: 1 })).status).toBe(204);
+    const listed = (await call<AgentAccountProfileStatus[]>("GET", `/agent-runtimes/${runtime}/profiles`)).body;
+    expect(listed.map((profile) => profile.id)).toEqual(["system", managed.id, imported.id]);
+    expect(listed[0]!.directory).toMatch(/\.codex$/);
+    const reopened = new AgentRuntimeSettingsStore(dataDirectory);
+    await reopened.load();
+    expect(reopened.profiles(runtime).map((profile) => profile.name)).toEqual(["System default", "Studio", "Imported"]);
   });
 
   it.skipIf(process.platform === "win32")("refuses deletion of a running account and falls back without resuming its native context", async () => {

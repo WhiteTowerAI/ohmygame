@@ -1,0 +1,6 @@
+{
+  "plugin.name": "Project panel",
+  "plugin.description": "A panel beside the project, and a command in the project menu that opens it.",
+  "panel.title": "Project panel",
+  "command.open": "Open Project panel"
+}

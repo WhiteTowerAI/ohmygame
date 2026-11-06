@@ -467,7 +467,8 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html"]);
+    expect(JSON.parse(await readFile(path.join(duplicated.json().workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ version: 1, name: "Renamed copy" });
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -1093,8 +1094,8 @@ describe("daemon", () => {
 
     expect(uploaded.statusCode, uploaded.body).toBe(201);
     expect(uploaded.json()).toMatchObject({ batchId, relativePath: "references/dialogue.json", kind: "text" });
-    expect(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
-    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
+    expect(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
+    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
     expect(metadata).not.toHaveProperty("absolutePath");
 
     const sent = await app.inject({
@@ -1181,7 +1182,7 @@ describe("daemon", () => {
       headers: { "content-type": "application/vnd.ohmygame.attachment" },
       payload: Buffer.from("hello"),
     });
-    const metadataPath = path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`);
+    const metadataPath = path.join(project.workspacePath, ".ohmygame", "local", "attachments", batchId, "metadata", `${uploaded.json().id}.json`);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
 
     await writeFile(metadataPath, JSON.stringify({ ...metadata, size: 1 }));
@@ -1234,7 +1235,7 @@ describe("daemon", () => {
     expect(sent.statusCode).toBe(202);
 
     const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
-    const attachmentRoot = path.join(project.workspacePath, ".data", "agent-attachments");
+    const attachmentRoot = path.join(project.workspacePath, ".ohmygame", "local", "attachments");
     await utimes(path.join(attachmentRoot, expiredBatch), old, old);
     await utimes(path.join(attachmentRoot, claimedBatch), old, old);
     expect((await upload("fd2de1f6-0acf-4d68-84cb-d8066f33ffeb", "fresh.txt")).statusCode).toBe(201);

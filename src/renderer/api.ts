@@ -85,7 +85,7 @@ import {
   type Model3DAnimationAction,
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
-import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -164,6 +164,7 @@ declare global {
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      browseAccountDirectory?: (runtime: AccountRuntimeId, profileId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
@@ -415,6 +416,14 @@ export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false):
 
 export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
   return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function updateAccountProfile(runtime: AccountRuntimeId, profileId: string, change: UpdateAgentAccountProfileRequest): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export function moveAccountProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
 }
 
 export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
@@ -824,6 +833,11 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
   void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
+}
+
+/** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
+export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
+  return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
 }
 
 /** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */

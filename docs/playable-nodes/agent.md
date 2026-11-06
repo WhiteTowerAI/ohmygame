@@ -30,7 +30,7 @@ web stories:
   node `context`, the `scene` query parameter, and the one background per
   node.
 - When `story/manifest.json` lists `pending` files, merge the newer runtime
-  files under `.ohmygame/story-runtime/<version>/` into the project's changed
+  files under `.ohmygame/local/story-runtime/<version>/` into the project's changed
   ones, then remove `pending`.
 - Node code is a browser module with no bundler: relative imports, fetched
   text files, and JSON with `with { type: "json" }`.

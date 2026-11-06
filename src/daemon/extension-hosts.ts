@@ -207,6 +207,8 @@ class ExtensionHost {
   readonly #pending = new Map<number, Pending>();
   /** Per plugin, the version calls should use: activated or activating. */
   readonly #activations = new Map<string, Activation>();
+  /** Plugins whose code this process imported, turned off since or not: it keeps their modules. */
+  readonly #imported = new Set<string>();
   /** Per plugin, what the host process has loaded. */
   readonly #loaded = new Map<string, ActivePlugin & { root: string }>();
   /** Per plugin, its activations and deactivations, one at a time. */
@@ -318,6 +320,10 @@ class ExtensionHost {
     };
   }
 
+  imported(plugin: string): boolean {
+    return this.#imported.has(plugin);
+  }
+
   /** Plugins loaded or loading, at the version calls will use. */
   plugins(): Record<string, ScopePlugin> {
     const plugins: Record<string, ScopePlugin> = {};
@@ -363,6 +369,8 @@ class ExtensionHost {
       await this.#ready;
       // Turned off or replaced while the old version drained.
       if (this.#activations.get(plugin.id) !== activation) return;
+      // Even an import that fails stays in the process's module cache.
+      this.#imported.add(plugin.id);
       this.#activating = plugin.id;
       let activated = false;
       try {
@@ -852,6 +860,13 @@ export class ExtensionHosts {
         stats: await host.stats().catch(() => undefined),
       })),
     );
+  }
+
+  /** Scopes whose running host imported a plugin's code, which it keeps until it stops. */
+  importers(plugin: string): string[] {
+    return [...this.#hosts]
+      .filter(([, host]) => host.alive && host.imported(plugin))
+      .map(([scope]) => scope);
   }
 
   /** Turns a plugin off in one scope's host, as when it is disabled there. */

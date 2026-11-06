@@ -311,6 +311,10 @@ describe("project shell layout", () => {
       }, "conversation", "live"));
       await settle();
     }
+    // Streamed text renders at most every 50 ms.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
     expect(container.textContent).toContain("Working next next next");
     expect(formattedResponse).not.toHaveBeenCalled();
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -321,7 +325,7 @@ describe("project shell layout", () => {
     ).toContain("history-entry");
   });
 
-  it("applies streamed text a frame at a time, before any later event", async () => {
+  it("applies streamed text together on a frame, at most every 50 ms, before any later event", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("history"));
     await act(async () => daemon.send(1, "agent.started", { prompt: "Continue" }, "conversation", "live"));
@@ -340,14 +344,21 @@ describe("project shell layout", () => {
     expect(container.textContent).not.toContain("Draft one");
     await act(async () => frames[0]!(performance.now()));
     expect(container.textContent).toContain("Draft one two");
+    // Text that follows soon after waits for a later frame.
+    await act(async () => daemon.send(5, "item.agentMessage.delta", { itemId: "live-answer", delta: " and" }, "conversation", "live"));
+    await act(async () => frames[1]!(performance.now() + 10));
+    expect(container.textContent).not.toContain("two and");
+    expect(frames).toHaveLength(3);
+    await act(async () => frames[2]!(performance.now() + 60));
+    expect(container.textContent).toContain("Draft one two and");
     await act(async () => {
-      daemon.send(5, "item.agentMessage.delta", { itemId: "live-answer", delta: " three" }, "conversation", "live");
+      daemon.send(6, "item.agentMessage.delta", { itemId: "live-answer", delta: " three" }, "conversation", "live");
       // The final text arrives before that frame and must not gain the token again.
-      daemon.send(6, "item.completed", {
-        item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft one two three", status: "completed" },
+      daemon.send(7, "item.completed", {
+        item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft one two and three", status: "completed" },
       }, "conversation", "live");
     });
-    expect(container.textContent).toContain("Draft one two three");
+    expect(container.textContent).toContain("Draft one two and three");
     expect(container.textContent).not.toContain("three three");
   });
 

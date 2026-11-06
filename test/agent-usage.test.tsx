@@ -136,7 +136,7 @@ it("lists every account with its 5-hour share and a ring per window, and shows a
     const now = Date.now();
     const window_ = (minutes: number, usedPercent: number, resetIn: number) => ({ id: `claude/${minutes === 300 ? "five_hour" : "seven_day"}`, usedPercent, windowMinutes: minutes, resetsAt: (now + resetIn * 60_000) / 1000 });
     const profile = (id: string, name: string, account: string, limits: ReturnType<typeof window_>[]) => ({
-      id, name, auth: { status: "signed-in" as const, account, billing: "subscription" as const }, limits,
+      id, name, directory: `/fixture/${id}`, auth: { status: "signed-in" as const, account, billing: "subscription" as const }, limits,
     });
     const onChange = vi.fn();
     // The weekly window comes first, as a report may list it; the 5-hour share still leads.

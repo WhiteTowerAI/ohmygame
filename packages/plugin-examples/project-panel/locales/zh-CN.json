@@ -1,0 +1,6 @@
+{
+  "plugin.name": "项目面板",
+  "plugin.description": "项目旁边的一个面板，以及在项目菜单里打开它的命令。",
+  "panel.title": "项目面板",
+  "command.open": "打开项目面板"
+}

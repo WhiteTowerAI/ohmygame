@@ -7,7 +7,7 @@ import { HOOK_FILES_MAX } from "../shared/plugin-hooks.js";
 
 const DEBOUNCE_MS = 500;
 /** Folders whose changes no plugin hears about: tools' own state, and dependencies. */
-const IGNORED = new Set([".git", "node_modules", ".data", ".ohmygame"]);
+const IGNORED = new Set([".git", "node_modules", ".ohmygame"]);
 
 export type FileChangeListener = (folder: string, change: { paths: string[]; truncated?: boolean }) => void;
 

@@ -288,7 +288,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
     expect(await readFile(path.join(project.workspacePath, relativePath))).toEqual(TEST_GLB);
     const model = (await listWorkspaceFiles(project.workspacePath)).find((file) => file.path === relativePath);
-    expect(model?.previewPath).toMatch(/^\.data\/asset-previews\/model-[0-9a-f-]+\.png$/);
+    expect(model?.previewPath).toMatch(/^\.ohmygame\/asset-previews\/model-[0-9a-f-]+\.png$/);
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);

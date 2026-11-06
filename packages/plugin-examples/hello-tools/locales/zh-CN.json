@@ -1,0 +1,5 @@
+{
+  "plugin.name": "问好工具",
+  "plugin.description": "原生代码：给 agent 加一个工具，再加一个命令。",
+  "command.hello": "问好"
+}
