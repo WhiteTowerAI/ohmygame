@@ -18,14 +18,13 @@ import { MODEL_CATALOG_REFRESH_ERROR, type ModelCatalogRefresh } from "./model-c
 import type { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { OpenAIImageSettingsStore } from "./openai-image-settings.js";
 import type { ProjectManager } from "./projects.js";
+import type { MediaProviderRegistry } from "./providers/registry.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import type { PluginModelProviders } from "./plugin-model-providers.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { isSeedanceProviderId } from "./seedance-models.js";
 import type { SeedanceSettingsStore } from "./seedance-settings.js";
-import type { DoubaoService, DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
-import type { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import type { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
+import type { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 
 const modelAuthLoginSchema = {
   body: {
@@ -75,6 +74,8 @@ export interface ProviderSettingsRouteOptions {
   projects: ProjectManager;
   agents: AgentManager;
   modelDiscoveryFetch: typeof fetch | undefined;
+  /** The built-in media providers; removal clears their keys through it. */
+  providers: MediaProviderRegistry;
   native3DProviders: readonly (readonly [string, string, MediaProviderKeyStore])[];
   openAIEndpoint: ModelEndpointSettingsStore;
   seedanceSettings: SeedanceSettingsStore;
@@ -82,8 +83,6 @@ export interface ProviderSettingsRouteOptions {
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
-  volcengineTtsProvider: VolcengineTtsProvider;
-  volcengineSeedAudioProvider: VolcengineSeedAudioProvider;
   providerEnabled: (id: string) => boolean;
   cloudModels: CloudModelsClient;
   modelAuth: ModelAuthManager;
@@ -103,6 +102,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     projects,
     agents,
     modelDiscoveryFetch,
+    providers,
     native3DProviders,
     openAIEndpoint,
     seedanceSettings,
@@ -110,8 +110,6 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    volcengineTtsProvider,
-    volcengineSeedAudioProvider,
     providerEnabled,
     cloudModels,
     modelAuth,
@@ -183,24 +181,22 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     try { return await saveCustomProvider(request.body, request.params.providerId); }
     catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
+  const audioAdapter = (providerId: string) => {
+    const adapter = providers.get(providerId)?.audio;
+    if (!adapter) throw new Error(`${providerId} has no audio adapter`);
+    return adapter;
+  };
   const removeProvider = async (providerId: string) => {
     const runtime = await getModelRuntime();
-    const native = native3DProviders.find(([id]) => id === providerId);
-    const seedance = isSeedanceProviderId(providerId);
-    const minimax = isMinimaxProviderId(providerId);
-    const volcengineTts = providerId === "volcengine-tts";
-    const volcengineSeedAudio = providerId === "volcengine-seed-audio";
-    if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const builtIn = providers.has(providerId);
+    if (!builtIn && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
         await runtime.refresh({ allowNetwork: false });
         if (previousEndpoint) await openAIEndpoint.update(openAIEndpoint.defaultBaseUrl);
-        if (native) await native[2].clear();
-        else if (seedance) await seedanceSettings.clear(providerId);
-        else if (minimax) await minimaxSettings.clear(providerId);
-        else if (volcengineTts || volcengineSeedAudio) await doubaoVoiceSettings.setService(providerId as DoubaoService, null);
+        if (builtIn) await providers.clear(providerId);
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -298,7 +294,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     async (request, reply) => {
       if (!providerEnabled("volcengine-tts")) return reply.code(409).send({ error: "The speech service is disabled" });
       try {
-        const generated = await volcengineTtsProvider.generate({
+        const generated = await audioAdapter("volcengine-tts").generate({
           operation: "speech",
           model: { provider: "volcengine-tts", id: "seed-tts-2.0" },
           text: request.body.text,
@@ -326,7 +322,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   app.post<{ Body: { prompt: string; durationSeconds?: number } }>("/settings/models/providers/volcengine-seed-audio/preview", { schema: { body: { type: "object", additionalProperties: false, required: ["prompt"], properties: { prompt: { type: "string", minLength: 1, maxLength: 500 }, durationSeconds: { type: "number", minimum: 0.1, maximum: 5 } } } } }, async (request, reply) => {
     if (!providerEnabled("volcengine-seed-audio")) return reply.code(409).send({ error: "The audio service is disabled" });
     try {
-      const generated = await volcengineSeedAudioProvider.generate({ operation: "sound-effect", model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: request.body.prompt, durationSeconds: request.body.durationSeconds, output: { format: "mp3", sampleRate: 48000 } });
+      const generated = await audioAdapter("volcengine-seed-audio").generate({ operation: "sound-effect", model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: request.body.prompt, durationSeconds: request.body.durationSeconds, output: { format: "mp3", sampleRate: 48000 } });
       reply.header("content-type", generated.mediaType); reply.header("cache-control", "no-store"); return reply.send(Buffer.from(generated.bytes));
     } catch (cause) { if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
   });
@@ -355,12 +351,11 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     || id.startsWith("cloud-") && cloudModels.hasProvider(id);
   const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
     if (isNative3DProvider(providerId)) {
-      const native = native3DProviders.find(([id]) => id === providerId)!;
       return { models: providerModelSettings.models3D(providerId).map((definition) => ({
-        provider: providerId, providerName: native[1], id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
+        provider: providerId, providerName: providers.get(providerId)!.name, id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
         visible: providerModelSettings.isVisible({ provider: providerId, id: definition.id }), custom: !model3DPreset(providerId, definition.id),
         source: model3DPreset(providerId, definition.id) ? "preset" : "custom", model3d: definition,
-      })), defaultApi: providerId, canAddCustomModel: native[2].get().configured, model3DProtocol: providerId,
+      })), defaultApi: providerId, canAddCustomModel: providers.configured(providerId), model3DProtocol: providerId,
       catalogNotice: `Official presets · reviewed ${MODEL_3D_CATALOG_REVIEWED}. No model-list API; new versions arrive with app updates or can be added manually. Key access is determined by the provider.`,
       catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
     }
