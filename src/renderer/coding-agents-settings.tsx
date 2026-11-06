@@ -383,7 +383,7 @@ export function CodingAgentDetail({
           </div>
         ) : null}
       </SettingsGroup>
-      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onRemoved={async () => {
+      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onChanged={async () => {
         setAgent((await listAgentRuntimes()).find((item) => item.id === id));
         notifyAgentModelsChanged();
       }} disabled={busy !== undefined} /> : null}
