@@ -25,7 +25,8 @@ import {
   setProjectPlugin,
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
-import { validateProjectFile } from "../src/shared/project-file.js";
+import { PROJECT_FILE_SCHEMA_URL, validateProjectFile } from "../src/shared/project-file.js";
+import { PROJECT_SCHEMA_FILE, projectSchemaJson } from "../scripts/plugin-schema.js";
 import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
@@ -167,7 +168,7 @@ describe("project file", () => {
     const text = await readFile(path.join(folder, "ohmygame.json"), "utf8");
     expect(
       text.startsWith(
-        '{\n  "$schema": "https://ohmygame.dev/schema/project-1.json"',
+        '{\n  "$schema": "https://www.ohmygame.ai/schema/project-1.json"',
       ),
     ).toBe(true);
     expect(JSON.parse(text)).toMatchObject({
@@ -175,6 +176,14 @@ describe("project file", () => {
       plugins: { "ohmygame/solarized": "1.0.0" },
     });
     expect(await readProjectFile(await temporary())).toBeUndefined();
+    // A file an older OhMyGame wrote gets the current schema URL when it is written again.
+    await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ ...JSON.parse(text), $schema: "https://ohmygame.dev/schema/project-1.json" }));
+    await writeProjectFile(folder, (file) => file);
+    expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).$schema).toBe(PROJECT_FILE_SCHEMA_URL);
+  });
+
+  it("publishes a JSON Schema that matches its source", async () => {
+    expect(await readFile(PROJECT_SCHEMA_FILE, "utf8")).toBe(projectSchemaJson());
   });
 });
 

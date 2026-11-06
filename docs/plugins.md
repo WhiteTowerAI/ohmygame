@@ -52,7 +52,12 @@ and waits until what the plugin asks for is allowed.
 
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
-  `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
+  `schemas/plugin-2.json`, and `ohmygame.json`'s is `schemas/project-1.json`
+  (`bun run plugin:schema` rebuilds both; a test fails when one is out of
+  date). Each file's `$schema` names it on the website,
+  `https://www.ohmygame.ai/schema/…`, which serves `schemas/` from this
+  repository's `main` branch (a rewrite in the `ohmygame-web` repository), so
+  a release publishes it. Ids are
   `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
