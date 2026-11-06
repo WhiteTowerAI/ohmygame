@@ -6,7 +6,7 @@ import { PlaytestPage } from "./playtest.js";
 import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute, projectHash } from "./routes.js";
 import { applyAutoUpdate, launchProject } from "./general-preferences.js";
-import { applyAppearance, applyChatFont, applyPalette, readAppearance, readChatFont, readPalette } from "./appearance.js";
+import { applyAppearance, applyChatFont, applyPalette, applyPluginTheme, readAppearance, readChatFont, readPalette, readPluginTheme } from "./appearance.js";
 import { sendNotificationPreferences } from "./agent-notifications.js";
 import { DesktopWindowFrame, sendApplicationMenuLabels } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
@@ -32,6 +32,7 @@ const thumbnail = route.page === "thumbnail";
 const mainRoute = !thumbnail && route.page !== "playtest";
 applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
+applyPluginTheme(readPluginTheme());
 applyChatFont(readChatFont());
 // Only the main window shows the conversations that notifications are about.
 if (mainRoute) {

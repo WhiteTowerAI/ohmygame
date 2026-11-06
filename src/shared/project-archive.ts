@@ -1,10 +1,15 @@
 import type { ProjectCoverMode, ProjectState } from "./contracts.js";
 import { PREVIEW_SETTING_KEYS } from "./preview-settings.js";
+import { PROJECT_SETTINGS_VERSION } from "./project-layout.js";
 
 /**
- * A project archive is a ZIP file holding this manifest at its root, the
+ * A project archive is a ZIP file of the project folder, with its name and
+ * settings in `.ohmygame/settings.json` and its cover and logo beside them.
+ *
+ * Archives of the first version hold this manifest at their root, the
  * project's workspace below `workspace/` and, when the project has them, its
- * cover as `cover.webp` and its uploaded logo as `logo.webp`.
+ * cover as `cover.webp` and its uploaded logo as `logo.webp`. They are still
+ * imported.
  */
 export const PROJECT_ARCHIVE_MANIFEST = "ohmygame-project.json";
 export const PROJECT_ARCHIVE_WORKSPACE = "workspace";
@@ -55,4 +60,9 @@ export function projectArchiveSettings(
       (key) => project[key] !== undefined,
     ).map((key) => [key, structuredClone(project[key])]),
   ) as ProjectArchiveSettings;
+}
+
+/** `.ohmygame/settings.json` for these settings, as OhMyGame writes it. */
+export function projectSettingsFileText(settings: ProjectArchiveSettings): string {
+  return `${JSON.stringify({ version: PROJECT_SETTINGS_VERSION, ...settings }, null, 2)}\n`;
 }

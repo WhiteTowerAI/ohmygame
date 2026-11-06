@@ -197,7 +197,7 @@ export interface ExternalMcpOptions {
   dataDirectory: string;
   projects: () => ProjectState[];
   /** The project's tools for one external session; the session keeps its playtest windows. */
-  tools: (project: ProjectState, sessionId: string) => ToolDefinition[];
+  tools: (project: ProjectState, sessionId: string) => ToolDefinition[] | Promise<ToolDefinition[]>;
   /** Every public project tool, for listing before a project is chosen. */
   catalog: () => ToolDefinition[];
   /**
@@ -645,7 +645,7 @@ export class ExternalMcpService {
       return failure(`Tool ${name} is not available`);
     const project = this.#project(session);
     if (!project) return failure(noProject());
-    const tools = publicTools(this.#options.tools(project, session.id));
+    const tools = publicTools(await this.#options.tools(project, session.id));
     if (!tools.some((tool) => tool.name === name))
       return failure(
         `Tool ${name} is not available for project ${project.name} (${project.type}). ${UNAVAILABLE_HINTS[name] ?? ""}`.trim(),

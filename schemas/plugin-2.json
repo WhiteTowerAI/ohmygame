@@ -178,7 +178,16 @@
         "composer": {
           "type": "boolean"
         },
+        "project.history": {
+          "type": "boolean"
+        },
+        "project.usage": {
+          "type": "boolean"
+        },
         "agent": {
+          "type": "boolean"
+        },
+        "game": {
           "type": "boolean"
         },
         "network": {
@@ -208,6 +217,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "projectFiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+$",
+        "minLength": 3,
+        "maxLength": 500
+      },
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true
     },
     "ui": {
       "type": "object",
@@ -401,6 +422,71 @@
                     "const": "web"
                   }
                 ]
+              },
+              "gameUse": {
+                "type": "object",
+                "required": [
+                  "operations"
+                ],
+                "properties": {
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "inspect"
+                        },
+                        {
+                          "type": "string",
+                          "const": "act"
+                        },
+                        {
+                          "type": "string",
+                          "const": "capture"
+                        },
+                        {
+                          "type": "string",
+                          "const": "captureFrame"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "input": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "pointer"
+                        },
+                        {
+                          "type": "string",
+                          "const": "keyboard"
+                        },
+                        {
+                          "type": "string",
+                          "const": "touch"
+                        },
+                        {
+                          "type": "string",
+                          "const": "resize"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "maxFrame": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  }
+                },
+                "additionalProperties": false,
+                "description": "A \"native\" type's game that game_use can open through the plugin's gameUse hook: the operations besides open and close it supports, the input act takes, and the highest frame captureFrame may ask for"
               },
               "ready": {
                 "type": "object",
@@ -624,6 +710,11 @@
                       "changesFiles": {
                         "type": "boolean",
                         "description": "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo"
+                      },
+                      "build": {
+                        "type": "string",
+                        "const": "web",
+                        "description": "The app builds the game's web package first and gives the command its folder, as for Export web build"
                       }
                     },
                     "additionalProperties": false
@@ -966,6 +1057,56 @@
           "minItems": 1,
           "maxItems": 50
         },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "command"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "command": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+                "maxLength": 100
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 20
+              },
+              "installUrl": {
+                "type": "string",
+                "pattern": "^https://[^\\s]+$",
+                "maxLength": 500
+              },
+              "loginCommand": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
         "panels": {
           "type": "array",
           "items": {
@@ -1152,6 +1293,544 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "previewDevices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "previewFilters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "source",
+              "colorSpace",
+              "matrix"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "colorSpace": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "linearRGB"
+                  },
+                  {
+                    "type": "string",
+                    "const": "sRGB"
+                  }
+                ]
+              },
+              "matrix": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -4,
+                    "maximum": 4
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "inputMaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "buttons": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "b": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "x": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "y": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightBumper": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightTrigger": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "back": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "start": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "leftStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "rightStick": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "up": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "down": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "left": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "right": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  },
+                  "home": {
+                    "type": "string",
+                    "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "sticks": {
+                "type": "object",
+                "properties": {
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "up": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "down": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "left": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      },
+                      "right": {
+                        "type": "string",
+                        "pattern": "^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|(?:Shift|Control|Alt)(?:Left|Right)|F(?:[1-9]|1[0-2]))$"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "deadZone": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 0.9
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "asset.added"
+              },
+              {
+                "type": "string",
+                "const": "turn.completed"
+              },
+              {
+                "type": "string",
+                "const": "build.started"
+              },
+              {
+                "type": "string",
+                "const": "build.completed"
+              },
+              {
+                "type": "string",
+                "const": "files.changed"
+              },
+              {
+                "type": "string",
+                "const": "image.beforeGenerate"
+              }
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "canvasNodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "output",
+              "run"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "title",
+                    "accepts"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-zA-Z0-9]*$",
+                      "maxLength": 64
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "accepts": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "image"
+                        },
+                        {
+                          "type": "string",
+                          "const": "text"
+                        },
+                        {
+                          "type": "string",
+                          "const": "audio"
+                        },
+                        {
+                          "type": "string",
+                          "const": "video"
+                        },
+                        {
+                          "type": "string",
+                          "const": "model"
+                        }
+                      ]
+                    },
+                    "multiple": {
+                      "type": "boolean"
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "maxItems": 8
+              },
+              "params": {
+                "type": "object",
+                "patternProperties": {
+                  "^[a-z][a-zA-Z0-9]{0,63}$": {
+                    "type": "object",
+                    "required": [
+                      "type",
+                      "title"
+                    ],
+                    "properties": {
+                      "type": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "text"
+                          },
+                          {
+                            "type": "string",
+                            "const": "number"
+                          },
+                          {
+                            "type": "string",
+                            "const": "boolean"
+                          },
+                          {
+                            "type": "string",
+                            "const": "select"
+                          }
+                        ]
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "default": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          }
+                        ]
+                      },
+                      "options": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "uniqueItems": true
+                      },
+                      "minimum": {
+                        "type": "number"
+                      },
+                      "maximum": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "output": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "image"
+                  },
+                  {
+                    "type": "string",
+                    "const": "text"
+                  },
+                  {
+                    "type": "string",
+                    "const": "audio"
+                  },
+                  {
+                    "type": "string",
+                    "const": "video"
+                  },
+                  {
+                    "type": "string",
+                    "const": "model"
+                  }
+                ]
+              },
+              "run": {
+                "type": "object",
+                "required": [
+                  "native"
+                ],
+                "properties": {
+                  "native": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-zA-Z0-9]*$",
+                    "maxLength": 64
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "canvasPresets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "board"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "board": {
+                "type": "string",
+                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
+                "minLength": 3,
+                "maxLength": 500
+              }
+            },
+            "additionalProperties": false
           },
           "minItems": 1,
           "maxItems": 50

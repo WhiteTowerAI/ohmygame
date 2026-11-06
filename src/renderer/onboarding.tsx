@@ -127,6 +127,8 @@ export function Onboarding({
   const languageProviders = providers.filter(
     (provider) =>
       provider.capabilities.includes("language") &&
+      // A plugin's provider is set up on the plugin's page, after setup.
+      (!provider.plugin || chatConnected(provider)) &&
       // Signing in to OpenAI covers ChatGPT subscriptions; keep the legacy entry only once saved.
       (provider.id !== "openai-codex" || chatConnected(provider)),
   );

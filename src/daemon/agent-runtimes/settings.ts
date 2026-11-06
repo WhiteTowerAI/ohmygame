@@ -2,16 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  AGENT_RUNTIME_IDS,
   ACCOUNT_RUNTIME_IDS,
   isAccountRuntimeId,
   type AccountRuntimeId,
   isAgentPermissionMode,
   isAgentRuntimeId,
-  FULL_ACCESS_PERMISSION_MODES,
+  fullAccessPermissionMode,
+  isBuiltInAgentRuntimeId,
   type AgentPermissionMode,
   type AgentRuntimeId,
   type AgentAccountProfile,
+  type BuiltInAgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 
 /** Conversation defaults live here; Pi's defaults also serve one-off generation. */
@@ -32,7 +33,7 @@ export interface AgentRuntimeSettings {
 
 /** Every runtime is off until enabled, and asks nothing once it is, as OhMyGame's own agent does. */
 function defaults(id: AgentRuntimeId): AgentRuntimeSettings {
-  return { enabled: false, autoContinue: true, identifyAsOhMyGame: true, permissionMode: FULL_ACCESS_PERMISSION_MODES[id] };
+  return { enabled: false, autoContinue: true, identifyAsOhMyGame: true, permissionMode: fullAccessPermissionMode(id) };
 }
 
 /**
@@ -43,7 +44,7 @@ const STANDARD_PERMISSION_MODES = {
   "claude-code-cli": "acceptEdits",
   "codex-cli": ":workspace",
   "opencode-cli": "default",
-} as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
+} as const satisfies Record<BuiltInAgentRuntimeId, AgentPermissionMode>;
 
 /**
  * Version 1 saved the former default, "standard", whenever any setting was
@@ -60,8 +61,9 @@ function storedPermissionMode(
   legacy: boolean,
 ): AgentPermissionMode {
   if (isAgentPermissionMode(id, value)) return value;
-  if (value === "standard" && !legacy) return STANDARD_PERMISSION_MODES[id];
-  return FULL_ACCESS_PERMISSION_MODES[id];
+  if (value === "standard" && !legacy && isBuiltInAgentRuntimeId(id))
+    return STANDARD_PERMISSION_MODES[id];
+  return fullAccessPermissionMode(id);
 }
 
 /**
@@ -165,6 +167,29 @@ export class AgentRuntimeSettingsStore {
     return profile;
   }
 
+  async updateProfile(runtime: AccountRuntimeId, profileId: string, change: { name?: string; configDirectory?: string }): Promise<AgentAccountProfile> {
+    const profiles = this.#profiles.get(runtime) ?? [];
+    const current = profiles.find((profile) => profile.id === profileId);
+    if (!current) throw new Error("Account configuration not found");
+    if (profiles.some((profile) => profile.id !== profileId && profile.configDirectory === change.configDirectory)) throw new Error("This configuration directory is already connected");
+    const updated = { ...current, ...change };
+    this.#profiles.set(runtime, profiles.map((profile) => profile.id === profileId ? updated : profile));
+    await this.#persist();
+    return { ...updated };
+  }
+
+  /** Swaps an account with its neighbour; System default stays first, outside this list. */
+  async moveProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+    const profiles = [...(this.#profiles.get(runtime) ?? [])];
+    const index = profiles.findIndex((profile) => profile.id === profileId);
+    if (index < 0) throw new Error("Account configuration not found");
+    const target = index + direction;
+    if (target < 0 || target >= profiles.length) return;
+    [profiles[index], profiles[target]] = [profiles[target]!, profiles[index]!];
+    this.#profiles.set(runtime, profiles);
+    await this.#persist();
+  }
+
   resolveProfileId(runtime: AccountRuntimeId, profileId: string): string {
     return this.profiles(runtime).some((profile) => profile.id === profileId) ? profileId : "system";
   }
@@ -209,9 +234,8 @@ export class AgentRuntimeSettingsStore {
 
   #persist(): Promise<void> {
     const snapshot = Object.fromEntries(
-      AGENT_RUNTIME_IDS.filter((runtime) => this.#settings.has(runtime)).map(
-        (runtime) => [runtime, this.#settings.get(runtime)],
-      ),
+      // Plugin agents keep their settings while their plugin is away.
+      this.#settings,
     );
     const defaults = this.#default;
     const accountProfiles = Object.fromEntries(this.#profiles);

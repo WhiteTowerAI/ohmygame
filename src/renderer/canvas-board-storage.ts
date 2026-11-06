@@ -4,7 +4,7 @@ import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-
 import { normalizeLegacyCharacterModes } from "../shared/canvas-character-tools.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
 import { sameJson } from "../shared/same-json.js";
-import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
+import { cancelCanvasJob, generateCanvasMedia, regenerateCanvasFrom, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
 import { t } from "./i18n.js";
 
 export interface CanvasBoardStorage {
@@ -17,6 +17,8 @@ export interface CanvasBoardStorage {
   resolveConflict(version: "local" | "remote", canvas: AssetCanvasDocument): Promise<AssetCanvasDocument>;
   jobs(): Promise<ToolJob[]>;
   generate(nodeId: string): Promise<ToolJob>;
+  /** Runs a node and the nodes after it; storage without it can't. */
+  regenerate?(nodeId: string): Promise<{ nodes: string[]; job: ToolJob }>;
   cancel(jobId: string): Promise<ToolJob>;
 }
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
@@ -157,6 +159,12 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       await flushDocuments();
       assertWritable();
       return generateCanvasMedia(projectId, boardId, nodeId, version);
+    },
+    regenerate: async (nodeId) => {
+      assertWritable();
+      await flushDocuments();
+      assertWritable();
+      return regenerateCanvasFrom(projectId, boardId, nodeId, version);
     },
     cancel: (jobId) => cancelCanvasJob(projectId, jobId),
   };

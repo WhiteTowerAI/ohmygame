@@ -21,7 +21,13 @@ Use **Play 3D preview** to rotate a model and play its selected animation clip;
 **Pause 3D preview** holds the current view and frame. Requested playback pauses
 outside the viewport or while the page is hidden, and resumes when visible again.
 Library and asset-browser thumbnails stay still; open the asset to play it.
-Models load when they enter the viewport.
+Models load when they enter the viewport, two at a time, because parsing one and
+moving it to the GPU runs on the window's main thread
+(`src/renderer/model-preview.tsx`). Asset Canvas nodes also download their file
+only once the node comes near the screen. A 3D file over 32 MB on the canvas
+waits for **Load 3D preview**, since its textures alone can fill gigabytes of
+GPU memory; so does one whose size isn't known yet, such as a Library model
+just added (`src/renderer/asset-canvas-nodes.tsx`).
 
 ![Paused 3D preview with playback and clip controls (sample model)](assets/3d-preview-playback.png)
 

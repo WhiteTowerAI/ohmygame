@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -7,7 +7,8 @@ import { createApp } from "../src/daemon/app.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { customModelCatalog } from "../src/daemon/custom-model-capabilities.js";
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, modelError } from "../src/renderer/custom-provider-models.js";
-import { AGENT_REASONING_LEVELS, type CustomProviderModel } from "../src/shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type CustomProviderModel, type ProviderSummary } from "../src/shared/contracts.js";
+import { pluginModelProviderId } from "../src/daemon/plugin-model-providers.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { MeshyProvider } from "../src/daemon/meshy-provider.js";
@@ -573,5 +574,77 @@ describe("custom providers", () => {
     const meshy = new MeshyProvider(() => "test-key", request, undefined, () => false);
     await expect(meshy.animations()).rejects.toThrow("disabled");
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("plugin model providers", () => {
+  /** Adds a plugin with a keyed provider that discovers models and a provider that needs no key. */
+  async function addProviderPlugin(app: ReturnType<typeof createApp>) {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-provider-"));
+    directories.push(source);
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/nim", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Acme NIM", description: "Hosted models",
+      configuration: { apiKey: { type: "secret", title: "NIM API key" } },
+      contributes: { providers: [
+        { id: "hosted", title: "Acme hosted", api: "openai-completions", baseUrl: "https://integrate.example/v1", apiKey: "apiKey", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true },
+        { id: "open", title: "Acme open", api: "openai-completions", baseUrl: "https://open.example/v1", models: [{ id: "open-model" }] },
+      ] },
+    }));
+    const payload = { source: { type: "directory", path: source } };
+    const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
+    expect(inspected.statusCode, inspected.body).toBe(200);
+    const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
+    expect(added.statusCode, added.body).toBe(201);
+  }
+  const providers = async (app: ReturnType<typeof createApp>) => (await app.inject({ method: "GET", url: "/settings/providers" })).json() as ProviderSummary[];
+
+  it("adds a plugin's providers once their keys are set, discovers models, and follows the plugin", async () => {
+    const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meta/llama-3.1-8b-instruct" }, { id: "listed-model" }] }));
+    const { app, runtime } = await fixture(undefined, discovery);
+    await addProviderPlugin(app);
+    const hosted = pluginModelProviderId("acme/nim", "hosted");
+    const open = pluginModelProviderId("acme/nim", "open");
+
+    let listed = await providers(app);
+    expect(listed.find((provider) => provider.id === hosted)).toMatchObject({
+      name: "Acme hosted", configured: false, status: "not_configured", methods: [], capabilities: ["language"],
+      plugin: { id: "acme/nim", name: "Acme NIM", baseUrl: "https://integrate.example/v1", keyField: "NIM API key" },
+    });
+    expect(listed.find((provider) => provider.id === open)).toMatchObject({ configured: true, methods: [], plugin: { id: "acme/nim" } });
+    expect(runtime.getProvider(hosted)).toBeUndefined();
+    expect(runtime.getModels(open).map((model) => model.id)).toEqual(["open-model"]);
+
+    // A key like a shell command or a variable is still only a key.
+    const saved = await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/configuration", payload: { apiKey: "!nv$HOME" } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    listed = await providers(app);
+    expect(listed.find((provider) => provider.id === hosted)).toMatchObject({ configured: true, status: "connected", methods: [] });
+    expect((await runtime.getAuth(hosted))?.auth.apiKey).toBe("!nv$HOME");
+
+    vi.stubEnv("PI_OFFLINE", undefined);
+    const refreshed = await app.inject({ method: "POST", url: `/settings/models/providers/${hosted}/models/refresh` });
+    vi.unstubAllEnvs();
+    expect(refreshed.statusCode, refreshed.body).toBe(200);
+    expect(refreshed.json().models.map((model: { id: string }) => model.id)).toEqual(["listed-model", "meta/llama-3.1-8b-instruct"]);
+    expect(refreshed.json().canAddCustomModel).toBe(false);
+    const [url, init] = discovery.mock.calls.at(-1)!;
+    expect(String(url)).toBe("https://integrate.example/v1/models");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer !nv$HOME");
+
+    // The plugin's page sets it up, so Settings → Providers doesn't sign in, sign out or remove it.
+    for (const [method, url] of [["DELETE", `/settings/models/providers/${hosted}`], ["DELETE", `/settings/models/providers/${hosted}/credential`]] as const)
+      expect((await app.inject({ method, url })).statusCode, url).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/settings/models/providers/${hosted}/login`, payload: { method: "api_key" } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "PATCH", url: `/settings/models/providers/${hosted}/enabled`, payload: { enabled: false } })).statusCode).toBe(200);
+    expect((await providers(app)).find((provider) => provider.id === hosted)?.enabled).toBe(false);
+
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/configuration", payload: { apiKey: null } })).statusCode).toBe(200);
+    expect((await providers(app)).find((provider) => provider.id === hosted)).toMatchObject({ configured: false });
+    expect(runtime.getProvider(hosted)).toBeUndefined();
+
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/enabled", payload: { enabled: false } })).statusCode).toBe(204);
+    expect((await providers(app)).some((provider) => provider.plugin)).toBe(false);
+    expect(runtime.getProvider(open)).toBeUndefined();
   });
 });

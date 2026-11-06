@@ -13,7 +13,20 @@ export type ProjectType = (typeof PROJECT_TYPE_IDS)[number];
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile", "mobile-landscape"] as const;
-export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+export type BuiltinPreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+/** A built-in preset, or a plugin's preview device, `publisher/name:device`. */
+export type PreviewViewport = BuiltinPreviewViewport | `${string}/${string}:${string}`;
+export const PLUGIN_PREVIEW_DEVICE_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+export function isBuiltinPreviewViewport(value: unknown): value is BuiltinPreviewViewport {
+  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
+}
+
+/** Whether `value` names a preview device; a plugin's may no longer be installed. */
+export function isPreviewViewport(value: unknown): value is PreviewViewport {
+  return isBuiltinPreviewViewport(value) ||
+    (typeof value === "string" && value.length <= 200 && new RegExp(PLUGIN_PREVIEW_DEVICE_PATTERN).test(value));
+}
 export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
 export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 
@@ -114,7 +127,18 @@ export interface ProviderSummary extends ModelProviderSummary {
   enabled?: boolean;
   custom?: boolean;
   preset?: CustomProviderPreset;
+  /** A provider an installed plugin adds; it is set up on the plugin's page. */
+  plugin?: PluginProviderInfo;
   error?: string;
+}
+
+export interface PluginProviderInfo {
+  /** The plugin's id, `publisher/name`. */
+  id: string;
+  name: string;
+  baseUrl: string;
+  /** The title of the plugin's setting that holds the key, when it needs one. */
+  keyField?: string;
 }
 
 export interface CustomProviderSettings {
@@ -491,7 +515,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -650,6 +674,18 @@ export type AssetCanvasNode = (
     /** Library actions in clip order. */
     actionIds: Model3DActionId[];
     assetId?: string;
+  } }
+  /** A node a plugin adds: its code makes the output from the inputs and settings. */
+  | { id: string; type: "plugin"; position: AssetCanvasPosition; data: {
+    /** `publisher/name:node`. */
+    node: string;
+    params: Record<string, string | number | boolean>;
+    /** Each input's sources, by the input's id. */
+    inputs: Record<string, AssetCanvasReference[]>;
+    /** The output, when the node makes media. */
+    assetId?: string;
+    /** The output, when the node makes text. */
+    text?: string;
   } }
 ) & { parentId?: string; title?: string; description?: string; width?: number; height?: number };
 
@@ -1085,6 +1121,10 @@ export interface LibraryAsset {
   width?: number;
   height?: number;
   prompt?: string;
+  /** The prompt as it was asked for, when plugins changed it before the image was generated. */
+  requestedPrompt?: string;
+  /** Plugins that changed the request before the image was generated, in order. */
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
   /** Project copies remain available by ID without appearing in the saved collection. */
@@ -1245,6 +1285,9 @@ interface RunSizedImageToolRequest {
   aspectRatio?: never;
   outputs?: never;
   image?: never;
+  /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 interface RunConfiguredImageToolRequest {
@@ -1256,6 +1299,9 @@ interface RunConfiguredImageToolRequest {
   aspectRatio: ImageAspectRatio;
   outputs?: ImageOutputCount;
   images?: PromptImage[];
+  /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageToolRequest;
@@ -1312,6 +1358,10 @@ export interface ToolRun {
   toolId: ToolId;
   createdAt: string;
   files: ToolRunFile[];
+  /** An image's prompt as it was generated, after plugins changed it. */
+  prompt?: string;
+  requestedPrompt?: string;
+  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
 }
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
@@ -1325,13 +1375,16 @@ export interface ToolJobContext {
 export interface ToolJob {
   model?: ModelRef;
   id: string;
-  toolId: ToolId;
+  /** The tool that ran, or `plugin-node` for a plugin's canvas node. */
+  toolId: ToolId | "plugin-node";
   createdAt: string;
   status: ToolJobStatus;
   title: string;
   context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
+  /** A canvas run: what each source node gave when it started, by node id (see `canvas-chains.ts`). */
+  upstream?: Record<string, string>;
 }
 
 export type ToolArtifact =
@@ -1348,6 +1401,10 @@ export interface RuntimeEventData {
   "project.plugins.changed": Record<string, never>;
   /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
   "plugin.command.progress": { command: string; message: string; url?: string };
+  /** A plugin's hook has something to tell the person. */
+  "plugin.notice": { plugin: string; message: string; tone: "default" | "danger" };
+  /** Files in the project changed, from OhMyGame or outside it; watched only while a plugin in it wants to know. */
+  "project.files.changed": { paths: string[]; truncated?: boolean };
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
@@ -1386,6 +1443,8 @@ export const RUNTIME_EVENT_TYPES = [
   "project.updated",
   "project.plugins.changed",
   "plugin.command.progress",
+  "plugin.notice",
+  "project.files.changed",
   "preview.updated",
   "preview.picked",
   "preview.tuning",

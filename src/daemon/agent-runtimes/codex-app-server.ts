@@ -1,10 +1,7 @@
-import { AgentProcess, processFailure } from "./process.js";
+import { JsonRpcProcess, type JsonRpcHandlers } from "./json-rpc-process.js";
 import type { AgentUsageLimit } from "../../shared/contracts.js";
 import { record } from "./driver-context.js";
-import {
-  AgentRuntimeCompatibilityError,
-  cliProbeError,
-} from "./compatibility.js";
+import { AgentRuntimeCompatibilityError } from "./compatibility.js";
 
 export function requireCodexPermissionProfile(
   response: { activePermissionProfile?: { id?: string } },
@@ -71,50 +68,14 @@ export const CODEX_CLIENT = {
 };
 
 /** A JSON-RPC connection to `codex app-server` over its stdio, one message per line each way. */
-export class CodexAppServer {
-  readonly process: AgentProcess;
-  #next = 1;
-  #pending = new Map<
-    number,
-    {
-      resolve: (value: unknown) => void;
-      reject: (cause: Error) => void;
-      timer: NodeJS.Timeout;
-    }
-  >();
-  #closed?: Error;
-
+export class CodexAppServer extends JsonRpcProcess {
   constructor(
     binaryPath: string,
     cwd: string,
     env: Record<string, string>,
-    private readonly handlers: {
-      processDirectory?: string;
-      notification?: (method: string, params: Record<string, unknown>) => void;
-      request?: (
-        method: string,
-        params: Record<string, unknown>,
-      ) => Promise<unknown>;
-      exit?: (failure: string) => void;
-    } = {},
+    handlers: JsonRpcHandlers = {},
   ) {
-    this.process = new AgentProcess({
-      binaryPath,
-      args: ["app-server"],
-      cwd,
-      env,
-      processDirectory: handlers.processDirectory,
-      onLine: (line) => this.#receive(line),
-      onExit: (code, signal, stderr) => {
-        this.#closed = new Error(processFailure("Codex", code, signal, stderr));
-        for (const pending of this.#pending.values()) {
-          clearTimeout(pending.timer);
-          pending.reject(this.#closed);
-        }
-        this.#pending.clear();
-        handlers.exit?.(this.#closed.message);
-      },
-    });
+    super(binaryPath, ["app-server"], cwd, env, "Codex", handlers);
   }
 
   async initialize(timeoutMs = REQUEST_TIMEOUT_MS): Promise<void> {
@@ -129,93 +90,10 @@ export class CodexAppServer {
     this.notify("initialized");
   }
 
-  request<T = Record<string, unknown>>(
-    method: string,
-    params: unknown,
-    timeoutMs = REQUEST_TIMEOUT_MS,
-  ): Promise<T> {
-    if (this.#closed) return Promise.reject(this.#closed);
-    const id = this.#next++;
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(id);
-        reject(new Error(`Codex did not answer ${method}`));
-      }, timeoutMs);
-      this.#pending.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
-        timer,
-      });
-      try {
-        this.process.write({ jsonrpc: "2.0", id, method, params });
-      } catch (cause) {
-        clearTimeout(timer);
-        this.#pending.delete(id);
-        reject(cause instanceof Error ? cause : new Error(String(cause)));
-      }
-    });
-  }
-
-  notify(method: string, params?: unknown): void {
-    this.process.write({
-      jsonrpc: "2.0",
-      method,
-      ...(params === undefined ? {} : { params }),
-    });
-  }
-
-  stop(): Promise<void> {
-    return this.process.stop();
-  }
-
-  #receive(line: string): void {
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      return;
-    }
-    const id = message.id;
-    if (typeof message.method === "string") {
-      const params = record(message.params) ?? {};
-      if (id === undefined || id === null) {
-        this.handlers.notification?.(message.method, params);
-        return;
-      }
-      void (
-        this.handlers.request?.(message.method, params) ??
-        Promise.reject(new Error(`Unsupported request ${message.method}`))
-      ).then(
-        (result) => {
-          if (this.process.running)
-            this.process.write({ jsonrpc: "2.0", id, result });
-        },
-        (cause) => {
-          if (this.process.running)
-            this.process.write({
-              jsonrpc: "2.0",
-              id,
-              error: {
-                code: -32000,
-                message: cause instanceof Error ? cause.message : String(cause),
-              },
-            });
-        },
-      );
-      return;
-    }
-    if (typeof id !== "number") return;
-    const pending = this.#pending.get(id);
-    if (!pending) return;
-    this.#pending.delete(id);
-    clearTimeout(pending.timer);
-    const error = record(message.error);
-    if (error) {
-      const failure = cliProbeError("Codex", String(error.message ?? "Codex request failed"));
-      pending.reject(failure instanceof AgentRuntimeCompatibilityError
-        ? failure
-        : new CodexRequestError(failure.message));
-    } else pending.resolve(message.result);
+  protected override requestError(failure: Error): Error {
+    return failure instanceof AgentRuntimeCompatibilityError
+      ? failure
+      : new CodexRequestError(failure.message);
   }
 }
 

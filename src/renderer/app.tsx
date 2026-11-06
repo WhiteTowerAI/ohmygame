@@ -12,7 +12,8 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import type { PluginTryTarget } from "./plugin-try.js";
 import { pluginMentionToken } from "../shared/plugins.js";
 import { t } from "./i18n.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { createConversation, createProject, getProject, listPluginThemes, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
+import { syncPluginTheme } from "./appearance.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Onboarding, OnboardingArrival, OnboardingLoadError, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
@@ -58,6 +59,10 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+  }, [serviceGeneration]);
+  // A plugin theme follows its plugin: updated with it, gone with it.
+  useEffect(() => {
+    void syncPluginTheme(listPluginThemes);
   }, [serviceGeneration]);
 
   // A Playtest window that cannot play asks for its project's editor.

@@ -4,7 +4,7 @@ import { consentToPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
-import { Alert, Badge, Button, Sheet, Skeleton, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
@@ -22,7 +22,8 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   const [view, setView] = useState<ProjectPluginsView>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
-  const [consent, setConsent] = useState<ProjectPluginItem>();
+  // The version asked for comes along, so allowing it turns on that version.
+  const [consent, setConsent] = useState<{ plugin: ProjectPluginItem; version: string | undefined }>();
 
   const load = () => getProjectPlugins(projectId).then((next) => { setView(next); setError(undefined); });
   useEffect(() => {
@@ -31,9 +32,9 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     void load().catch((cause: unknown) => setError(message(cause)));
   }, [open, projectId]);
 
-  async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented): Promise<void> {
+  async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented, version = on ? keptVersion(plugin) : undefined): Promise<void> {
     if (on && !consented) {
-      setConsent(plugin);
+      setConsent({ plugin, version });
       return;
     }
     setPending(plugin.id);
@@ -41,7 +42,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     try {
       if (on && !plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
       // Turning on again at the version in use is how a project allows a plugin it asks for.
-      await setProjectPlugin(projectId, plugin.id, on, on ? keptVersion(plugin) : undefined);
+      await setProjectPlugin(projectId, plugin.id, on, version);
       onChanged?.();
       await load();
     } catch (cause) {
@@ -76,19 +77,37 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
               {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
                 <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
               ) : null}
-              <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
+              {/* A project stays on its version when a newer one is installed; it moves, or goes back, here. */}
+              {plugin.used && plugin.versions.length > 1 && plugin.versions.includes(plugin.used) ? (
+                <Select<string> size="sm" label={t("projectPlugins.versionOf", { name: plugin.displayName })} value={plugin.used}
+                  disabled={busy || pending !== undefined}
+                  options={plugin.versions.map((version) => ({ value: version, label: version === plugin.versions[0] ? t("projectPlugins.newestVersion", { version }) : version }))}
+                  onChange={(version) => { if (version !== plugin.used) void change(plugin, true, plugin.consented, version); }} />
+              ) : null}
+              {/* A version this project uses was uninstalled: it moves to one that is installed. */}
+              {plugin.used && plugin.status === "version-not-installed" && plugin.version !== plugin.used ? (
+                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true, plugin.consented, plugin.version)}>
+                  {t("projectPlugins.useVersion", { version: plugin.version })}
+                </Button>
+              ) : null}
+              {/* The plugin itself was uninstalled: it is added again from Plugins, or taken out of the project. */}
+              {plugin.used && plugin.status === "not-installed" ? <>
+                {onOpenPlugins ? <Button size="sm" variant="ghost" onClick={() => { onClose(); onOpenPlugins(); }}>{t("projectPlugins.reinstall")}</Button> : null}
+                {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
+              </> : null}
+              {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
                 disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
-                onChange={(next) => void change(plugin, next)} />
+                onChange={(next) => void change(plugin, next)} /> : null}
             </div>
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}
       </div>
-      {consent ? <PluginConsentDialog name={consent.displayName} capabilities={consent.capabilities}
+      {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.capabilities}
         onCancel={() => setConsent(undefined)}
         onAllow={() => {
-          const plugin = consent;
+          const { plugin, version } = consent;
           setConsent(undefined);
-          void change(plugin, true, true);
+          void change(plugin, true, true, version);
         }} /> : null}
     </Sheet>
   );

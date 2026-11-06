@@ -19,7 +19,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
-import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, CheckpointChangeItem, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
@@ -401,6 +401,8 @@ interface AgentManagerOptions {
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
+  /** Told once a run's turns are closed: how the run ended and the files its turns changed. */
+  onTurnEnded?: (project: ProjectState, end: { conversationId: string; status: "completed" | "failed" | "cancelled"; changes: CheckpointChangeItem[] }) => void;
   /** Told of every change to a conversation, and whether it now stands at a usage limit it could carry on from. */
   onLimitChange?: (projectId: string, conversationId: string, limitReached: boolean) => void;
   /** Takes the snapshot that closes a turn, and counts the files that differ between two snapshots. */
@@ -409,6 +411,8 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
+  /** Told when a call to an MCP server fails, so the plugin that runs it can log it. */
+  onMcpToolFailed?: (server: string, tool: string, message: string) => void;
 }
 
 interface UndoneChanges {
@@ -645,14 +649,14 @@ export class AgentManager {
         this.#forgetConversation(key);
   }
 
-  /** Reject removal during startup/work, then stop the profile's idle processes before deleting files. */
+  /** Reject a change during startup/work, then stop the profile's idle processes before its directory changes or goes. */
   async releaseAccountProfileSessions(runtime: AgentRuntimeId, profileId: string): Promise<void> {
     const matches = (session: CodingSession) => session.runtime === runtime && (session.profileId ?? "system") === profileId;
     const sessions = [...this.#sessions].filter(([, managed]) => matches(managed.session));
     await Promise.all(sessions.flatMap(([key]) => this.#activeTurns.get(key)?.ended ? [this.#turnClosed(key)] : []));
     // An unconstructed session does not yet expose its account. Retry once startup finishes.
     if (this.#sessionLoads.size || sessions.some(([key]) => this.#activeTurns.has(key) || this.#revisions.has(key)))
-      throw new Error("Wait for the agent to finish before deleting this account configuration");
+      throw new Error("Wait for the agent to finish before changing this account configuration");
     await Promise.all(sessions.map(([key]) => this.#forgetConversation(key)));
     await Promise.all([...this.#sessionDisposals].flatMap(([session, stopped]) => matches(session) ? [stopped] : []));
   }
@@ -1678,6 +1682,15 @@ export class AgentManager {
       const ends = await this.#turnEnds(project, active);
       this.#recordTurnEnds(projectId, active, ends);
       this.#activeTurns.delete(key);
+      if (!this.#closing) {
+        // A file several turns of the run changed is named once, as the last of them left it.
+        const changes = new Map(ends.flatMap((end) => end.items ?? []).map((item) => [item.path, item]));
+        try {
+          this.options.onTurnEnded?.(project, { conversationId: active.conversationId, status: result ?? "failed", changes: [...changes.values()] });
+        } catch {
+          // Listeners only hear about it.
+        }
+      }
       this.#denyApprovals(projectId, active);
       const questionnaire = this.#questionnaires.get(key);
       if (questionnaire) {
@@ -2216,6 +2229,8 @@ export class AgentManager {
       const item = current?.type === "dynamicToolCall" || current?.type === "mcpToolCall"
         ? current
         : toolThreadItem(active.turnId, itemId, event.toolCallId, event.toolName, undefined, "inProgress");
+      if (event.isError && item.type === "mcpToolCall" && item.server)
+        this.options.onMcpToolFailed?.(item.server, item.tool, result.output ?? "");
       this.#completeItem(projectId, active, {
         ...item,
         status: event.isError ? "failed" : "completed",

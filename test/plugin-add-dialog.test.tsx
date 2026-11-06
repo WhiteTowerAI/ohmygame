@@ -109,6 +109,7 @@ describe("PluginAddDialog", () => {
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
     for (const shown of ["acme/maker 1.0.0", "@acme/maker", "network:api.example.com", "API", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
       expect(text, shown).toContain(shown);
+    expect(text).not.toContain("runs its own code");
     await submit();
     expect(requests[1]).toEqual({ route: "/plugin-sources/install", body: { source: preview.source, digest: preview.digest } });
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
@@ -185,19 +186,52 @@ describe("PluginAddDialog", () => {
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("50 MB");
   });
 
-  it("offers a folder on the desktop and reviews what it picks", async () => {
+  it("offers a folder on the desktop and reviews what it picks, warning about native code", async () => {
     const selectPluginDirectory = vi.fn(async () => "/plugins/maker");
     Object.assign(window, { ohMyGameDesktop: { selectPluginDirectory } });
     try {
-      answer = () => Response.json({ ...preview, source: { type: "directory", path: "/plugins/maker" }, origin: undefined });
+      answer = () => Response.json({ ...preview, asks: ["native"], source: { type: "directory", path: "/plugins/maker" }, origin: undefined });
       await open();
       await tab("This computer");
       await act(async () => button("Choose a folder…").click());
       expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker" } });
       expect(dialog().textContent).toContain("/plugins/maker");
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("It runs its own code on this computer");
     } finally {
       Object.assign(window, { ohMyGameDesktop: undefined });
     }
+  });
+
+  it("develops a folder, typed in where there's no folder picker", async () => {
+    answer = (route) => route.includes("inspect")
+      ? Response.json({ ...preview, source: { type: "directory", path: "/plugins/maker", development: true }, origin: { type: "development", folder: "/plugins/maker" } })
+      : Response.json({ id: preview.id, version: preview.version }, { status: 201 });
+    await open();
+    await tab("This computer");
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="/Users/me/my-plugin"]')!, "/plugins/maker");
+    await act(async () => dialog().querySelector<HTMLElement>('[role="checkbox"], input[type="checkbox"]')!.click());
+    await submit();
+    expect(requests[0]!.body).toEqual({ source: { type: "directory", path: "/plugins/maker", development: true } });
+    expect(dialog().textContent).toContain("/plugins/maker · In development");
+    expect(dialog().textContent).toContain("added again whenever a file in the folder changes");
+    await submit();
+    expect(requests.at(-1)).toMatchObject({ route: "/plugin-sources/install", body: { source: { type: "directory", path: "/plugins/maker", development: true }, digest: preview.digest } });
+  });
+
+  it("opens on the review of an update from where a plugin came from, marking only what it newly asks for", async () => {
+    answer = (route) => route.includes("inspect")
+      ? Response.json({ ...preview, version: "1.1.0", asks: ["network:api.example.com", "secrets"], installedVersions: ["1.0.0"], newAsks: ["secrets"] })
+      : Response.json({ id: preview.id, version: "1.1.0" }, { status: 201 });
+    const source = { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.1.0" } as const;
+    await act(async () => root.render(<PluginAddDialog source={source} onClose={onClose} onAdded={onAdded} />));
+    expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source } });
+    expect(dialog().querySelector('[role="tab"]')).toBeNull();
+    const items = [...dialog().querySelectorAll("li")].map((item) => item.textContent);
+    expect(items).toContain("network:api.example.com · allowed before");
+    expect(items).toContain("secretsNew");
+    expect(dialog().textContent).toContain("You'll be asked to allow only what's new.");
+    await act(async () => button("Add plugin").click());
+    expect(onAdded).toHaveBeenCalledWith("acme/maker");
   });
 
   describe("for a plugin on the market", () => {

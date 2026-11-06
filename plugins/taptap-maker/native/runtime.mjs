@@ -203,12 +203,14 @@ export async function installed(directory) {
 /**
  * Runs the Maker CLI. With `report`, a failing command that still printed a
  * JSON object with a `state` (as `preview status` does for a failed preview)
- * returns it, so its own diagnosis can reach the person.
+ * returns it, so its own diagnosis can reach the person. `accept` does the
+ * same for the objects it accepts, as `preview validate` prints for a failed
+ * run.
  */
 export async function maker(
   directory,
   args,
-  { onLine, report = false, signal } = {},
+  { onLine, report = false, accept, signal } = {},
 ) {
   const result = await run(process.execPath, [makerPath(directory), ...args], {
     env: makerEnvironment(directory),
@@ -217,8 +219,8 @@ export async function maker(
   });
   if (result.code !== 0) {
     const reported =
-      report && !result.authorizationMissing
-        ? parseReport(result.output)
+      (report || accept) && !result.authorizationMissing
+        ? parseReport(result.output, accept)
         : undefined;
     if (reported) return reported;
     // Known recovery categories are useful; raw upstream errors can contain a
@@ -241,12 +243,13 @@ export async function maker(
   } // init/login emit multiple progress records.
 }
 
-function parseReport(output) {
+const isReport = (value) =>
+  value && typeof value === "object" && typeof value.state === "string";
+
+function parseReport(output, accept = isReport) {
   try {
     const value = JSON.parse(output);
-    return value && typeof value === "object" && typeof value.state === "string"
-      ? value
-      : undefined;
+    return accept(value) ? value : undefined;
   } catch {
     return undefined;
   }

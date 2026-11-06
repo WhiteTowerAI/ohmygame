@@ -793,8 +793,14 @@ describe("Markdown design workspace", () => {
     } });
     const job = await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" });
     await expect.poll(() => calls).toBe(1);
+    // A copied job can't bring its own record of what plugins changed.
+    const history = path.join(project.workspacePath, "canvas/jobs.json");
+    const stored = JSON.parse(await readFile(history, "utf8")) as Array<{ input: object }>;
+    stored[0]!.input = { ...stored[0]!.input, requestedPrompt: "Forged", pluginChanges: [{ plugin: "x/y", version: "1.0.0", fields: ["bogus"] }] };
+    await writeFile(history, JSON.stringify(stored));
     const copy = await projects.duplicate(project.id);
     expect((await store.jobs(copy.id))[0]).toMatchObject({ id: job.id, status: "cancelled", error: expect.stringContaining("interrupted"), context: { projectId: copy.id } });
+    expect(JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"))[0].input).toEqual({ prompt: "Garden" });
     // The copy shares the job ID; cancelling there must leave the original running.
     expect((await store.cancel(copy.id, job.id)).status).toBe("cancelled");
     expect((await store.jobs(project.id))[0]!.status).toBe("running"); expect(calls).toBe(1);

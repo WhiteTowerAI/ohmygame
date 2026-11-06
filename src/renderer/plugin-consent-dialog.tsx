@@ -1,5 +1,10 @@
 import { t } from "./i18n.js";
-import { Button, Dialog } from "./ui/index.js";
+import { Alert, Button, Dialog } from "./ui/index.js";
+
+/** Native code isn't sandboxed, so asking for it gets a warning wherever it is allowed. */
+export function NativeCodeWarning({ asks }: { asks: readonly string[] }) {
+  return asks.includes("native") ? <Alert tone="danger" title={t("projectPlugins.nativeWarning")}>{t("projectPlugins.nativeWarningHint")}</Alert> : null;
+}
 
 /**
  * Asks the person to allow what a plugin asks for before it is turned on: in
@@ -23,6 +28,7 @@ export function PluginConsentDialog({ name, capabilities, everyProject = false, 
         {capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
       </ul>
       {everyProject ? <p>{t("projectPlugins.consentEveryProject")}</p> : null}
+      <NativeCodeWarning asks={capabilities} />
     </Dialog>
   );
 }

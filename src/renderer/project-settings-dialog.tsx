@@ -14,8 +14,10 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import { isBuiltinPreviewViewport as isBuiltinViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import type { ProjectPreviewDevice } from "../shared/plugins.js";
 import type {
+  BuiltinPreviewViewport,
   PreviewViewport,
   ProjectPackageManager,
   ProjectRunSettings,
@@ -31,7 +33,7 @@ const PREVIEW_VIEWPORT_LABEL_KEYS = {
   tablet: "projectSettings.device.tablet",
   mobile: "projectSettings.device.mobile",
   "mobile-landscape": "projectSettings.device.mobileLandscape",
-} as const satisfies Record<PreviewViewport, string>;
+} as const satisfies Record<BuiltinPreviewViewport, string>;
 
 export function ProjectSettingsDialogFrame({
   children,
@@ -133,11 +135,14 @@ export function ProjectSettingsDialog({
   project,
   previewUrl: currentPreviewUrl,
   previewActions,
+  previewDevices = [],
   onClose,
   onSaved,
 }: {
   project: ProjectState;
   previewUrl?: string;
+  /** The preview devices the project's plugins add. */
+  previewDevices?: readonly ProjectPreviewDevice[];
   previewActions?: {
     onRestart: (reinstall?: boolean) => void;
     onStop?: () => void;
@@ -504,6 +509,15 @@ export function ProjectSettingsDialog({
                       {t(PREVIEW_VIEWPORT_LABEL_KEYS[viewport])}
                     </option>
                   ))}
+                  {previewDevices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {t("workspace.viewport.device", { title: device.title, width: device.width, height: device.height })}
+                    </option>
+                  ))}
+                  {/* A device whose plugin is gone stays chosen until another is; the preview shows Fit. */}
+                  {!isBuiltinViewport(previewViewport) && !previewDevices.some((device) => device.id === previewViewport) ? (
+                    <option value={previewViewport}>{t("projectSettings.device.missing")}</option>
+                  ) : null}
                 </select>
               </label>
             </div>

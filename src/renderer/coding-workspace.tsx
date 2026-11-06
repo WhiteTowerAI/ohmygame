@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Palette,
   Smartphone,
   Tablet,
   Trash2,
@@ -42,13 +43,16 @@ import {
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
-import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
+import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
+import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { useNearViewport } from "./asset-gallery.js";
@@ -66,7 +70,7 @@ import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { panelTitle } from "./workspace-layout.js";
-import { useRuntimeConnection } from "./runtime-connection.js";
+import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
@@ -113,6 +117,12 @@ interface CodingWorkspaceProps {
   /** The preview page that is picking an element for the next message. */
   pickingClient?: string;
   onPickingChange?: (client: string | undefined) => void;
+  /** The preview devices the project's plugins add. */
+  previewDevices?: readonly ProjectPreviewDevice[];
+  /** The colour filters the project's plugins add. */
+  previewFilters?: readonly ProjectPreviewFilter[];
+  /** The gamepad maps the project's plugins add. */
+  inputMaps?: readonly ProjectInputMap[];
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -156,6 +166,9 @@ export function CodingWorkspace({
   onQuoteDocument,
   pickingClient,
   onPickingChange,
+  previewDevices = NO_DEVICES,
+  previewFilters = NO_FILTERS,
+  inputMaps = NO_INPUT_MAPS,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -185,7 +198,11 @@ export function CodingWorkspace({
     onDesignSaveReady?.(saveDesign);
     return () => onDesignSaveReady?.(undefined);
   }, [documentsOpened, onDesignSaveReady, saveDesign]);
-  const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const [chosenViewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const { viewport, device } = shownViewport(chosenViewport, previewDevices);
+  // For this visit only; a filter whose plugin is gone is off.
+  const [filterId, setFilterId] = useState<string>();
+  const filter = previewFilters.find((item) => item.id === filterId);
   const [tuningOpen, setTuningOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [previewClient] = useState(() => crypto.randomUUID());
@@ -240,6 +257,34 @@ export function CodingWorkspace({
   useEffect(() => {
     setViewport(project?.previewViewport ?? "fit");
   }, [project?.id, project?.previewViewport]);
+
+  useEffect(() => setFilterId(undefined), [project?.id]);
+  // Off until the person picks one; remembered per project on this device.
+  const [inputMapId, setInputMapId] = useState(() => savedInputMap(project?.id));
+  useEffect(() => setInputMapId(savedInputMap(project?.id)), [project?.id]);
+  // Reading the plugins again gives new objects; only a different map changes anything.
+  const inputMap = inputMaps.find((item) => item.id === inputMapId);
+  const inputMapJson = inputMap && JSON.stringify(inputMap.map);
+  const runtimeGeneration = useReadyRuntimeGeneration();
+  useEffect(() => {
+    if (!project?.id || !inputMapJson) return;
+    const projectId = project.id;
+    sendInputMap(projectId, JSON.parse(inputMapJson) as GamepadKeyMap);
+    return () => sendInputMap(projectId, null);
+  }, [project?.id, inputMapJson, runtimeGeneration]);
+  const chooseInputMap = (id: string | undefined) => {
+    setInputMapId(id);
+    if (project?.id) saveInputMap(project.id, id);
+  };
+  // The desktop game draws its own filter, in Preview and Play alike.
+  const setNativeFilter = typeof window !== "undefined" ? window.ohMyGameDesktop?.webGamePlayer?.setFilter : undefined;
+  const filterJson = filter && JSON.stringify(gameFilter(filter));
+  useEffect(() => {
+    if (!setNativeFilter || !project?.id || !filterJson) return;
+    const projectId = project.id;
+    void setNativeFilter(projectId, JSON.parse(filterJson) as PreviewColorFilter).catch(() => {});
+    return () => { void setNativeFilter(projectId, null).catch(() => {}); };
+  }, [setNativeFilter, project?.id, filterJson]);
 
   useEffect(() => {
     setKnownPaths(["/"]);
@@ -301,7 +346,7 @@ export function CodingWorkspace({
   }
 
   function playGame(): void {
-    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport) });
+    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport, device) });
   }
 
   async function toggleAgentPlaytestWatch(): Promise<void> {
@@ -369,6 +414,13 @@ export function CodingWorkspace({
           refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
+          devices={previewDevices}
+          filters={previewFilters}
+          filter={filter?.id}
+          onFilterChange={setFilterId}
+          inputMaps={inputMaps}
+          inputMap={inputMap?.id}
+          onInputMapChange={chooseInputMap}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
@@ -391,7 +443,7 @@ export function CodingWorkspace({
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
             <PreviewView
-              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={openCode} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport}
+              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={openCode} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device} filter={filter}
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
@@ -477,6 +529,7 @@ export function CodingWorkspace({
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog
         project={project}
+        previewDevices={previewDevices}
         previewUrl={currentPreviewUrl}
         previewActions={supportsPreview ? {
           onRestart: (reinstall) => onRestart(undefined, reinstall),
@@ -498,6 +551,13 @@ function PreviewControls({
   refreshDisabled,
   refreshLabel,
   viewport,
+  devices,
+  filters,
+  filter,
+  onFilterChange,
+  inputMaps,
+  inputMap,
+  onInputMapChange,
   agentPlaytestWatch,
   agentPlaytestWatchPending,
   picking,
@@ -519,6 +579,13 @@ function PreviewControls({
   refreshDisabled: boolean;
   refreshLabel: string;
   viewport: PreviewViewport;
+  devices: readonly ProjectPreviewDevice[];
+  filters: readonly ProjectPreviewFilter[];
+  filter?: string;
+  onFilterChange: (filter: string | undefined) => void;
+  inputMaps: readonly ProjectInputMap[];
+  inputMap?: string;
+  onInputMapChange: (map: string | undefined) => void;
   agentPlaytestWatch?: PlaytestWatchState;
   agentPlaytestWatchPending: boolean;
   picking: boolean;
@@ -538,7 +605,7 @@ function PreviewControls({
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} onChange={onViewportChange} />
+      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
       {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
@@ -690,7 +757,11 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (value: PreviewViewport) => void }) {
+function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: {
+  value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void;
+  filters: readonly ProjectPreviewFilter[]; filter?: string; onFilterChange: (filter: string | undefined) => void;
+  inputMaps: readonly ProjectInputMap[]; inputMap?: string; onInputMapChange: (map: string | undefined) => void;
+}) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -725,15 +796,16 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={t("workspace.viewportLabel")}
-        title={viewportLabel(value)}
+        title={viewportLabel(value, devices)}
         onClick={() => setOpen((current) => !current)}
       >
-        <ViewportIcon viewport={value} />
+        <ViewportIcon viewport={value} devices={devices} />
         <ChevronDown size={11} />
       </button>
       {open ? (
         <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {PREVIEW_VIEWPORTS.map((viewport) => (
+          {/* The built-in sizes, then the plugins' devices. */}
+          {[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => (
             <button
               className="viewport-option"
               type="button"
@@ -746,41 +818,132 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
                 trigger.current?.focus();
               }}
             >
-              <ViewportIcon viewport={viewport} />
-              <span>{viewportLabel(viewport)}</span>
+              <ViewportIcon viewport={viewport} devices={devices} />
+              <span>{viewportLabel(viewport, devices)}</span>
               {viewport === value ? <Check size={13} /> : null}
             </button>
           ))}
+          {/* The plugins' colour filters, for what the person sees only. */}
+          {filters.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.filterLabel")}>
+            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.filterLabel")}</span>
+            {[undefined, ...filters].map((item) => (
+              <button
+                className="viewport-option"
+                type="button"
+                role="menuitemradio"
+                aria-checked={item?.id === filter}
+                key={item?.id ?? "none"}
+                title={item?.source}
+                onClick={() => {
+                  onFilterChange(item?.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <Palette size={14} />
+                <span>{item?.title ?? t("workspace.noFilter")}</span>
+                {item?.id === filter ? <Check size={13} /> : null}
+              </button>
+            ))}
+          </div> : null}
+          {/* The plugins' gamepad maps, which press keys in the person's game. */}
+          {inputMaps.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.gamepadLabel")}>
+            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.gamepadLabel")}</span>
+            {[undefined, ...inputMaps].map((item) => (
+              <button
+                className="viewport-option"
+                type="button"
+                role="menuitemradio"
+                aria-checked={item?.id === inputMap}
+                key={item?.id ?? "none"}
+                onClick={() => {
+                  onInputMapChange(item?.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <Gamepad2 size={14} />
+                <span>{item?.title ?? t("workspace.noGamepad")}</span>
+                {item?.id === inputMap ? <Check size={13} /> : null}
+              </button>
+            ))}
+          </div> : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
+function ViewportIcon({ viewport, devices }: { viewport: PreviewViewport; devices: readonly ProjectPreviewDevice[] }) {
+  const device = devices.find((item) => item.id === viewport);
+  if (device) return <Smartphone size={14} style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
   if (viewport === "tablet") return <Tablet size={14} />;
   if (viewport === "mobile") return <Smartphone size={14} />;
   if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
   return <Monitor size={14} />;
 }
 
-function viewportLabel(viewport: PreviewViewport): string {
+function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): string {
+  const device = devices.find((item) => item.id === viewport);
+  if (device) return t("workspace.viewport.device", { title: device.title, width: device.width, height: device.height });
   if (viewport === "tablet") return t("workspace.viewport.tablet");
   if (viewport === "mobile") return t("workspace.viewport.mobile");
   if (viewport === "mobile-landscape") return t("workspace.viewport.mobileLandscape");
   return t("projectSettings.device.fit");
 }
 
-export function playerViewport(viewport: PreviewViewport): { width: number; height: number } {
+const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
+const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
+const NO_INPUT_MAPS: readonly ProjectInputMap[] = [];
+const inputMapKey = (projectId: string) => `ohmygame:input-map:${projectId}`;
+
+// One at a time, so turning a map off and on again can't arrive the other way round.
+let inputMapRequests = Promise.resolve();
+function sendInputMap(projectId: string, map: GamepadKeyMap | null): void {
+  inputMapRequests = inputMapRequests.then(() => setPreviewInputMap(projectId, map)).catch(() => {});
+}
+
+/** The gamepad map the person picked for a project on this device; storage may be unavailable. */
+export function savedInputMap(projectId: string | undefined): string | undefined {
+  if (!projectId) return undefined;
+  try { return localStorage.getItem(inputMapKey(projectId)) ?? undefined; } catch { return undefined; }
+}
+
+function saveInputMap(projectId: string, id: string | undefined): void {
+  try {
+    if (id) localStorage.setItem(inputMapKey(projectId), id);
+    else localStorage.removeItem(inputMapKey(projectId));
+  } catch { /* Kept for this visit only. */ }
+}
+
+/** Just what draws a filter, for the desktop game host. */
+const gameFilter = ({ colorSpace, matrix, offset }: PreviewColorFilter): PreviewColorFilter => ({ colorSpace, matrix, ...(offset ? { offset } : {}) });
+
+/**
+ * The viewport the preview shows, and the plugin device it is. A device whose
+ * plugin is gone, or not read yet, shows as Fit.
+ */
+export function shownViewport(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): { viewport: PreviewViewport; device?: ProjectPreviewDevice } {
+  if (isBuiltinPreviewViewport(viewport)) return { viewport };
+  const device = devices.find((item) => item.id === viewport);
+  return device ? { viewport, device } : { viewport: "fit" };
+}
+
+export function playerViewport(viewport: PreviewViewport, device?: Pick<ProjectPreviewDevice, "width" | "height">): { width: number; height: number } {
+  if (device) return { width: device.width, height: device.height };
   if (viewport === "mobile") return { width: 375, height: 667 };
   if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
   return { width: 1280, height: 720 };
 }
 
-export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
+export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, device, filter, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
   client?: string; onAskAgent?: (text: string) => void; onOpenFile?: (path: string) => void; onLogs?: () => void;
   project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport;
+  /** The plugin device `viewport` names, when it names one. */
+  device?: Pick<ProjectPreviewDevice, "width" | "height">;
+  /** A colour filter over the game; a cover isn't taken meanwhile, so it stays as the game looks. */
+  filter?: PreviewColorFilter;
   active?: boolean; playerOpen?: boolean; suspended?: boolean; pending?: boolean; error?: string; onPlay?: () => void;
   pausedAfterRecovery?: boolean;
   stageRef?: React.Ref<HTMLDivElement>;
@@ -797,7 +960,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
     ? preview.diagnostics.find((item) => native ? item.client === client : playerOpen ? item.source === "player" : item.client === client)
     : preview?.diagnostic;
   const captureBlocked = useRef(false);
-  captureBlocked.current = !!diagnostic || runtime.status !== "ready";
+  captureBlocked.current = !!diagnostic || runtime.status !== "ready" || !!filter;
+  const filterId = useId().replaceAll(":", "");
 
   useEffect(() => {
     if (diagnostic || runtime.status !== "ready") clearTimeout(captureTimer.current);
@@ -838,7 +1002,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
 
   const showFrame = (active || started || (native && playerOpen)) && (native || !suspended) && preview?.status === "ready" && url;
   return (
-    <div ref={stageRef} className={`viewer-stage viewer-stage-${viewport}`}>
+    <div ref={stageRef} className={`viewer-stage viewer-stage-${device ? "device" : viewport}`}
+      style={device ? { "--preview-device-width": `${device.width}px`, "--preview-device-ratio": `${device.width} / ${device.height}` } as React.CSSProperties : undefined}>
       {showFrame ? <div className="preview-frame-wrap" hidden={suspended}>
         {native && project ? <DesktopGamePreview
           bridge={native} refresh={window.ohMyGameDesktop!.webGamePlayer!.refresh} projectId={project.id} url={url!} reload={reload}
@@ -849,8 +1014,15 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           key={`${url}:${reload}`} className="preview-frame" src={url}
           title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
           sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+          allow="gamepad"
+          style={filter ? { filter: `url(#${filterId})` } : undefined}
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}
+        {filter && !native ? <svg className="preview-filter-definition" aria-hidden="true">
+          <filter id={filterId} colorInterpolationFilters={filter.colorSpace}>
+            <feColorMatrix type="matrix" values={colorMatrixValues(filter)} />
+          </filter>
+        </svg> : null}
       </div> : null}
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
@@ -979,9 +1151,25 @@ export function WorkspaceFileBrowser({
   const selectedMedia = selectedEntry && hasMediaType(selectedEntry) ? selectedEntry : undefined;
   const [treeElement, setTreeElement] = useState<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu>();
+  // The tree renders its children as the row component, so a new function on
+  // each render would remount every row. The menu reads the latest state instead.
+  const rowMenu = useRef({ busy: false, onSelect });
+  const renderTreeRow = useCallback((props: NodeRendererProps<WorkspaceFileNode>) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (rowMenu.current.busy) return;
+    if (node.data.path && !node.data.directory) rowMenu.current.onSelect(node.data.path);
+    setContextMenu({
+      path: node.data.path ?? node.data.id,
+      directory: Boolean(node.data.directory || !node.isLeaf),
+      x: event.clientX,
+      y: event.clientY,
+    });
+  } : undefined} />, [projectId]);
   const [entryDialog, setEntryDialog] = useState<{ kind: "rename" | "file" | "folder"; path: string }>();
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  rowMenu.current = { busy, onSelect };
   const codeElement = useRef<HTMLDivElement>(null);
   const [explorerWidth, setExplorerWidth] = useState(240);
   const explorerResize = useRef<{ clientX: number; width: number; maximum: number; current: number }>(null);
@@ -1124,18 +1312,7 @@ export function WorkspaceFileBrowser({
               }}
               aria-label={t("workspace.files")}
             >
-              {(props) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (busy) return;
-                if (node.data.path && !node.data.directory) onSelect(node.data.path);
-                setContextMenu({
-                  path: node.data.path ?? node.data.id,
-                  directory: Boolean(node.data.directory || !node.isLeaf),
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              } : undefined} />}
+              {renderTreeRow}
             </Tree>
           ) : null}
         </div>}

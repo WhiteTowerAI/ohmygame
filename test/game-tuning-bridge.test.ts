@@ -107,3 +107,81 @@ describe("the preview bridge's tuning", () => {
     expect(reports(sent)).toBe(0);
   });
 });
+
+describe("the preview bridge's gamepad map", () => {
+  const pad = { connected: true, mapping: "standard", buttons: [{ pressed: false }], axes: [0, 0] };
+  async function playing() {
+    let focused = true;
+    vi.spyOn(document, "hasFocus").mockImplementation(() => focused);
+    Object.defineProperty(navigator, "getGamepads", { configurable: true, writable: true, value: () => [pad] });
+    const keys: string[] = [];
+    const listen = (event: KeyboardEvent) => keys.push(`${event.type} ${event.code} ${event.key} ${event.keyCode}`);
+    window.addEventListener("keydown", listen);
+    window.addEventListener("keyup", listen);
+    const { events } = await bridge();
+    // Fake timers run animation frames too.
+    const frame = () => vi.advanceTimersByTimeAsync(17);
+    return { events, keys, frame, blur: (value: boolean) => { focused = !value; if (value) window.dispatchEvent(new Event("blur")); }, stop: () => { window.removeEventListener("keydown", listen); window.removeEventListener("keyup", listen); } };
+  }
+  const map = { buttons: [[0, "Space"]], axes: [[0, -1, "ArrowLeft"], [0, 1, "KeyD"]], deadZone: 0.5 };
+
+  it("presses and lets go of keys as the pad changes, past the dead zone and only with focus", async () => {
+    const { events, keys, frame, blur, stop } = await playing();
+    events.deliver({ reload: 0, inputMap: map });
+    pad.buttons[0]!.pressed = true;
+    pad.axes[0] = -0.4;
+    await frame();
+    expect(keys).toEqual(["keydown Space   32"]);
+    pad.axes[0] = -0.8;
+    await frame();
+    await frame();
+    expect(keys).toEqual(["keydown Space   32", "keydown ArrowLeft ArrowLeft 37"]);
+    pad.buttons[0]!.pressed = false;
+    pad.axes[0] = 0.9;
+    await frame();
+    expect(keys.slice(2)).toEqual(["keyup Space   32", "keyup ArrowLeft ArrowLeft 37", "keydown KeyD d 68"]);
+    // Losing focus lets every key go, and nothing is pressed until it is back.
+    blur(true);
+    await frame();
+    expect(keys.slice(5)).toEqual(["keyup KeyD d 68"]);
+    blur(false);
+    await frame();
+    expect(keys.slice(6)).toEqual(["keydown KeyD d 68"]);
+    // Turning the map off lets go too.
+    events.deliver({ reload: 0, inputMap: null });
+    await frame();
+    expect(keys.slice(7)).toEqual(["keyup KeyD d 68"]);
+    pad.axes[0] = 0;
+    stop();
+  });
+
+  it("holds a mapped modifier on the keys pressed with it", async () => {
+    const { events, frame, stop } = await playing();
+    const shifted: boolean[] = [];
+    const listen = (event: KeyboardEvent) => { if (event.code === "KeyW") shifted.push(event.shiftKey); };
+    window.addEventListener("keydown", listen);
+    events.deliver({ reload: 0, inputMap: { buttons: [[1, "KeyW"], [0, "ShiftLeft"]], axes: [], deadZone: 0.5 } });
+    pad.buttons[0]!.pressed = true;
+    pad.buttons[1] = { pressed: true };
+    await frame();
+    expect(shifted).toEqual([true]);
+    pad.buttons[0]!.pressed = false;
+    pad.buttons.length = 1;
+    events.deliver({ reload: 0, inputMap: null });
+    window.removeEventListener("keydown", listen);
+    stop();
+  });
+
+  it("stops when the game reads the pad itself", async () => {
+    const { events, keys, frame, stop } = await playing();
+    events.deliver({ reload: 0, inputMap: map });
+    pad.buttons[0]!.pressed = true;
+    await frame();
+    expect(keys).toEqual(["keydown Space   32"]);
+    navigator.getGamepads();
+    await frame();
+    expect(keys).toEqual(["keydown Space   32", "keyup Space   32"]);
+    pad.buttons[0]!.pressed = false;
+    stop();
+  });
+});

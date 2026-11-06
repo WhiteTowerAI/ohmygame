@@ -194,6 +194,18 @@ const nodes = [
       assetId: id,
     },
   }),
+  node("plugin", {
+    type: "object",
+    additionalProperties: false,
+    required: ["node", "params", "inputs"],
+    properties: {
+      node: { type: "string", maxLength: 200, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$", description: "publisher/name:node of the plugin's canvas node." },
+      params: { type: "object", maxProperties: 16, additionalProperties: false, patternProperties: { "^[a-z][a-zA-Z0-9]{0,63}$": { anyOf: [{ type: "string", maxLength: 4000 }, { type: "number" }, { type: "boolean" }] } } },
+      inputs: { type: "object", maxProperties: 8, additionalProperties: false, patternProperties: { "^[a-z][a-zA-Z0-9]{0,63}$": { type: "array", maxItems: MAX_TEXT_NODE_REFERENCES, items: reference } } },
+      assetId: id,
+      text: { type: "string", maxLength: 100_000 },
+    },
+  }),
   node("asset", {
     type: "object",
     additionalProperties: false,

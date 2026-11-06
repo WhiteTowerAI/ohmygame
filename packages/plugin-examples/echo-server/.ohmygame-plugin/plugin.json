@@ -1,0 +1,31 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "example/echo-server",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.3.0"
+  },
+  "displayName": "%plugin.name%",
+  "description": "%plugin.description%",
+  "icon": "./assets/icon.svg",
+  "capabilities": {
+    "processes": [
+      "node"
+    ]
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "id": "server",
+        "title": "%mcp.title%",
+        "command": "node",
+        "args": [
+          "./mcp/server.mjs"
+        ],
+        "tools": [
+          "echo"
+        ]
+      }
+    ]
+  }
+}

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import { isPreviewViewport } from "../shared/contracts.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -21,7 +21,9 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
-import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
+import { PROJECT_ARCHIVE_SETTING_KEYS, projectSettingsFileText, type ProjectArchiveSettings } from "../shared/project-archive.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
 // Imports assemble a project here, next to the projects, and then move it into place.
@@ -59,6 +61,15 @@ export class ProjectLibraryReferenceError extends Error {}
 
 export class ProjectWorkspaceError extends Error {}
 
+/** A change or copy of settings that can't be read now; routes without their own handling answer 409. */
+export class ProjectSettingsUnknownError extends ProjectWorkspaceError {
+  readonly statusCode = 409;
+}
+
+function settingsUnknown(): ProjectSettingsUnknownError {
+  return new ProjectSettingsUnknownError(`The project's ${PROJECT_SETTINGS_FILE} is missing from its folder or can't be read. Restore the file, or remove the project and open its folder again.`);
+}
+
 export class ProjectAssetError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);
@@ -80,7 +91,7 @@ export function workspaceEntryName(value: string): string {
 
 function assertEditableWorkspacePath(value: string): void {
   const parts = value.replaceAll("\\", "/").split("/");
-  if (parts.some((part) => [".git", ".data", ".ohmygame"].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
+  if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
   if (parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
 
@@ -93,6 +104,8 @@ async function assetDigest(file: string): Promise<string> {
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
   readonly #metadataWrites = new Map<string, Promise<unknown>>();
+  /** Where each project's settings are now; see `writeProject`. */
+  readonly #settings = new Map<string, SettingsSource>();
   readonly #covers = new ProjectCovers();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
@@ -100,6 +113,9 @@ export class ProjectManager {
   readonly #locationFile: string;
   readonly #removedDirectory: string;
   #location?: string;
+
+  /** Told when a generated asset is saved in a project, or one from the Library is added to it. */
+  onAssetAdded?: (project: ProjectState, asset: { path: string; origin: "generated" | "imported"; prompt?: string }) => void;
 
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
@@ -187,9 +203,18 @@ export class ProjectManager {
       async (entry) => {
         const projectDirectory = path.join(this.#projectsDirectory, entry.name);
         try {
-          const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
+          const read = await readProject(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
+          const { metadata } = read;
           const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
           const workspaceAvailable = await isDirectory(workspacePath);
+          if (workspaceAvailable) {
+            await this.#covers.migrate(projectDirectory, path.join(workspacePath, PROJECT_DATA_DIRECTORY)).catch((cause: unknown) => onError?.(projectDirectory, cause));
+            await migrateProjectLayout(workspacePath).catch((cause: unknown) => onError?.(projectDirectory, cause));
+          }
+          // Settings waiting for the folder go to it now, if it can take them.
+          this.#settings.set(entry.name, read.rewrite || read.settings === "pending"
+            ? await writeProject(projectDirectory, workspacePath, metadata, read.settings)
+            : read.settings);
           const project = projectState(
             workspacePath,
             metadata,
@@ -197,7 +222,6 @@ export class ProjectManager {
             projectDirectory,
             workspaceAvailable,
           );
-          if (missing) await writeMetadata(projectDirectory, metadata);
           return project;
         } catch (cause) {
           onError?.(projectDirectory, cause);
@@ -220,22 +244,31 @@ export class ProjectManager {
     const workspacePath = selectedWorkspacePath !== undefined
       ? await this.#validateExternalWorkspace(selectedWorkspacePath)
       : path.join(projectDirectory, "workspace");
+    const updatedAt = new Date().toISOString();
+    // A folder that was a project before brings back its name and settings, when it is opened as the same type.
+    const found = hasExternalWorkspace ? await readFolderSettings(workspacePath) : undefined;
+    const carried = typeof found === "object" ? found : undefined;
+    const kept = carried?.type === type && carried.pluginType?.id === pluginType?.id ? carried : undefined;
     const metadata: ProjectMetadata = {
+      ...(kept ? parseMetadata({ ...kept, version: 1, id, updatedAt }, id, updatedAt).metadata : {}),
       version: 1,
       id,
-      name: name?.trim() || defaultProjectName(type),
-      nameSource: name?.trim() ? "manual" : "default",
+      name: name?.trim() || kept?.name || defaultProjectName(type),
+      nameSource: name?.trim() || kept ? "manual" : "default",
       type,
       ...(pluginType ? { pluginType } : {}),
-      ...(type === "general" ? { webPreviewEnabled: pluginType ? pluginType.preview === "web" : true } : {}),
-      updatedAt: new Date().toISOString(),
+      ...(type === "general" ? { webPreviewEnabled: kept?.webPreviewEnabled ?? (pluginType ? pluginType.preview === "web" : true) } : {}),
+      updatedAt,
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
     await mkdir(projectDirectory, { recursive: true });
     if (!hasExternalWorkspace) {
       await mkdir(workspacePath, { recursive: true });
     }
-    await writeMetadata(projectDirectory, metadata);
+    await migrateProjectLayout(workspacePath);
+    // A folder that is empty stays so until its type or example fills it; then `storeSettings`, or the next change, writes them.
+    const empty = !(await readdir(workspacePath)).some((item) => item !== ".DS_Store");
+    this.#settings.set(id, await writeProject(projectDirectory, workspacePath, metadata, found === "unreadable" ? "unknown" : "pending", !empty));
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
     this.onListChange?.();
@@ -293,6 +326,8 @@ export class ProjectManager {
   async setStartupDirectory(id: string, startupDirectory: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
+    // The rest of the run settings stay as the folder has them now.
+    await this.readySettings(id);
     return this.setRunSettings(id, { ...projectRunSettings(project), startupDirectory });
   }
 
@@ -367,6 +402,7 @@ export class ProjectManager {
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);
+    await this.readySettings(id);
     const duplicateId = randomUUID();
     const duplicateDirectory = path.join(this.#projectsDirectory, duplicateId);
     const updatedAt = new Date().toISOString();
@@ -394,12 +430,11 @@ export class ProjectManager {
         errorOnExist: true,
         filter: (sourcePath) => {
           const relative = path.relative(source.workspacePath, sourcePath).replaceAll(path.sep, "/");
-          return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
+          return path.basename(sourcePath) !== "node_modules" && relative !== AGENT_ATTACHMENTS_DIRECTORY;
         },
       });
       await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
-      await this.#covers.copy(this.#projectDirectory(source.id), duplicateDirectory);
-      await writeMetadata(duplicateDirectory, metadata);
+      this.#settings.set(duplicateId, await writeProject(duplicateDirectory, path.join(duplicateDirectory, "workspace"), metadata, "pending"));
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
       throw error;
@@ -440,8 +475,9 @@ export class ProjectManager {
       } catch {
         throw new ProjectWorkspaceError("The project settings are invalid");
       }
-      await writeMetadata(staging, metadata);
       await rename(workspacePath, path.join(staging, "workspace"));
+      await migrateProjectLayout(path.join(staging, "workspace"));
+      this.#settings.set(id, await writeProject(staging, path.join(staging, "workspace"), metadata, "pending"));
       await bindCanvasHistory(path.join(staging, "workspace"), id);
       await rename(staging, this.#projectDirectory(id));
     } catch (error) {
@@ -467,7 +503,7 @@ export class ProjectManager {
     let movedTo: string | undefined;
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external") {
-        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+        await removeLocalFiles(project.workspacePath);
       } else {
         const target = path.join(this.#removedDirectory, id, folderName(project.name));
         await mkdir(path.dirname(target), { recursive: true });
@@ -482,6 +518,7 @@ export class ProjectManager {
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
+      this.#settings.delete(id);
       this.onListChange?.();
     });
     this.#metadataWrites.set(id, operation);
@@ -499,10 +536,11 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (project.workspaceLocation === "external" && !registrationOnly) {
-        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+        await removeLocalFiles(project.workspacePath);
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
+      this.#settings.delete(id);
       this.onListChange?.();
     });
     this.#metadataWrites.set(id, operation);
@@ -531,7 +569,7 @@ export class ProjectManager {
   async cover(id: string): Promise<Buffer | undefined> {
     const project = this.#projects.get(id);
     if (!project || project.appearance?.cover === "template") return undefined;
-    return this.#covers.read(this.#projectDirectory(id));
+    return this.#covers.read(coversDirectory(project));
   }
 
   /** Replaces the icon, tone and template choice; the logo follows its own upload. */
@@ -545,14 +583,16 @@ export class ProjectManager {
   }
 
   async logo(id: string): Promise<Buffer | undefined> {
-    if (!this.#projects.get(id)?.appearance?.logo) return undefined;
-    return this.#covers.readLogo(this.#projectDirectory(id));
+    const project = this.#projects.get(id);
+    if (!project?.appearance?.logo) return undefined;
+    return this.#covers.readLogo(coversDirectory(project));
   }
 
   async setLogo(id: string, contents: Uint8Array | undefined): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await this.#covers.setLogo(this.#projectDirectory(id), contents);
+    await this.readySettings(id);
+    await this.#covers.setLogo(coversDirectory(project), contents);
     await this.#save(project, (current) => {
       const { logo: _logo, ...rest } = current.appearance ?? {};
       return withAppearance(contents ? { ...rest, logo: true } : rest);
@@ -561,18 +601,21 @@ export class ProjectManager {
   }
 
   async coverState(id: string): Promise<ProjectCoverState> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    return this.#covers.state(this.#projectDirectory(id));
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return this.#covers.state(coversDirectory(project));
   }
 
   async setCover(id: string, contents: Uint8Array, source: ProjectCoverMode = "custom"): Promise<void> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    return this.#covers.set(this.#projectDirectory(id), contents, source);
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return this.#covers.set(coversDirectory(project), contents, source);
   }
 
   async setCoverMode(id: string, mode: ProjectCoverMode, fallback?: Uint8Array): Promise<void> {
-    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    await this.#covers.setMode(this.#projectDirectory(id), mode, fallback);
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#covers.setMode(coversDirectory(project), mode, fallback);
   }
 
   async addGeneratedAsset(
@@ -598,6 +641,8 @@ export class ProjectManager {
     const relativePath = path.join("assets", "generated", fileName);
     const destination = path.join(generatedDirectory, fileName);
     const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
+    // The same asset saved again, as when an image is imported twice, is nothing new to hear about.
+    const unchanged = await readFile(destination).then((existing) => Buffer.from(contents).equals(existing), () => false);
     try {
       await writeFile(temporary, contents, { flag: "wx" });
       await rename(temporary, destination);
@@ -608,11 +653,9 @@ export class ProjectManager {
     const normalizedPrompt = metadata.prompt?.trim();
     let previewPath: string | undefined;
     if (metadata.preview) {
-      const dataDirectory = path.join(project.workspacePath, ".data");
-      const previewDirectory = path.join(dataDirectory, "asset-previews");
-      await ensureDirectory(dataDirectory, true);
-      await ensureDirectory(previewDirectory, true);
-      previewPath = `.data/asset-previews/${path.parse(fileName).name}.${metadata.preview.extension}`;
+      await ensureDirectory(path.join(project.workspacePath, PROJECT_DATA_DIRECTORY), true);
+      await ensureDirectory(path.join(project.workspacePath, ...ASSET_PREVIEWS_DIRECTORY.split("/")), true);
+      previewPath = `${ASSET_PREVIEWS_DIRECTORY}/${path.parse(fileName).name}.${metadata.preview.extension}`;
       const previewDestination = path.join(project.workspacePath, ...previewPath.split("/"));
       const previewTemporary = `${previewDestination}.${randomUUID()}.tmp`;
       try {
@@ -639,7 +682,16 @@ export class ProjectManager {
       ...(libraryAssetId ? { libraryAssetId } : {}),
     }));
     await this.touch(id);
-    return relativePath.split(path.sep).join("/");
+    if (!unchanged) this.#assetAdded(project, { path: assetPath, origin: "generated", ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}) });
+    return assetPath;
+  }
+
+  #assetAdded(project: ProjectState, asset: Parameters<NonNullable<ProjectManager["onAssetAdded"]>>[1]): void {
+    try {
+      this.onAssetAdded?.(project, asset);
+    } catch {
+      // Listeners only hear about it; the asset is saved either way.
+    }
   }
 
   async generatedAssetPrompt(id: string, assetPath: string): Promise<string | undefined> {
@@ -648,19 +700,20 @@ export class ProjectManager {
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
   }
 
-  async materializeLibraryAsset(id: string, assetId: string): Promise<{ path: string; assetId: string }> {
+  /** `origin`: what plugins hear the asset's copy came from; Canvas generations pass "generated". */
+  async materializeLibraryAsset(id: string, assetId: string, origin: "generated" | "imported" = "imported"): Promise<{ path: string; assetId: string }> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
     const { asset, absolutePath } = await this.assetLibrary.content(assetId);
-    return this.#writeAssetMetadata(id, async () => {
+    const added = await this.#writeAssetMetadata(id, async () => {
       const metadata = await readAssetMetadata(project.workspacePath);
       const stalePaths: string[] = [];
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;
         try {
           await getWorkspaceMedia(project.workspacePath, assetPath);
-          return { path: assetPath, assetId };
+          return { path: assetPath, assetId, existed: true };
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           stalePaths.push(assetPath);
@@ -670,8 +723,10 @@ export class ProjectManager {
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
-      return { path: assetPath, assetId };
+      return { path: assetPath, assetId, existed: false };
     });
+    if (!added.existed) this.#assetAdded(project, { path: added.path, origin, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    return { path: added.path, assetId: added.assetId };
   }
 
   /**
@@ -816,8 +871,8 @@ export class ProjectManager {
       }
       await rm(removed, { recursive: true, force: true });
       if (previewPaths.length) {
-        await ensureDirectory(path.join(project.workspacePath, ".data"));
-        await ensureDirectory(path.join(project.workspacePath, ".data", "asset-previews"));
+        await ensureDirectory(path.join(project.workspacePath, PROJECT_DATA_DIRECTORY));
+        await ensureDirectory(path.join(project.workspacePath, ...ASSET_PREVIEWS_DIRECTORY.split("/")));
         for (const preview of previewPaths) await rm(path.join(project.workspacePath, ...preview.split("/")), { force: true });
       }
       await this.touch(id);
@@ -944,40 +999,95 @@ export class ProjectManager {
   ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (this.#projects.get(project.id) !== project) return false;
+      await this.#refreshSettings(project);
       const changes = typeof update === "function" ? update(project) : update;
-      if (changes.nameSource === "ai" && project.nameSource !== "default") return false;
+      // A name the folder's file got elsewhere, as through Git, is no longer the default one to replace.
+      if (changes.nameSource === "ai" && (project.nameSource !== "default" || project.name !== defaultProjectName(project.type))) return false;
+      const settings = this.#settings.get(project.id) ?? "pending";
+      const portable = Object.keys(changes).some((key) => (PROJECT_ARCHIVE_SETTING_KEYS as readonly string[]).includes(key));
+      // Settings that can't be read are never written over, so they can't change until they can be read.
+      if (settings === "unknown" && portable) {
+        if (changes.nameSource === "ai") return false;
+        throw settingsUnknown();
+      }
       const metadata = { ...metadataFor(project), ...changes };
-      await writeMetadata(this.#projectDirectory(project.id), metadata);
-      for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
-      Object.assign(project, previewSettings(metadata));
-      if (metadata.pluginType) project.pluginType = metadata.pluginType;
-      const listChanged = project.name !== metadata.name || project.nameSource !== metadata.nameSource || project.updatedAt !== metadata.updatedAt;
-      project.name = metadata.name;
-      if (metadata.nameSource) project.nameSource = metadata.nameSource;
-      project.updatedAt = metadata.updatedAt;
-      if (project.type === "general") project.webPreviewEnabled = metadata.webPreviewEnabled ?? false;
-      if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
-      else delete project.startupDirectory;
-      if (metadata.startupScript) project.startupScript = metadata.startupScript;
-      else delete project.startupScript;
-      if (metadata.packageManager) project.packageManager = metadata.packageManager;
-      else delete project.packageManager;
-      if (metadata.previewPath) project.previewPath = metadata.previewPath;
-      else delete project.previewPath;
-      if (metadata.previewViewport) project.previewViewport = metadata.previewViewport;
-      else delete project.previewViewport;
-      if (metadata.mediaModelDefaults) project.mediaModelDefaults = metadata.mediaModelDefaults;
-      else delete project.mediaModelDefaults;
-      if (metadata.publication) project.publication = metadata.publication;
-      else delete project.publication;
-      if (metadata.appearance) project.appearance = metadata.appearance;
-      else delete project.appearance;
-      if (listChanged) this.onListChange?.();
+      // What only this computer keeps leaves the folder's file alone.
+      this.#settings.set(project.id, await writeProject(this.#projectDirectory(project.id), project.workspacePath, metadata, settings, portable || settings === "pending"));
+      this.#apply(project, metadata);
       return true;
     });
     this.#metadataWrites.set(project.id, operation);
     try { return await operation; }
     finally { if (this.#metadataWrites.get(project.id) === operation) this.#metadataWrites.delete(project.id); }
+  }
+
+  /** Puts saved or reread metadata on the project as the app shows it. */
+  #apply(project: ProjectState, metadata: ProjectMetadata): void {
+    for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
+    Object.assign(project, previewSettings(metadata));
+    project.type = metadata.type;
+    if (metadata.pluginType) project.pluginType = metadata.pluginType;
+    else delete project.pluginType;
+    const listChanged = project.name !== metadata.name || project.nameSource !== metadata.nameSource || project.updatedAt !== metadata.updatedAt;
+    project.name = metadata.name;
+    if (metadata.nameSource) project.nameSource = metadata.nameSource;
+    project.updatedAt = metadata.updatedAt;
+    if (project.type === "general") project.webPreviewEnabled = metadata.webPreviewEnabled ?? false;
+    else delete project.webPreviewEnabled;
+    if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
+    else delete project.startupDirectory;
+    if (metadata.startupScript) project.startupScript = metadata.startupScript;
+    else delete project.startupScript;
+    if (metadata.packageManager) project.packageManager = metadata.packageManager;
+    else delete project.packageManager;
+    if (metadata.previewPath) project.previewPath = metadata.previewPath;
+    else delete project.previewPath;
+    if (metadata.previewViewport) project.previewViewport = metadata.previewViewport;
+    else delete project.previewViewport;
+    if (metadata.mediaModelDefaults) project.mediaModelDefaults = metadata.mediaModelDefaults;
+    else delete project.mediaModelDefaults;
+    if (metadata.publication) project.publication = metadata.publication;
+    else delete project.publication;
+    if (metadata.appearance) project.appearance = metadata.appearance;
+    else delete project.appearance;
+    if (listChanged) this.onListChange?.();
+  }
+
+  /**
+   * Reads the folder's settings again, since they may have changed there, as
+   * through Git: a file that can't be read now makes them unknown, and one
+   * that can again makes them known.
+   */
+  async #refreshSettings(project: ProjectState): Promise<void> {
+    if (this.#settings.get(project.id) === "pending") return;
+    const found = await readFolderSettings(project.workspacePath);
+    if (typeof found !== "object") {
+      if (found === "unreadable") this.#settings.set(project.id, "unknown");
+      return;
+    }
+    const metadata = metadataFor(project);
+    for (const key of PROJECT_ARCHIVE_SETTING_KEYS) delete metadata[key as keyof ProjectMetadata];
+    this.#apply(project, { ...metadata, ...found });
+    this.#settings.set(project.id, "folder");
+  }
+
+  /**
+   * The project's settings as its folder has them now, for what uses or
+   * changes them outside a save, such as exporting, duplicating or a logo;
+   * refused while they can't be read.
+   */
+  async readySettings(id: string): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#metadataWrites.get(id)?.catch(() => {});
+    await this.#refreshSettings(project);
+    if (this.#settings.get(id) === "unknown") throw settingsUnknown();
+  }
+
+  /** Writes settings waiting for the project's folder, as after its type or example filled a new one. */
+  async storeSettings(id: string): Promise<void> {
+    const project = this.#projects.get(id);
+    if (project && this.#settings.get(id) === "pending") await this.#save(project, {});
   }
 
   /**
@@ -1192,10 +1302,6 @@ function normalizePreviewPath(value: unknown): string | undefined {
   return `/${normalized.replace(/^\/+/, "")}`;
 }
 
-function isPreviewViewport(value: unknown): value is PreviewViewport {
-  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
-}
-
 function projectRunSettings(project: ProjectState): ProjectRunSettings {
   return {
     ...previewSettings(project),
@@ -1208,14 +1314,54 @@ function projectRunSettings(project: ProjectState): ProjectRunSettings {
   };
 }
 
-async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
+/**
+ * Where a project's settings are: in its folder's `.ohmygame/settings.json`,
+ * waiting in `project.json` for a folder that can't take them yet, or unknown,
+ * when the folder isn't there or its file can't be read. Unknown settings are
+ * never written, so a folder that comes back, or a file that is fixed, keeps them.
+ */
+type SettingsSource = "folder" | "pending" | "unknown";
+
+/** `project.json`: what this computer keeps about a project. What travels with it is in its folder. */
+interface ProjectRecord {
+  version: 2;
+  id: string;
+  nameSource?: ProjectState["nameSource"];
+  updatedAt: string;
+  workspacePath?: string;
+  publication?: PublicationState;
+  /** The settings, only while the folder can't take them. */
+  settings?: ProjectArchiveSettings;
+}
+
+async function readProject(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<{ metadata: ProjectMetadata; settings: SettingsSource; rewrite: boolean }> {
+  let parsed: { version?: unknown; [key: string]: unknown };
   try {
-    const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
-    return parseMetadata(parsed, id, fallbackUpdatedAt);
+    parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as { version?: unknown; [key: string]: unknown };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return { metadata: { version: 1, id, name: "Untitled project", type: "web-game", updatedAt: fallbackUpdatedAt }, missing: true };
+    parsed = { version: 2, id, updatedAt: fallbackUpdatedAt };
   }
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. project.json held the name and settings too.
+  if (parsed?.version === 1) return { metadata: parseMetadata(parsed, id, fallbackUpdatedAt).metadata, settings: "pending", rewrite: true };
+  const record = parsed as Partial<ProjectRecord>;
+  if (record?.version !== 2 || record.id !== id || (record.workspacePath !== undefined && (typeof record.workspacePath !== "string" || !path.isAbsolute(record.workspacePath))))
+    throw new Error("Invalid project metadata");
+  const workspacePath = record.workspacePath ?? path.join(projectDirectory, "workspace");
+  const found = record.settings ?? await readFolderSettings(workspacePath);
+  // A folder without settings starts over with the defaults; it is the folder's name that the person knows it by.
+  const settings: SettingsSource = record.settings ? "pending" : typeof found === "object" ? "folder" : found === "missing" ? "pending" : "unknown";
+  const defaults = { name: record.workspacePath ? path.basename(record.workspacePath) : "Untitled project", type: "web-game" };
+  const { metadata, missing } = parseMetadata({
+    ...(typeof found === "object" ? found : defaults),
+    version: 1,
+    id,
+    ...(record.nameSource ? { nameSource: record.nameSource } : {}),
+    updatedAt: record.updatedAt,
+    ...(record.workspacePath ? { workspacePath: record.workspacePath } : {}),
+    ...(record.publication ? { publication: record.publication } : {}),
+  }, id, fallbackUpdatedAt);
+  return { metadata, settings, rewrite: missing && settings !== "unknown" };
 }
 
 function withAppearance(appearance: ProjectAppearance): MetadataChanges {
@@ -1304,14 +1450,96 @@ function metadataFor(project: ProjectState): ProjectMetadata {
   };
 }
 
-async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata): Promise<void> {
+/**
+ * Saves a project: its settings to its folder, unless they are unknown or
+ * `folder` is false, and what this computer keeps to `project.json`, with the
+ * settings when the folder didn't take them. Says where the settings are now.
+ */
+async function writeProject(projectDirectory: string, workspacePath: string, metadata: ProjectMetadata, settings: SettingsSource, folder = true): Promise<SettingsSource> {
+  const portable = folderSettings(metadata);
+  let next: SettingsSource = settings;
+  if (settings !== "unknown" && folder) {
+    const written = await writeFolderSettings(workspacePath, portable);
+    // A file that can't be read is the record still: the settings are unknown, unless a copy is waiting for it.
+    next = written === "written" ? "folder" : written === "unreadable" && settings === "folder" ? "unknown" : "pending";
+  }
+  await writeRecord(projectDirectory, {
+    version: 2,
+    id: metadata.id,
+    ...(metadata.nameSource ? { nameSource: metadata.nameSource } : {}),
+    updatedAt: metadata.updatedAt,
+    ...(metadata.workspacePath ? { workspacePath: metadata.workspacePath } : {}),
+    ...(metadata.publication ? { publication: metadata.publication } : {}),
+    ...(next === "pending" ? { settings: portable } : {}),
+  });
+  return next;
+}
+
+async function writeRecord(projectDirectory: string, record: ProjectRecord): Promise<void> {
   const destination = path.join(projectDirectory, "project.json");
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });
+  }
+}
+
+/** The name and settings a project folder carries in `.ohmygame/settings.json`. */
+function folderSettings(metadata: ProjectMetadata): ProjectArchiveSettings {
+  return Object.fromEntries(
+    PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => metadata[key] !== undefined).map((key) => [key, metadata[key]]),
+  ) as ProjectArchiveSettings;
+}
+
+/**
+ * Writes `.ohmygame/settings.json`, the record of a project's name and
+ * settings, which go wherever its folder goes. It isn't written when the
+ * folder isn't there or can't be written ("failed"), or holds a file that
+ * can't be read ("unreadable"), which is left for the person to fix.
+ */
+async function writeFolderSettings(workspacePath: string, settings: ProjectArchiveSettings): Promise<"written" | "unreadable" | "failed"> {
+  const destination = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
+  const text = projectSettingsFileText(settings);
+  try {
+    if (!(await isDirectory(workspacePath))) return "failed";
+    const before = await readFile(destination, "utf8").catch((cause: NodeJS.ErrnoException) => { if (cause.code === "ENOENT") return undefined; throw cause; });
+    if (before === text) return "written";
+    if (before !== undefined && typeof parseFolderSettings(before) !== "object") return "unreadable";
+    await ensureDirectory(path.dirname(destination), true);
+    const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, text, { encoding: "utf8", flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    return "written";
+  } catch {
+    return "failed";
+  }
+}
+
+/** The name and settings a folder carries, checked like saved ones, or why there are none. */
+async function readFolderSettings(workspacePath: string): Promise<ProjectArchiveSettings | "missing" | "unreadable"> {
+  if (!(await isDirectory(workspacePath))) return "unreadable";
+  try {
+    return parseFolderSettings(await readFile(path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/")), "utf8"));
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable";
+  }
+}
+
+function parseFolderSettings(text: string): ProjectArchiveSettings | "unreadable" {
+  try {
+    const value = JSON.parse(text) as Record<string, unknown>;
+    if (value?.version !== PROJECT_SETTINGS_VERSION) return "unreadable";
+    const candidate = Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+    const updatedAt = new Date(0).toISOString();
+    return folderSettings(parseMetadata({ ...candidate, version: 1, id: "folder", updatedAt }, "folder", updatedAt).metadata);
+  } catch {
+    return "unreadable";
   }
 }
 
@@ -1332,9 +1560,13 @@ async function bindCanvasHistory(workspacePath: string, projectId: string): Prom
     return;
   }
   if (!Array.isArray(jobs)) return;
-  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => (
-    job?.context && typeof job.context === "object" ? { ...job, context: { ...job.context, projectId } } : job
-  )));
+  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => {
+    if (!job?.context || typeof job.context !== "object") return job;
+    // A retry trusts its input's record of what plugins changed; a copied one can't bring its own.
+    const input = (job as { input?: unknown }).input;
+    const { requestedPrompt: _, pluginChanges: __, ...asked } = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    return { ...job, context: { ...job.context, projectId }, ...(input && typeof input === "object" ? { input: asked } : {}) };
+  }));
 }
 
 async function exists(target: string): Promise<boolean> {
@@ -1391,6 +1623,17 @@ async function importDirectory(workspacePath: string, folder: readonly string[])
     await ensureDirectory(directory, true);
   }
   return directory;
+}
+
+/** Removes what a folder kept for this computer, when the project leaves OhMyGame but the folder stays. */
+async function removeLocalFiles(workspacePath: string): Promise<void> {
+  if (!(await realFolders(workspacePath, PROJECT_LOCAL_DIRECTORY))) return;
+  await rm(path.join(workspacePath, ...PROJECT_LOCAL_DIRECTORY.split("/")), { recursive: true, force: true });
+}
+
+/** Where a project's cover and logo are: its `.ohmygame/` folder, so they go wherever the folder goes. */
+function coversDirectory(project: ProjectState): string {
+  return path.join(project.workspacePath, PROJECT_DATA_DIRECTORY);
 }
 
 async function ensureDirectory(target: string, create = false): Promise<void> {

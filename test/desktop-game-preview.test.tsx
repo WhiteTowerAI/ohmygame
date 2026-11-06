@@ -129,6 +129,24 @@ describe("native preview loading", () => {
     expect(container.querySelector(".preview-frame-still")).not.toBeNull();
   });
 
+  it("takes no still as a tab is pressed, only as a tab strip's menu is", async () => {
+    const { container, bridge, render } = mount();
+    await render();
+    bounds(container.querySelector(".preview-frame")!, 300, 100, 600, 500);
+    await act(async () => { window.dispatchEvent(new Event("resize")); await new Promise((resolve) => requestAnimationFrame(resolve)); });
+    bridge.capture.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    const strip = document.createElement("div");
+    strip.setAttribute("role", "tablist");
+    strip.innerHTML = '<div><button role="tab"><span>Code</span></button><button aria-label="Close">x</button></div><button aria-haspopup="menu">+</button>';
+    document.body.append(strip);
+    await act(async () => strip.querySelector("span")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => strip.querySelector('[aria-label="Close"]')!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(bridge.capture).not.toHaveBeenCalled();
+    await act(async () => strip.querySelector("[aria-haspopup]")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(bridge.capture).toHaveBeenCalledOnce();
+    strip.remove();
+  });
+
   it("releases the stills it takes but never shows", async () => {
     const created: string[] = [];
     vi.spyOn(URL, "createObjectURL").mockImplementation(() => { created.push(`blob:${created.length}`); return created.at(-1)!; });

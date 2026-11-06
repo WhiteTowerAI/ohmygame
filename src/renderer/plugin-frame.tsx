@@ -5,6 +5,7 @@ import {
   PLUGIN_ACCENT_MIN_CONTRAST,
   PLUGIN_UI_HANDSHAKE,
   PLUGIN_UI_PROTOCOL_VERSION,
+  pageFilePaths,
   pluginUiRefusal,
   readPluginUiRequest,
   type PluginAccent,
@@ -13,7 +14,10 @@ import {
   type PluginUiEvent,
   type PluginUiRequest,
   type PluginUiToastTone,
+  type PluginUiAttachment,
 } from "../shared/plugin-ui-protocol.js";
+import { t } from "./i18n.js";
+import { Button, Dialog } from "./ui/index.js";
 import "./plugin-frame.css";
 
 export { accentTokens, PAGE_TOKENS, PLUGIN_ACCENT_MIN_CONTRAST };
@@ -35,8 +39,8 @@ export interface PluginPageContext {
   commands: readonly string[];
   project: () => { name: string; type: string };
   selection?: () => unknown;
-  /** Fills the composer with text; the page can never send it. */
-  fillComposer?: (text: string) => void;
+  /** Fills the composer with text and files; the page can never send it. */
+  fillComposer?: (text: string, files: File[]) => void;
   storage: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
@@ -51,12 +55,20 @@ export interface PluginPageContext {
     delete(path: string): Promise<void>;
   };
   runCommand(command: string, input?: unknown): Promise<unknown>;
+  /** The project's latest turns that changed files, with `project.history`. */
+  history(limit?: number): Promise<unknown>;
+  /** What the project's conversations used, with `project.usage`. */
+  usage(): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
   accent?: PluginAccent;
   /** Shows a toast the app draws, under the plugin's id. */
   toast(message: string, tone?: PluginUiToastTone): void;
   /** Asks the person in a dialog the app draws; a page only learns the answer. */
   confirm(request: PluginUiConfirm): Promise<boolean>;
+  /** Hears an error the page didn't catch, for its plugin's log. */
+  reportError?(message: string): void;
+  /** Turns the plugin off everywhere, as from a panel that stopped responding. */
+  turnOff?(): void;
 }
 
 /** The app's current design tokens and appearance, as a page sees them. */
@@ -128,10 +140,19 @@ export async function handlePluginUiRequest(
       return null;
     case "selection.get":
       return context.selection?.() ?? null;
-    case "composer.fill":
+    case "composer.fill": {
       if (!context.fillComposer) throw new Error("There is no composer here");
-      context.fillComposer(params.text as string);
+      const attachments = (params.attachments ?? []) as PluginUiAttachment[];
+      context.fillComposer(
+        (params.text as string | undefined) ?? "",
+        attachments.map(({ name, data, type }) => new File([data], name, { type: type ?? (data instanceof Blob ? data.type : "") })),
+      );
       return null;
+    }
+    case "history.list":
+      return context.history(params.limit as number | undefined);
+    case "usage.get":
+      return context.usage();
     case "command.run":
       if (!context.commands.includes(params.command as string))
         throw new Error(`${context.plugin.id} has no command ${String(params.command)}`);
@@ -185,12 +206,24 @@ export function connectPluginFrame(
   context: PluginPageContext,
   /** Called when the page's bridge has applied the app's theme. */
   onReady?: () => void,
+  /** The bridge answering a `ping`, and an error the page didn't catch. */
+  hooks: { onPong?: () => void; onError?: (message: string) => void } = {},
 ): { send(event: PluginUiEvent): void; close(): void } {
   const channel = new MessageChannel();
   const port = channel.port1;
   port.onmessage = ({ data }) => {
-    if ((data as { event?: unknown } | null)?.event === "ready") {
+    const event = (data as { event?: unknown; message?: unknown } | null)?.event;
+    if (event === "ready") {
       onReady?.();
+      return;
+    }
+    if (event === "pong") {
+      hooks.onPong?.();
+      return;
+    }
+    if (event === "error") {
+      const message = (data as { message?: unknown }).message;
+      hooks.onError?.(typeof message === "string" ? message.slice(0, 4000) : "Error");
       return;
     }
     const read = readPluginUiRequest(data);
@@ -226,6 +259,13 @@ export function connectPluginFrame(
   };
 }
 
+/** How often a showing page's bridge is asked whether it still answers. */
+export const PLUGIN_FRAME_PING_MS = 5_000;
+/** A showing page that hasn't answered for this long is said to have stopped responding. */
+export const PLUGIN_FRAME_HANG_MS = 15_000;
+/** A page's uncaught errors reach its log at most this often, so one in a loop can't flood it. */
+export const PLUGIN_FRAME_ERROR_INTERVAL_MS = 2_000;
+
 /** How long after its page loads a frame shows, when the page's bridge hasn't said it is ready. */
 export const PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS = 500;
 /** The longest a frame stays hidden, loaded or not. */
@@ -238,6 +278,7 @@ export function PluginFrame({
   visible = true,
   progress,
   filesRevision,
+  fileChange,
   onToolbarRun,
 }: {
   url: string;
@@ -248,6 +289,8 @@ export function PluginFrame({
   progress?: CommandProgress;
   /** Grows when the project's files may have changed; a page that can use them hears of it. */
   filesRevision?: number;
+  /** The latest files the app saw change in the project, a new object for each; a page that can use them hears which. */
+  fileChange?: { paths: string[]; truncated?: boolean };
   /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
 }) {
@@ -258,6 +301,11 @@ export function PluginFrame({
   latest.current = context;
   const shown = useRef(visible);
   shown.current = visible;
+  // A page with the bridge answers pings; one that stops is offered a reload.
+  const bridged = useRef(false);
+  const lastPong = useRef(0);
+  const lastError = useRef(0);
+  const [hung, setHung] = useState(false);
   // The context changes every render; requests read the latest one.
   const stable: PluginPageContext = {
     get plugin() { return latest.current.plugin; },
@@ -266,10 +314,12 @@ export function PluginFrame({
     get commands() { return latest.current.commands; },
     project: () => latest.current.project(),
     selection: () => latest.current.selection?.(),
-    fillComposer: (text) => {
+    fillComposer: (text, files) => {
       if (!latest.current.fillComposer) throw new Error("There is no composer here");
-      latest.current.fillComposer(text);
+      latest.current.fillComposer(text, files);
     },
+    history: (limit) => latest.current.history(limit),
+    usage: () => latest.current.usage(),
     storage: {
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
@@ -307,6 +357,24 @@ export function PluginFrame({
     const reveal = () => {
       element.dataset.ready = "";
     };
+    bridged.current = false;
+    const hooks = {
+      onPong: () => {
+        lastPong.current = Date.now();
+        setHung(false);
+      },
+      onError: (message: string) => {
+        const now = Date.now();
+        if (now - lastError.current < PLUGIN_FRAME_ERROR_INTERVAL_MS) return;
+        lastError.current = now;
+        latest.current.reportError?.(message);
+      },
+    };
+    const ready = () => {
+      bridged.current = true;
+      lastPong.current = Date.now();
+      reveal();
+    };
     const timers = [setTimeout(reveal, PLUGIN_FRAME_REVEAL_LATEST_MS)];
     const onLoad = () => {
       if (loaded) {
@@ -317,7 +385,7 @@ export function PluginFrame({
       }
       loaded = true;
       timers.push(setTimeout(reveal, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS));
-      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, reveal);
+      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, ready, hooks);
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
@@ -336,6 +404,26 @@ export function PluginFrame({
     connection.current?.send({ event: "visibility", visible });
   }, [visible]);
 
+  // Only while it shows: a hidden page may be throttled, and nobody waits on it.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!bridged.current || !shown.current || document.hidden) {
+        lastPong.current = Date.now();
+        return;
+      }
+      if (Date.now() - lastPong.current > PLUGIN_FRAME_HANG_MS) setHung(true);
+      connection.current?.send({ event: "ping" });
+    }, PLUGIN_FRAME_PING_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const reload = () => {
+    setHung(false);
+    connection.current?.close();
+    connection.current = undefined;
+    setMount((value) => value + 1);
+  };
+
   useEffect(() => {
     const prefix = `${latest.current.plugin.id}:`;
     if (progress?.command.startsWith(prefix))
@@ -349,21 +437,42 @@ export function PluginFrame({
     if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files" });
   }, [filesRevision]);
 
+  const heardChange = useRef(fileChange);
+  useEffect(() => {
+    if (heardChange.current === fileChange || !fileChange) return;
+    heardChange.current = fileChange;
+    if (!latest.current.capabilities["project.files"]) return;
+    const paths = pageFilePaths(fileChange.paths);
+    if (paths.length || fileChange.truncated) connection.current?.send({ event: "files", paths, ...(fileChange.truncated ? { truncated: true } : {}) });
+  }, [fileChange]);
+
   useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
     const prefix = `${latest.current.plugin.id}:`;
     if (command.startsWith(prefix)) connection.current?.send({ event: "command", command: command.slice(prefix.length), ...outcome });
   }), [onToolbarRun]);
 
   return (
-    <iframe
-      key={`${url}#${mount}`}
-      ref={frame}
-      className="plugin-frame"
-      src={url}
-      title={title}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      allow=""
-    />
+    <>
+      <iframe
+        key={`${url}#${mount}`}
+        ref={frame}
+        className="plugin-frame"
+        src={url}
+        title={title}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        allow=""
+      />
+      {hung && visible ? <Dialog open size="sm" title={t("pluginFrame.notRespondingTitle", { name: title })} onClose={() => {
+        lastPong.current = Date.now();
+        setHung(false);
+      }} footer={<>
+        {context.turnOff ? <Button variant="ghost" onClick={() => { setHung(false); context.turnOff?.(); }}>{t("pluginFrame.turnOff")}</Button> : null}
+        <Button onClick={() => { lastPong.current = Date.now(); setHung(false); }}>{t("pluginFrame.wait")}</Button>
+        <Button variant="primary" onClick={reload}>{t("pluginFrame.reload")}</Button>
+      </>}>
+        <p>{t("pluginFrame.notRespondingHint")}</p>
+      </Dialog> : null}
+    </>
   );
 }

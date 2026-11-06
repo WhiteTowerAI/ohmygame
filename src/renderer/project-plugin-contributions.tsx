@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
-import type { ProjectPluginChange, ProjectPluginCommand } from "../shared/plugins.js";
-import { getPluginPanels, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
+import type { ProjectInputMap, ProjectPluginChange, ProjectPluginCommand, ProjectPluginPreview, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
+import { getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
 import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
@@ -10,7 +10,8 @@ import { Alert, Button, DropdownMenu, Empty, IconButton, Sheet, Skeleton } from 
 import type { PanelId } from "./workspace-layout.js";
 
 // What a project's plugins add to its workspace: panels beside the
-// built-in ones, and commands in the slots their manifests name. The project
+// built-in ones, commands in the slots their manifests name, and preview
+// devices, filters and gamepad maps. The project
 // shell reads them again whenever its plugins may have changed.
 
 export const pluginPanelId = (panel: Pick<PluginPanel, "plugin" | "id">): PanelId => `plugin:${panel.plugin}:${panel.id}`;
@@ -57,13 +58,27 @@ export function slashCommands(commands: readonly ProjectPluginCommand[], context
   return commands.filter((command) => slotted.has(command) || (command.slash && !command.slots.some((entry) => entry.slot === "composer.slash")));
 }
 
+// Bumped when the open project's plugins change, so views outside the shell, like the canvas, read them again.
+let pluginsRevision = 0;
+const pluginsListeners = new Set<() => void>();
+export function announceProjectPluginsChanged(): void {
+  pluginsRevision += 1;
+  for (const listener of pluginsListeners) listener();
+}
+export function useProjectPluginsRevision(): number {
+  return useSyncExternalStore((listener) => { pluginsListeners.add(listener); return () => pluginsListeners.delete(listener); }, () => pluginsRevision);
+}
+
 export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> | undefined, revision: number): {
   panels: PluginPanel[];
   commands: ProjectPluginCommand[];
+  previewDevices: ProjectPreviewDevice[];
+  previewFilters: ProjectPreviewFilter[];
+  inputMaps: ProjectInputMap[];
   when: WhenContext;
 } {
   const generation = useReadyRuntimeGeneration();
-  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; active: string[] }>();
+  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; preview: ProjectPluginPreview; active: string[] }>();
   const projectId = project?.id;
   useEffect(() => {
     if (!projectId) return;
@@ -72,21 +87,25 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     void Promise.all([
       getPluginPanels(projectId, language).catch((): PluginPanel[] => []),
       listProjectPluginCommands(projectId).catch((): ProjectPluginCommand[] => []),
+      getProjectPluginPreview(projectId).catch((): ProjectPluginPreview => ({ devices: [], filters: [], inputMaps: [] })),
       // `project.plugin('<id>')` asks about every active plugin, with or without panels.
       getProjectPlugins(projectId)
         .then((view) => view.plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []))
         .catch((): string[] => []),
-    ]).then(([panels, commands, active]) => {
-      if (!disposed) setLoaded({ projectId, panels, commands, active });
+    ]).then(([panels, commands, preview, active]) => {
+      if (!disposed) setLoaded({ projectId, panels, commands, preview, active });
     });
     return () => { disposed = true; };
   }, [projectId, revision, generation]);
-  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], when: { values: {}, plugins: new Set() } };
+  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], previewDevices: [], previewFilters: [], inputMaps: [], when: { values: {}, plugins: new Set() } };
   const when = projectWhenContext(project, [...loaded.active, ...[...loaded.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
     // A page needs its address; one without it can't be shown.
     panels: loaded.panels.filter((panel) => panel.url && matchesWhen(panel.when, when)),
     commands: loaded.commands,
+    previewDevices: loaded.preview.devices,
+    previewFilters: loaded.preview.filters,
+    inputMaps: loaded.preview.inputMaps,
     when,
   };
 }
