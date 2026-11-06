@@ -149,7 +149,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
@@ -277,7 +277,13 @@ export function ProjectShell({
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
-  const offered: PanelId[] = state.project ? [...panelsOf(state.project), ...pluginPanels.keys()] : [];
+  // A General project without Web preview leaves the Game panel out until the
+  // person adds it, here and only for this project.
+  const [gameAddedTo, setGameAddedTo] = useState<string>();
+  const gameAddable = !!state.project && gamePanelAddable(state.project);
+  const offered: PanelId[] = state.project ? [...panelsOf(state.project, gameAddedTo === state.project.id), ...pluginPanels.keys()] : [];
+  /** What the panel menu lists: what the project offers, and the Game panel it can add. */
+  const listed: PanelId[] = state.project ? [...panelsOf(state.project, gameAddable), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
   const opening = useMemo(() => state.project ? openingLayout(offered, homes) : undefined, [!!state.project]);
   const current = saved ?? opening;
@@ -304,7 +310,10 @@ export function ProjectShell({
   function revealPanel(id: PanelId): void {
     const { layout, offered, homes } = latestLayout.current;
     if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id, homes)));
+    // The Game panel joins once added, then shows on the next render.
+    else if (id === "game" && gameAddable && state.project) setGameAddedTo(state.project.id);
   }
+  useEffect(() => { if (gameAddedTo && gameAddedTo === state.project?.id) revealPanel("game"); }, [gameAddedTo]);
   /** A panel's name and icon; a plugin's panel shows its title with the plugin icon. */
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
@@ -1446,15 +1455,15 @@ export function ProjectShell({
     ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered, homes)) })),
     "separator",
     { heading: t("panels.list") },
-    ...offered.map((id) => {
+    ...listed.map((id) => {
       const { title, icon: Icon } = panelInfo(id);
       const open = !!layout && !!areaOf(layout, id);
-      return { label: title, icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id, homes))) };
+      return { label: title, icon: <Icon size={14} />, checked: open, onSelect: () => layout && (open ? changeLayout(closePanel(layout, id)) : revealPanel(id)) };
     }),
   ] : [];
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
-    ...offered.map((id): Command => {
+    ...listed.map((id): Command => {
       const { title, icon: Icon } = panelInfo(id);
       return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: title }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
     }),
@@ -1610,7 +1619,7 @@ export function ProjectShell({
         )} /> : null}
         {/* Play stays in place from every view. A Web preview fills the slot
             with Play in its own window; an external preview can only be shown. */}
-        {project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
+        {project && offered.includes("game") && !gameAddable ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
           : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [

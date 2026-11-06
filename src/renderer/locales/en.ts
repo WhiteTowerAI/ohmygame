@@ -1546,6 +1546,9 @@ const en = {
     expand: "Expand {{name}}",
     loadingAssets: "Loading assets",
     noMedia: "No media assets",
+    webPreviewOff: "Web preview is off",
+    webPreviewOffHint: "Turn it on in Project settings to play a browser build here. OhMyGame then starts the game's dev server after each turn. A project made with a native engine can leave it off.",
+    openProjectSettings: "Open Project settings",
     processStopped: "The preview process stopped.",
     phase: {
       checking: "Checking environment",

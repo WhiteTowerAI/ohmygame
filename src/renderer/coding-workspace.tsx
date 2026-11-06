@@ -50,6 +50,7 @@ import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-fi
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { isProjectDataPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
@@ -69,7 +70,7 @@ import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { panelTitle } from "./workspace-layout.js";
+import { gamePanelAddable, panelTitle } from "./workspace-layout.js";
 import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
@@ -455,6 +456,10 @@ export function CodingWorkspace({
           </div>
         ) : null}
       </>,
+    } : project && gamePanelAddable(project) ? {
+      // Added by the person to a General project: the switch is in Project settings.
+      body: <Empty icon={<Globe2 size={20} />} title={t("workspace.webPreviewOff")} description={t("workspace.webPreviewOffHint")}
+        action={<Button onClick={() => setProjectSettingsOpen(true)}>{t("workspace.openProjectSettings")}</Button>} />,
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
@@ -1861,7 +1866,8 @@ export function AssetsView({
   const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
-  const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  // OhMyGame's own folder holds no assets; the project's panels show in Code.
+  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);
@@ -1872,7 +1878,7 @@ export function AssetsView({
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
   return (
     <div className="assets-view">
       <div className="assets-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>

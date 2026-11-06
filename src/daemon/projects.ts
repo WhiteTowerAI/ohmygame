@@ -24,7 +24,7 @@ import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { projectTypePlugin } from "../shared/project-file.js";
 import { readProjectFile, writeProjectFile } from "./project-plugins.js";
-import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PANELS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -92,9 +92,12 @@ export function workspaceEntryName(value: string): string {
 }
 
 function assertEditableWorkspacePath(value: string): void {
-  const parts = value.replaceAll("\\", "/").split("/");
+  const normalized = value.replaceAll("\\", "/");
+  // The project's panels are the one part of OhMyGame's folder the file browser shows.
+  const panel = normalized.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
+  const parts = (panel ? normalized.slice(PROJECT_PANELS_DIRECTORY.length + 1) : normalized).split("/");
   if (parts.some((part) => [".git", ".data", PROJECT_DATA_DIRECTORY].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
-  if (parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
+  if (!panel && parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
 }
 
 async function assetDigest(file: string): Promise<string> {

@@ -30,6 +30,23 @@ describe("workspace inspection", () => {
     expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
   });
 
+  it("shows the project's panels and nothing else of OhMyGame's folder", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, ".ohmygame", "local"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "settings.json"), "{}");
+    await writeFile(path.join(workspace, ".ohmygame", "cover.webp"), "cover");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
+    await mkdir(path.join(workspace, ".ohmygame", "panels", "board", "node_modules"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "panels", "board", "panel.json"), "{}");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([{ path: ".ohmygame", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([{ path: ".ohmygame/panels", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace, ".ohmygame/panels/board")).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+    for (const directory of [".ohmygame/local", ".ohmygame/panels/board/node_modules"]) {
+      await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow("excluded");
+    }
+    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+  });
+
   it("lists source files and ignores generated directories", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "src"));

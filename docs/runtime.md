@@ -336,6 +336,12 @@ the workspace to Code if Preview was selected. The switch survives reload and
 duplication. Native Electron, Tauri and Godot scripts are not treated as Web
 servers. Web Game keeps its existing preview behavior.
 
+With the switch off, a General Game project opens without the Game panel, and
+**Layout and panels** still lists it. Added there, it stays for that project
+until the project is opened again, and says the preview is off, with a button
+to **Project settings**. A plugin type whose game runs outside OhMyGame
+(`preview: "native"`) has no Game panel to add.
+
 Web publishing is independent of the switch: it validates a static `index.html`
 or the configured build's static output. Native engines use their own tools or
 Connections; General Game does not install an engine or initialize a Web wrapper.

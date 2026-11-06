@@ -38,9 +38,22 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   plugin: ["chat", "plugin", "code"],
 };
 
-/** The panels a project offers: its type's, less the game where it has no preview. */
-export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0]): WorkspacePanel[] {
-  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project));
+/**
+ * The panels a project offers: its type's, less the game where it has no
+ * preview, unless `withGame` adds it back for a General project that can
+ * have one (`gamePanelAddable`).
+ */
+export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0], withGame = false): WorkspacePanel[] {
+  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project) || (withGame && gamePanelAddable(project)));
+}
+
+/**
+ * Whether the person can add the Game panel to a project that doesn't offer
+ * it: a General project with Web preview off, which the panel then says how
+ * to turn on. A plugin's type whose game runs outside OhMyGame can't have one.
+ */
+export function gamePanelAddable(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0]): boolean {
+  return project.type === "general" && project.pluginType?.preview !== "native" && !supportsWebPreview(project);
 }
 
 /** Where a panel opens when it isn't in the layout. */
