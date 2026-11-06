@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
+  isLockstepInput,
   isLockstepReport,
   isRealtimeAction,
   isRealtimeInputMessage,
@@ -100,6 +101,10 @@ function inputLifetimeMs(tickMs: number): number {
  * arrives; a page reports a checkpoint every couple of seconds, long before this.
  */
 const LOCKSTEP_MAX_FRAMES = 10_000;
+/** How far ahead of the room a page may ask for its input to count, in milliseconds. */
+const LOCKSTEP_MAX_LEAD_MS = 1500;
+/** Inputs a player may have waiting for later frames. */
+const LOCKSTEP_MAX_PENDING = 8;
 
 /** A lockstep round as the room runs it: it numbers frames of input; the players' browsers run the rules. */
 interface LockstepRound {
@@ -110,8 +115,10 @@ interface LockstepRound {
   checkpoint?: LockstepSync["checkpoint"];
   /** Frames after the checkpoint, or after the start. */
   frames: LockstepFrame[];
-  /** Each player's latest input and the frame it arrived during. */
+  /** Each player's latest input and the frame it first counted in. */
   inputs: Map<string, { input: RealtimeInput; frame: number }>;
+  /** Inputs waiting for the frame their page showed them in. */
+  pending: Map<string, { frame: number; inputId: number; input: RealtimeInput }[]>;
   /** Seat changes for the next frame. */
   events: LockstepEvent[];
   /** The seats as the frames sent so far leave them. */
@@ -262,6 +269,11 @@ export class GameRoom extends Room {
     this.onMessage("action", (client, value: unknown) =>
       this.action(client, value),
     );
+    this.onMessage("lockstep.input", (client, value: unknown) => this.lockstepInput(client, value));
+    // Pages measure their round trip to run ahead by the right amount.
+    this.onMessage("lockstep.ping", (client, value: unknown) => {
+      if (typeof value === "number" && Number.isFinite(value)) client.send("lockstep.pong", value);
+    });
     this.onMessage("lockstep.finish", (client, value: unknown) => this.lockstepFinish(client, value));
     this.onMessage("lockstep.checkpoint", (client, value: unknown) => this.lockstepCheckpoint(client, value));
     this.clock.setInterval(() => this.maintenance(), 1000);
@@ -641,9 +653,10 @@ export class GameRoom extends Room {
     const { inputId, ...input } = value;
     if (inputId <= (this.lastInputId.get(id) ?? -1)) return;
     if (this.lockstep) {
-      // Every player's rules read and check it, at the next frame.
+      // Every player's rules read and check it, from the next frame.
       this.lastInputId.set(id, inputId);
-      this.lockstepRound?.inputs.set(id, { input, frame: this.lockstepRound.frame });
+      const lock = this.lockstepRound;
+      if (lock) lock.pending.set(id, [...(lock.pending.get(id) ?? []), { frame: lock.frame + 1, inputId, input }].slice(-LOCKSTEP_MAX_PENDING));
       this.record.updatedAt = Date.now();
       return;
     }
@@ -699,6 +712,7 @@ export class GameRoom extends Room {
   private forgetInput(playerId: string): void {
     this.playerInputs.delete(playerId);
     this.lockstepRound?.inputs.delete(playerId);
+    this.lockstepRound?.pending.delete(playerId);
     this.actions = this.actions.filter((entry) => entry.playerId !== playerId);
   }
   /** Runs every tick of a round, so rules can move things nobody is steering. */
@@ -769,6 +783,7 @@ export class GameRoom extends Room {
       frame: 0,
       frames: [],
       inputs: new Map(),
+      pending: new Map(),
       events: [],
       players: structuredClone(state.players),
     };
@@ -783,6 +798,18 @@ export class GameRoom extends Room {
     const lock = this.lockstepRound;
     if (!lock || this.record.snapshot.state.phase !== "playing") return;
     lock.frame++;
+    // Inputs whose frame has come count from now; the newest wins.
+    const acks: Record<string, number> = {};
+    for (const [id, waiting] of lock.pending) {
+      const due = waiting.filter((entry) => entry.frame <= lock.frame);
+      if (!due.length) continue;
+      const latest = due.reduce((a, b) => (b.inputId > a.inputId ? b : a));
+      lock.inputs.set(id, { input: latest.input, frame: lock.frame });
+      acks[id] = latest.inputId;
+      const rest = waiting.filter((entry) => entry.frame > lock.frame);
+      if (rest.length) lock.pending.set(id, rest);
+      else lock.pending.delete(id);
+    }
     const lifetime = Math.ceil(inputLifetimeMs(this.tickMs) / this.tickMs);
     const inputs: Record<string, RealtimeInput> = {};
     for (const [id, held] of lock.inputs)
@@ -791,10 +818,27 @@ export class GameRoom extends Room {
     const frame: LockstepFrame = { round: lock.round, frame: lock.frame, inputs };
     if (this.actions.length) frame.actions = this.actions;
     if (lock.events.length) frame.events = lock.events;
+    if (Object.keys(acks).length) frame.acks = acks;
     this.actions = [];
     lock.events = [];
     if (lock.frames.length < LOCKSTEP_MAX_FRAMES) lock.frames.push(frame);
     this.broadcast("lockstep.frame", frame);
+  }
+  /**
+   * An input for the frame its page showed it in. One that arrives after that frame
+   * counts from the next; one too far ahead waits only as long as a page may run ahead.
+   */
+  private lockstepInput(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    const lock = this.lockstepRound;
+    if (!id || !lock || !isLockstepInput(value) || this.record.snapshot.state.phase !== "playing") return;
+    if (value.inputId <= (this.lastInputId.get(id) ?? -1)) return;
+    this.lastInputId.set(id, value.inputId);
+    const latest = lock.frame + Math.ceil(LOCKSTEP_MAX_LEAD_MS / this.tickMs);
+    const frame = Math.min(Math.max(value.frame, lock.frame + 1), latest);
+    const waiting = [...(lock.pending.get(id) ?? []), { frame, inputId: value.inputId, input: value.input }];
+    lock.pending.set(id, waiting.slice(-LOCKSTEP_MAX_PENDING));
+    this.record.updatedAt = Date.now();
   }
   /** Seats that changed during a lockstep round reach every page in the next frame. */
   private lockstepSeats(players: MultiplayerPlayer[]): void {

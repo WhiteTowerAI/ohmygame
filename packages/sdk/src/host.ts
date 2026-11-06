@@ -154,7 +154,7 @@ const MAX_CATCH_UP_TICKS = 5;
  * page's own timers to about once a second, which would slow the whole room while the
  * hosting player looks at another tab or window. Falls back to the page's timer.
  */
-function startTicker(ms: number, tick: () => void): () => void {
+export function startTicker(ms: number, tick: () => void): () => void {
   if (typeof document !== "undefined" && typeof Worker === "function" && typeof Blob === "function" && typeof URL.createObjectURL === "function") {
     let url: string | undefined;
     try {

@@ -18,6 +18,11 @@ export interface LocalMultiplayerOptions {
   maxClients?: number;
   /** Players join a running round without creating a room. Realtime rules only; roam defaults to it. */
   dropIn?: boolean;
+  /**
+   * Custom realtime rules without playerView run in lockstep unless this is false, as for
+   * a game set up before lockstep existed, which keeps its host until it is set up again.
+   */
+  lockstep?: boolean;
 }
 
 /** Generated games stay small until larger rooms have rules and load tests. */
@@ -93,7 +98,7 @@ export class LocalMultiplayerRuntime {
       throw new Error(`Local ${adapterId} rooms hold ${describePlayerRange(range)} players.`);
     await this.ensureService();
     // Every browser can run realtime rules in step when nobody's view is private.
-    const lockstep = adapterId === "custom" && mode === "realtime" && !adapter.playerView;
+    const lockstep = adapterId === "custom" && mode === "realtime" && !adapter.playerView && options.lockstep !== false;
     const tickMs = lockstep ? tickMsOf(adapter) : undefined;
     const config: MultiplayerManifestConfig = {
       enabled: true,
@@ -128,6 +133,8 @@ export class LocalMultiplayerRuntime {
     const restored = await this.configure(gameId, adapterId, {
       maxClients: config.maxClients,
       dropIn: config.roomPolicy === "drop-in",
+      // A deployment keeps how it runs the rules; setting the game up again may change it.
+      lockstep: config.adapterId === LOCKSTEP_ADAPTER_ID,
     }, rulesFile);
     return sameMultiplayerConfig({ ...config, serverUrl: restored.serverUrl }, restored) ? restored : undefined;
   }

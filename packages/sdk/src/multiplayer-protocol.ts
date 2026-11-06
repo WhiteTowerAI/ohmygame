@@ -536,6 +536,21 @@ export interface LockstepFrame {
   actions?: { playerId: string; action: RealtimeAction }[];
   /** Seats that changed since the last frame, applied before the tick. */
   events?: LockstepEvent[];
+  /** The inputId of each player's input that first counts in this frame. */
+  acks?: Record<string, number>;
+}
+/**
+ * An input for a lockstep round, for the frame the page shows it in. The service applies
+ * it at that frame, or at the next one when it arrives too late, so a page that runs ahead
+ * of the service can show its own input at once.
+ */
+export interface LockstepInput {
+  inputId: number;
+  frame: number;
+  input: RealtimeInput;
+}
+export function isLockstepInput(value: unknown): value is LockstepInput {
+  return isRecord(value) && Object.keys(value).length === 3 && isSequence(value.inputId) && isSequence(value.frame) && isRealtimeInput(value.input);
 }
 /**
  * What a page needs to run a lockstep round from where it is now: sent to everyone when a
@@ -559,7 +574,8 @@ export interface LockstepReport {
 }
 export function isLockstepFrame(value: unknown): value is LockstepFrame {
   return isRecord(value) && isSequence(value.round) && isSequence(value.frame) && isRecord(value.inputs) &&
-    (value.actions === undefined || Array.isArray(value.actions)) && (value.events === undefined || Array.isArray(value.events));
+    (value.actions === undefined || Array.isArray(value.actions)) && (value.events === undefined || Array.isArray(value.events)) &&
+    (value.acks === undefined || isRecord(value.acks));
 }
 export function isLockstepSync(value: unknown): value is LockstepSync {
   return isRecord(value) && isSequence(value.round) && isSequence(value.tickMs) && isRecord(value.start) &&

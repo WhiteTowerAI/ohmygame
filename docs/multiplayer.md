@@ -373,9 +373,11 @@ the service runs them and players need not pass them.
 A realtime deployment with `adapterId: "lockstep"` runs the rules in every
 player's browser instead of one host's. Local playtests use it for realtime rules
 from `defineRealtimeGame` without `playerView`; turn-based rules, and rules with
-`playerView`, still use a host. Each player sees their own input after one trip to
-the service and back, where a host's guest waits for two, and nobody's background
-tab slows the others. The cost is that the host's own input is no longer instant.
+`playerView`, still use a host. Every page runs ahead of the frames it has, so each
+player sees their own input at their next tick, however far the service is, and
+nobody's background tab slows the others. What a page cannot foresee is another
+player's new input, which shows a round trip late and moves their part of the game
+when it arrives.
 
 - The deployment names the rules' `tickMs`, since the service never loads them;
   only lockstep deployments have one. The page checks it against its rules and
@@ -398,6 +400,16 @@ tab slows the others. The cost is that the host's own input is no longer instant
 - The page whose rules end the round reports the final state
   (`lockstep.finish`); the first report decides the winners, which the service
   takes among the seats as from a host, and the next round's setup gets its game.
+- Pages run ahead (rollback). A page measures its round trip (`lockstep.ping`,
+  answered with `lockstep.pong`) and tells from when frames arrive which frame the
+  service is at. It shows the rules stepped from the newest frame to the frame an
+  input sent now would reach the service in, with its own inputs and everyone
+  else's last input, at most one second ahead, and redraws when that frame moves
+  on. It sends each input as `lockstep.input` for the frame after the one it
+  shows; the service counts it in that frame, or in the next one when it arrives
+  late, and names it in the frame's `acks`. Each frame that arrives replaces the
+  guess. Actions and seat changes are not guessed: they show when their frame
+  arrives.
 - Pages check inputs and actions with the rules before sending, so `onError`
   still explains a refusal. Results never reach a match leaderboard.
 

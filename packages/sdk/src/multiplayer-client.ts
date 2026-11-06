@@ -32,6 +32,7 @@ import {
   HostLoop,
   mergeHostState,
   runHostRequest,
+  startTicker,
   type HostRequest,
 } from "./host.js";
 import type { OhMyGame } from "./index.js";
@@ -419,6 +420,9 @@ export class MultiplayerClient<Game = unknown> {
         this.error(new OhMyGameError("request_failed", cause instanceof Error ? cause.message : "The input is invalid."));
         return;
       }
+      // For the frame this page shows it in, which runs ahead of the service.
+      this.room.send("lockstep.input", this.lockstep.runner.input(this.inputId++, input));
+      return;
     }
     this.room.send("input", { ...input, inputId: this.inputId++ });
   }
@@ -434,6 +438,9 @@ export class MultiplayerClient<Game = unknown> {
         return !!first && first.playerId === this.saved?.playerId;
       },
       resync: () => this.room?.send("sync"),
+      ping: (sentAt: number) => this.room?.send("lockstep.ping", sentAt),
+      playerId: () => this.saved?.playerId,
+      every: startTicker,
     };
   }
   /** Shows a lockstep round's state on the room's latest seats and phase. */
@@ -733,6 +740,7 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
     room.onMessage("lockstep.sync", (value: unknown) => this.lockstep?.runner.sync(value));
     room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
+    room.onMessage("lockstep.pong", (value: unknown) => this.lockstep?.runner.pong(value));
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
         return;
@@ -849,7 +857,7 @@ export class MultiplayerClient<Game = unknown> {
     if (!first && value.state.phase === "playing" && this.hostingRoom && this.hostLoop?.phase === shown && (shown === "playing" || shown === "finished")) return;
     if (this.lockstep && value.state.phase === "playing") {
       // The room keeps no game while a lockstep round plays: this page's own run has it.
-      const round = this.lockstep.runner.current;
+      const round = this.lockstep.runner.shown;
       if (round) this.showLockstep(round);
     } else {
       this.current = value;

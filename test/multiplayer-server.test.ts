@@ -1216,6 +1216,11 @@ export default defineRealtimeGame({
       const config = await runtime.configure("snake", "custom", { dropIn: true }, rulesFile);
       // Realtime rules that hide nothing run in every player's browser, in lockstep.
       expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", adapterId: "lockstep", tickMs: 50, deploymentId: "local-lockstep-50ms-4p-dropin-v1" });
+      // After OhMyGame restarts, a deployment comes back at the service's address as it ran
+      // its rules, so a game set up before lockstep keeps its host until it is set up again.
+      const { tickMs: _tickMs, ...hosted } = { ...config, adapterId: "host", deploymentId: "local-host-realtime-4p-dropin-v1", serverUrl: "http://127.0.0.1:1" };
+      expect(await runtime.restore("snake", hosted, rulesFile)).toMatchObject({ adapterId: "host", deploymentId: "local-host-realtime-4p-dropin-v1", serverUrl: config.serverUrl });
+      expect(await runtime.restore("snake", { ...config, serverUrl: "http://127.0.0.1:1" }, rulesFile)).toEqual(config);
       const rules = await loadRulesDefinition(rulesFile);
       const errors: string[] = [];
       const join = () => {
@@ -1458,10 +1463,17 @@ export default defineRealtimeGame({
       }) as MultiplayerClient<typeof rules>;
     };
     const game = (client: MultiplayerClient<typeof rules>) => client.snapshot?.state.game as Game | undefined;
-    /** Every tick two pages both showed must be the same on both. */
-    const alike = (a: number, b: number) => {
+    /**
+     * Pages show a guess a little ahead of the frames they have, which a change they could
+     * not foresee, such as a player joining, corrects. Once nothing changes, every tick two
+     * pages both showed must be the same on both.
+     */
+    const alike = async (a: number, b: number) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      for (const byTick of seen) byTick.clear();
+      await new Promise((resolve) => setTimeout(resolve, 400));
       const shared = [...seen[a]!.keys()].filter((tick) => seen[b]!.has(tick));
-      expect(shared.length).toBeGreaterThan(5);
+      expect(shared.length).toBeGreaterThan(3);
       for (const tick of shared) expect(seen[b]!.get(tick)).toBe(seen[a]!.get(tick));
     };
     const [first, second, late] = [join(), join(), join()];
@@ -1476,17 +1488,15 @@ export default defineRealtimeGame({
       await wait(() => expect(game(second)!.x[first.playerId!]).toBeGreaterThan(0));
       // Nobody hosts, and each page's own run of the rules reaches the same states.
       expect(first.hosting || second.hosting).toBe(false);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      alike(0, 1);
+      await alike(0, 1);
       // After a checkpoint, a latecomer starts from it and runs on in step.
       await new Promise((resolve) => setTimeout(resolve, 2300));
       await late.quickPlay();
       expect(late.roomId).toBe(first.roomId);
       await wait(() => expect(Object.keys(game(late)?.x ?? {})).toHaveLength(3));
       await wait(() => expect(game(first)!.x).toHaveProperty(late.playerId!));
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      alike(0, 2);
-      alike(1, 2);
+      await alike(0, 2);
+      await alike(1, 2);
 
       // An action ends the round on every page; the next one's setup gets the last game.
       expect(second.sendAction({ end: false } as never)).toBe(true);
@@ -1498,8 +1508,7 @@ export default defineRealtimeGame({
       }
       await wait(() => expect(game(first)?.rounds).toBe(2));
       await wait(() => expect(game(late)?.rounds).toBe(2));
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      alike(0, 2);
+      await alike(0, 2);
     } finally {
       for (const client of [first, second, late]) client.dispose();
     }

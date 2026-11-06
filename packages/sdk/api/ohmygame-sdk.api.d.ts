@@ -530,6 +530,12 @@ export declare function runHostRequest(adapter: GameAdapter, request: HostReques
  */
 export declare function mergeHostState(host: MultiplayerGameState, room: MultiplayerGameState, base?: MultiplayerGameState): MultiplayerGameState;
 /**
+ * Calls tick every ms. In a browser the timer runs in a worker: browsers slow a hidden
+ * page's own timers to about once a second, which would slow the whole room while the
+ * hosting player looks at another tab or window. Falls back to the page's timer.
+ */
+export declare function startTicker(ms: number, tick: () => void): () => void;
+/**
  * The realtime loop a hosting player's browser runs: every tick it steps the rules with the
  * players' latest inputs and the actions since the last tick, and sends the new state. The
  * hosting player's own input goes straight to the loop, and show lets their game draw each
@@ -1076,7 +1082,20 @@ export interface LockstepFrame {
     }[];
     /** Seats that changed since the last frame, applied before the tick. */
     events?: LockstepEvent[];
+    /** The inputId of each player's input that first counts in this frame. */
+    acks?: Record<string, number>;
 }
+/**
+ * An input for a lockstep round, for the frame the page shows it in. The service applies
+ * it at that frame, or at the next one when it arrives too late, so a page that runs ahead
+ * of the service can show its own input at once.
+ */
+export interface LockstepInput {
+    inputId: number;
+    frame: number;
+    input: RealtimeInput;
+}
+export declare function isLockstepInput(value: unknown): value is LockstepInput;
 /**
  * What a page needs to run a lockstep round from where it is now: sent to everyone when a
  * round starts and to a player who arrives or reconnects during one.

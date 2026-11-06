@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
 import { compileGame, defineGame, defineRealtimeGame } from "@ohmygame/server";
-import type { MultiplayerGameState } from "@ohmygame/sdk/protocol";
+import type { LockstepFrame, MultiplayerGameState } from "@ohmygame/sdk/protocol";
+import { LockstepRunner } from "../packages/sdk/src/lockstep.js";
 
 function room(phase: MultiplayerGameState["phase"]): MultiplayerGameState {
   return {
@@ -106,5 +107,60 @@ describe("hosted rules", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("lockstep rules", () => {
+  it("shows a player's own input before its frame arrives, and corrects a guess about others", () => {
+    const adapter = compileGame(defineRealtimeGame({
+      players: { min: 1, max: 2 },
+      tickMs: 100,
+      setup: (ctx) => ({ x: Object.fromEntries(ctx.players.map((id) => [id, 0])) as Record<string, number> }),
+      input: (value) => ({ dx: Number(value.dx) }),
+      tick(G: { x: Record<string, number> }, ctx, inputs) {
+        for (const id of ctx.players) G.x[id]! += inputs[id]?.dx ?? 0;
+      },
+    }));
+    let now = 0;
+    const shown: Record<string, number>[] = [];
+    const runner = new LockstepRunner(adapter, {
+      show: (state) => shown.push({ ...(state.game as { x: Record<string, number> }).x }),
+      finish: () => {},
+      checkpoint: () => {},
+      reporter: () => false,
+      resync: () => {},
+      ping: () => {},
+      playerId: () => "b",
+      every: () => () => {},
+    }, () => now);
+    const x = () => shown.at(-1)!;
+    const start = { ...room("playing"), players: room("playing").players.map((player) => ({ ...player, connected: true })), seed: 7 };
+    runner.sync({ round: 1, tickMs: 100, start: { state: start, startedAt: 0 }, frames: [] });
+    // Frames arrive 50 ms after the service sends them; player a holds dx 1 from frame 1.
+    const frame = (n: number, inputs: LockstepFrame["inputs"], acks?: LockstepFrame["acks"]) => {
+      now = n * 100 + 50;
+      runner.receive({ round: 1, frame: n, inputs, ...(acks ? { acks } : {}) });
+    };
+    frame(1, { a: { dx: 1 } }, { a: 0 });
+    frame(2, { a: { dx: 1 } });
+    // Before the round trip is known, the page shows the newest frame.
+    expect(x()).toEqual({ a: 2, b: 0 });
+    runner.pong(now - 100);
+    expect(runner.roundTrip).toBe(100);
+    // Now it runs ahead to the frame an input sent now would count in: frame 3.
+    expect((runner.shown!.game as { x: Record<string, number> }).x).toEqual({ a: 3, b: 0 });
+    // b's input is for frame 4, and shows as soon as the page reaches it, before the service says so.
+    expect(runner.input(0, { dx: 1 })).toEqual({ inputId: 0, frame: 4, input: { dx: 1 } });
+    now = 330;
+    expect((runner.shown!.game as { x: Record<string, number> }).x).toEqual({ a: 4, b: 1 });
+    // The service counts it in frame 4 as asked: the frames agree with what was shown.
+    frame(3, { a: { dx: 1 } });
+    frame(4, { a: { dx: 1 }, b: { dx: 1 } }, { b: 0 });
+    expect(runner.current!.game).toEqual({ x: { a: 4, b: 1 } });
+    // a turned back in frame 5, which the guess could not know: the next frame corrects it.
+    now = 520;
+    expect((runner.shown!.game as { x: Record<string, number> }).x).toEqual({ a: 6, b: 3 });
+    frame(5, { a: { dx: -1 }, b: { dx: 1 } }, { a: 1 });
+    expect(x()).toEqual({ a: 2, b: 3 });
   });
 });
