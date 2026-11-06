@@ -3,6 +3,7 @@ import type { PluginDraft } from "../shared/plugin-setup.js";
 import type { StorePlugin } from "../shared/plugins.js";
 import { Check, CircleX, LoaderCircle, Plug } from "./icons.js";
 import { t } from "./i18n.js";
+import { NativeCodeWarning } from "./plugin-consent-dialog.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { StorePluginSettings, storePluginEnabled, type useEveryProjectSwitch } from "./plugin-store.js";
 import { PluginAddsList, pluginAddRows, PluginHead, type PluginAddRow } from "./plugin-summary.js";
@@ -62,6 +63,7 @@ export function PluginOverview({ draft, setupId, stored, disabled, operation, ev
     {plugin.asks.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
       <h2>{t("pluginStore.asksFor")}</h2>
       <ul className="plugin-store-capabilities">{plugin.asks.map(ask => <li key={ask} className="plugins-tag plugins-mono">{ask}</li>)}</ul>
+      <NativeCodeWarning asks={plugin.asks} />
     </section> : null}
     {stored?.settings.length ? <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={stored.revision} plugin={stored} /></fieldset>
       : plugin.settings ? <section className="plugins-section" aria-label={t("common.settings")}>

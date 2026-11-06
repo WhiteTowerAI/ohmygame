@@ -24,7 +24,7 @@ import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audi
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -218,7 +218,8 @@ export function createAgentTools(
         details: { webSearch: { provider: result.provider, providerName: result.providerName, ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}) } },
       };
     },
-  })] : []), defineTool({
+  })] : []), ...(project.type === "plugin" ? [] : [defineTool({
+    // The Plugin Builder's own projects hand a draft over with plugin_manage instead.
     name: "install_plugin",
     label: "Install Plugin",
     description: "Validate and install an OhMyGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
@@ -239,12 +240,12 @@ export function createAgentTools(
       const draft = await inspectPluginDraft(sourcePath);
       if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
-      const servers = plugin.manifest.contributes?.mcpServers?.length ?? 0;
-      const counts = [
-        plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        servers ? `${servers} MCP service${servers === 1 ? "" : "s"}` : undefined,
-      ].filter(Boolean).join(" · ") || "No components";
       const displayName = localizePluginString(plugin, plugin.manifest.displayName, "en");
+      const adds = pluginAdds(plugin, (value) => localizePluginString(plugin, value, "en"));
+      const counts = Object.entries({
+        Skill: adds.skills, panel: adds.panels.length, command: adds.commands.length, tool: adds.tools, hook: adds.hooks?.length ?? 0,
+        "MCP service": adds.mcpServers.length, "project type": adds.projectTypes.length, "model provider": adds.modelProviders.length, agent: adds.agents.length,
+      }).filter(([, count]) => count).map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`).join(" · ") || "No components";
       const next = isAppWidePlugin(plugin.manifest)
         ? "It applies by itself to every project it suits."
         : "The person turns it on in a project's Plugins sheet, which also asks them to approve what it asks for.";
@@ -253,7 +254,7 @@ export function createAgentTools(
         details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
-  }), defineTool({
+  })]), defineTool({
     name: "update_plan",
     label: "Update Plan",
     description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",

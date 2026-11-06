@@ -57,6 +57,7 @@ const draftFiles = [{ path: "SKILL.md" }, { path: "assets/logo.svg" }, { path: "
 let iconChanged: boolean;
 let savedIcon: unknown;
 let hasSettings: boolean;
+let draftAsks: string[];
 let updated: boolean;
 let hasDraft: boolean;
 let working: boolean;
@@ -70,7 +71,7 @@ beforeEach(() => {
   requests = [];
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
-  hasSettings = false; updated = false; hasDraft = true; working = false; sessions = [];
+  hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -111,7 +112,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: draftFiles, errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks }, files: draftFiles, errors: [] });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -246,6 +247,14 @@ describe("Plugin Builder layout", () => {
     hasSettings = true;
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     expect([...container.querySelectorAll(".plugin-builder-overview h2")].filter(heading => heading.textContent === "Settings")).toHaveLength(1);
+  });
+
+  it("warns before installing a draft that runs its own code", async () => {
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    expect(container.querySelector(".plugin-builder-overview")?.textContent).not.toContain("It runs its own code on this computer");
+    draftAsks = ["native"];
+    await act(async () => button("Refresh plugin preview").click());
+    expect(container.querySelector(".plugin-builder-overview")?.textContent).toContain("It runs its own code on this computer");
   });
 
   it("says in the top bar when the draft has changes that are not installed", async () => {
