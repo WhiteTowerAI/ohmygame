@@ -160,7 +160,6 @@
 .plugin-icon-tile[aria-pressed="true"] { border-color: var(--color-ink); color: var(--color-text); background: color-mix(in srgb, var(--color-ink) 8%, transparent); }
 .plugin-icon-tile:disabled, .plugin-icon-tile.is-disabled { cursor: default; opacity: 0.6; }
 .plugin-icon-upload { border-style: dashed; border-color: var(--color-border); background: transparent; }
-.plugin-icon-upload:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .plugin-icon-tile-image { display: grid; place-items: center; width: 36px; height: 36px; }
 .plugin-icon-tile-image .plugin-icon-image { width: 32px; height: 32px; object-fit: contain; }
 .plugin-icon-tile-name { max-width: 100%; overflow: hidden; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
