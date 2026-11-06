@@ -24,7 +24,8 @@ export type RendererAction =
   | { type: "publication-updated"; projectId: string; publication: PublicationState }
   | { type: "conversation-loaded"; detail: ConversationDetail }
   | { type: "runtime-event"; event: RuntimeEvent }
-  | { type: "conversation-settings"; settings: ConversationAgentSettings }
+  /** With a conversation ID, applies only while that conversation is open. */
+  | { type: "conversation-settings"; settings: ConversationAgentSettings; conversationId?: string }
   | { type: "connection"; status: ConnectionStatus }
   | { type: "notice"; message?: string }
   | { type: "fatal"; message: string };
@@ -65,7 +66,9 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
     ? { ...state, project: { ...state.project, publication: action.publication } }
     : state;
   if (action.type === "connection") return { ...state, connection: action.status };
-  if (action.type === "conversation-settings") return { ...state, settings: action.settings };
+  if (action.type === "conversation-settings") {
+    return action.conversationId && action.conversationId !== state.conversation?.id ? state : { ...state, settings: action.settings };
+  }
   if (action.type === "notice") return { ...state, notice: action.message };
   if (action.type === "fatal") return { ...state, phase: "fatal", notice: action.message };
   if (action.event.id <= state.lastEventId) return state;

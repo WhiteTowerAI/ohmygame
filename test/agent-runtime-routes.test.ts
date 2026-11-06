@@ -194,6 +194,26 @@ describe("coding agent routes", () => {
     expect((await call("POST", `/agent-runtimes/${id}/recheck`)).status).toBe(404);
   });
 
+  it.skipIf(process.platform === "win32")("gives a conversation with no model the coding agent's the picker shows when Pi has none", async () => {
+    const { call, claude } = await start();
+    const project = (await call<ProjectState>("POST", "/projects", { type: "web-game" })).body;
+    const earlier = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    const earlierBase = `/projects/${project.id}/conversations/${earlier.id}`;
+    expect((await call<ConversationDetail>("GET", earlierBase)).body.settings.model).toBeUndefined();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    expect((await call<AgentModelCatalog>("GET", "/models?runtimes=1")).body.models[0]).toMatchObject({ provider: "claude-code-cli", id: "sonnet" });
+    const sonnet = { provider: "claude-code-cli", id: "sonnet" };
+
+    const created = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    expect((await call<ConversationDetail>("GET", `/projects/${project.id}/conversations/${created.id}`)).body.settings.model).toEqual(sonnet);
+
+    // One made before any model was set up runs on the default from its next message, with its effort.
+    expect((await call("PUT", "/models/default", { model: sonnet, nativeReasoningLevel: "high" })).status).toBe(204);
+    expect((await call("POST", `${earlierBase}/turns`, { prompt: "Make a game" })).status).toBe(202);
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", earlierBase)).body.agent.status).toBe("running"), { timeout: 10_000 });
+    expect((await call<ConversationDetail>("GET", earlierBase)).body.settings).toMatchObject({ model: sonnet, nativeReasoningLevel: "high" });
+  });
+
   it("accepts only the agent's own permission modes", async () => {
     const { call } = await start();
     expect(
