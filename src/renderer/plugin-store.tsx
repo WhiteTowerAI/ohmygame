@@ -607,7 +607,7 @@ function message(cause: unknown): string {
 }
 
 /** Copies a plugin made in the Plugin Builder out as a package its author can publish. */
-function PluginExportDialog({ plugin, onClose }: { plugin: StorePlugin; onClose: () => void }): ReactNode {
+export function PluginExportDialog({ plugin, onClose }: { plugin: StorePlugin; onClose: () => void }): ReactNode {
   const [publisher, setPublisher] = useState("");
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
