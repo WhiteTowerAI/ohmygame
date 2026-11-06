@@ -32,6 +32,10 @@ Older versions are documented in
 
 ### Changed
 
+- Record each project's type in its root `ohmygame.json` and use it when
+  opening folders and importing archives, preserving the project's settings
+  and refusing to reopen it as a different type.
+  ([#726](https://github.com/WhiteTowerAI/ohmygame/pull/726) by @dogxii)
 - Run the Plugin Builder as a project with the full project chat, let it make
   every kind of plugin, and split the Plugins page by what you want to do.
   ([#713](https://github.com/WhiteTowerAI/ohmygame/pull/713) by @dogxii,
