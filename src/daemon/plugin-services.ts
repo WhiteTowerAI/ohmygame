@@ -743,11 +743,14 @@ export class PluginServices {
         capabilityGrants(result.entry.manifest),
       );
     }
-    // A plugin the app no longer brings goes too, not only an older version of one it does.
-    const inside = path.resolve(directory) + path.sep;
+    // A plugin the app no longer brings goes too, not only an older version of
+    // one it does, wherever an earlier install of the app kept it. Only the app
+    // publishes as ohmygame/, and those it installs live in the store.
     const current = new Set(results.flatMap((result) => result.ok ? [`${result.entry.id}@${result.entry.version}`] : []));
+    const store = path.resolve(this.packagesDirectory) + path.sep;
     for (const entry of this.index.entries())
-      if (entry.root.startsWith(inside) && !current.has(`${entry.id}@${entry.version}`)) await this.index.verify(entry.id, entry.version);
+      if (entry.id.startsWith("ohmygame/") && !entry.root.startsWith(store) && !current.has(`${entry.id}@${entry.version}`))
+        await this.index.verify(entry.id, entry.version);
     await this.#notify();
     return results;
   }

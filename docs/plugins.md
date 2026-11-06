@@ -465,8 +465,10 @@ same path that checks a package with `indexPluginPackage` and copies it under
 removed, later releases included. One the app stops bringing is listed in
 `RETIRED` there: the copy it installed is uninstalled once, and a version
 installed apart is kept. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled; one whose folder the app no longer has is dropped
-from the index when it starts.
+and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
+index from there, outside the store, is dropped if its folder is gone, which
+covers a plugin the app stopped bringing and one an earlier install kept
+elsewhere.
 
 ## Model providers
 

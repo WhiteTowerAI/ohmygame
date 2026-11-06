@@ -77,18 +77,23 @@ describe("bundled plugins", () => {
 
   it("forgets a bundled plugin the app no longer brings", async () => {
     const store = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-gone-")), "store");
-    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
-    for (const name of ["game-studio", "tiled"]) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
-    const start = async () => {
+    const folders = async (names: string[]) => {
+      const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
+      for (const name of names) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
+      return directory;
+    };
+    const start = async (directory: string) => {
       const services = new PluginServices({ directory: store, bundled: directory });
       await services.ready();
       return services;
     };
-    const first = await start();
+    // The update also moved the app, as installers that keep each version apart do.
+    const before = await folders(["game-studio", "tiled"]);
+    const first = await start(before);
     expect(first.index.get("ohmygame/tiled")).toBeDefined();
     await first.close();
-    await rm(path.join(directory, "tiled"), { recursive: true });
-    const second = await start();
+    await rm(before, { recursive: true });
+    const second = await start(await folders(["game-studio"]));
     try {
       expect(second.index.get("ohmygame/tiled")).toBeUndefined();
       expect(second.index.get("ohmygame/game-studio")).toBeDefined();
