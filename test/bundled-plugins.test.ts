@@ -70,8 +70,6 @@ describe("bundled plugins", () => {
       expect(names(services, "ohmygame/game-studio")).toEqual(["general", "godot-game", "interactive-story"]);
       expect(skillNames(services, "ohmygame/game-studio")).toEqual(["game-foundations", "game-qa", "game-studio"]);
       expect(services.grants.plugin("ohmygame/game-studio")?.enabled).toBe(true);
-      expect(names(services, "ohmygame/threejs-world")).toEqual(["web-game"]);
-      expect(skillNames(services, "ohmygame/threejs-world")).toEqual(["threejs-world"]);
     } finally {
       await services.close();
     }

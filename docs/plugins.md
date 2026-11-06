@@ -462,7 +462,9 @@ project, whatever its file says.
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
 same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. Bundled plugins are indexed from `plugins/`
+removed, later releases included. One the app stops bringing is listed in
+`RETIRED` there: the copy it installed is uninstalled once, and a version
+installed apart is kept. Bundled plugins are indexed from `plugins/`
 and can't be uninstalled.
 
 ## Model providers
@@ -1183,8 +1185,8 @@ project, or only in the project types a connection is limited to.
 
 Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
-Three.js World and the Beta workflows below), applies to every project it suits;
+like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
 project. See [TapTap Maker](#taptap-maker)
