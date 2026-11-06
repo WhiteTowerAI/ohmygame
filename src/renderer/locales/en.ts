@@ -183,6 +183,14 @@ const en = {
     loading: "Loading",
     breadcrumb: "Location",
   },
+  notifications: {
+    approval: "Waiting for your approval",
+    question: "Has a question for you",
+    plan: "A plan is ready for your review",
+    completed: "Finished",
+    failed: "Stopped with an error",
+    waiting: "Waiting for you",
+  },
   onboarding: {
     builtIn: "Built in",
     agentSignedOut: "Signed out",
@@ -200,6 +208,7 @@ const en = {
     defaultModel: "Default model",
     welcome: "Welcome to OhMyGame",
     welcomeHint: "Describe a game, and watch it come together.",
+    tagline: "Your own game studio.",
     next: "Next",
     skipStep: "Skip this step",
     later: "Not now",
@@ -225,14 +234,6 @@ const en = {
     configure: "Configure",
     noProviders: "No matching providers.",
     preparing: "Preparing OhMyGame",
-  },
-  notifications: {
-    approval: "Waiting for your approval",
-    question: "Has a question for you",
-    plan: "A plan is ready for your review",
-    completed: "Finished",
-    failed: "Stopped with an error",
-    waiting: "Waiting for you",
   },
   settings: {
     nav: {
@@ -3121,6 +3122,7 @@ const en = {
     columnLower: "column {{number}}",
   },
   assetCanvas: {
+    exampleUnavailable: "Could not load the example image. Check your network connection and try again.",
     imagePresets: {
       label: "Material preset",
       free: "Free",
@@ -3159,9 +3161,9 @@ const en = {
       animationStep3Body: "1. Select all 12 frames in order.\n2. Open Frame Animation in the toolbar above them and choose Compose GIF.\n\nThe examples below show each pixel density.",
       gifPreviewTitle: "{{level}} · Example",
       levelDescriptions: {
-        coarse: "Big, chunky pixels and simple faces. Up to 8 colors.",
-        classic: "Medium pixels with a few highlights. Up to 16 colors.",
-        detailed: "Small pixels with more detail. Up to 48 colors.",
+        coarse: "Extra-chunky oversized pixel blocks, bold silhouettes, minimal facial features, and up to 8 subject colors.",
+        classic: "Medium pixel clusters, compact accents, and up to 16 subject colors.",
+        detailed: "Much finer square pixels, stronger material texture and layered shading, and up to 64 subject colors.",
       },
       search: "Search this category",
       categoriesLabel: "Pixel asset categories",
@@ -3267,7 +3269,9 @@ const en = {
     characterTools: {
       characterPlaceholder: "Describe the character, outfit, colors, and art style",
     },
-    mediaTools: {
+      mediaTools: {
+        "fix-pixel-art": "Fix pixel art",
+      fixPixelArtHint: "Detect and align an existing pixel grid, then create a new PNG copy (the original is unchanged).",
       "cropConfirm": "Apply crop",
       "cropOriginal": "Original ratio",
       "cropFree": "Freeform",
@@ -3680,7 +3684,6 @@ const en = {
     copyNode: "Copy node",
     viewNumber: "View {{number}}",
     missingImage: "Missing image",
-    exampleUnavailable: "Could not load the example image. Check your network connection and try again.",
     connectedImage: "Connected image",
     missingImageNode: "Missing image node",
     missingModel: "Missing model",

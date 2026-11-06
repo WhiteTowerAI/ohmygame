@@ -58,7 +58,7 @@ must also remain visibly pixel-built. These are prompt instructions, not
 additional provider controls or image post-processing.
 
 Prompts distinguish each cell's logical size from the complete sheet. Animation
-uses four columns and three rows of 32×32, 64×64, or 192×192 cells; creature sheets
+uses four columns and three rows of 32×32, 64×64, or 128×128 cells; creature sheets
 use four by four, and item sheets four by three. Nine-scene sheets use a square
 three-by-three composition with 96×96, 160×160, or 480×480 panels. Reference sheets
 use a complete 16:9 logical canvas and separate full-body sprite budgets. Explicit

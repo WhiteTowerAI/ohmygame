@@ -1652,7 +1652,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
     if (operation === "crop-image") { setCropNodeId(targets[0]!.id); return; }
     setCropNodeId(undefined);
-    if (operation === "split-image-grid" || operation === "extract-gif-frames") {
+    if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") {
       void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
       return;
     }
@@ -2573,7 +2573,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
 type MediaGridSize = { columns: number; rows: number };
 
-type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames">;
+type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "fix-pixel-art" | "split-image-grid" | "extract-gif-frames">;
 
 function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen, onGroup, onUngroup }: {
   mediaType: "image" | "video";

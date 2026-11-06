@@ -41,7 +41,7 @@ describe("canvas character image tools", () => {
     expect(coarseSheet).toContain("same coarse pixel construction and color palette");
     expect(coarseSheet).toContain("32×32 logical sprite budget");
     expect(coarseSheet).toContain("each eye as one solid dark mark");
-    expect(detailedSheet).toContain("192×192 logical sprite budget");
+    expect(detailedSheet).toContain("128×128 logical sprite budget");
     expect(detailedSheet).toContain("small armor divisions");
     expect(detailedSheet).toContain("selected hair locks");
     expect(detailedSheet).toContain("4–6 hard-edged tones per major material");

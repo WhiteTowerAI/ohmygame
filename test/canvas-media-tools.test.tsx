@@ -297,7 +297,7 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());

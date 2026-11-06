@@ -184,6 +184,14 @@ const zhCN: typeof en = {
     loading: "加载中",
     breadcrumb: "位置",
   },
+  notifications: {
+    approval: "等待你批准",
+    question: "有问题想问你",
+    plan: "计划已准备好，等你审阅",
+    completed: "已完成",
+    failed: "出错停止了",
+    waiting: "等你处理",
+  },
   onboarding: {
     builtIn: "内置",
     agentSignedOut: "未登录",
@@ -201,6 +209,7 @@ const zhCN: typeof en = {
     defaultModel: "默认模型",
     welcome: "欢迎使用 OhMyGame",
     welcomeHint: "描述一个游戏，看它一步步成形。",
+    tagline: "你的专属游戏工作室",
     next: "下一步",
     skipStep: "跳过这一步",
     later: "稍后再说",
@@ -226,14 +235,6 @@ const zhCN: typeof en = {
     configure: "配置",
     noProviders: "没有匹配的服务商。",
     preparing: "正在准备 OhMyGame",
-  },
-  notifications: {
-    approval: "等待你批准",
-    question: "有问题想问你",
-    plan: "计划已准备好，等你审阅",
-    completed: "已完成",
-    failed: "出错停止了",
-    waiting: "等你处理",
   },
   settings: {
     nav: {
@@ -3056,6 +3057,7 @@ const zhCN: typeof en = {
     columnLower: "列 {{number}}",
   },
   assetCanvas: {
+    exampleUnavailable: "无法加载示例图片，请检查网络连接后重试。",
     imagePresets: {
       label: "素材预设",
       free: "自由创作",
@@ -3094,9 +3096,9 @@ const zhCN: typeof en = {
       animationStep3Body: "1. 按顺序选中全部 12 帧。\n2. 点击上方工具栏的「帧动画」，再点「合并 GIF」。\n\n下方是各像素密度的效果示例。",
       gifPreviewTitle: "{{level}} · 效果示例",
       levelDescriptions: {
-        coarse: "像素大、五官简单，最多 8 色。",
-        classic: "像素适中、带少量点缀，最多 16 色。",
-        detailed: "像素小、细节多，最多 48 色。",
+        coarse: "更粗大的像素块、醒目的轮廓、极简五官，主体最多使用 8 种颜色。",
+        classic: "中等像素簇、少量点缀，主体最多使用 16 种颜色。",
+        detailed: "更细密的方形像素、更强的材质纹理与分层明暗，主体最多使用 64 种颜色。",
       },
       search: "搜索当前分类",
       categoriesLabel: "像素素材分类",
@@ -3202,7 +3204,9 @@ const zhCN: typeof en = {
     characterTools: {
       characterPlaceholder: "描述角色外观、服饰、配色和画风",
     },
-    mediaTools: {
+      mediaTools: {
+        "fix-pixel-art": "修正像素画",
+      fixPixelArtHint: "检测并对齐已有像素网格，生成一个新的 PNG 副本（不会修改原图）。",
       "cropConfirm": "确认裁剪",
       "cropOriginal": "原图比例",
       "cropFree": "自由裁剪",
@@ -3612,7 +3616,6 @@ const zhCN: typeof en = {
     copyNode: "复制节点",
     viewNumber: "视图 {{number}}",
     missingImage: "图片缺失",
-    exampleUnavailable: "示例图加载失败，请检查网络后重试。",
     connectedImage: "已连接的图片",
     missingImageNode: "图片节点缺失",
     missingModel: "模型缺失",
