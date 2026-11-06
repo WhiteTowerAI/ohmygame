@@ -1,5 +1,5 @@
 {
-  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "$schema": "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/plugin-2.json",
   "id": "demo/ui-gallery",
   "version": "1.0.0",
   "engines": { "ohmygame-api": "^2.2.0" },
