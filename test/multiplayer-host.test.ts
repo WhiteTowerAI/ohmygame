@@ -162,5 +162,14 @@ describe("lockstep rules", () => {
     expect((runner.shown!.game as { x: Record<string, number> }).x).toEqual({ a: 6, b: 3 });
     frame(5, { a: { dx: -1 }, b: { dx: 1 } }, { a: 1 });
     expect(x()).toEqual({ a: 2, b: 3 });
+    // The service passes a's next input on as soon as it arrives, for frame 7: guessing up
+    // to frame 8, the page turns a back at 7, so the frames that follow agree and nothing jumps.
+    runner.receiveEarly({ round: 1, playerId: "a", inputId: 2, frame: 7, input: { dx: 1 } });
+    now = 720;
+    expect((runner.shown!.game as { x: Record<string, number> }).x).toEqual({ a: 4, b: 5 });
+    frame(6, { a: { dx: -1 }, b: { dx: 1 } });
+    frame(7, { a: { dx: 1 }, b: { dx: 1 } }, { a: 2 });
+    expect(runner.current!.game).toEqual({ x: { a: 3, b: 4 } });
+    expect(x()).toEqual({ a: 4, b: 5 });
   });
 });

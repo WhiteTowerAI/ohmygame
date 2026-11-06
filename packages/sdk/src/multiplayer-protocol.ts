@@ -549,6 +549,21 @@ export interface LockstepInput {
   frame: number;
   input: RealtimeInput;
 }
+/**
+ * Another player's input, passed on as soon as it reaches the service, before the frame it
+ * counts in: frame is where the service will count it. Pages guess ahead with it.
+ */
+export interface LockstepEarlyInput {
+  round: number;
+  playerId: string;
+  inputId: number;
+  frame: number;
+  input: RealtimeInput;
+}
+export function isLockstepEarlyInput(value: unknown): value is LockstepEarlyInput {
+  return isRecord(value) && isSequence(value.round) && typeof value.playerId === "string" && isSequence(value.inputId) &&
+    isSequence(value.frame) && isRealtimeInput(value.input);
+}
 export function isLockstepInput(value: unknown): value is LockstepInput {
   return isRecord(value) && Object.keys(value).length === 3 && isSequence(value.inputId) && isSequence(value.frame) && isRealtimeInput(value.input);
 }

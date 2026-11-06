@@ -6,11 +6,13 @@
  * A frame takes a trip to arrive, so the page also runs ahead of the frames it has
  * (rollback): it estimates which frame an input sent now reaches the service in, asks
  * for its input to count in the frame after that, and shows the rules stepped that far
- * from the newest frame, with its own inputs and everyone else's last one. Each frame
- * that arrives replaces the guess, which corrects what it got wrong: another player who
- * changed their input since. docs/multiplayer.md describes the exchange.
+ * from the newest frame, with its own inputs and everyone else's: the inputs the service
+ * passed on as soon as they reached it, else their last one. Each frame that arrives
+ * replaces the guess, which corrects what it got wrong: another player's input that had
+ * not reached this page yet. docs/multiplayer.md describes the exchange.
  */
 import {
+  isLockstepEarlyInput,
   isLockstepFrame,
   isLockstepSync,
   type LockstepEvent,
@@ -71,6 +73,8 @@ export class LockstepRunner {
   private held = new Map<string, { input: RealtimeInput; frame: number }>();
   /** This page's inputs the service has not yet counted. */
   private sent: SentInput[] = [];
+  /** Other players' inputs the service passed on before the frames they count in. */
+  private early = new Map<string, SentInput[]>();
   /** When recent frames arrived, less their number of ticks: the earliest is the clock. */
   private arrivals: { at: number; base: number }[] = [];
   private trips: number[] = [];
@@ -110,6 +114,7 @@ export class LockstepRunner {
     if (!sameRound) this.sent = [];
     this.arrivals = [];
     this.held.clear();
+    this.early.clear();
     if (value.checkpoint) {
       this.state = structuredClone(value.checkpoint.state);
       this.frame = value.checkpoint.frame;
@@ -138,6 +143,16 @@ export class LockstepRunner {
     this.show(true);
   }
 
+  /** Another player's input, passed on before the frame it counts in. */
+  receiveEarly(value: unknown): void {
+    if (!isLockstepEarlyInput(value) || !this.state || value.round !== this.round || value.frame <= this.frame) return;
+    if (value.playerId === this.hooks.playerId()) return;
+    const waiting = this.early.get(value.playerId) ?? [];
+    waiting.push({ inputId: value.inputId, frame: value.frame, input: value.input });
+    this.early.set(value.playerId, waiting);
+    this.show(true);
+  }
+
   /** The service's answer to a ping sent at sentAt. */
   pong(sentAt: unknown): void {
     if (typeof sentAt !== "number" || !Number.isFinite(sentAt)) return;
@@ -163,6 +178,7 @@ export class LockstepRunner {
     this.frame = 0;
     this.sent = [];
     this.held.clear();
+    this.early.clear();
     this.arrivals = [];
     this.lastShown = undefined;
     this.shownFrame = -1;
@@ -224,9 +240,13 @@ export class LockstepRunner {
     for (let frame = this.frame + 1; frame <= target; frame++) {
       const at = this.startedAt + frame * this.tickMs;
       const inputs = new Map<string, { input: RealtimeInput; at: number }>();
-      // Everyone else keeps their last input, until it would run out on the service too.
-      for (const [playerId, held] of this.held)
-        if (playerId !== me && frame - held.frame <= lifetime) inputs.set(playerId, { input: held.input, at });
+      // Everyone else: the newest input the service passed on that counts by this frame,
+      // else their last one, until it would run out on the service too.
+      for (const playerId of new Set([...this.held.keys(), ...this.early.keys()])) {
+        if (playerId === me) continue;
+        const known = this.latest(this.early.get(playerId), frame) ?? this.held.get(playerId);
+        if (known && frame - known.frame <= lifetime) inputs.set(playerId, { input: known.input, at });
+      }
       const mine = this.mine(frame);
       if (mine && frame - mine.frame <= lifetime) inputs.set(me, { input: mine.input, at });
       const next = this.adapter.step(guess, inputs, at, this.tickMs / 1000, []);
@@ -239,15 +259,23 @@ export class LockstepRunner {
 
   /** This page's input at a frame ahead of the newest: its newest due by then, else the one the service holds. */
   private mine(frame: number): { input: RealtimeInput; frame: number } | undefined {
-    let latest: SentInput | undefined;
-    for (const entry of this.sent) {
-      // An input that missed its frame counts from the frame after the newest.
-      const due = Math.max(entry.frame, this.frame + 1);
-      if (due <= frame && (!latest || entry.inputId > latest.inputId)) latest = { ...entry, frame: due };
-    }
+    const latest = this.latest(this.sent, frame);
     if (latest) return latest;
     const me = this.hooks.playerId();
     return me === undefined ? undefined : this.held.get(me);
+  }
+
+  /**
+   * As the service picks: of the inputs due by frame, the newest counts, from the frame it
+   * became due. One that missed its frame counts from the frame after the newest.
+   */
+  private latest(entries: SentInput[] | undefined, frame: number): { input: RealtimeInput; frame: number } | undefined {
+    let latest: SentInput | undefined;
+    for (const entry of entries ?? []) {
+      const due = Math.max(entry.frame, this.frame + 1);
+      if (due <= frame && (!latest || entry.inputId > latest.inputId)) latest = { ...entry, frame: due };
+    }
+    return latest;
   }
 
   private apply(frame: LockstepFrame, live: boolean): void {
@@ -270,6 +298,13 @@ export class LockstepRunner {
     const me = this.hooks.playerId();
     const acked = me === undefined ? undefined : frame.acks?.[me];
     if (acked !== undefined) this.sent = this.sent.filter((entry) => entry.inputId > acked);
+    // Inputs passed on early are in the frames now, or were replaced by newer ones there.
+    for (const [playerId, waiting] of this.early) {
+      const ack = frame.acks?.[playerId];
+      const left = waiting.filter((entry) => entry.frame > frame.frame && (ack === undefined || entry.inputId > ack));
+      if (left.length) this.early.set(playerId, left);
+      else this.early.delete(playerId);
+    }
     this.state = state;
     this.frame = frame.frame;
     if (!live) return;

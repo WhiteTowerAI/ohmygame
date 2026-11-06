@@ -12,6 +12,7 @@ import {
   REALTIME_ACTIONS_PER_TICK,
   TICK_MS_RANGE,
   type JoinRoomOptions,
+  type LockstepEarlyInput,
   type LockstepEvent,
   type LockstepFrame,
   type LockstepSync,
@@ -656,7 +657,7 @@ export class GameRoom extends Room {
       // Every player's rules read and check it, from the next frame.
       this.lastInputId.set(id, inputId);
       const lock = this.lockstepRound;
-      if (lock) lock.pending.set(id, [...(lock.pending.get(id) ?? []), { frame: lock.frame + 1, inputId, input }].slice(-LOCKSTEP_MAX_PENDING));
+      if (lock) this.lockstepQueue(client, id, { frame: lock.frame + 1, inputId, input });
       this.record.updatedAt = Date.now();
       return;
     }
@@ -836,9 +837,18 @@ export class GameRoom extends Room {
     this.lastInputId.set(id, value.inputId);
     const latest = lock.frame + Math.ceil(LOCKSTEP_MAX_LEAD_MS / this.tickMs);
     const frame = Math.min(Math.max(value.frame, lock.frame + 1), latest);
-    const waiting = [...(lock.pending.get(id) ?? []), { frame, inputId: value.inputId, input: value.input }];
-    lock.pending.set(id, waiting.slice(-LOCKSTEP_MAX_PENDING));
+    this.lockstepQueue(client, id, { frame, inputId: value.inputId, input: value.input });
     this.record.updatedAt = Date.now();
+  }
+  /**
+   * Keeps an input for the frame it counts in, and passes it on to everyone else at once
+   * with that frame, so their pages guess ahead with it instead of waiting for the frame.
+   */
+  private lockstepQueue(client: Client, playerId: string, entry: { frame: number; inputId: number; input: RealtimeInput }): void {
+    const lock = this.lockstepRound!;
+    lock.pending.set(playerId, [...(lock.pending.get(playerId) ?? []), entry].slice(-LOCKSTEP_MAX_PENDING));
+    const early: LockstepEarlyInput = { round: lock.round, playerId, ...entry };
+    for (const other of this.clients) if (other !== client) other.send("lockstep.early", early);
   }
   /** Seats that changed during a lockstep round reach every page in the next frame. */
   private lockstepSeats(players: MultiplayerPlayer[]): void {

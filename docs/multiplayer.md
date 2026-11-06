@@ -407,9 +407,17 @@ when it arrives.
   else's last input, at most one second ahead, and redraws when that frame moves
   on. It sends each input as `lockstep.input` for the frame after the one it
   shows; the service counts it in that frame, or in the next one when it arrives
-  late, and names it in the frame's `acks`. Each frame that arrives replaces the
-  guess. Actions and seat changes are not guessed: they show when their frame
-  arrives.
+  late, and names it in the frame's `acks`. The service also passes each input on
+  to everyone else as soon as it arrives (`lockstep.early`, with the frame it will
+  count in), so pages guess ahead with other players' real inputs instead of
+  waiting for the frame; what a page cannot know is only what has not reached it
+  yet, about a round trip. Each frame that arrives replaces the guess. Actions and
+  seat changes are not guessed: they show when their frame arrives.
+- `client.snapshot` and `onSnapshot` give the guess. `client.confirmed` gives the
+  newest frame's state, which trails it by about a round trip and is never
+  corrected. A game that draws other players from `client.confirmed` and its own
+  player from the guess shows nobody jumping, at the cost of other players
+  appearing a little behind where they are.
 - Pages check inputs and actions with the rules before sending, so `onError`
   still explains a refusal. Results never reach a match leaderboard.
 

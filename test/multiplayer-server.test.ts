@@ -1489,6 +1489,10 @@ export default defineRealtimeGame({
       // Nobody hosts, and each page's own run of the rules reaches the same states.
       expect(first.hosting || second.hosting).toBe(false);
       await alike(0, 1);
+      // confirmed is the newest frame from the service, which the shown guess runs ahead of.
+      const confirmed = first.confirmed!.state.game as Game;
+      expect(confirmed.ticks).toBeLessThanOrEqual(game(first)!.ticks);
+      expect(Object.keys(confirmed.x).sort()).toEqual([first.playerId, second.playerId].sort());
       // After a checkpoint, a latecomer starts from it and runs on in step.
       await new Promise((resolve) => setTimeout(resolve, 2300));
       await late.quickPlay();

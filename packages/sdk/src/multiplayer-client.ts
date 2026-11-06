@@ -236,8 +236,25 @@ export class MultiplayerClient<Game = unknown> {
   get roomCode(): string | undefined {
     return this.saved?.roomCode;
   }
+  /**
+   * The room as onSnapshot last reported it. In a lockstep round this runs ahead of the
+   * service, so the player's own input shows at once, and other players' parts of it are a
+   * guess that the next frame may correct.
+   */
   get snapshot(): MultiplayerSnapshot | undefined {
     return this.current;
+  }
+  /**
+   * The room at the newest frame the service sent, with no guess: in a lockstep round it
+   * trails snapshot by about a round trip and is never corrected, so drawing other players
+   * from it shows them a little late but without jumps. Outside a lockstep round it is
+   * snapshot.
+   */
+  get confirmed(): MultiplayerSnapshot | undefined {
+    const round = this.lockstep?.runner.current;
+    const base = this.fromService;
+    if (!round || !base || base.state.phase !== "playing" || this.current?.state.phase !== "playing") return this.current;
+    return { ...base, state: mergeHostState(round, base.state) };
   }
   /** Whether this player's browser runs the game's rules for the room now. */
   get hosting(): boolean {
@@ -741,6 +758,7 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("lockstep.sync", (value: unknown) => this.lockstep?.runner.sync(value));
     room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
     room.onMessage("lockstep.pong", (value: unknown) => this.lockstep?.runner.pong(value));
+    room.onMessage("lockstep.early", (value: unknown) => this.lockstep?.runner.receiveEarly(value));
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
         return;

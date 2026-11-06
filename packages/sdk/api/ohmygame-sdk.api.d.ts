@@ -660,7 +660,19 @@ export declare class MultiplayerClient<Game = unknown> {
     get roomId(): string | undefined;
     get playerId(): string | undefined;
     get roomCode(): string | undefined;
+    /**
+     * The room as onSnapshot last reported it. In a lockstep round this runs ahead of the
+     * service, so the player's own input shows at once, and other players' parts of it are a
+     * guess that the next frame may correct.
+     */
     get snapshot(): MultiplayerSnapshot | undefined;
+    /**
+     * The room at the newest frame the service sent, with no guess: in a lockstep round it
+     * trails snapshot by about a round trip and is never corrected, so drawing other players
+     * from it shows them a little late but without jumps. Outside a lockstep round it is
+     * snapshot.
+     */
+    get confirmed(): MultiplayerSnapshot | undefined;
     /** Whether this player's browser runs the game's rules for the room now. */
     get hosting(): boolean;
     createRoom(options?: {
@@ -1095,6 +1107,18 @@ export interface LockstepInput {
     frame: number;
     input: RealtimeInput;
 }
+/**
+ * Another player's input, passed on as soon as it reaches the service, before the frame it
+ * counts in: frame is where the service will count it. Pages guess ahead with it.
+ */
+export interface LockstepEarlyInput {
+    round: number;
+    playerId: string;
+    inputId: number;
+    frame: number;
+    input: RealtimeInput;
+}
+export declare function isLockstepEarlyInput(value: unknown): value is LockstepEarlyInput;
 export declare function isLockstepInput(value: unknown): value is LockstepInput;
 /**
  * What a page needs to run a lockstep round from where it is now: sent to everyone when a
