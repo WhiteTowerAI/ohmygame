@@ -25,6 +25,7 @@ import {
   Share2,
   Upload,
   X,
+  Package
 } from "./icons.js";
 import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
