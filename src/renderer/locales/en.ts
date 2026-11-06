@@ -3302,6 +3302,7 @@ const en = {
   },
   editorCanvas: {
     select: "Select",
+    selectHint: "Select and move nodes",
     pan: "Pan canvas",
     fit: "Fit view",
     zoomOut: "Zoom out",

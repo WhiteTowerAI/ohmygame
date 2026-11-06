@@ -3225,6 +3225,7 @@ const zhCN: typeof en = {
   },
   editorCanvas: {
     select: "选择",
+    selectHint: "选择并移动节点",
     pan: "平移画布",
     fit: "适应视图",
     zoomOut: "缩小",
