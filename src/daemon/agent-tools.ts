@@ -177,8 +177,8 @@ export function createAgentTools(
     label: "Set up multiplayer",
     description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS/WebRTC. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
     parameters: Type.Object({
-      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom")], {
-        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load.",
+      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom"), Type.Literal("owner")], {
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load. owner: realtime casual and co-op games where each page runs its own player, such as a platformer for two, snake or a party game: no rules file; every player's state reaches the others, and shared things such as food or doors go through the service, first come first served. Prefer it for realtime games with physics or players touching each other, unless results must be the same on every screen.",
       }),
       maxClients: Type.Optional(Type.Integer({
         minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,
@@ -188,10 +188,15 @@ export function createAgentTools(
       dropIn: Type.Optional(Type.Boolean({
         description: "Realtime rules only, including custom realtime rules. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
       })),
+      tickMs: Type.Optional(Type.Integer({
+        minimum: 20,
+        maximum: 1000,
+        description: "owner only: how often players' states go out, in milliseconds. Defaults to 100; 50 suits fast action.",
+      })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn });
+      const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn, ...(input.tickMs === undefined ? {} : { tickMs: input.tickMs }) });
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {

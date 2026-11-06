@@ -425,6 +425,36 @@ Not yet: pages do not compare their states, so a page whose rules drift from the
 others stays wrong until the next round or a reconnection, and the service
 believes the first report and the latest checkpoint it gets.
 
+### Owner rooms
+
+A realtime deployment with `adapterId: "owner"` and a `tickMs` has no rules for
+the service or the pages to share: each page runs its own player, as in a
+single-player game, and the service passes things on. A player's own actions
+never wait for the network, other players never jump back, and a collision that
+hurts a player is decided on that player's screen. Screens may differ slightly,
+and a page can lie about its own player, so owner rooms suit casual and co-op
+play; use lockstep where every screen must agree.
+
+- `client.setState(state)` sets the local player's public state, a plain object
+  of at most 4096 characters of JSON (`OWNER_STATE_MAX_LENGTH`). It shows at
+  once, and goes out at most once a tick with only the top-level keys that
+  changed (`owner.state`). Every tick the service sends everyone the states that
+  changed since the last one, together, and who left (`owner.frame`).
+- `snapshot.state.game` is `{ players, shared }`: every player's state by
+  playerId, the local one as just set, and the shared data.
+- `client.updateShared(changes)` changes shared data (`owner.shared`). Each change
+  sets or removes one key and may require the key to hold `expect` (JSON
+  equality) or to be absent (`expectAbsent`); the service applies a request's
+  changes together or not at all, one request at a time, tells everyone
+  (`owner.shared`), then answers the requester (`owner.shared.result`), so the
+  promise resolves whether it worked. Up to 256 keys of up to 1024 characters.
+- `client.emit(message)` passes a message to every other page at once, which
+  gets it through `onMessage(from, message)`.
+- `client.finishRound(winners)` ends the round; the first page to say so decides,
+  among the seats. Each round starts with no states and no shared data; a page
+  that arrives or reconnects during one gets them all (`owner.sync`).
+- Results never reach a match leaderboard.
+
 ## Drop-in rooms
 
 `roomPolicy: "drop-in"` lets realtime players press Play without creating a

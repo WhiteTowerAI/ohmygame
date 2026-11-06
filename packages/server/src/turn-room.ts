@@ -1,6 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
+  isOwnerMessage,
+  isOwnerPatch,
+  isOwnerSharedChange,
   isLockstepInput,
   isLockstepReport,
   isRealtimeAction,
@@ -8,6 +11,10 @@ import {
   isRecord,
   isTurnCommand,
   MULTIPLAYER_ROOM_LIMIT_CODE,
+  OWNER_SHARED_MAX_CHANGES,
+  OWNER_SHARED_MAX_KEYS,
+  OWNER_STATE_MAX_LENGTH,
+  sameJson,
   normalizeDisplayName,
   REALTIME_ACTIONS_PER_TICK,
   TICK_MS_RANGE,
@@ -21,6 +28,10 @@ import {
   type MultiplayerGameState,
   type MultiplayerManifestConfig,
   type MultiplayerPlayer,
+  type OwnerFrame,
+  type OwnerPatch,
+  type OwnerSharedUpdate,
+  type OwnerSync,
   type MultiplayerSnapshot,
   type RealtimeAction,
   type RealtimeInput,
@@ -29,7 +40,7 @@ import {
 } from "@ohmygame/sdk/protocol";
 import type { MultiplayerIdentity } from "./auth.js";
 import { nextTurn, tickMsOf } from "./game.js";
-import { describePlayerRange, type GameAdapter } from "./adapters.js";
+import { describePlayerRange, finishMatch, type GameAdapter } from "./adapters.js";
 import type { RoomStore, StoredRoom } from "./store.js";
 import type { ServerStore } from "./game-data.js";
 import {
@@ -107,6 +118,19 @@ const LOCKSTEP_MAX_LEAD_MS = 1500;
 /** Inputs a player may have waiting for later frames. */
 const LOCKSTEP_MAX_PENDING = 8;
 
+/** An owner round as the room keeps it: each player's state, as their page sets it, and the shared data. */
+interface OwnerRound {
+  round: number;
+  states: Map<string, Record<string, unknown>>;
+  /** State changes since the last frame, by player. */
+  dirty: Map<string, OwnerPatch>;
+  /** Players who left since the last frame. */
+  left: string[];
+  shared: Map<string, unknown>;
+  /** The seats the frames so far describe. */
+  players: Set<string>;
+}
+
 /** A lockstep round as the room runs it: it numbers frames of input; the players' browsers run the rules. */
 interface LockstepRound {
   round: number;
@@ -151,11 +175,17 @@ export class GameRoom extends Room {
   private hostQueue: Promise<void> = Promise.resolve();
   private hostTimeoutPending = false;
   private hostRoundPending = false;
+  /** The round an owner room is running. */
+  private ownerRound?: OwnerRound;
   /** The round a lockstep room is running, and how many it has started. */
   private lockstepRound?: LockstepRound;
   private lockRounds = 0;
   protected services!: RoomServices;
 
+  /** Each player's page runs their own part; the room passes states on and keeps shared data. */
+  private get owner(): boolean {
+    return this.services.adapter.owner === true;
+  }
   /** Every player's browser runs the rules; the room numbers frames of their input. */
   private get lockstep(): boolean {
     return this.services.adapter.lockstep === true;
@@ -245,6 +275,7 @@ export class GameRoom extends Room {
             : undefined,
       });
       this.sendLockstep(client);
+      this.sendOwner(client);
       client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
       if (!this.hosted) return;
       // A host that reconnected stopped running the rules when it dropped; it resumes here.
@@ -276,6 +307,10 @@ export class GameRoom extends Room {
       if (typeof value === "number" && Number.isFinite(value)) client.send("lockstep.pong", value);
     });
     this.onMessage("lockstep.finish", (client, value: unknown) => this.lockstepFinish(client, value));
+    this.onMessage("owner.state", (client, value: unknown) => this.ownerState(client, value));
+    this.onMessage("owner.shared", (client, value: unknown) => this.ownerShared(client, value));
+    this.onMessage("owner.emit", (client, value: unknown) => this.ownerEmit(client, value));
+    this.onMessage("owner.finish", (client, value: unknown) => this.ownerFinish(client, value));
     this.onMessage("lockstep.checkpoint", (client, value: unknown) => this.lockstepCheckpoint(client, value));
     this.clock.setInterval(() => this.maintenance(), 1000);
     // A hosted realtime room runs no tick: the hosting player's browser does.
@@ -354,8 +389,9 @@ export class GameRoom extends Room {
       true,
       members,
     );
-    // A player who arrives during a lockstep round catches up before the room's state shows it.
+    // A player who arrives during a lockstep or owner round catches up before the room's state shows it.
     this.sendLockstep(client);
+    this.sendOwner(client);
     client.send("ready", {
       playerId,
       ...this.tickInfo(),
@@ -390,6 +426,7 @@ export class GameRoom extends Room {
     this.lastInputId.delete(this.controls.get(client.sessionId)!);
     this.connected(client, true);
     this.sendLockstep(client);
+    this.sendOwner(client);
     client.send("ready", { playerId: this.controls.get(client.sessionId), ...this.tickInfo() });
     client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
   }
@@ -719,6 +756,7 @@ export class GameRoom extends Room {
   /** Runs every tick of a round, so rules can move things nobody is steering. */
   private tick(): void {
     if (this.lockstep) return this.lockstepTick();
+    if (this.owner) return this.ownerTick();
     const actions = this.actions;
     this.actions = [];
     if (this.record.snapshot.state.phase !== "playing") return;
@@ -767,6 +805,7 @@ export class GameRoom extends Room {
     this.playerInputs.clear();
     this.actions = [];
     if (this.lockstep) return this.beginLockstep(state, now, finished);
+    if (this.owner) return this.beginOwner(state);
     const { onRoundStart } = this.services.adapter;
     return onRoundStart ? onRoundStart(state, now, finished) : state;
   }
@@ -793,6 +832,129 @@ export class GameRoom extends Room {
     const next = { ...state };
     delete next.game;
     return next;
+  }
+  /** Starts an owner round with no states and no shared data: each page sets its own. */
+  private beginOwner(state: MultiplayerGameState): MultiplayerGameState {
+    this.ownerRound = {
+      round: ++this.lockRounds,
+      states: new Map(),
+      dirty: new Map(),
+      left: [],
+      shared: new Map(),
+      players: new Set(state.players.map((player) => player.playerId)),
+    };
+    for (const client of this.clients) this.sendOwner(client);
+    const next = { ...state };
+    delete next.game;
+    return next;
+  }
+  private sendOwner(client: Client): void {
+    const round = this.ownerRound;
+    if (!round) return;
+    const sync: OwnerSync = {
+      round: round.round,
+      players: Object.fromEntries(round.states),
+      shared: Object.fromEntries(round.shared),
+    };
+    client.send("owner.sync", sync);
+  }
+  /** Sends everyone the states that changed this tick, together, and who left. */
+  private ownerTick(): void {
+    const round = this.ownerRound;
+    if (!round || (!round.dirty.size && !round.left.length)) return;
+    const frame: OwnerFrame = { round: round.round };
+    if (round.dirty.size) frame.players = Object.fromEntries(round.dirty);
+    if (round.left.length) frame.left = round.left;
+    round.dirty = new Map();
+    round.left = [];
+    this.broadcast("owner.frame", frame);
+  }
+  /** A player who leaves during a round takes their state with them. */
+  private ownerSeats(players: MultiplayerPlayer[]): void {
+    const round = this.ownerRound!;
+    const now = new Set(players.map((player) => player.playerId));
+    for (const id of round.players)
+      if (!now.has(id)) {
+        round.states.delete(id);
+        round.dirty.delete(id);
+        round.left.push(id);
+      }
+    round.players = now;
+  }
+  /** A page's own state changed: the room keeps it and passes it on at the next tick. */
+  private ownerState(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    const round = this.ownerRound;
+    if (!id || !round || !round.players.has(id) || !isOwnerPatch(value)) return;
+    const next = { ...round.states.get(id), ...value.set };
+    for (const key of value.delete ?? []) delete next[key];
+    if (JSON.stringify(next).length > OWNER_STATE_MAX_LENGTH) {
+      client.send("input.error", { code: "invalid_command", message: `A player's state must be at most ${OWNER_STATE_MAX_LENGTH} characters of JSON.` });
+      return;
+    }
+    round.states.set(id, next);
+    const pending = round.dirty.get(id) ?? {};
+    const set = { ...pending.set, ...value.set };
+    const removed = new Set(pending.delete ?? []);
+    for (const key of Object.keys(value.set ?? {})) removed.delete(key);
+    for (const key of value.delete ?? []) {
+      delete set[key];
+      removed.add(key);
+    }
+    round.dirty.set(id, { ...(Object.keys(set).length ? { set } : {}), ...(removed.size ? { delete: [...removed] } : {}) });
+    this.record.updatedAt = Date.now();
+  }
+  /**
+   * Changes shared data, one request at a time: all of a request's changes apply, or none
+   * when one finds its key no longer as it expects, so two players cannot take one thing.
+   */
+  private ownerShared(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    const round = this.ownerRound;
+    const request = isRecord(value) ? value : undefined;
+    const requestId = typeof request?.requestId === "string" && request.requestId.length <= 64 ? request.requestId : undefined;
+    if (!requestId) return;
+    const answer = (ok: boolean) => client.send("owner.shared.result", { requestId, ok });
+    const changes = request!.changes;
+    if (!id || !round || !round.players.has(id) || !Array.isArray(changes) || !changes.length || changes.length > OWNER_SHARED_MAX_CHANGES || !changes.every(isOwnerSharedChange))
+      return answer(false);
+    for (const change of changes) {
+      const has = round.shared.has(change.key);
+      if (change.expectAbsent && has) return answer(false);
+      if (change.expect !== undefined && (!has || !sameJson(round.shared.get(change.key), change.expect))) return answer(false);
+    }
+    const after = new Map(round.shared);
+    for (const change of changes) {
+      if (change.value === undefined) after.delete(change.key);
+      else after.set(change.key, change.value);
+    }
+    if (after.size > OWNER_SHARED_MAX_KEYS) return answer(false);
+    round.shared = after;
+    const update: OwnerSharedUpdate = {
+      round: round.round,
+      by: id,
+      changes: changes.map((change) => (change.value === undefined ? { key: change.key } : { key: change.key, value: change.value })),
+    };
+    // Everyone, the requester too, learns of the change before the requester hears it worked.
+    this.broadcast("owner.shared", update);
+    answer(true);
+    this.record.updatedAt = Date.now();
+  }
+  /** A one-off message for every other player, such as a collision only one page saw. */
+  private ownerEmit(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    if (!id || !this.ownerRound || !isOwnerMessage(value)) return;
+    for (const other of this.clients) if (other !== client) other.send("owner.message", { from: id, message: value });
+  }
+  /** A page says the round is over; the first to say so decides the winners, among the seats. */
+  private ownerFinish(client: Client, value: unknown): void {
+    const id = this.controls.get(client.sessionId);
+    if (!id || !this.ownerRound || this.record.snapshot.state.phase !== "playing" || !isRecord(value) || !Array.isArray(value.winners)) return;
+    const seats = new Set(this.record.snapshot.state.players.map((player) => player.playerId));
+    const winners = [...new Set(value.winners.filter((winner): winner is string => typeof winner === "string" && seats.has(winner)))];
+    const state = structuredClone(this.record.snapshot.state);
+    finishMatch(state, winners);
+    this.commit(state, "room.finished", { reason: "round_end" }, undefined, true);
   }
   /** Numbers the next frame of a lockstep round and sends it to everyone. */
   private lockstepTick(): void {
@@ -1012,6 +1174,10 @@ export class GameRoom extends Room {
     if (this.lockstepRound) {
       if (state.phase !== "playing") this.lockstepRound = undefined;
       else this.lockstepSeats(state.players);
+    }
+    if (this.ownerRound) {
+      if (state.phase !== "playing") this.ownerRound = undefined;
+      else this.ownerSeats(state.players);
     }
     if (state.phase === "finished" && this.record.snapshot.state.phase !== "finished") {
       this.finishedAt = now;

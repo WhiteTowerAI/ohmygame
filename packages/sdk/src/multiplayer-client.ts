@@ -11,6 +11,9 @@ import {
   isTurnCommandResult,
   LOCKSTEP_ADAPTER_ID,
   MULTIPLAYER_ROOM_LIMIT_CODE,
+  OWNER_ADAPTER_ID,
+  isOwnerMessage,
+  type OwnerSharedChange,
   multiplayerRoomType,
   TICK_MS_RANGE,
   type JoinRoomOptions,
@@ -37,6 +40,7 @@ import {
 } from "./host.js";
 import type { OhMyGame } from "./index.js";
 import { LockstepRunner } from "./lockstep.js";
+import { OwnerSession } from "./owner.js";
 
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
@@ -81,6 +85,8 @@ export interface MultiplayerClientCallbacks {
   onError?: (error: OhMyGameError) => void;
   /** This player's browser starts or stops running the game's rules for the room. */
   onHost?: (hosting: boolean) => void;
+  /** Owner rooms: another player's message from emit, such as a collision only their page saw. */
+  onMessage?: (from: string, message: Record<string, unknown>) => void;
 }
 /**
  * @internal What the client needs from a room service connection. Colyseus provides it
@@ -150,6 +156,8 @@ export class MultiplayerClient<Game = unknown> {
   private hostingRoom = false;
   /** Runs the rules in step with every other player, for a lockstep deployment. */
   private readonly lockstep?: { adapter: GameAdapter; runner: LockstepRunner };
+  /** This player's part of the round, for an owner deployment. */
+  private readonly owner?: OwnerSession;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -170,6 +178,13 @@ export class MultiplayerClient<Game = unknown> {
         options.connectionTimeoutMs <= 0)
     )
       throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
+    if (options.manifest.adapterId === OWNER_ADAPTER_ID)
+      this.owner = new OwnerSession({
+        send: (type, value) => this.room?.send(type, value),
+        show: () => this.showOwner(),
+        playerId: () => this.saved?.playerId,
+        tickMs: () => this.tickMs,
+      });
     const runsRules = options.manifest.adapterId === HOST_ADAPTER_ID || options.manifest.adapterId === LOCKSTEP_ADAPTER_ID;
     if (runsRules) {
       if (options.rules === undefined)
@@ -387,6 +402,51 @@ export class MultiplayerClient<Game = unknown> {
    * Throws invalid_option for an action that is not plain JSON of at most
    * REALTIME_INPUT_MAX_LENGTH characters. The service reports a refused action through onError.
    */
+  /**
+   * Owner rooms: sets this player's state, a small plain object of JSON data that the page
+   * keeps up to date as its player moves, such as { x, y, dir }. It shows in
+   * snapshot.state.game.players at once and reaches everyone else within a tick; only the
+   * top-level keys that changed are sent, so keep large parts that rarely change in their
+   * own keys. Throws invalid_option for anything else, or outside an owner deployment.
+   */
+  setState(state: Record<string, unknown>): void {
+    if (!this.owner) throw new OhMyGameError("invalid_option", "setState is for owner deployments.");
+    try {
+      this.owner.setState(state);
+    } catch (cause) {
+      throw new OhMyGameError("invalid_option", cause instanceof Error ? cause.message : "The state is invalid.");
+    }
+  }
+  /**
+   * Owner rooms: changes snapshot.state.game.shared, the data every player shares, such as
+   * food or a door. All the changes apply or none: each may require its key to hold expect
+   * or to be absent (expectAbsent), so when two players take the same thing, only the first
+   * gets it. Resolves true when the service applied them, false otherwise.
+   */
+  updateShared(changes: OwnerSharedChange[]): Promise<boolean> {
+    if (!this.owner) throw new OhMyGameError("invalid_option", "updateShared is for owner deployments.");
+    return this.owner.updateShared(changes);
+  }
+  /** Owner rooms: sends every other player a one-off message, which reaches them through onMessage. */
+  emit(message: Record<string, unknown>): boolean {
+    if (!this.owner) throw new OhMyGameError("invalid_option", "emit is for owner deployments.");
+    if (!isOwnerMessage(message)) throw new OhMyGameError("invalid_option", "A message must be a small plain object of JSON data.");
+    if (!this.room || this.status !== "connected") return false;
+    this.room.send("owner.emit", message);
+    return true;
+  }
+  /** Owner rooms: ends the round with these winners; the first page to say so decides. */
+  finishRound(winners: string[]): void {
+    if (!this.owner) throw new OhMyGameError("invalid_option", "finishRound is for owner deployments.");
+    this.room?.send("owner.finish", { winners });
+  }
+  /** Shows an owner round: the room's seats and phase, with every player's state and the shared data. */
+  private showOwner(): void {
+    const base = this.fromService;
+    if (!this.owner?.active || !base || base.state.phase !== "playing") return;
+    this.current = { ...base, state: { ...base.state, game: this.owner.game() } };
+    this.callbacks.onSnapshot?.(this.current);
+  }
   sendAction(action: ClientAction<Game>): boolean {
     if (!isRealtimeAction(action))
       throw new OhMyGameError("invalid_option", "An action must be a small plain object of JSON data.");
@@ -591,6 +651,7 @@ export class MultiplayerClient<Game = unknown> {
     this.current = undefined;
     this.fromService = undefined;
     this.lockstep?.runner.reset();
+    this.owner?.reset();
     this.persist();
     room?.removeAllListeners();
     if (room) {
@@ -663,6 +724,7 @@ export class MultiplayerClient<Game = unknown> {
       this.current = undefined;
       this.fromService = undefined;
       this.lockstep?.runner.reset();
+      this.owner?.reset();
       this.lastEventSequence = -1;
       this.reportedUnreadable = false;
       this.inputId = 0;
@@ -759,6 +821,13 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
     room.onMessage("lockstep.pong", (value: unknown) => this.lockstep?.runner.pong(value));
     room.onMessage("lockstep.early", (value: unknown) => this.lockstep?.runner.receiveEarly(value));
+    room.onMessage("owner.sync", (value: unknown) => this.owner?.sync(value));
+    room.onMessage("owner.frame", (value: unknown) => this.owner?.frame(value));
+    room.onMessage("owner.shared", (value: unknown) => this.owner?.sharedUpdate(value));
+    room.onMessage("owner.shared.result", (value: unknown) => this.owner?.sharedResult(value));
+    room.onMessage("owner.message", (value: unknown) => {
+      if (isRecord(value) && typeof value.from === "string" && isRecord(value.message)) this.callbacks.onMessage?.(value.from, value.message);
+    });
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
         return;
@@ -805,6 +874,7 @@ export class MultiplayerClient<Game = unknown> {
       this.current = undefined;
       this.fromService = undefined;
       this.lockstep?.runner.reset();
+      this.owner?.reset();
       this.setStatus("reconnecting");
     });
     room.onReconnect(() => {
@@ -833,6 +903,7 @@ export class MultiplayerClient<Game = unknown> {
       this.current = undefined;
       this.fromService = undefined;
       this.lockstep?.runner.reset();
+      this.owner?.reset();
       if (code === 1000 || code >= 4000) {
         this.saved = undefined;
         this.persist();
@@ -877,6 +948,9 @@ export class MultiplayerClient<Game = unknown> {
       // The room keeps no game while a lockstep round plays: this page's own run has it.
       const round = this.lockstep.runner.shown;
       if (round) this.showLockstep(round);
+    } else if (this.owner && value.state.phase === "playing") {
+      // Nor while an owner round plays: the players' states and shared data come on their own.
+      this.showOwner();
     } else {
       this.current = value;
       this.callbacks.onSnapshot?.(value);

@@ -23,8 +23,8 @@ export interface MultiplayerManifestConfig {
   /** The rules the service registered for this deployment, by name. */
   adapterId: string;
   /**
-   * Lockstep deployments only: the rules' tick in milliseconds, at which the service
-   * numbers frames, since it never loads the rules.
+   * Lockstep and owner deployments only: the tick in milliseconds at which the service
+   * sends frames, since it never loads the game's rules.
    */
   tickMs?: number;
 }
@@ -72,6 +72,20 @@ export const MULTIPLAYER_MAX_CLIENTS = 32;
  * page steps the same rules with the same random numbers. docs/multiplayer.md describes it.
  */
 export const LOCKSTEP_ADAPTER_ID = "lockstep";
+/**
+ * The adapterId of realtime deployments in which each player's page runs their own part
+ * of the game and the service passes it on (owner): every player's state, shared data the
+ * service changes one request at a time, and messages. docs/multiplayer.md describes it.
+ */
+export const OWNER_ADAPTER_ID = "owner";
+/** The longest a player's state may be in an owner room, as JSON. */
+export const OWNER_STATE_MAX_LENGTH = 4096;
+/** The longest one shared value or one message may be in an owner room, as JSON. */
+export const OWNER_VALUE_MAX_LENGTH = 1024;
+/** The most shared values an owner room keeps. */
+export const OWNER_SHARED_MAX_KEYS = 256;
+/** The most changes one shared request may make. */
+export const OWNER_SHARED_MAX_CHANGES = 8;
 
 export const MULTIPLAYER_MANIFEST_SCHEMA = {
   type: "object",
@@ -144,9 +158,10 @@ export function isMultiplayerManifestConfig(
   const config = value as MultiplayerManifestConfig;
   // A round in progress has no seat to give a turn-based latecomer.
   if (config.roomPolicy === "drop-in" && config.mode !== "realtime") return false;
-  // Only a lockstep deployment names its tick, and it must: the service cannot read the rules.
-  if ((config.adapterId === LOCKSTEP_ADAPTER_ID) !== (config.tickMs !== undefined)) return false;
-  if (config.adapterId === LOCKSTEP_ADAPTER_ID && config.mode !== "realtime") return false;
+  // Only lockstep and owner deployments name their tick, and they must: the service runs no rules.
+  const ticks = config.adapterId === LOCKSTEP_ADAPTER_ID || config.adapterId === OWNER_ADAPTER_ID;
+  if (ticks !== (config.tickMs !== undefined)) return false;
+  if (ticks && config.mode !== "realtime") return false;
   try {
     const url = new URL((value as MultiplayerManifestConfig).serverUrl);
     return (
@@ -286,6 +301,11 @@ export interface MultiplayerGameAdapter<State, Command> {
    * service, not by rules.
    */
   lockstep?: boolean;
+  /**
+   * Each player's page runs their own part of the game and the room passes it on
+   * (adapterId "owner"): the adapter keeps only the room's own commands. Set by the service.
+   */
+  owner?: boolean;
   /** The rules show each player only part of the state, through playerView. */
   playerView?: boolean;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
@@ -599,4 +619,79 @@ export function isLockstepSync(value: unknown): value is LockstepSync {
 }
 export function isLockstepReport(value: unknown): value is LockstepReport {
   return isRecord(value) && isSequence(value.round) && isSequence(value.frame) && isRecord(value.state);
+}
+
+/** Changes to one player's state in an owner room: top-level keys set and keys removed. */
+export interface OwnerPatch {
+  set?: Record<string, unknown>;
+  delete?: string[];
+}
+/** One tick of an owner room: every player's state changes since the last, and who left. */
+export interface OwnerFrame {
+  round: number;
+  players?: Record<string, OwnerPatch>;
+  left?: string[];
+}
+/** An owner round as it is now, for a page that starts it or arrives during it. */
+export interface OwnerSync {
+  round: number;
+  players: Record<string, Record<string, unknown>>;
+  shared: Record<string, unknown>;
+}
+/**
+ * One change to an owner room's shared data: value sets key, and no value removes it. It
+ * applies only if key holds expect now (deep JSON equality), or is absent with
+ * expectAbsent, so two players cannot both take the same thing.
+ */
+export interface OwnerSharedChange {
+  key: string;
+  value?: unknown;
+  expect?: unknown;
+  expectAbsent?: boolean;
+}
+/** Shared changes the service applied, all at once, and whose request they were. */
+export interface OwnerSharedUpdate {
+  round: number;
+  by: string;
+  changes: { key: string; value?: unknown }[];
+}
+
+const isValue = (value: unknown, max = OWNER_VALUE_MAX_LENGTH) => isPlainJson(value) && JSON.stringify(value).length <= max;
+export function isOwnerState(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && isValue(value, OWNER_STATE_MAX_LENGTH);
+}
+export function isOwnerPatch(value: unknown): value is OwnerPatch {
+  return isRecord(value) && Object.keys(value).every((key) => key === "set" || key === "delete") &&
+    (value.set === undefined || isOwnerState(value.set)) &&
+    (value.delete === undefined || (Array.isArray(value.delete) && value.delete.length <= 64 && value.delete.every((key) => typeof key === "string")));
+}
+export function isOwnerSharedChange(value: unknown): value is OwnerSharedChange {
+  return isRecord(value) && typeof value.key === "string" && value.key.length >= 1 && value.key.length <= 100 &&
+    Object.keys(value).every((key) => ["key", "value", "expect", "expectAbsent"].includes(key)) &&
+    (value.value === undefined || isValue(value.value)) && (value.expect === undefined || isValue(value.expect)) &&
+    (value.expectAbsent === undefined || value.expectAbsent === true);
+}
+export function isOwnerMessage(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && isValue(value);
+}
+export function isOwnerFrame(value: unknown): value is OwnerFrame {
+  return isRecord(value) && isSequence(value.round) && (value.players === undefined || isRecord(value.players)) &&
+    (value.left === undefined || Array.isArray(value.left));
+}
+export function isOwnerSync(value: unknown): value is OwnerSync {
+  return isRecord(value) && isSequence(value.round) && isRecord(value.players) && isRecord(value.shared);
+}
+export function isOwnerSharedUpdate(value: unknown): value is OwnerSharedUpdate {
+  return isRecord(value) && isSequence(value.round) && typeof value.by === "string" && Array.isArray(value.changes);
+}
+/** Plain JSON equality, as the service compares a shared value with what a change expects. */
+export function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) && Array.isArray(right))
+    return left.length === right.length && left.every((item, index) => sameJson(item, right[index]));
+  if (isRecord(left) && isRecord(right) && !Array.isArray(left) && !Array.isArray(right)) {
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
+  }
+  return false;
 }

@@ -1,4 +1,4 @@
-import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { LOCKSTEP_ADAPTER_ID, MULTIPLAYER_MAX_CLIENTS, OWNER_ADAPTER_ID, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
 import { checkTickMs, createRoomAdapter, tickMsOf, type GameAdapter } from "@ohmygame/sdk/rules";
 export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS, type GameAdapter } from "@ohmygame/sdk/rules";
@@ -13,6 +13,7 @@ export function describePlayerRange({ min, max }: GameAdapter["players"]): strin
  * adapters; clients never upload executable rules. adapterId "host" needs none: a player's
  * browser runs the game's rules, and the service keeps only the room. Nor does "lockstep",
  * whose rules every player's browser runs: the service numbers frames at the deployment's tickMs.
+ * Nor does "owner", where each page runs its own player and the service passes states on.
  */
 export function resolveGameAdapter(
   config: MultiplayerManifestConfig,
@@ -21,11 +22,12 @@ export function resolveGameAdapter(
   const id = config.adapterId;
   if (id === HOST_ADAPTER_ID && !Object.hasOwn(adapters, id))
     return { ...createRoomAdapter(config.mode, { min: 1, max: MULTIPLAYER_MAX_CLIENTS }), hosted: true };
-  if (id === LOCKSTEP_ADAPTER_ID && !Object.hasOwn(adapters, id)) {
+  if ((id === LOCKSTEP_ADAPTER_ID || id === OWNER_ADAPTER_ID) && !Object.hasOwn(adapters, id)) {
     if (config.mode !== "realtime" || config.tickMs === undefined)
-      throw new Error("A lockstep deployment is realtime and names its rules' tickMs.");
+      throw new Error(`A ${id} deployment is realtime and names its tickMs.`);
     checkTickMs(config.tickMs);
-    return { ...createRoomAdapter("realtime", { min: 1, max: MULTIPLAYER_MAX_CLIENTS }), lockstep: true, tickMs: config.tickMs };
+    const room = createRoomAdapter("realtime", { min: 1, max: MULTIPLAYER_MAX_CLIENTS });
+    return id === LOCKSTEP_ADAPTER_ID ? { ...room, lockstep: true, tickMs: config.tickMs } : { ...room, owner: true, tickMs: config.tickMs };
   }
   if (!Object.hasOwn(adapters, id)) throw new Error(`No server rules adapter registered for ${id}.`);
   const adapter = adapters[id]!;

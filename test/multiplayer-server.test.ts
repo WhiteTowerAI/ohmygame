@@ -1518,6 +1518,74 @@ export default defineRealtimeGame({
     }
   });
 
+  it("passes each player's own state on in an owner room, with shared things first come first served", async () => {
+    const runtime = new LocalMultiplayerRuntime(0);
+    try {
+      // Local setup: no rules file; the deployment names how often states go out.
+      const local = await runtime.configure("party", "owner", { dropIn: true });
+      expect(local).toMatchObject({ mode: "realtime", adapterId: "owner", tickMs: 100, roomPolicy: "drop-in", deploymentId: "local-owner-100ms-4p-dropin-v1" });
+      expect(await runtime.restore("party", { ...local, serverUrl: "http://127.0.0.1:1" })).toEqual(local);
+    } finally {
+      await runtime.close();
+    }
+    const manifest = await hostedService({ deploymentId: "owner", adapterId: "owner", tickMs: 40, mode: "realtime", roomPolicy: "drop-in", maxClients: 4 });
+    type Party = { players: Record<string, Record<string, unknown>>; shared: Record<string, unknown> };
+    const messages: { from: string; message: Record<string, unknown> }[] = [];
+    const join = () => new MultiplayerClient({ manifest, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+      onMessage: (from, message) => messages.push({ from, message }),
+    });
+    const game = (client: MultiplayerClient) => client.snapshot?.state.game as Party | undefined;
+    const [a, b] = [join(), join()];
+    try {
+      await a.quickPlay();
+      await b.quickPlay();
+      expect(b.roomId).toBe(a.roomId);
+      await wait(() => expect(b.snapshot?.state.phase).toBe("playing"));
+      await wait(() => expect(a.playerId && b.playerId).toBeTruthy());
+      // The page's own state shows at once; the others' arrive within a tick, only what changed.
+      a.setState({ x: 1, name: "A" });
+      expect(game(a)!.players[a.playerId!]).toEqual({ x: 1, name: "A" });
+      await wait(() => expect(game(b)?.players[a.playerId!]).toEqual({ x: 1, name: "A" }));
+      a.setState({ x: 2, name: "A" });
+      await wait(() => expect(game(b)!.players[a.playerId!]).toEqual({ x: 2, name: "A" }));
+      expect(() => a.setState({ big: "x".repeat(5000) })).toThrow("small plain object");
+
+      // The first page to set up the shared area does; the second finds it taken.
+      expect(await a.updateShared([{ key: "food:1", value: { x: 3 }, expectAbsent: true }])).toBe(true);
+      expect(await b.updateShared([{ key: "food:1", value: { x: 9 }, expectAbsent: true }])).toBe(false);
+      await wait(() => expect(game(b)!.shared).toEqual({ "food:1": { x: 3 } }));
+      // Both eat the same food at once: exactly one gets it, together with its new food.
+      const eaten = await Promise.all([
+        a.updateShared([{ key: "food:1", expect: { x: 3 } }, { key: "food:2", value: { x: 5 }, expectAbsent: true }]),
+        b.updateShared([{ key: "food:1", expect: { x: 3 } }, { key: "food:3", value: { x: 6 }, expectAbsent: true }]),
+      ]);
+      expect(eaten.filter(Boolean)).toHaveLength(1);
+      await wait(() => expect(Object.keys(game(a)!.shared)).toEqual([eaten[0] ? "food:2" : "food:3"]));
+      expect(game(b)!.shared).toEqual(game(a)!.shared);
+
+      // A message reaches the other page, which applies what only the sender saw.
+      expect(a.emit({ crash: b.playerId })).toBe(true);
+      await wait(() => expect(messages).toEqual([{ from: a.playerId, message: { crash: b.playerId } }]));
+
+      // The first page to end the round decides; the next round starts with nothing kept.
+      a.finishRound([b.playerId!, "nobody"]);
+      await wait(() => expect(b.snapshot?.state.phase).toBe("finished"));
+      expect(b.snapshot!.state.winnerPlayerIds).toEqual([b.playerId]);
+      await wait(() => expect(a.snapshot?.state.phase).toBe("playing"));
+      await wait(() => expect(game(a)).toEqual({ players: { [a.playerId!]: {} }, shared: {} }));
+
+      // A player who leaves takes their state with them.
+      b.setState({ x: 7 });
+      await wait(() => expect(game(a)!.players[b.playerId!]).toEqual({ x: 7 }));
+      const left = b.playerId!;
+      await b.leave();
+      await wait(() => expect(game(a)!.players).not.toHaveProperty(left));
+    } finally {
+      a.dispose();
+      b.dispose();
+    }
+  });
+
   it("types a realtime game's input in the page", () => {
     const rules = defineRealtimeGame({
       players: { min: 1, max: 2 },

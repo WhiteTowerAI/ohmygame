@@ -566,7 +566,7 @@ export declare class HostLoop {
 }
 
 // multiplayer-client.d.ts
-import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
+import { type OwnerSharedChange, type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
 import type { ClientAction, ClientInput, ClientMoves } from "./define-game.js";
@@ -611,6 +611,8 @@ export interface MultiplayerClientCallbacks {
     onError?: (error: OhMyGameError) => void;
     /** This player's browser starts or stops running the game's rules for the room. */
     onHost?: (hosting: boolean) => void;
+    /** Owner rooms: another player's message from emit, such as a collision only their page saw. */
+    onMessage?: (from: string, message: Record<string, unknown>) => void;
 }
 /**
  * Colyseus owns transient reconnects; this wrapper adds refresh and restart recovery.
@@ -655,6 +657,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private hostingRoom;
     /** Runs the rules in step with every other player, for a lockstep deployment. */
     private readonly lockstep?;
+    /** This player's part of the round, for an owner deployment. */
+    private readonly owner?;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     get status(): MultiplayerConnectionStatus;
     get roomId(): string | undefined;
@@ -710,6 +714,27 @@ export declare class MultiplayerClient<Game = unknown> {
      * Throws invalid_option for an action that is not plain JSON of at most
      * REALTIME_INPUT_MAX_LENGTH characters. The service reports a refused action through onError.
      */
+    /**
+     * Owner rooms: sets this player's state, a small plain object of JSON data that the page
+     * keeps up to date as its player moves, such as { x, y, dir }. It shows in
+     * snapshot.state.game.players at once and reaches everyone else within a tick; only the
+     * top-level keys that changed are sent, so keep large parts that rarely change in their
+     * own keys. Throws invalid_option for anything else, or outside an owner deployment.
+     */
+    setState(state: Record<string, unknown>): void;
+    /**
+     * Owner rooms: changes snapshot.state.game.shared, the data every player shares, such as
+     * food or a door. All the changes apply or none: each may require its key to hold expect
+     * or to be absent (expectAbsent), so when two players take the same thing, only the first
+     * gets it. Resolves true when the service applied them, false otherwise.
+     */
+    updateShared(changes: OwnerSharedChange[]): Promise<boolean>;
+    /** Owner rooms: sends every other player a one-off message, which reaches them through onMessage. */
+    emit(message: Record<string, unknown>): boolean;
+    /** Owner rooms: ends the round with these winners; the first page to say so decides. */
+    finishRound(winners: string[]): void;
+    /** Shows an owner round: the room's seats and phase, with every player's state and the shared data. */
+    private showOwner;
     sendAction(action: ClientAction<Game>): boolean;
     private flushInput;
     /** What the lockstep runner does with the round: show it, and report to the service. */
@@ -793,8 +818,8 @@ export interface MultiplayerManifestConfig {
     /** The rules the service registered for this deployment, by name. */
     adapterId: string;
     /**
-     * Lockstep deployments only: the rules' tick in milliseconds, at which the service
-     * numbers frames, since it never loads the rules.
+     * Lockstep and owner deployments only: the tick in milliseconds at which the service
+     * sends frames, since it never loads the game's rules.
      */
     tickMs?: number;
 }
@@ -827,6 +852,20 @@ export declare const MULTIPLAYER_MAX_CLIENTS = 32;
  * page steps the same rules with the same random numbers. docs/multiplayer.md describes it.
  */
 export declare const LOCKSTEP_ADAPTER_ID = "lockstep";
+/**
+ * The adapterId of realtime deployments in which each player's page runs their own part
+ * of the game and the service passes it on (owner): every player's state, shared data the
+ * service changes one request at a time, and messages. docs/multiplayer.md describes it.
+ */
+export declare const OWNER_ADAPTER_ID = "owner";
+/** The longest a player's state may be in an owner room, as JSON. */
+export declare const OWNER_STATE_MAX_LENGTH = 4096;
+/** The longest one shared value or one message may be in an owner room, as JSON. */
+export declare const OWNER_VALUE_MAX_LENGTH = 1024;
+/** The most shared values an owner room keeps. */
+export declare const OWNER_SHARED_MAX_KEYS = 256;
+/** The most changes one shared request may make. */
+export declare const OWNER_SHARED_MAX_CHANGES = 8;
 export declare const MULTIPLAYER_MANIFEST_SCHEMA: {
     readonly type: "object";
     readonly additionalProperties: false;
@@ -995,6 +1034,11 @@ export interface MultiplayerGameAdapter<State, Command> {
      * service, not by rules.
      */
     lockstep?: boolean;
+    /**
+     * Each player's page runs their own part of the game and the room passes it on
+     * (adapterId "owner"): the adapter keeps only the room's own commands. Set by the service.
+     */
+    owner?: boolean;
     /** The rules show each player only part of the state, through playerView. */
     playerView?: boolean;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
@@ -1150,6 +1194,52 @@ export interface LockstepReport {
 export declare function isLockstepFrame(value: unknown): value is LockstepFrame;
 export declare function isLockstepSync(value: unknown): value is LockstepSync;
 export declare function isLockstepReport(value: unknown): value is LockstepReport;
+/** Changes to one player's state in an owner room: top-level keys set and keys removed. */
+export interface OwnerPatch {
+    set?: Record<string, unknown>;
+    delete?: string[];
+}
+/** One tick of an owner room: every player's state changes since the last, and who left. */
+export interface OwnerFrame {
+    round: number;
+    players?: Record<string, OwnerPatch>;
+    left?: string[];
+}
+/** An owner round as it is now, for a page that starts it or arrives during it. */
+export interface OwnerSync {
+    round: number;
+    players: Record<string, Record<string, unknown>>;
+    shared: Record<string, unknown>;
+}
+/**
+ * One change to an owner room's shared data: value sets key, and no value removes it. It
+ * applies only if key holds expect now (deep JSON equality), or is absent with
+ * expectAbsent, so two players cannot both take the same thing.
+ */
+export interface OwnerSharedChange {
+    key: string;
+    value?: unknown;
+    expect?: unknown;
+    expectAbsent?: boolean;
+}
+/** Shared changes the service applied, all at once, and whose request they were. */
+export interface OwnerSharedUpdate {
+    round: number;
+    by: string;
+    changes: {
+        key: string;
+        value?: unknown;
+    }[];
+}
+export declare function isOwnerState(value: unknown): value is Record<string, unknown>;
+export declare function isOwnerPatch(value: unknown): value is OwnerPatch;
+export declare function isOwnerSharedChange(value: unknown): value is OwnerSharedChange;
+export declare function isOwnerMessage(value: unknown): value is Record<string, unknown>;
+export declare function isOwnerFrame(value: unknown): value is OwnerFrame;
+export declare function isOwnerSync(value: unknown): value is OwnerSync;
+export declare function isOwnerSharedUpdate(value: unknown): value is OwnerSharedUpdate;
+/** Plain JSON equality, as the service compares a shared value with what a change expects. */
+export declare function sameJson(left: unknown, right: unknown): boolean;
 
 // rules.d.ts
 /**
