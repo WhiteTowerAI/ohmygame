@@ -8,7 +8,7 @@
       "commit": "dede5909be4e494b228c801a55dda47439143932",
       "release": "v1.5.1",
       "version": "1.5.1",
-      "artifactSha256": "79e2c2c91c6ac27ab932ab4ec57ff1b3ab659cdfc8acec91183b48ba91f5af75",
+      "artifactSha256": "bb35cb17cd9ef664384424e1dcb178b639d99a2f7f61e360298b280f95c4954f",
       "name": "img2threejs",
       "skills": "./SKILL.md",
       "interface": {
