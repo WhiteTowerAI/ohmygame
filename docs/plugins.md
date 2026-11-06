@@ -537,6 +537,44 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
+- **Export as a package…** on a personal plugin's page
+  (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
+  copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
+  `package.json`, README and publish workflow a new package gets from the
+  [template](#tools-for-plugin-authors). Project templates' `.gitignore` files
+  go back to `gitignore`, as npm needs. Nothing installed changes.
+
+## Tools for plugin authors
+
+Authors outside this repository use the app's own checks through two npm
+packages built from it by `bun run plugin-packages:build`
+(`scripts/build-plugin-packages.ts`), versioned with `PLUGIN_HOST_API_VERSION`
+like `@ohmygame/plugin-ui`:
+
+- **`@ohmygame/plugin-cli`** (`packages/plugin-cli/`), the `ohmygame-plugin`
+  command. `check [folder]` checks what npm would publish from a folder;
+  `pack [folder]` runs the author's `npm pack`, checks the `.tgz` unpacked as
+  adding it would, and keeps it only without errors. Both run
+  `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
+  version adding from npm refuses (the scope must be the publisher, and
+  `ohmygame` and `personal` are kept), then the page checks against the page
+  components' contracts, which ship in the package. It also ships the manifest's
+  JSON Schema as `plugin.schema.json`. In this repository, `bun run
+  plugin:check <folder>` does the same as `check`.
+- **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
+  `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:
+  a manifest, a `package.json` named `@publisher/name` with a `files` list,
+  both locales, a README, a GitHub Actions workflow that publishes with
+  provenance, and any of a Skill, a panel with a command, native code with a
+  tool, a local MCP server and a project type. Every combination passes `check`.
+- **Examples** in `packages/plugin-examples/`, one for each part, made from the
+  template under the publisher `example`.
+
+What a folder publishes is chosen by `src/daemon/plugin-pack.ts` with
+npm-packlist, npm's own rules: `files`, `.npmignore` or else `.gitignore`, the
+files npm always keeps or drops, and declared `bundleDependencies`. A folder
+without `package.json` leaves out what one would (`node_modules`, lockfiles).
+Tests compare it with `npm pack --dry-run` where npm is installed.
 
 ## Adding a plugin
 
@@ -550,7 +588,7 @@ the source again and refuses a package whose digest isn't the one reviewed.
 | --- | --- | --- |
 | npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
-| This computer | A folder (desktop app) or an uploaded `.tgz` | As any package |
+| This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
 - A package allows nothing when it's added. What it asks for waits for the person
   to approve it, on its page or when they turn it on in a project's Plugins sheet.
@@ -563,6 +601,20 @@ the source again and refuses a package whose digest isn't the one reviewed.
   new release needs a new version.
 - A folder is copied to a private temporary folder before it's reviewed or
   installed, so it can't change between the two checks that matter.
+- **Develop** adds a folder in development (`src/daemon/plugin-development.ts`):
+  its origin is `{ type: "development", folder }`, and the app watches the
+  folder (not `node_modules` or `.git`) and, 300 ms after a change, adds it again
+  without a review, replacing its version in place. A new version keeps the old
+  one for projects that name it. The hosts running its native code restart, as a
+  host keeps the modules it imported; its panels reload, as a panel's address
+  carries its package digest; Skills, manifest and MCP servers are read again
+  with the sessions that changes restart. More than the person allowed still
+  waits for them. An error, such as a broken manifest or another id, keeps the
+  last copy and shows on the plugin's page until a change fixes it. It never
+  shares an id with a plugin from elsewhere, even one with the same contents, nor
+  with another folder. Uninstalling stops watching and never touches the folder.
+  At startup each folder is added again for edits made meanwhile. A theme in
+  use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
   (`PluginServices.installAdded`), so a package can't stand in for what the app or
   the Plugin Builder provides.

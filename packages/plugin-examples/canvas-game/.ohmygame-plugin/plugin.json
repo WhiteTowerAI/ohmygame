@@ -1,0 +1,23 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "example/canvas-game",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.3.0"
+  },
+  "displayName": "%plugin.name%",
+  "description": "%plugin.description%",
+  "icon": "./assets/icon.svg",
+  "contributes": {
+    "projectTypes": [
+      {
+        "id": "game",
+        "title": "%type.title%",
+        "description": "%type.description%",
+        "icon": "./assets/icon.svg",
+        "template": "./template",
+        "preview": "web"
+      }
+    ]
+  }
+}

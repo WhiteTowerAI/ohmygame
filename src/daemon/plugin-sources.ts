@@ -1,12 +1,12 @@
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion } from "../shared/plugins.js";
-import { extractTarball } from "./archive-extraction.js";
+import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, type PluginSourceUpdate, isNewerPluginVersion, isPluginVersion, npmPackagePluginIds } from "../shared/plugins.js";
+import { PluginPackError, stagePublished, unpackPlugin } from "./plugin-pack.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
@@ -42,8 +42,6 @@ const NPM_REGISTRIES = {
 const METADATA_MAX_BYTES = 20 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-/** npm drops `.gitignore` from what it publishes, so a template ships `gitignore`. */
-const PUBLISHED_GITIGNORE = "gitignore";
 
 export interface PluginSourceNetwork {
   /** Fetches metadata. */
@@ -168,7 +166,7 @@ export class PluginSources {
     };
   }
 
-  async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string): Promise<PluginIndexEntry> {
+  async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
     const run = this.#adding.then(async () => {
       await this.#assertCanJoin(entry, fetched.origin);
@@ -183,7 +181,7 @@ export class PluginSources {
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
-      return this.services.installAdded(fetched.root);
+      return this.services.installAdded(fetched.root, before);
     });
     this.#adding = run.catch(() => undefined);
     return run;
@@ -196,13 +194,47 @@ export class PluginSources {
    */
   async #assertCanJoin(entry: PluginIndexEntry, origin: PluginOrigin | undefined): Promise<void> {
     const present = this.services.index.get(entry.id, entry.version);
-    if (present?.digest === entry.digest) return;
+    // A folder in development is watched and keeps changing, so even the same
+    // contents can't make it one with a plugin from elsewhere; and it replaces
+    // its own version in place.
+    const developing = origin?.type === "development";
+    if (!developing && present?.digest === entry.digest) return;
     for (const installed of this.services.index.versions(entry.id)) {
       const previous = await this.origin(installed.id, installed.version);
       if (!isSameSource(previous, origin))
         throw new PluginSourceError(`${entry.id} is already installed from ${sourceName(previous)}. Its approvals and settings stay with that source, so uninstall it first to add it from here.`);
     }
-    if (present) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+    if (present && present.digest !== entry.digest && !developing) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
+  }
+
+  /** The folder each plugin in development is added from, by id. */
+  async developmentFolders(): Promise<Map<string, string>> {
+    await this.services.ready();
+    const folders = new Map<string, string>();
+    for (const entry of this.services.index.entries()) {
+      const origin = await this.origin(entry.id, entry.version);
+      if (origin?.type === "development") folders.set(entry.id, origin.folder);
+    }
+    return folders;
+  }
+
+  /**
+   * Adds a plugin in development from its folder again, without a review: the
+   * person chose to develop it. What it asks for beyond what they allowed
+   * still waits for them. Says whether the package changed.
+   */
+  async refreshDevelopment(id: string): Promise<boolean> {
+    const folder = (await this.developmentFolders()).get(id);
+    if (!folder) throw new PluginSourceError(`${id} isn't in development.`);
+    return this.#reading(() => this.#directory({ type: "directory", path: folder, development: true }), async (fetched, entry) => {
+      if (entry.id !== id) throw new PluginSourceError(`The folder now holds ${entry.id}, not ${id}. Uninstall ${id} to develop another plugin.`);
+      if (this.services.index.get(entry.id, entry.version)?.digest === entry.digest) return false;
+      // Uninstalled, or added from elsewhere, while the folder was being copied.
+      await this.#install(fetched, entry, entry.digest, async () => {
+        if ((await this.developmentFolders()).get(id) !== folder) throw new PluginSourceError(`${id} isn't in development from ${folder} anymore.`);
+      });
+      return true;
+    });
   }
 
   /** Whether every package this id came from before is the same source as `origin`. */
@@ -222,15 +254,15 @@ export class PluginSources {
     const real = await realpath(source.path).catch(() => undefined);
     const info = real ? await stat(real).catch(() => undefined) : undefined;
     if (!real || !info?.isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
-    // Checked in place first, so a huge folder stops at the package limits.
-    await validPackage(real);
-    // A private copy can't change between the review's checks and the install.
+    // What npm would publish from it, in a private copy that can't change
+    // between the review's checks and the install.
     return this.#inTemporaryFolder(async (folder) => {
       const root = path.join(folder, "package");
-      await cp(real, root, { recursive: true, verbatimSymlinks: true });
-      // Checks follow a link at the top of a package, so it can't be one.
-      if (!(await lstat(root)).isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
-      return { root, source };
+      await stagePublished(real, root).catch((cause: unknown) => {
+        if (cause instanceof PluginPackError) throw new PluginSourceError(`This isn't a valid plugin: ${cause.message}`);
+        throw cause;
+      });
+      return { root, source, ...(source.development ? { origin: { type: "development" as const, folder: real } } : {}) };
     });
   }
 
@@ -238,7 +270,7 @@ export class PluginSources {
     return this.#inTemporaryFolder(async (folder) => {
       const archive = path.join(folder, "package.tgz");
       await writeFile(archive, file, { flag: "wx" });
-      return { root: await unpack(archive, folder, { published: true }) };
+      return { root: await unpack(archive, folder, true) };
     });
   }
 
@@ -303,12 +335,12 @@ export class PluginSources {
       }
       if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
       return {
-        root: await unpack(archive, folder, { published: true }),
+        root: await unpack(archive, folder, true),
         source: { type: "npm", name: fullName, registry: used!, version, ...(market ? { market } : {}) },
         origin: { type: "npm", package: fullName, version, registry: used! },
         check: (entry) => {
           // The scope is what npm vouches for, so it has to be the plugin's publisher.
-          const allowed = [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
+          const allowed = npmPackagePluginIds(fullName)!;
           if (!allowed.includes(entry.id)) throw new PluginSourceError(`${fullName} holds the plugin ${entry.id}. It should hold ${allowed.at(-1)}.`);
           if (entry.version !== version) throw new PluginSourceError(`${fullName} ${version} holds version ${entry.version} of the plugin.`);
         },
@@ -324,7 +356,7 @@ export class PluginSources {
       const archive = path.join(folder, "package.tgz");
       await this.network.download(`https://codeload.github.com/${repository}/tar.gz/${commit}`, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)).catch(downloadFailed);
       return {
-        root: await unpack(archive, folder, { published: false }),
+        root: await unpack(archive, folder, false),
         source: { type: "github", url: source.url, commit },
         origin: { type: "github", repository, commit, ...(ref ? { ref } : {}) },
       };
@@ -423,12 +455,14 @@ async function validPackage(root: string): Promise<PluginIndexEntry> {
 function isSameSource(left: PluginOrigin | undefined, right: PluginOrigin | undefined): boolean {
   if (left?.type === "npm" && right?.type === "npm") return left.package.split("/")[0] === right.package.split("/")[0];
   if (left?.type === "github" && right?.type === "github") return left.repository.toLowerCase() === right.repository.toLowerCase();
+  if (left?.type === "development" && right?.type === "development") return left.folder === right.folder;
   return false;
 }
 
 function sourceName(origin: PluginOrigin | undefined): string {
   if (origin?.type === "npm") return `npm (${origin.package})`;
   if (origin?.type === "github") return `GitHub (${origin.repository})`;
+  if (origin?.type === "development") return `the folder ${origin.folder}, in development`;
   return "another package on this computer";
 }
 
@@ -499,36 +533,6 @@ function downloadFailed(cause: unknown): never {
   throw new PluginSourceError(`The download failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 }
 
-/** Unpacks into `folder`, returning the package's root: the one folder an archive wraps it in. */
-async function unpack(archive: string, folder: string, { published }: { published: boolean }): Promise<string> {
-  const destination = path.join(folder, "package");
-  await mkdir(destination);
-  await extractTarball(archive, destination, {
-    maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
-    maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
-    error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`),
-  });
-  const items = await readdir(destination, { withFileTypes: true });
-  const root = items.length === 1 && items[0]!.isDirectory() && items[0]!.name !== ".ohmygame-plugin"
-    ? path.join(destination, items[0]!.name)
-    : destination;
-  if (published) await restoreTemplateGitignores(root);
-  return root;
-}
-
-async function restoreTemplateGitignores(root: string): Promise<void> {
-  const checked = await indexPluginPackage(root);
-  if (!checked.ok) return;
-  for (const projectType of checked.entry.manifest.contributes?.projectTypes ?? [])
-    if (projectType.template) await renameGitignores(path.join(root, projectType.template));
-}
-
-async function renameGitignores(directory: string): Promise<void> {
-  const items = await readdir(directory, { withFileTypes: true }).catch(() => []);
-  const names = new Set(items.map((item) => item.name));
-  for (const item of items) {
-    if (item.isDirectory()) await renameGitignores(path.join(directory, item.name));
-    else if (item.name === PUBLISHED_GITIGNORE && !names.has(".gitignore"))
-      await rename(path.join(directory, item.name), path.join(directory, ".gitignore"));
-  }
+function unpack(archive: string, folder: string, published: boolean): Promise<string> {
+  return unpackPlugin(archive, folder, { published, error: (reason) => new PluginSourceError(`This package can't be unpacked (${reason}).`) });
 }

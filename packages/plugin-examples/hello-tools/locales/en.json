@@ -1,0 +1,5 @@
+{
+  "plugin.name": "Hello tools",
+  "plugin.description": "Native code that adds a tool for the agent and a command.",
+  "command.hello": "Say hello"
+}
