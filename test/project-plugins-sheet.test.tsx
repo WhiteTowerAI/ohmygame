@@ -62,7 +62,7 @@ it("switches each plugin here, locks the type's plugin, and asks before turning 
   expect(toggle("Game Studio").getAttribute("aria-checked")).toBe("false");
 
   await act(async () => toggle("Tiles").click());
-  expect(document.body.textContent).toContain("network:tiles.example.com");
+  expect(document.body.textContent).toContain("Connect to these sitestiles.example.com");
   expect(document.querySelector('.ui-dialog [role="alert"]')?.textContent).toContain("OhMyGame can't limit it");
   expect(api.setProjectPlugin).toHaveBeenCalledTimes(1);
   expect(onChanged).toHaveBeenCalledTimes(1);

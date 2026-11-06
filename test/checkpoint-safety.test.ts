@@ -473,10 +473,10 @@ it("ignores malformed stat-cache entries and reads the actual source", async () 
 it("preserves generated history and caches while restoring creative state, including from older checkpoints", async () => {
   const project = await game();
   await mkdir(path.join(project.workspacePath, "canvas"));
-  await mkdir(path.join(project.workspacePath, ".data"));
+  await mkdir(path.join(project.workspacePath, ".ohmygame"));
   await mkdir(path.join(project.workspacePath, ".godot"));
   const history = path.join(project.workspacePath, "canvas/jobs.json");
-  const assets = path.join(project.workspacePath, ".data/assets.json");
+  const assets = path.join(project.workspacePath, ".ohmygame/assets.json");
   const cache = path.join(project.workspacePath, ".godot/imported.bin");
   await writeFile(history, "current history");
   await writeFile(assets, "old assets");
@@ -505,14 +505,14 @@ it("preserves generated history and caches while restoring creative state, inclu
   await writeFile(assets, "new assets");
   const after = await store.snapshot(project);
   expect((await store.restore(project, legacy)).changed).toEqual([
-    ".data/assets.json",
+    ".ohmygame/assets.json",
   ]);
   expect(await readFile(history, "utf8")).toBe("current history");
   expect(await readFile(cache, "utf8")).toBe("current cache");
   await writeFile(assets, "new assets");
   expect(
     (await store.undo(project, { before: legacy, after })).changed,
-  ).toEqual([".data/assets.json"]);
+  ).toEqual([".ohmygame/assets.json"]);
   expect(await readFile(assets, "utf8")).toBe("old assets");
   expect(await readFile(history, "utf8")).toBe("current history");
 });

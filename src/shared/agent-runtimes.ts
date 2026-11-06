@@ -150,8 +150,16 @@ export interface AgentAccountProfile {
 }
 
 export interface AgentAccountProfileStatus extends AgentAccountProfile {
+  /** The folder the CLI uses for this account, System default's included. */
+  directory: string;
   auth: { status: AgentRuntimeAuthStatus; account?: string; billing: AgentRuntimeBilling };
   limits?: AgentUsageLimit[];
+}
+
+/** Only a directory the person connected can change; the app keeps its own where it put them. */
+export interface UpdateAgentAccountProfileRequest {
+  name?: string;
+  configDirectory?: string;
 }
 
 export interface AgentRuntimeStatus {
@@ -160,6 +168,8 @@ export interface AgentRuntimeStatus {
   enabled: boolean;
   /** Send one message to carry on once a usage limit resets. */
   autoContinue: boolean;
+  /** Claude Code only: conversations report OhMyGame, not the generic `sdk-cli`, as the client. */
+  identifyAsOhMyGame?: boolean;
   installed: boolean;
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
@@ -192,6 +202,7 @@ export interface UpdateAgentRuntimeRequest {
   defaultProfileId?: string;
   enabled?: boolean;
   autoContinue?: boolean;
+  identifyAsOhMyGame?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */
   binaryPath?: string;

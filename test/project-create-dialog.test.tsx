@@ -197,7 +197,7 @@ describe("new project dialog", () => {
     ));
     // The type follows the plugin, so the dialog shows what creating allows.
     expect(typeSelect().textContent).toBe("Web Game");
-    expect(document.querySelector(".new-project-consent")!.textContent).toContain("network:web.example.com");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("Connect to these sitesweb.example.com");
     expect(createProject).not.toHaveBeenCalled();
     await act(async () => button("Create and start").click());
     expect(consentToPlugin).toHaveBeenCalledWith("acme/web", ["network:web.example.com"]);

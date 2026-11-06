@@ -2217,7 +2217,7 @@ describe("AgentManager", () => {
     const workspacePath = path.join(root, "workspace");
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));
-    const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".data/agent-attachments/batch/files/notes.md\"}]}\n</local-attachments>";
+    const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".ohmygame/local/attachments/batch/files/notes.md\"}]}\n</local-attachments>";
     const originalPrompt = `Original\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
     stored.appendCustomEntry("ohmygame-user-prompt", {
       version: 1,

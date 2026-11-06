@@ -24,6 +24,8 @@ export interface AgentRuntimeDefault {
 export interface AgentRuntimeSettings {
   enabled: boolean;
   autoContinue: boolean;
+  /** Claude Code only; see `CLAUDE_CLIENT_ENV` in the service. */
+  identifyAsOhMyGame: boolean;
   permissionMode: AgentPermissionMode;
   binaryPath?: string;
   defaultProfileId?: string;
@@ -31,7 +33,7 @@ export interface AgentRuntimeSettings {
 
 /** Every runtime is off until enabled, and asks nothing once it is, as OhMyGame's own agent does. */
 function defaults(id: AgentRuntimeId): AgentRuntimeSettings {
-  return { enabled: false, autoContinue: true, permissionMode: fullAccessPermissionMode(id) };
+  return { enabled: false, autoContinue: true, identifyAsOhMyGame: true, permissionMode: fullAccessPermissionMode(id) };
 }
 
 /**
@@ -132,6 +134,7 @@ export class AgentRuntimeSettingsStore {
             ? stored.enabled
             : defaults(id).enabled,
         autoContinue: stored.autoContinue !== false,
+        identifyAsOhMyGame: stored.identifyAsOhMyGame !== false,
         ...(isAccountRuntimeId(id) && typeof stored.defaultProfileId === "string" && this.profiles(id).some((profile) => profile.id === stored.defaultProfileId) ? { defaultProfileId: stored.defaultProfileId } : {}),
         permissionMode: storedPermissionMode(
           id,
@@ -163,6 +166,29 @@ export class AgentRuntimeSettingsStore {
     this.#profiles.set(runtime, [...(this.#profiles.get(runtime) ?? []), profile]);
     await this.#persist();
     return profile;
+  }
+
+  async updateProfile(runtime: AccountRuntimeId, profileId: string, change: { name?: string; configDirectory?: string }): Promise<AgentAccountProfile> {
+    const profiles = this.#profiles.get(runtime) ?? [];
+    const current = profiles.find((profile) => profile.id === profileId);
+    if (!current) throw new Error("Account configuration not found");
+    if (profiles.some((profile) => profile.id !== profileId && profile.configDirectory === change.configDirectory)) throw new Error("This configuration directory is already connected");
+    const updated = { ...current, ...change };
+    this.#profiles.set(runtime, profiles.map((profile) => profile.id === profileId ? updated : profile));
+    await this.#persist();
+    return { ...updated };
+  }
+
+  /** Swaps an account with its neighbour; System default stays first, outside this list. */
+  async moveProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+    const profiles = [...(this.#profiles.get(runtime) ?? [])];
+    const index = profiles.findIndex((profile) => profile.id === profileId);
+    if (index < 0) throw new Error("Account configuration not found");
+    const target = index + direction;
+    if (target < 0 || target >= profiles.length) return;
+    [profiles[index], profiles[target]] = [profiles[target]!, profiles[index]!];
+    this.#profiles.set(runtime, profiles);
+    await this.#persist();
   }
 
   resolveProfileId(runtime: AccountRuntimeId, profileId: string): string {

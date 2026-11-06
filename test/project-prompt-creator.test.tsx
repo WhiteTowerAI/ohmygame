@@ -180,7 +180,7 @@ describe("Home prompt box", () => {
   it("turns a mentioned plugin that's off on in the new project, once the person allows what it asks for", async () => {
     await render();
     await mention("@Spr", "Sprites");
-    expect(document.body.textContent).toContain("network:sprites.example.com");
+    expect(document.body.textContent).toContain("Connect to these sitessprites.example.com");
     // Cancelling leaves it out.
     await act(async () => button("Cancel")!.click());
     expect(promptChips(container)).toEqual([]);

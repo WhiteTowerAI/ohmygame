@@ -44,7 +44,7 @@ shared/style/           Project Style: theme and components
 editor/layout.json      editor-only positions and canvas viewport
 schemas/                JSON Schemas for graph.json and editor/layout.json
 AGENTS.md, README.md    rules and reference for the Agent and authors
-.ohmygame/              editor cache (thumbnails, newer runtime files); never published
+.ohmygame/              OhMyGame's own data; local/ holds thumbnails and newer runtime files; never published
 ```
 
 A new project is a web story with the default Project Style and no nodes; the author
@@ -403,7 +403,7 @@ one readable module per source file, comments kept. The Agent may change it.
 When a web story opens in a newer OhMyGame, files nobody changed are
 replaced by the newer runtime's, files the runtime dropped are removed, and
 files the author or Agent changed stay: the newer file goes under
-`.ohmygame/story-runtime/<version>/` and the manifest lists it as `pending`
+`.ohmygame/local/story-runtime/<version>/` and the manifest lists it as `pending`
 for the Agent to merge.
 
 ### Stories made before web stories

@@ -8,8 +8,10 @@ import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, Approva
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
+/** The types a person makes projects of. */
 export const PROJECT_TYPE_IDS = ["general", "web-game", "interactive-story", "asset-canvas", "godot-game"] as const;
-export type ProjectType = (typeof PROJECT_TYPE_IDS)[number];
+/** `plugin` is an AI plugin workspace's hidden project: it opens from the Plugins page, and no list of projects shows it. */
+export type ProjectType = (typeof PROJECT_TYPE_IDS)[number] | "plugin";
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile", "mobile-landscape"] as const;

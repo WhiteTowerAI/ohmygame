@@ -77,12 +77,15 @@ interface ComposerProps {
   onPluginCommand?: (command: ProjectPluginCommand) => void;
   /** Turns on a plugin that is off in the project, for mentioning it; false when the person declined. */
   onTurnOnPlugin?: (plugin: ConversationCapabilities["plugins"][number]) => Promise<boolean>;
+  /** What the empty box asks for, in place of a change to the game. */
+  placeholder?: string;
 }
 
 export function Composer({
   projectId,
   conversationId,
   supportsDesign = false,
+  placeholder: idlePlaceholder,
   conversationReady,
   running,
   stopping,
@@ -548,7 +551,7 @@ export function Composer({
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
         overlay={contextMenu.open ? contextMenu.overlay : null}
-        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
+        placeholder={awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : idlePlaceholder ?? t("composer.placeholder.change")}
         inputRef={input}
         onSelectionChange={setMentionCursor}
         value={prompt}

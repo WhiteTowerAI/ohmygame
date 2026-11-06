@@ -128,3 +128,20 @@ disappeared, and retarget any PRs that GitHub moved to `main` back to `dev`.
 For an urgent released-version fix, start a `fix/<short-name>` branch from
 `main` and open a PR into `main`. After review and verification, synchronize
 `main` back into `dev` through a merge PR so the fix is included in later releases.
+
+## Publishing the plugin author packages
+
+`@ohmygame/plugin-ui`, `@ohmygame/plugin-cli` and `create-ohmygame-plugin`
+carry the plugin API version, `PLUGIN_HOST_API_VERSION` in
+`src/shared/plugin-manifest.ts`, and a test keeps their `version` equal to it.
+When a release raises that version, publish all three from that release's
+commit, signed in to npm as a member of the `@ohmygame` organization:
+
+```sh
+(cd packages/plugin-ui && npm publish --access public)
+(cd packages/plugin-cli && npm publish --access public)
+(cd packages/create-ohmygame-plugin && npm publish)
+```
+
+The last two build their `dist/` from the app's code before packing
+(`prepack`), so run them from a checkout with dependencies installed.

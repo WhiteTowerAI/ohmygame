@@ -21,6 +21,7 @@ import {
   type ApprovalDecision,
   type ApprovalRequestDetails,
   type UpdateAgentRuntimeRequest,
+  type AgentAccountProfile,
   type AgentAccountProfileStatus,
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
@@ -61,6 +62,21 @@ import { CodexAppServer } from "./codex-app-server.js";
 import { CodexDriver } from "./codex.js";
 import { codexServerIdentity } from "./codex-server-pool.js";
 import { OpenCodeDriver } from "./opencode.js";
+
+/**
+ * The client name Claude Code reports for OhMyGame's conversations. Run with
+ * `-p`, it otherwise reports the generic `sdk-cli`, which subscriptions count
+ * against the 5-hour limit about twice as fast for the same work
+ * (anthropics/claude-code#97074). OhMyGame's own name, rather than another
+ * client's, keeps the report accurate. Off the `sdk-*` names Claude Code also
+ * offers its claude.ai Artifact tools; turning them off keeps the tools the
+ * session had under `sdk-cli`.
+ * Sign-in and model checks keep the CLI's default: they send no model requests.
+ */
+const CLAUDE_CLIENT_ENV = {
+  CLAUDE_CODE_ENTRYPOINT: "ohmygame",
+  CLAUDE_CODE_DISABLE_ARTIFACT: "1",
+};
 
 const STATUS_TTL_MS = 60_000;
 
@@ -156,7 +172,7 @@ export class AgentRuntimeService {
   onLimitsReported?: () => void;
   /** Each account's quota windows as last reported; they outlive the conversation that reported them. */
   #limits = new Map<string, AgentUsageLimit[]>();
-  #deleting = new Set<string>();
+  #changing = new Set<string>();
   #logins = new Map<string, () => Promise<void>>();
   #limitWrites: Promise<void> = Promise.resolve();
   #pluginAgents: Promise<void> = Promise.resolve();
@@ -278,6 +294,7 @@ export class AgentRuntimeService {
       ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
+      ...(id === "claude-code-cli" ? { identifyAsOhMyGame: settings.identifyAsOhMyGame } : {}),
       permissionMode: settings.permissionMode,
       ...(isAccountRuntimeId(id) ? { defaultProfileId: settings.defaultProfileId ?? "system" } : {}),
       ...(settings.binaryPath
@@ -361,12 +378,15 @@ export class AgentRuntimeService {
       throw new Error(
         "Choose the program itself (.exe); Windows command scripts cannot be started directly",
       );
+    if (request.identifyAsOhMyGame !== undefined && id !== "claude-code-cli")
+      throw new Error("This setting is only available for Claude Code");
     if (request.defaultProfileId !== undefined && (!isAccountRuntimeId(id) || !this.settings.profiles(id).some((profile) => profile.id === request.defaultProfileId)))
       throw new Error("Choose an existing account configuration");
     await this.settings.update(id, {
       ...(request.defaultProfileId !== undefined ? { defaultProfileId: request.defaultProfileId } : {}),
       ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
       ...(request.autoContinue !== undefined ? { autoContinue: request.autoContinue } : {}),
+      ...(request.identifyAsOhMyGame !== undefined ? { identifyAsOhMyGame: request.identifyAsOhMyGame } : {}),
       ...(request.permissionMode !== undefined
         ? { permissionMode: request.permissionMode }
         : {}),
@@ -433,9 +453,9 @@ export class AgentRuntimeService {
     await mkdir(this.#root, { recursive: true, mode: 0o700 });
     const cacheKey = this.#key(id, loginProfileId);
     await this.#logins.get(cacheKey)?.();
-    if (this.#deleting.has(`${id}:${loginProfileId}`)) throw new Error("Account configuration is being deleted");
+    if (this.#changing.has(`${id}:${loginProfileId}`)) throw new Error("Account configuration is being changed");
     const forget = () => {
-      if (!this.#deleting.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
+      if (!this.#changing.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
       this.#logins.delete(cacheKey);
     };
     const loginCommand = signInCommand(id, binary.path, env);
@@ -557,6 +577,8 @@ export class AgentRuntimeService {
       ...(pluginTool ? [pluginTool.tool] : []),
     ]);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
+    if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
+      Object.assign(env, CLAUDE_CLIENT_ENV);
     // Codex conversations with the same executable, environment and Skills share one app server.
     const codexServer =
       request.runtime === "codex-cli"
@@ -750,7 +772,7 @@ export class AgentRuntimeService {
 
   #profileId(runtime: AccountRuntimeId, profileId?: string): string {
     const selected = profileId ?? this.settings.get(runtime).defaultProfileId ?? "system";
-    if (this.#deleting.has(`${runtime}:${selected}`)) throw new Error("Account configuration is being deleted");
+    if (this.#changing.has(`${runtime}:${selected}`)) throw new Error("Account configuration is being changed");
     if (!this.settings.profiles(runtime).some((profile) => profile.id === selected)) throw new Error("Account configuration not found");
     return selected;
   }
@@ -765,11 +787,15 @@ export class AgentRuntimeService {
     return this.#limits.get(this.#key(runtime, profileId));
   }
 
+  accountDirectory(runtime: AccountRuntimeId, profileId: string): string {
+    return this.settings.profiles(runtime).find((profile) => profile.id === profileId)?.configDirectory ?? systemConfigDirectory(runtime);
+  }
+
   async accountProfiles(runtime: AccountRuntimeId, recheck = false): Promise<AgentAccountProfileStatus[]> {
     if (recheck) this.#invalidate(runtime);
     return Promise.all(this.settings.profiles(runtime).map(async (profile) => {
       const status = await this.status(runtime, false, profile.id);
-      return { ...profile, auth: status.auth, ...(status.limits ? { limits: status.limits } : {}) };
+      return { ...profile, directory: this.accountDirectory(runtime, profile.id), auth: status.auth, ...(status.limits ? { limits: status.limits } : {}) };
     }));
   }
 
@@ -777,18 +803,7 @@ export class AgentRuntimeService {
     if (!name.trim() || name.trim().length > 80) throw new Error("Choose an account configuration name (1–80 characters)");
     let directory = configDirectory ?? path.join(this.#root, "account-profiles", runtime, randomBytes(12).toString("hex"));
     if (!path.isAbsolute(directory)) throw new Error("The configuration directory must be absolute");
-    if (configDirectory) {
-      const info = await stat(directory).catch(() => undefined);
-      if (!info?.isDirectory()) throw new Error("Choose an existing configuration directory");
-      directory = await realpath(directory);
-      const managedRoot = await realpath(path.join(this.#root, "account-profiles")).catch(() => path.join(this.#root, "account-profiles"));
-      if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
-        throw new Error("Managed account directories cannot be imported");
-      // Naming System default's directory explicitly gives Claude another Keychain entry and global config file.
-      const system = systemConfigDirectory(runtime);
-      if (directory === await realpath(system).catch(() => path.resolve(system)))
-        throw new Error("System default already uses this configuration directory");
-    }
+    if (configDirectory) directory = await this.#connectableDirectory(runtime, directory);
     try {
       if (!configDirectory) {
         await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -802,22 +817,53 @@ export class AgentRuntimeService {
     }
   }
 
+  /** A directory an account may connect to: it exists and belongs neither to the app nor to System default. */
+  async #connectableDirectory(runtime: AccountRuntimeId, configDirectory: string): Promise<string> {
+    const info = await stat(configDirectory).catch(() => undefined);
+    if (!info?.isDirectory()) throw new Error("Choose an existing configuration directory");
+    const directory = await realpath(configDirectory);
+    const managedRoot = await realpath(path.join(this.#root, "account-profiles")).catch(() => path.join(this.#root, "account-profiles"));
+    if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
+      throw new Error("Managed account directories cannot be imported");
+    // Naming System default's directory explicitly gives Claude another Keychain entry and global config file.
+    const system = systemConfigDirectory(runtime);
+    if (directory === await realpath(system).catch(() => path.resolve(system)))
+      throw new Error("System default already uses this configuration directory");
+    return directory;
+  }
+
+  /**
+   * Renames an account or points it at another directory. Its id stays, so its
+   * conversations keep it; one whose native session is not in the new directory
+   * finds that session expired and continues with a history handoff.
+   */
+  async updateAccountProfile(
+    runtime: AccountRuntimeId,
+    profileId: string,
+    change: { name?: string; configDirectory?: string },
+    releaseSessions: () => Promise<void>,
+  ): Promise<AgentAccountProfile> {
+    if (profileId === "system") throw new Error("System default cannot be changed");
+    const profile = this.settings.profiles(runtime).find((profile) => profile.id === profileId);
+    if (!profile) throw new Error("Account configuration not found");
+    const name = change.name?.trim();
+    if (change.name !== undefined && (!name || name.length > 80)) throw new Error("Choose an account configuration name (1–80 characters)");
+    const named = name !== undefined ? { name } : {};
+    if (change.configDirectory !== undefined) {
+      if (profile.managed) throw new Error("A managed account's directory cannot be changed");
+      const configDirectory = await this.#connectableDirectory(runtime, change.configDirectory);
+      if (configDirectory !== profile.configDirectory)
+        return this.#whileProfileStopped(runtime, profileId, releaseSessions, () =>
+          this.settings.updateProfile(runtime, profileId, { ...named, configDirectory }));
+    }
+    return this.settings.updateProfile(runtime, profileId, named);
+  }
+
   async removeAccountProfile(runtime: AccountRuntimeId, profileId: string, releaseSessions: () => Promise<void>): Promise<void> {
     if (profileId === "system") throw new Error("System default cannot be deleted");
     const profile = this.settings.profiles(runtime).find((profile) => profile.id === profileId);
     if (!profile) throw new Error("Account configuration not found");
-    const cacheKey = this.#key(runtime, profileId);
-    const deletingKey = `${runtime}:${profileId}`;
-    const pending = [this.#probing.get(cacheKey), this.#modelLoads.get(cacheKey)];
-    const stopLogin = this.#logins.get(cacheKey);
-    this.#deleting.add(deletingKey);
-    try {
-      await releaseSessions();
-      await stopLogin?.();
-      this.#logins.delete(cacheKey);
-      await Promise.allSettled(pending);
-      // Invalidate before removing the registry entry; late probes cannot repopulate its cache.
-      this.#invalidate(runtime, profileId);
+    await this.#whileProfileStopped(runtime, profileId, releaseSessions, async () => {
       if (profile.managed) {
         const managedRoot = path.join(this.#root, "account-profiles", runtime);
         if (!profile.configDirectory || path.dirname(profile.configDirectory) !== managedRoot)
@@ -826,10 +872,34 @@ export class AgentRuntimeService {
         await rm(profile.configDirectory, { recursive: true, force: true });
       }
       await this.settings.removeProfile(runtime, profileId);
+    });
+  }
+
+  /** Stops everything using an account's directory and drops what was read from it, then runs `work`. */
+  async #whileProfileStopped<T>(
+    runtime: AccountRuntimeId,
+    profileId: string,
+    releaseSessions: () => Promise<void>,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const cacheKey = this.#key(runtime, profileId);
+    const changingKey = `${runtime}:${profileId}`;
+    const pending = [this.#probing.get(cacheKey), this.#modelLoads.get(cacheKey)];
+    const stopLogin = this.#logins.get(cacheKey);
+    this.#changing.add(changingKey);
+    try {
+      await releaseSessions();
+      await stopLogin?.();
+      this.#logins.delete(cacheKey);
+      await Promise.allSettled(pending);
+      // Invalidate before the registry changes; late probes cannot repopulate its cache.
+      this.#invalidate(runtime, profileId);
+      const result = await work();
       this.#limits.delete(cacheKey);
       this.#recordLimitsCache();
+      return result;
     } finally {
-      this.#deleting.delete(deletingKey);
+      this.#changing.delete(changingKey);
     }
   }
 
