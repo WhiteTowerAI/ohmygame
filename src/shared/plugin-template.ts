@@ -35,6 +35,17 @@ const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect 
 export function pluginTemplate(options: PluginTemplateOptions): Record<string, string> {
   const issue = pluginTemplateIssue(options);
   if (issue) throw new Error(issue);
+  const files = pluginPackageFiles(options);
+  // npm publishes the plugin's own folders.
+  const published = [...new Set(Object.keys(files).map((file) => file.split("/")[0]))];
+  return { ...files, ...pluginPublishingFiles(options, "0.1.0", published) };
+}
+
+/**
+ * The plugin's own files, without what npm needs to publish it. The
+ * plugin-creator Skill shows them as examples, with any publisher.
+ */
+export function pluginPackageFiles(options: PluginTemplateOptions): Record<string, string> {
   const parts = new Set(options.parts);
   const id = `${options.publisher}/${options.name}`;
   const files: Record<string, string> = {};
@@ -42,11 +53,9 @@ export function pluginTemplate(options: PluginTemplateOptions): Record<string, s
   const capabilities: Record<string, unknown> = {};
   const contributes: Record<string, unknown> = {};
   const commands: unknown[] = [];
-  const published = [".ohmygame-plugin", "assets", "locales"];
 
   if (parts.has("skills")) {
     contributes.skills = "./skills/";
-    published.push("skills");
     files[`skills/${options.name}/SKILL.md`] = `---
 name: ${options.name}
 description: What this Skill does and when the agent should use it. Say it in one or two sentences.
@@ -60,7 +69,6 @@ long details in files beside this one and say when to read them.
   }
 
   if (parts.has("panel")) {
-    published.push("panel");
     contributes.panels = [{ id: "main", title: "%panel.title%", icon: "./assets/icon.svg", area: "right", entry: "./panel/index.html" }];
     strings["panel.title"] = options.displayName;
     strings["command.open"] = `Open ${options.displayName}`;
@@ -95,7 +103,6 @@ document.getElementById("project").textContent = \`\${project.name} (\${project.
   }
 
   if (parts.has("native")) {
-    published.push("native", "tools");
     capabilities.native = true;
     contributes.tools = [{ name: "hello", description: `Says hello from ${options.displayName}. Replace it with what the plugin does.`, input: "./tools/hello.input.json" }];
     strings["command.hello"] = "Say hello";
@@ -114,7 +121,6 @@ export function activate(context) {
   }
 
   if (parts.has("mcp")) {
-    published.push("mcp");
     capabilities.processes = ["node"];
     contributes.mcpServers = [{ id: "server", title: "%mcp.title%", command: "node", args: ["./mcp/server.mjs"], tools: ["echo"] }];
     strings["mcp.title"] = options.displayName;
@@ -122,7 +128,6 @@ export function activate(context) {
   }
 
   if (parts.has("projectType")) {
-    published.push("template");
     contributes.projectTypes = [{ id: "game", title: "%type.title%", description: "%type.description%", icon: "./assets/icon.svg", template: "./template", preview: "web" }];
     strings["type.title"] = options.displayName;
     strings["type.description"] = options.description;
@@ -166,7 +171,7 @@ context.fillRect(0, 0, canvas.width, canvas.height);
   files["locales/en.json"] = json(strings);
   // The same text until it is translated; the app falls back to en for a missing key.
   files["locales/zh-CN.json"] = json(strings);
-  return { ...files, ...pluginPublishingFiles(options, "0.1.0", published) };
+  return files;
 }
 
 /** What a package needs to publish to npm beside the plugin: package.json, a README, a workflow and .gitignore. */

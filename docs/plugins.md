@@ -274,7 +274,7 @@ was opened.
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
@@ -523,8 +523,16 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
 
 ## Making a plugin
 
-The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
-(`src/daemon/pi-agent.ts`) follow the rules in `src/daemon/plugin-authoring.ts`.
+Agents make plugins with the `plugin-creator` Skill
+(`src/daemon/plugin-authoring.ts`), which `src/daemon/pi-agent.ts` writes to
+the Pi agent folder at startup and every coding agent gets with OhMyGame's
+other Skills. Its `SKILL.md` holds what every plugin needs; each part (Skills,
+panels, native code, MCP servers, project types) is a reference the agent
+reads only when the plugin has that part. The references are built from what
+the app already keeps up to date, so they can't fall behind it: examples from
+the package [template](#tools-for-plugin-authors) (`pluginPackageFiles`, which
+`test/pi-agent.test.ts` checks as personal plugins), every field's schema from
+`PluginManifestV2Schema`, and the page APIs copied from `@ohmygame/plugin-ui`.
 What they make is always `personal/<name>`: `PluginServices.installPersonal`
 refuses any other publisher, so it can't replace what the app or a publisher
 ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
@@ -534,12 +542,14 @@ as any package is checked.
   workspace's folder (`PluginWorkspaceProjects` in `plugin-setup.ts`). Its
   conversations are the project's, so they run, queue, undo and pick models and
   coding agents as any project's do; `PluginSetupManager.agentTools` adds
-  `plugin_manage` for that project, and `agent-prompts.ts` gives it the authoring
-  rules. `GET /projects` leaves these projects out, and deleting the workspace
+  `plugin_manage` for that project in place of `install_plugin`, and
+  `agent-prompts.ts` tells the agent to follow the Skill and hand drafts over
+  with `plugin_manage prepare`. `GET /projects` leaves these projects out, and deleting the workspace
   deletes its project. A workspace from before this gets its project, with its
   conversation moved in, the first time it is read.
 - Installing from the builder allows what the plugin asks for, since the person
-  reviewed it and chose Install. `install_plugin`, which the agent calls in a
+  reviewed it and chose Install; a draft with native code shows the
+  `NativeCodeWarning` first. `install_plugin`, which the agent calls in a
   game conversation, allows nothing: the person turns such a plugin on in a
   project's Plugins sheet, which asks them to approve it. A plugin that only
   adds Skills asks for nothing and applies right away.
