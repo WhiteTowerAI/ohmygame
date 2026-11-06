@@ -289,21 +289,6 @@ body {
   height: 48px;
 }
 
-.desktop-window-frame .plugin-builder-shell .viewer-header {
-  padding-right: calc(var(--window-controls-width) + 12px);
-}
-
-/* The Plugin Builder is a full-window workspace with no project bar or sidebar,
-   so its pane headers are the only place to drag the window. */
-.desktop-window-frame .plugin-builder-shell .window-drag-handle {
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-window-frame .plugin-builder-shell .window-drag-handle :is(a, button, input, label, select, textarea) {
-  app-region: no-drag;
-}
-
 /* The window's controls share a sheet's top corner: keep the sheet's own
    surface behind them and start its header below, rather than lifting the
    whole sheet off the window edge. Sheets render in a portal. */
@@ -4364,44 +4349,6 @@ select.settings-search-input {
   max-height: 100%;
 }
 
-.plugin-switch {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: var(--border-strong);
-  cursor: pointer;
-}
-
-.plugin-switch span {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #a0aaac;
-  transition:
-    transform 120ms ease,
-    background 120ms ease;
-}
-
-.plugin-switch[aria-checked="true"] {
-  background: var(--settings-switch-accent);
-}
-
-.plugin-switch[aria-checked="true"] span {
-  background: #fff;
-  transform: translateX(14px);
-}
-
-.plugin-switch:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
 .plugins-installed {
   container: plugins / inline-size;
   margin-top: 28px;
@@ -4622,48 +4569,8 @@ button {
   outline: 0;
 }
 
-.workspace-shell {
-  --workspace-navigation-left: 16px;
-  position: relative;
-  display: grid;
-  grid-template-columns:
-    clamp(320px, var(--agent-width, 430px), 65vw)
-    1px minmax(0, 1fr);
-  grid-template-areas: "agent resizer viewer";
-  min-height: 100dvh;
-  height: 100dvh;
-  background: var(--canvas);
-}
-
-.agent-pane {
-  grid-area: agent;
-}
-
-.workspace-resizer {
-  grid-area: resizer;
-}
-
-.viewer-pane {
-  grid-area: viewer;
-}
-
-.desktop-macos .workspace-shell {
-  --workspace-navigation-left: 88px;
-}
-
-.workspace-shell-agent-collapsed {
-  grid-template-columns: 0 0 minmax(0, 1fr);
-  grid-template-areas: "agent resizer viewer";
-}
-
 .tool-artifact-preview {
   min-height: 120px;
-}
-
-.workspace-shell-agent-collapsed .agent-pane {
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
 }
 
 /* A chat in the middle of the workspace reads in one centered column. */
@@ -7751,7 +7658,6 @@ button {
   .pixel-preset-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 175px), 1fr)); }
 }
 
-.workspace-resizer,
 .file-explorer-resizer {
   position: relative;
   z-index: 3;
@@ -7762,7 +7668,6 @@ button {
   touch-action: none;
 }
 
-.workspace-resizer::after,
 .file-explorer-resizer::after {
   position: absolute;
   top: 0;
@@ -7774,29 +7679,9 @@ button {
   transition: background 120ms ease;
 }
 
-.workspace-resizer:hover::after,
-.workspace-resizer:focus-visible::after,
-.workspace-shell-resizing .workspace-resizer::after,
 .file-explorer-resizer:hover::after,
 .file-explorer-resizer:active::after {
   background: var(--border-strong);
-}
-
-.workspace-resizer:focus-visible {
-  outline: 0;
-}
-
-.workspace-shell-agent-collapsed .workspace-resizer {
-  pointer-events: none;
-}
-
-.workspace-resize-shield {
-  position: fixed;
-  z-index: 20;
-  inset: 0;
-  cursor: col-resize;
-  touch-action: none;
-  user-select: none;
 }
 
 .pane-header {
@@ -7807,10 +7692,6 @@ button {
   min-width: 0;
   padding: 0 16px;
   border-bottom: 0;
-}
-
-.agent-pane > .pane-header {
-  padding-left: calc(var(--workspace-navigation-left) + 36px);
 }
 
 .agent-pane > .pane-header,
@@ -8016,63 +7897,6 @@ button {
 .pane-header-action:disabled {
   cursor: default;
   opacity: 0.45;
-}
-
-.workspace-navigation-actions {
-  position: absolute;
-  z-index: 20;
-  top: 11px;
-  left: var(--workspace-navigation-left);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  pointer-events: auto;
-  app-region: no-drag;
-}
-
-.workspace-navigation-actions .icon-button {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: #9ca1aa;
-  app-region: no-drag;
-}
-
-.workspace-navigation-actions .icon-button:hover {
-  background: var(--surface-hover);
-  color: #e5e7eb;
-}
-
-.workspace-navigation-actions .workspace-home-button,
-.workspace-navigation-actions .workspace-home-button:hover {
-  color: #fff;
-}
-
-.workspace-navigation-drag-exclusion {
-  position: absolute;
-  top: 0;
-  left: var(--workspace-navigation-left);
-  width: 28px;
-  height: 50px;
-  pointer-events: none;
-  app-region: no-drag;
-}
-
-.viewer-header > .workspace-navigation-drag-exclusion,
-.interactive-story-header > .workspace-navigation-drag-exclusion {
-  display: none;
-}
-
-.workspace-shell-agent-collapsed
-  :is(.viewer-header, .interactive-story-header)
-  > .workspace-navigation-drag-exclusion {
-  display: block;
-  width: 102px;
-}
-
-.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-  padding-left: calc(var(--workspace-navigation-left) + 112px);
 }
 
 .agent-body {
@@ -11906,31 +11730,6 @@ summary.work-summary:hover {
   display: block;
 }
 
-.publish-button {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.publish-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.publish-button:disabled {
-  cursor: default;
-  opacity: 0.42;
-}
-
 @container workspace-header (max-width: 520px) {
   .workspace-tabs {
     --workspace-active-tab-width: var(--workspace-tab-width);
@@ -11940,21 +11739,6 @@ summary.work-summary:hover {
     display: none;
   }
 
-  .workspace-publish-button {
-    width: 32px;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .workspace-publish-button span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
 }
 
 @container workspace-header (max-width: 380px) {
@@ -11962,7 +11746,6 @@ summary.work-summary:hover {
     --workspace-tab-width: 28px;
   }
 
-  .viewer-navigation .workspace-home-button,
   .viewer-publish > button,
   .preview-controls > .icon-button {
     width: 28px;
@@ -12963,24 +12746,6 @@ summary.work-summary:hover {
     flex: 1 0 100%;
     text-align: right;
   }
-  .workspace-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(340px, 48dvh) minmax(380px, 52dvh);
-    height: auto;
-    min-height: 100dvh;
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-shell-agent-collapsed {
-    grid-template-columns: 1fr;
-    grid-template-rows: 0 minmax(380px, 100dvh);
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-resizer {
-    display: none;
-  }
-
   .agent-pane {
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -12997,10 +12762,6 @@ summary.work-summary:hover {
   .viewer-header {
     padding-left: 10px;
     padding-right: 8px;
-  }
-
-  .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-    padding-left: calc(var(--workspace-navigation-left) + 80px);
   }
 
   .preview-controls {
@@ -13107,20 +12868,6 @@ summary.work-summary:hover {
   background: rgb(0 0 0 / 38%);
 }
 
-:root[data-appearance="light"] .plugin-switch {
-  border: 1px solid var(--border-strong);
-}
-
-:root[data-appearance="light"] .plugin-switch span {
-  top: 2px;
-  left: 2px;
-  background: var(--surface);
-}
-
-:root[data-appearance="light"] .plugin-switch[aria-checked="true"] {
-  border-color: var(--settings-switch-accent);
-}
-
 :root[data-appearance="light"] .plugin-detail-secondary {
   border-color: var(--border);
   background: var(--surface);
@@ -13139,22 +12886,6 @@ summary.work-summary:hover {
 :root[data-appearance="light"] :is(.pane-header-action, .design-header-actions > .icon-button):hover:not(:disabled),
 :root[data-appearance="light"] .pane-header-action[aria-expanded="true"],
 :root[data-appearance="light"] .pane-header-action.is-active {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button,
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button:hover {
-  color: var(--text-muted);
-}
-
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button:hover {
   background: var(--surface-hover);
   color: var(--text);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginBrowseHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginBrowseHash, pluginHash, pluginBuilderHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -57,6 +57,8 @@ describe("renderer routes", () => {
     // More types… opens the marketplace at the plugins that add a project type.
     expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
     expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
+    expect(parseAppRoute(pluginsTabHash("mine"))).toEqual({ page: "plugins", tab: "mine" });
+    expect(parseAppRoute("#/plugins?tab=skills")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins/%")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins/%")).toEqual({ page: "plugins" });
@@ -67,6 +69,7 @@ describe("renderer routes", () => {
   it("restores a builder workspace without treating it as a plugin or game project", () => {
     const sessionId = "1bf8dbe0-438a-488a-b8ec-299829c79561";
     expect(parseAppRoute(pluginBuilderHash(sessionId))).toEqual({ page: "plugin-builder", sessionId });
+    expect(parseAppRoute(pluginBuilderHash(sessionId, "chat-1"))).toEqual({ page: "plugin-builder", sessionId, conversationId: "chat-1" });
     expect(parseAppRoute("#/plugins/builder/%")).toEqual({ page: "home" });
     expect(parseAppRoute(`${pluginBuilderHash(sessionId)}/extra`)).toEqual({ page: "home" });
   });

@@ -168,6 +168,8 @@ export interface AgentRuntimeStatus {
   enabled: boolean;
   /** Send one message to carry on once a usage limit resets. */
   autoContinue: boolean;
+  /** Claude Code only: conversations report OhMyGame, not the generic `sdk-cli`, as the client. */
+  identifyAsOhMyGame?: boolean;
   installed: boolean;
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
@@ -200,6 +202,7 @@ export interface UpdateAgentRuntimeRequest {
   defaultProfileId?: string;
   enabled?: boolean;
   autoContinue?: boolean;
+  identifyAsOhMyGame?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */
   binaryPath?: string;

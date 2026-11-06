@@ -63,6 +63,21 @@ import { CodexDriver } from "./codex.js";
 import { codexServerIdentity } from "./codex-server-pool.js";
 import { OpenCodeDriver } from "./opencode.js";
 
+/**
+ * The client name Claude Code reports for OhMyGame's conversations. Run with
+ * `-p`, it otherwise reports the generic `sdk-cli`, which subscriptions count
+ * against the 5-hour limit about twice as fast for the same work
+ * (anthropics/claude-code#97074). OhMyGame's own name, rather than another
+ * client's, keeps the report accurate. Off the `sdk-*` names Claude Code also
+ * offers its claude.ai Artifact tools; turning them off keeps the tools the
+ * session had under `sdk-cli`.
+ * Sign-in and model checks keep the CLI's default: they send no model requests.
+ */
+const CLAUDE_CLIENT_ENV = {
+  CLAUDE_CODE_ENTRYPOINT: "ohmygame",
+  CLAUDE_CODE_DISABLE_ARTIFACT: "1",
+};
+
 const STATUS_TTL_MS = 60_000;
 
 /**
@@ -279,6 +294,7 @@ export class AgentRuntimeService {
       ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
+      ...(id === "claude-code-cli" ? { identifyAsOhMyGame: settings.identifyAsOhMyGame } : {}),
       permissionMode: settings.permissionMode,
       ...(isAccountRuntimeId(id) ? { defaultProfileId: settings.defaultProfileId ?? "system" } : {}),
       ...(settings.binaryPath
@@ -362,12 +378,15 @@ export class AgentRuntimeService {
       throw new Error(
         "Choose the program itself (.exe); Windows command scripts cannot be started directly",
       );
+    if (request.identifyAsOhMyGame !== undefined && id !== "claude-code-cli")
+      throw new Error("This setting is only available for Claude Code");
     if (request.defaultProfileId !== undefined && (!isAccountRuntimeId(id) || !this.settings.profiles(id).some((profile) => profile.id === request.defaultProfileId)))
       throw new Error("Choose an existing account configuration");
     await this.settings.update(id, {
       ...(request.defaultProfileId !== undefined ? { defaultProfileId: request.defaultProfileId } : {}),
       ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
       ...(request.autoContinue !== undefined ? { autoContinue: request.autoContinue } : {}),
+      ...(request.identifyAsOhMyGame !== undefined ? { identifyAsOhMyGame: request.identifyAsOhMyGame } : {}),
       ...(request.permissionMode !== undefined
         ? { permissionMode: request.permissionMode }
         : {}),
@@ -558,6 +577,8 @@ export class AgentRuntimeService {
       ...(pluginTool ? [pluginTool.tool] : []),
     ]);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
+    if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
+      Object.assign(env, CLAUDE_CLIENT_ENV);
     // Codex conversations with the same executable, environment and Skills share one app server.
     const codexServer =
       request.runtime === "codex-cli"

@@ -17,7 +17,9 @@ import {
   PLUGIN_MANIFEST_PATH,
   PLUGIN_SKILL_CONTENT_MAX_BYTES,
   isNewerPluginVersion,
+  type StorePlugin,
 } from "../shared/plugins.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   agentToolName,
   pluginApiIssue,
@@ -403,6 +405,23 @@ function checkPackage(
       skills,
       toolSchemas,
     },
+  };
+}
+
+/** What a package adds, by title; tools and skills are counted. */
+export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">, text: (value: string) => string): StorePlugin["adds"] {
+  const contributes = entry.manifest.contributes ?? {};
+  const hooks = manifestHooks(entry.manifest);
+  return {
+    projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
+    panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
+    commands: (contributes.commands ?? []).map((command) => text(command.title)),
+    mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
+    modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
+    agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
+    tools: contributes.tools?.length ?? 0,
+    skills: entry.skills.length,
+    ...(hooks.length ? { hooks: [...hooks] } : {}),
   };
 }
 

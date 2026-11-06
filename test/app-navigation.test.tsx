@@ -172,6 +172,14 @@ describe("project return navigation", () => {
     expect(navigation.projectReturnTo).toBe("#/plugins/plugin");
   });
 
+  it("keeps the Plugins tab in the address and as the project entry", async () => {
+    await mount("#/plugins?tab=mine");
+    expect(window.location.hash).toBe("#/plugins?tab=mine");
+    expect(navigation.route).toEqual({ page: "plugins", tab: "mine" });
+    await navigate(conversationHash("project", "chat", "design"));
+    expect(navigation.projectReturnTo).toBe("#/plugins?tab=mine");
+  });
+
   it("restores a saved Settings plugin return link at its new address", async () => {
     await mount(projectHash("project"), { projectReturnTo: "#/settings/plugins/plugin" });
     expect(navigation.projectReturnTo).toBe("#/plugins/plugin");

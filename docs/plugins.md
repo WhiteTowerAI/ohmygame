@@ -13,22 +13,27 @@ from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
+The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
+the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
+**Installed** has a dot when an installed plugin has an update.
 
-- **Installed** groups plugins by their `categories` into **Game creation**,
+- **Installed** holds what others made: bundled, prepared, and added from npm or
+  GitHub. It groups them by their `categories` into **Game creation**,
   **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
-  shows up to six cards and a **View all**. **Personal** comes next: the
-  plugins the person made (`personal/<name>`), ending with **Create a plugin
-  with AI**, then the AI workspaces. Search shows every match in one list.
+  shows up to six cards and a **View all**. A **Category** filter narrows them
+  to what they add; **Skills** lists each of their Skills on its own instead.
+  Search shows every match in one list.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning on one that
   asks for more than was allowed asks first, saying it will run in every
   project it suits. One stopped everywhere from its page says **Disabled** and
   has no switch.
-- **Browse** lists every plugin with its source and what it adds, and filters by
-  source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
-  come first, under **Featured** and **On npm**, leaving out what's installed.
-- **Skills** lists each plugin's Skills, with the person's own under **Personal**.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins under
+  **Featured** and **On npm**, filtered by what they add. One that's installed
+  says so and opens its page.
+- **Mine** holds what the person can edit: **Create a plugin with AI**, the
+  plugins they made (`personal/<name>`) or added from this computer, then the AI
+  workspaces.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -269,7 +274,7 @@ was opened.
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
@@ -525,6 +530,14 @@ refuses any other publisher, so it can't replace what the app or a publisher
 ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
 as any package is checked.
 
+- Each AI workspace is a hidden project of type `plugin`, made with the
+  workspace's folder (`PluginWorkspaceProjects` in `plugin-setup.ts`). Its
+  conversations are the project's, so they run, queue, undo and pick models and
+  coding agents as any project's do; `PluginSetupManager.agentTools` adds
+  `plugin_manage` for that project, and `agent-prompts.ts` gives it the authoring
+  rules. `GET /projects` leaves these projects out, and deleting the workspace
+  deletes its project. A workspace from before this gets its project, with its
+  conversation moved in, the first time it is read.
 - Installing from the builder allows what the plugin asks for, since the person
   reviewed it and chose Install. `install_plugin`, which the agent calls in a
   game conversation, allows nothing: the person turns such a plugin on in a
@@ -586,16 +599,27 @@ the source again and refuses a package whose digest isn't the one reviewed.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
-| npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| npm, from `registry.npmjs.org`, `registry.npmmirror.com` or another registry's address | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
 | This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
+- **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
+  and **Another registry…**, which takes a public registry's address over HTTPS,
+  with no sign-in, query or trailing slash
+  (`customNpmRegistry`). OhMyGame doesn't sign in to registries, so one that
+  answers 401 or 403 is refused with a message saying so. The choice is
+  remembered in the renderer's local storage and also applies to market cards.
+  A package downloads from the registry's own host or from `registry.npmjs.org`,
+  where a mirror points a version it hasn't copied yet; either way it has to
+  match the registry's SHA-512. The origin stays the registry chosen, even when a
+  market version came from npm instead, so updates are looked for there.
 - A package allows nothing when it's added. What it asks for waits for the person
   to approve it, on its page or when they turn it on in a project's Plugins sheet.
   One that only adds Skills asks for nothing, so it applies right away and replaces
   its older versions.
 - A package joins an installed plugin only from the same source: the same npm
-  scope or GitHub repository. Approvals and settings belong to the id, so from
+  scope or GitHub repository. npm and npmmirror count as one source; another
+  registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
   anywhere else, and from this computer always, the person uninstalls it first,
   which clears them. Other contents under an installed version are refused; a
   new release needs a new version.
@@ -632,7 +656,8 @@ Nothing updates a package by itself: adding a newer one is the update.
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
 reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
-GitHub branch or tag is at now. A plugin with an update says so, and its page
+GitHub branch or tag is at now. An npm version the market blocked or turned
+away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
 nowhere to look, so its page says to add it again.
@@ -651,9 +676,11 @@ nowhere to look, so its page says to add it again.
 The market lists the plugins published on npm. A job in the
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
 finds them, runs the same package checks as the app, and publishes an index file.
-`src/daemon/plugin-market.ts` reads it from the address in
-`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
-HTTP on this computer), there's no market and nothing is read.
+`src/daemon/plugin-market.ts` reads it from
+`https://plugins.ohmygame.ai/plugins/index.json` (`PLUGIN_INDEX_URL`), on
+Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
+or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
+nothing is read.
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
   file, then the index it names if that changed, checks the index against the
@@ -667,7 +694,7 @@ HTTP on this computer), there's no market and nothing is read.
   counts for nothing, since nothing signed says when a package was published: after
   npm retires a key, versions signed only with it need publishing again. The
   package then comes
-  from the chosen registry or the other one and has to match that SHA-512, so the
+  from the chosen registry, falling back to npm and npmmirror, and has to match that SHA-512, so the
   index and a mirror can't get a changed package installed. A card's review and
   install both need that signed entry, so one gone from the index is refused rather
   than read from the registry. Registry metadata isn't needed, since a mirror can
@@ -679,7 +706,7 @@ HTTP on this computer), there's no market and nothing is read.
 - **Source verified** means npm's provenance names the repository, or the
   repository's `package.json` names the package. Stars show only then. Weekly
   downloads come from npm.
-- **After installing.** A plugin added from npm shows **Update available** when the
+- **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
@@ -1049,12 +1076,13 @@ type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
 plugin SVG text is never inserted into the renderer DOM.
 
 In Plugin Builder's Overview, click the icon beside the plugin name to upload an
-image, choose a package image path, or restore the default. This editor is available
+image, pick one of the PNG, WebP or SVG images already in the package, or restore
+the default (`src/renderer/plugin-icon-picker.tsx`). This editor is available
 after a valid draft has been prepared. Changes save to the draft; use Install plugin
 or Update plugin to apply them. Uploads use content-addressed filenames under
 `assets/` and preserve existing package files. Icon edits refresh the content
 revision and clear saved checks; stale icon saves and installations are rejected.
-Image path previews only read valid PNG/WebP/SVG files from that draft.
+The package's thumbnails only read valid PNG/WebP/SVG files from that draft.
 
 ## Connections
 

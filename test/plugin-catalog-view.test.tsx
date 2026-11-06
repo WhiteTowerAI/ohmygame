@@ -80,7 +80,7 @@ beforeEach(() => {
       if (init.method === "POST" && route === "/plugin-sources/inspect")
         return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], skills: 1, mcpServers: [], settings: false, installedVersions: [] });
       if (init.method === "POST" && route === "/plugin-sources/install") {
-        store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }] }));
+        store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, origin: { type: "github", repository: "acme/fresh", commit: "a".repeat(40) }, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }] }));
         return Response.json({ id: "acme/fresh", version: "1.0.0" }, { status: 201 });
       }
       throw new Error(`Unexpected request: ${route}`);
@@ -142,18 +142,15 @@ describe("plugin catalog browsing", () => {
     expect(
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
-      "Game creation 3",
-      "Engines & platforms 5",
-      "Art & assets 4",
-      "Other plugins 1",
-      "Personal 2",
+      "Game creation",
+      "Engines & platforms",
+      "Art & assets",
+      "Other plugins",
     ]);
     expect(cards(sections[0])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
     expect(cards(sections[1])).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "Unreal Engine", "WeChat Mini Games"]);
     expect(cards(sections[2])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
     expect(cards(sections[3])).toEqual(["New tool"]);
-    expect(cards(sections[4])).toEqual(["Alpha", "Zebra"]);
-    expect(sections[4].textContent).toContain("Create a plugin with AI");
     // Each says where it is on, and switches that for every project. One
     // stopped everywhere from its page says so and has no switch.
     expect(sections[0].textContent).toContain("On in every project");
@@ -162,6 +159,12 @@ describe("plugin catalog browsing", () => {
     expect(unreal.textContent).toContain("Disabled");
     expect(unreal.querySelector('[role="switch"]')).toBeNull();
     expect(sections[1].querySelector('[aria-label="Turn Unity on in every project"]')?.getAttribute("aria-checked")).toBe("false");
+
+    // What the person made, or added from this computer, is theirs to edit, under Mine.
+    await click("Mine");
+    const mine = container.querySelector('section[aria-label="Your plugins"]')!;
+    expect(cards(mine)).toEqual(["Alpha", "Zebra"]);
+    expect(mine.textContent).toContain("Create a plugin with AI");
   });
 
   it("expands and collapses an individual group", async () => {
@@ -195,7 +198,10 @@ describe("plugin catalog browsing", () => {
     expect(container.querySelectorAll(".plugins-section h2")).toHaveLength(0);
     expect(container.textContent).not.toContain("View all");
     await search("a");
+    expect(cards()).not.toContain("Alpha");
+    await click("Mine");
     expect(cards()).toContain("Alpha");
+    await click("Installed");
     await search("missing tool");
     expect(cards()).toEqual([]);
     expect(container.textContent).toContain("No matching plugins");
@@ -218,8 +224,10 @@ describe("plugin catalog browsing", () => {
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
     expect(items.map((item) => item.textContent)).toEqual(
-      expect.arrayContaining(["Browse plugins", "Create with AI…", "Add plugin…"]),
+      expect.arrayContaining(["Create with AI…", "Add plugin…"]),
     );
+    // The market is a tab, so the menu doesn't offer it again.
+    expect(items.map((item) => item.textContent)).not.toContain("Browse plugins");
     expect(document.activeElement).toBe(items[0]);
     await act(async () =>
       document.dispatchEvent(
@@ -251,16 +259,22 @@ describe("plugin catalog browsing", () => {
     });
     const section = (title: string) => container.querySelector(`section[aria-label="${title}"]`)!;
 
-    it("shows featured and listed plugins on Browse, leaving out what's installed", async () => {
+    it("shows featured and listed plugins on Discover, marking what's installed", async () => {
       store.push(fromNpm("owned"));
       market = { status: "ready", blocked: [], plugins: [
         listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400 }), listed("owned"),
       ] };
-      await renderCatalog();
-      await click("Browse");
+      const opened: Array<string | undefined> = [];
+      await act(async () => root.render(<PluginsSettings onPluginChange={(id) => opened.push(id)} onTryPlugin={async () => {}} />));
+      await click("Discover");
       expect(cards(section("Featured"))).toEqual(["Market picked"]);
-      expect(cards(section("On npm"))).toEqual(["Market popular"]);
-      expect(cards()).not.toContain("Market owned");
+      expect(cards(section("On npm"))).toEqual(["Market popular", "Market owned"]);
+      const owned = [...section("On npm").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("Market owned"))!;
+      expect(owned.querySelector(".plugins-installed-label")?.textContent).toBe("Installed");
+      // One that's installed opens its page rather than the review.
+      await act(async () => owned.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      expect(opened).toEqual(["acme/owned"]);
+      expect(document.querySelector(".ui-dialog")).toBeNull();
       expect(section("On npm").textContent).toContain("★ 1.2K");
       expect(section("On npm").querySelector('[aria-label="Source verified"]')).toBeTruthy();
       expect(section("Featured").querySelector('[aria-label="Source verified"]')).toBeNull();
@@ -271,7 +285,7 @@ describe("plugin catalog browsing", () => {
     it("opens the review of a listed plugin from its card", async () => {
       market = { status: "ready", blocked: [], plugins: [listed("picked")] };
       await renderCatalog();
-      await click("Browse");
+      await click("Discover");
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market picked"))!.click());
       expect(document.querySelector(".ui-dialog")).toBeTruthy();
     });
@@ -279,25 +293,34 @@ describe("plugin catalog browsing", () => {
     it("says so when the market can't be reached, or may be out of date, and still shows the page", async () => {
       market = { status: "unavailable", plugins: [], blocked: [] };
       await renderCatalog();
-      await click("Browse");
+      await click("Discover");
       expect(container.textContent).toContain("Couldn't load the plugin list");
+      await click("Installed");
       expect(cards()).toContain("Game Studio");
       market = { status: "stale", plugins: [listed("picked")], blocked: [] };
       await act(async () => root.unmount());
       root = createRoot(container);
       await renderCatalog();
-      await click("Browse");
+      await click("Discover");
       expect(cards()).toContain("Market picked");
       expect(container.textContent).toContain("may be out of date");
     });
 
     it("offers a newer version only for a plugin added from npm", async () => {
-      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }));
-      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" })] };
+      const other = { ...fromNpm("other"), origin: { type: "npm", package: "@acme/other", version: "1.0.0", registry: "https://registry.example.com" } } satisfies StorePlugin;
+      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }), other);
+      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" }), listed("other", { version: "1.2.0" })] };
       await renderCatalog();
       const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       expect(card("Installed owned").textContent).toContain("Update available");
+      // The tab says so too, with a dot rather than a count.
+      const installedTab = container.querySelector('[role="tab"]')!;
+      expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
+      // One added from this computer is the person's own, under Mine, and never updates from the market.
+      await click("Mine");
       expect(card("Installed local").textContent).not.toContain("Update available");
+      // Another registry is a source of its own, so npm's package couldn't join it.
+      expect(card("Installed other").textContent).not.toContain("Update available");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
       expect(document.querySelector(".ui-dialog")).toBeTruthy();
@@ -318,7 +341,7 @@ describe("plugin catalog browsing", () => {
       vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
       try {
         await renderCatalog();
-        await click("Browse");
+        await click("Discover");
         expect(cards()).not.toContain("Market picked");
         market = { status: "ready", blocked: [], plugins: [listed("picked")] };
         await act(async () => { vi.advanceTimersByTime(2 * 60_000); });
@@ -338,65 +361,58 @@ describe("plugin catalog browsing", () => {
         return Response.json({ error: "no" }, { status: 500 });
       }));
       await renderCatalog();
-      await click("Browse");
-      expect(cards()).toContain("Game Studio");
+      await click("Discover");
       expect(container.querySelector('[role="alert"]')).toBeNull();
+      await click("Installed");
+      expect(cards()).toContain("Game Studio");
     });
   });
 
-  it("switches tabs with the arrow keys and filters Browse by source and project type", async () => {
-    await renderCatalog();
+  it("switches tabs with the arrow keys, keeps the tab in the route, and has no counts", async () => {
+    const shown: string[] = [];
+    await act(async () => root.render(<PluginsSettings tab="mine" onTabChange={(tab) => shown.push(tab)} onPluginChange={() => {}} onTryPlugin={async () => {}} />));
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     ];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed15", "Browse", "Skills4"]);
-    tabs[0].focus();
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed", "Discover", "Mine"]);
+    expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelectorAll(".plugins-count")).toHaveLength(0);
+    tabs[2].focus();
     await act(async () =>
-      tabs[0].dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      tabs[2].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
       ),
     );
     expect(document.activeElement).toBe(tabs[1]);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(cards()).toHaveLength(15);
-    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    expect(shown).toEqual(["discover"]);
+  });
 
-    await pick("Source", "Other sources");
-    expect(cards()).toEqual(["Alpha", "Zebra"]);
-    await pick("Source", "OhMyGame");
-    // One category filter, offering only what some plugin adds.
+  it("filters installed plugins by what they add, Skills included", async () => {
+    await renderCatalog();
+    // One category filter, offering only what some installed plugin adds.
     const category = container.querySelector<HTMLButtonElement>('[aria-label="Category"]')!;
     await act(async () => category.click());
     expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent))
       .toEqual(["All categories", "Skills", "MCP"]);
     await act(async () => category.click());
-    expect(container.querySelector('[aria-label="Works with"]')).toBeNull();
     await pick("Category", "MCP");
-    expect(cards()).toEqual(["New tool", "Unreal Engine"]);
-    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("New tool"))!;
-    expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP"]);
-  });
+    expect(cards()).toEqual(["Unreal Engine", "New tool"]);
 
-  it("lists every plugin's skills, which go on and off with their plugin", async () => {
-    await renderCatalog();
-    await click("Skills");
+    // Skills shows each Skill on its own, and they go on and off with their plugin.
+    await pick("Category", "Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
-    const sections = [...container.querySelectorAll(".plugins-section")];
-    expect(sections.map((section) => section.querySelector("h2")?.textContent)).toEqual([
-      "From plugins 2",
-      "Personal 2",
-    ]);
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Skills4");
     expect(container.textContent).toContain("design-game");
+    expect(container.textContent).not.toContain("stripes");
     expect(container.querySelector('[aria-label="Disable design-game"]')).toBeNull();
-    await search("stripes", "Search skills");
-    expect(container.textContent).not.toContain("plan-game");
-    expect(container.textContent).toContain("stripes");
+    await search("plan");
+    expect(container.textContent).toContain("plan-game");
+    expect(container.textContent).not.toContain("design-game");
   });
 
   it("shows a plugin's skills after adding it", async () => {
     await renderCatalog();
-    await click("Skills");
+    await pick("Category", "Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
     await click("Add");
     await act(async () =>

@@ -115,6 +115,32 @@ describe("PluginAddDialog", () => {
     expect(onAdded).toHaveBeenCalledWith("acme/maker");
   });
 
+  it("adds from another registry by its address, and starts there next time, market cards too", async () => {
+    try {
+      await open();
+      await act(async () => dialog().querySelector<HTMLButtonElement>('[role="combobox"]')!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "Another registry…")!.click());
+      await type(dialog().querySelector<HTMLInputElement>('input[placeholder="@publisher/plugin"]')!, "@acme/maker");
+      const address = dialog().querySelector<HTMLInputElement>('input[placeholder="https://registry.example.com"]')!;
+      await type(address, "http://registry.example.com");
+      await submit();
+      expect(requests).toEqual([]);
+      expect(dialog().textContent).toContain("Enter the registry's address over HTTPS");
+      await type(address, "https://registry.example.com/npm/");
+      await submit();
+      expect(requests[0]!.body).toEqual({ source: { type: "npm", name: "@acme/maker", registry: "https://registry.example.com/npm" } });
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await open();
+      expect(dialog().querySelector<HTMLInputElement>('input[placeholder="https://registry.example.com"]')!.value).toBe("https://registry.example.com/npm");
+      const card: MarketPlugin = { id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Makes things", asks: [], adds: {}, featured: false, sourceVerified: false };
+      await act(async () => root.render(<PluginAddDialog key="listed" listed={card} onClose={onClose} onAdded={onAdded} />));
+      expect(requests.at(-1)!.body).toMatchObject({ source: { registry: "https://registry.example.com/npm", market: true } });
+    } finally {
+      localStorage.removeItem("ohmygame.pluginRegistry");
+    }
+  });
+
   it("says what adding does to versions already installed", async () => {
     answer = () => Response.json({ ...preview, appWide: true, asks: [], mcpServers: [], settings: false, installedVersions: ["0.9.0", "1.0.0"] });
     await open();

@@ -4,8 +4,8 @@ import { uploadAttachments, type ComposerAttachment } from "./composer-attachmen
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
-import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
-import { isAppProjectType, MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
+import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
+import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,

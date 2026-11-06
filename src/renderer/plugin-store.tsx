@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, exportStorePlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
-import { hookLabel } from "./plugin-hook-labels.js";
+import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
@@ -121,9 +121,9 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
 }
 
-/** A newer version on the market. Only for a plugin added from npm: from anywhere else it couldn't join. */
+/** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */
 export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
-  if (plugin.origin?.type !== "npm") return undefined;
+  if (plugin.origin?.type !== "npm" || !(PLUGIN_NPM_REGISTRIES as readonly string[]).includes(plugin.origin.registry)) return undefined;
   const listed = market?.plugins.find((item) => item.id === plugin.id);
   return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }
@@ -149,7 +149,7 @@ export function marketContributions({ adds }: MarketPlugin): PluginContribution[
 }
 
 /** A plugin on the market, not installed yet; opening it reviews the package. */
-export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onOpen: () => void }): ReactNode {
+export function MarketPluginCard({ plugin, installed = false, onOpen }: { plugin: MarketPlugin; installed?: boolean; onOpen: () => void }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
@@ -169,7 +169,7 @@ export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onO
         </span>
       </span>
     </button>
-    <span className="plugins-installed-label">{t("plugins.install")}</span>
+    <span className="plugins-installed-label">{t(installed ? "plugins.installed" : "plugins.install")}</span>
   </article>;
 }
 
@@ -220,29 +220,6 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
     {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
     {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled}
       label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
-  </article>;
-}
-
-/** A listing on the browse page: where it comes from and what it adds. */
-export function StorePluginBrowseCard({ group, onOpen }: { group: StorePluginGroup; onOpen: () => void }): ReactNode {
-  const { plugin } = group;
-  return <article className="plugin-card">
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
-      <StoreTile plugin={plugin} />
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.bundled ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.official")} /> : null}
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.bundled ? t("plugins.officialSource") : plugin.id}</span>
-          <StoreTags plugin={plugin} />
-        </span>
-      </span>
-    </button>
-    <span className="plugins-installed-label">{t("plugins.installed")}</span>
   </article>;
 }
 
@@ -357,36 +334,20 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     for (const version of unused) await uninstallStorePlugin(plugin.id, version.version);
     setUsage(undefined);
   });
-  const adds = [
-    ...plugin.adds.projectTypes.map((title) => ({ kind: t("pluginStore.addsType"), title })),
-    ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
-    ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
-    ...plugin.adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
-    ...(plugin.adds.hooks ?? []).map((hook) => ({ kind: t("pluginStore.addsHook"), title: hookLabel(hook) })),
-    ...plugin.adds.modelProviders.map((title) => ({ kind: t("pluginStore.addsModelProvider"), title })),
-    ...plugin.adds.agents.map((title) => ({ kind: t("pluginStore.addsAgent"), title })),
-    ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
-    ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
-  ];
+  const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
-    <header className="plugin-head">
-      <StoreTile plugin={plugin} large />
-      <div className="plugin-head-copy">
-        <h1>
-          <span>{plugin.displayName}</span>
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-          {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
-          {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
-        </h1>
-        <p>{plugin.description}</p>
-      </div>
+    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
+      {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
+      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
+      {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
+    </>}>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
         <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
         {tryIt.popover}
       </div> : null}
-    </header>
+    </PluginHead>
     {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
     {plugin.developmentError ? <Alert tone="danger" title={t("pluginStore.developmentError")}>{plugin.developmentError}</Alert> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
@@ -415,9 +376,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </section> : null}
           {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
             <h2>{t("pluginStore.adds")}</h2>
-            <ul className="plugin-store-adds">
-              {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
-            </ul>
+            <PluginAddsList rows={adds} />
           </section> : null}
           {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
             <h2>{t("pluginStore.asksFor")}</h2>

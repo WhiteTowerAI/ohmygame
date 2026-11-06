@@ -421,6 +421,11 @@ export function CodingAgentDetail({
             <Switch label={t("codingAgents.autoContinue")} checked={agent.autoContinue} onChange={(autoContinue) => void update({ autoContinue })} />
           </SettingsRow>
         ) : null}
+        {agent.installed && agent.identifyAsOhMyGame !== undefined ? (
+          <SettingsRow title={t("codingAgents.identifyAsOhMyGame")} description={t("codingAgents.identifyAsOhMyGameHint")}>
+            <Switch label={t("codingAgents.identifyAsOhMyGame")} checked={agent.identifyAsOhMyGame} onChange={(identifyAsOhMyGame) => void update({ identifyAsOhMyGame })} />
+          </SettingsRow>
+        ) : null}
         <form className="settings-pad" onSubmit={savePath}>
           <Field
             label={t("codingAgents.executable")}

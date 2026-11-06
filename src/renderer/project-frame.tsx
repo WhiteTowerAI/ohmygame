@@ -25,12 +25,12 @@ export function ProjectFrame({ rail, top, children }: { rail: ReactNode; top: Re
  * its cover), a status only when it needs attention, then the project's
  * actions on the right.
  */
-export function ProjectTop({ name, menu, status, children }: { name: string; menu: readonly MenuEntry[]; status?: ReactNode; children?: ReactNode }) {
+export function ProjectTop({ name, icon, menu, status, children }: { name: string; icon?: ReactNode; menu: readonly MenuEntry[]; status?: ReactNode; children?: ReactNode }) {
   return (
     <>
       <DropdownMenu placement="bottom-start" items={menu} trigger={(props) => (
         <button type="button" {...props} className="project-name" title={name}>
-          <span>{name}</span><ChevronDown size={12} />
+          {icon}<span>{name}</span><ChevronDown size={12} />
         </button>
       )} />
       {status ? <span className="project-status" role="status">{status}</span> : null}

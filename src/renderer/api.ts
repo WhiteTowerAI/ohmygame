@@ -1750,7 +1750,7 @@ export async function saveConnectionConfiguration(id: string, values: import("..
 export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
 }
 async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
@@ -1758,22 +1758,12 @@ async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
 }
-export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
-}
-export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);
 }
 export async function deletePluginSetup(id: string): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-export async function promptPluginSetup(id: string, prompt: string, model: AgentModelRef, reasoningLevel?: import("../shared/contracts.js").AgentReasoningLevel): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/prompt`, { method: "POST", body: JSON.stringify({ prompt, model, reasoningLevel }) });
-}
-export async function abortPluginSetup(id: string): Promise<void> {
-  await request(`/plugins/setup-sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
-}
-
 export async function listPluginSetups(): Promise<import("../shared/plugin-setup.js").PluginSetupSummary[]> {
   return request("/plugins/setup-sessions");
 }
@@ -1793,8 +1783,8 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);
 }
-export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  const state = await request<import("../shared/plugin-setup.js").PluginSetupState>(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
+export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
+  const state = await request<import("../shared/plugin-setup.js").PluginSetupSummary>(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
   void syncPluginTheme(listPluginThemes);
   return state;
 }

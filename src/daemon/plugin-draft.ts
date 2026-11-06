@@ -5,7 +5,7 @@ import type { PluginDraft } from "../shared/plugin-setup.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { indexPluginPackage, localizePluginString } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, pluginAdds } from "./plugin-index.js";
 import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
@@ -42,6 +42,7 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
       skills: entry.skills.map((skill) => ({ id: skill.path.replace(/^\.\//, ""), name: skill.name, description: skill.description })),
       mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({ id: server.id, title: localizePluginString(entry, server.title, "en") })),
       settings: Boolean(entry.manifest.configuration),
+      adds: pluginAdds(entry, (value) => localizePluginString(entry, value, "en")),
     };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
