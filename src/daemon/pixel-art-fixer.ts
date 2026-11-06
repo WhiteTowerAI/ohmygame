@@ -1,4 +1,4 @@
-import sharp, { type Sharp } from "sharp";
+import sharp from "sharp";
 import type { GeneratedImageMediaType } from "./openai-image.js";
 
 /** Local, deterministic pixel-grid snapper used after pixel-art generation. */
