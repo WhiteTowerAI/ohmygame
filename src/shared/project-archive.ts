@@ -28,8 +28,10 @@ export const PROJECT_ARCHIVE_MAX_ENTRIES = 200_000;
 
 /**
  * The name and settings a project folder carries in `.ohmygame/settings.json`.
- * Its type is in `ohmygame.json`; `kind` only tells the General projects that
- * the app shows as a Web game or an Asset Canvas apart.
+ * Its type is in `ohmygame.json`; `kind` names the app's type where that file
+ * doesn't tell it: a Web game or an Asset Canvas, which it calls `general`, and
+ * the kinds it can't name, a plugin's workspace and a Godot project from before
+ * Godot was a plugin.
  */
 export const PROJECT_SETTING_KEYS = [
   "name",
@@ -44,8 +46,8 @@ export const PROJECT_SETTING_KEYS = [
   ...PREVIEW_SETTING_KEYS,
 ] as const satisfies readonly (keyof ProjectState)[];
 
-/** The app's types that `ohmygame.json` names `general`. */
-export const PROJECT_SETTING_KINDS = ["web-game", "asset-canvas"] as const;
+/** The app's types that `ohmygame.json` doesn't tell apart. */
+export const PROJECT_SETTING_KINDS = ["web-game", "asset-canvas", "godot-game", "plugin"] as const;
 export type ProjectSettingKind = (typeof PROJECT_SETTING_KINDS)[number];
 
 export type ProjectSettings = Pick<ProjectState, "name"> &
@@ -69,7 +71,7 @@ export interface ProjectArchiveManifest {
   cover?: { mode: ProjectCoverMode };
 }
 
-/** The kind a project's settings name, for the types `ohmygame.json` calls `general`. */
+/** The kind a project's settings name, for the types `ohmygame.json` doesn't tell apart. */
 export function projectSettingKind(project: Pick<ProjectState, "type" | "pluginType">): ProjectSettingKind | undefined {
   return !project.pluginType && (PROJECT_SETTING_KINDS as readonly string[]).includes(project.type)
     ? project.type as ProjectSettingKind

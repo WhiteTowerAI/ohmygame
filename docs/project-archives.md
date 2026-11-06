@@ -46,8 +46,10 @@ The settings file looks like this:
 It holds the name, preview and run settings, media model defaults and
 appearance: the keys listed in `PROJECT_SETTING_KEYS`. A key is present only
 when the project sets it. The type is the one `ohmygame.json` names. `kind`
-says which of the types that file calls `general` the project is: `web-game`
-or `asset-canvas`, and no `kind` for a General project. A plugin's type comes
+names the app's type where that file doesn't tell it: `web-game` or
+`asset-canvas`, which it calls `general` (no `kind` is a General project), and
+`plugin` or `godot-game` for a plugin's workspace or a Godot project from
+before Godot was a plugin, which it can't name. A plugin's type comes
 from `ohmygame.json` too; until the app reads the version it pins, the
 imported project runs outside OhMyGame.
 

@@ -1537,7 +1537,7 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
 function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): string | undefined {
   if (project.pluginType) return project.pluginType.id;
   if (project.type === "interactive-story") return project.type;
-  return project.type === "general" || projectSettingKind(project) ? "general" : undefined;
+  return project.type === "general" || project.type === "web-game" || project.type === "asset-canvas" ? "general" : undefined;
 }
 
 /**
@@ -1549,7 +1549,7 @@ function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): stri
 function typeFromFile(fileType: string, kind: ProjectSettingKind | undefined, known?: Pick<ProjectMetadata, "type" | "pluginType">): Pick<ProjectMetadata, "type" | "pluginType"> {
   if (fileType === "interactive-story") return { type: fileType };
   const plugin = projectTypePlugin(fileType);
-  if (!plugin) return { type: kind && (PROJECT_SETTING_KINDS as readonly string[]).includes(kind) ? kind : "general" };
+  if (!plugin) return { type: kind ?? "general" };
   const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === fileType)?.[0] as ProjectType | undefined;
   return {
     type: alias ?? "general",
@@ -1581,7 +1581,8 @@ export async function projectFolderType(workspacePath: string): Promise<string |
   if (alias) return alias;
   if (named.type !== "general") return named.type;
   const found = await readFolderSettings(workspacePath);
-  return typeof found === "object" ? found.kind ?? "general" : undefined;
+  if (typeof found !== "object") return undefined;
+  return found.kind === undefined ? "general" : found.kind === "web-game" || found.kind === "asset-canvas" ? found.kind : undefined;
 }
 
 /**

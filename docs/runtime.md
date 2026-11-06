@@ -526,7 +526,9 @@ The project's type is in `ohmygame.json` at the folder's root, beside
 `.ohmygame/`; see [plugins](plugins.md#files). It names `interactive-story`,
 a plugin's type, or `general` for the app's General projects, Web games and
 Asset Canvases, which `settings.json` tells apart with `kind` (`web-game` or
-`asset-canvas`). A new project of the app's own types gets the file when it
+`asset-canvas`). `kind` also names the types the file can't: a plugin's
+workspace (`plugin`) and a Godot project from before Godot was a plugin
+(`godot-game`). A new project of the app's own types gets the file when it
 is created, a plugin's type when its plugin starts the folder, and an older
 project when it loads. The app reads the type from the folder when a project
 loads: an edit there is what the next start shows, and `project.json` keeps

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -381,6 +381,23 @@ describe("Web Game project codebase", () => {
       await rm(path.join(web.workspacePath, "ohmygame.json"));
       await next.touch(web.id);
       expect(JSON.parse(await readFile(path.join(web.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "interactive-story" });
+      // The kinds ohmygame.json can't name stay in the settings: a plugin's workspace, given a file by a plugin turned on in it…
+      const workspace = await manager.create("Builder", "plugin");
+      await writeFile(path.join(workspace.workspacePath, "README.md"), "plugin");
+      await manager.rename(workspace.id, "Builder workspace");
+      expect(JSON.parse(await readFile(path.join(workspace.workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ kind: "plugin" });
+      await writeFile(path.join(workspace.workspacePath, "ohmygame.json"), JSON.stringify({ type: "general" }));
+      const reloaded = new ProjectManager(directory);
+      await reloaded.load();
+      expect(reloaded.get(workspace.id)?.type).toBe("plugin");
+      // …and a Godot project from before Godot was a plugin, through an export and an import.
+      const legacy = await manager.create("Old Godot", "godot-game");
+      await writeFile(path.join(legacy.workspacePath, "project.godot"), "config_version=5\n");
+      await manager.rename(legacy.id, "Old Godot game");
+      expect(await readdir(legacy.workspacePath)).not.toContain("ohmygame.json");
+      const staged = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-"));
+      await cp(legacy.workspacePath, staged, { recursive: true });
+      expect(await manager.import(staged, JSON.parse(await readFile(path.join(staged, ".ohmygame", "settings.json"), "utf8")))).toMatchObject({ type: "godot-game" });
       // The dialog names a plugin's type that the app had as its own by the app's name.
       const godot = await mkdtemp(path.join(tmpdir(), "ohmygame-godot-"));
       await writeFile(path.join(godot, "ohmygame.json"), JSON.stringify({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }));
