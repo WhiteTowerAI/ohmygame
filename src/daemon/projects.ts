@@ -1382,8 +1382,9 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
   // A folder without settings starts over with the defaults; it is the folder's name that the person knows it by.
   const settings: SettingsSource = record.settings ? "pending" : typeof found === "object" ? "folder" : found === "missing" ? "pending" : "unknown";
   const defaults = { name: record.workspacePath ? path.basename(record.workspacePath) : "Untitled project" };
-  const { kind, ...carried } = typeof found === "object" ? found : defaults as ProjectSettings;
   const known = { type: record.type ?? "web-game", ...(record.pluginType ? { pluginType: record.pluginType } : {}) };
+  // Settings that can't be read keep the kind the app last knew.
+  const { kind = typeof found === "object" ? undefined : projectSettingKind(known), ...carried } = typeof found === "object" ? found : defaults as ProjectSettings;
   const named = await readFolderType(workspacePath);
   const typed = typeof named === "object" ? typeFromFile(named.type, kind, known) : known;
   const { metadata, missing } = parseMetadata({
@@ -1511,8 +1512,9 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
     const written = await writeFolderSettings(workspacePath, portable);
     // A file that can't be read is the record still: the settings are unknown, unless a copy is waiting for it.
     next = written === "written" ? "folder" : written === "unreadable" && settings === "folder" ? "unknown" : "pending";
-    if (written === "written") await nameFolderType(workspacePath, metadata);
   }
+  // A folder that lost the file, as to an older snapshot, gets it back.
+  if (next === "folder") await nameFolderType(workspacePath, metadata);
   await writeRecord(projectDirectory, {
     version: 2,
     id: metadata.id,
@@ -1574,6 +1576,9 @@ async function readFolderType(workspacePath: string): Promise<{ type: string } |
 export async function projectFolderType(workspacePath: string): Promise<string | undefined> {
   const named = await readFolderType(workspacePath);
   if (typeof named !== "object") return undefined;
+  // The dialog offers a plugin's type that the app had as its own by the app's name.
+  const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === named.type)?.[0];
+  if (alias) return alias;
   if (named.type !== "general") return named.type;
   const found = await readFolderSettings(workspacePath);
   return typeof found === "object" ? found.kind ?? "general" : undefined;

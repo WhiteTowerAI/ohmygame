@@ -368,6 +368,23 @@ describe("Web Game project codebase", () => {
       await next.load();
       expect(next.get(web.id)).toMatchObject({ type: "interactive-story", name: "Sky Garden" });
       expect(JSON.parse(await readFile(path.join(directory, "projects", web.id, "project.json"), "utf8"))).toMatchObject({ type: "interactive-story" });
+
+      // Settings that can't be read keep the kind the app last knew.
+      const canvas = await manager.create("Board", "asset-canvas");
+      await manager.rename(canvas.id, "Board game");
+      await writeFile(path.join(canvas.workspacePath, ".ohmygame", "settings.json"), "{");
+      const broken = new ProjectManager(directory);
+      await broken.load();
+      expect(broken.get(canvas.id)?.type).toBe("asset-canvas");
+      expect(JSON.parse(await readFile(path.join(directory, "projects", canvas.id, "project.json"), "utf8"))).toMatchObject({ type: "asset-canvas" });
+      // A folder that lost its file, as to an older snapshot, gets it back with the next save.
+      await rm(path.join(web.workspacePath, "ohmygame.json"));
+      await next.touch(web.id);
+      expect(JSON.parse(await readFile(path.join(web.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "interactive-story" });
+      // The dialog names a plugin's type that the app had as its own by the app's name.
+      const godot = await mkdtemp(path.join(tmpdir(), "ohmygame-godot-"));
+      await writeFile(path.join(godot, "ohmygame.json"), JSON.stringify({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }));
+      expect(await projectFolderType(godot)).toBe("godot-game");
     } finally {
       await rm(directory, { recursive: true, force: true });
       await rm(folder, { recursive: true, force: true });
