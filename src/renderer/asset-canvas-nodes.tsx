@@ -22,7 +22,8 @@ import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
 import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { normalizeModel3DConfig, resolveModel3DConnection, resolveModel3D, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useCanvasAssetSources, useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useSeenOnScreen } from "./use-seen-on-screen.js";
 import { ModelPreview } from "./model-preview.js";
 import { fileExtension } from "../shared/media-files.js";
 import type { DroppedFolder } from "./canvas-file-import.js";
@@ -487,20 +488,21 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
 
 export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const kind = data.mediaType ?? "image";
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, data.assetId);
+  const { preview, stageRef, largeModel } = useCanvasMedia(data.assetId, kind === "model", data.assetSize);
   const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : kind === "model" ? Box : ImageIcon;
   const mediaLayout = useMediaNodeLayout(kind === "audio" || kind === "model" ? undefined : preview.url, data.assetAspectRatio);
   const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "132px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
       <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} className={`is-${kind}`} trailing={<>{data.assetWidth && data.assetHeight ? <small title={`${data.assetWidth} x ${data.assetHeight}`}>{data.assetWidth} x {data.assetHeight}</small> : null}<small>{data.assetOrigin === "Project" ? t("assetCanvas.project") : t("assetCanvas.library")}</small></>} />
-      <div data-alignment-frame className="story-media-stage">
+      <div ref={stageRef} data-alignment-frame className="story-media-stage">
         {preview.url && kind !== "audio" ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || t("assetCanvas.libraryImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
-        {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
+        {largeModel ? <LargeModelPlaceholder {...largeModel} /> : null}
+        {!preview.url && !largeModel ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
       {selected && data.examplePrompt ? <div className="asset-example-prompt nodrag nowheel">
         <label htmlFor={`asset-example-prompt-${data.assetId ?? "example"}`}>{t("effectLibrary.examplePrompt")}</label>
@@ -818,10 +820,10 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   previewUrl?: string;
   children: React.ReactNode;
 }) {
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
+  const threeD = kind === "model" || kind === "animation";
+  const { preview, stageRef, largeModel } = useCanvasMedia(assetId, threeD);
   const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "audio" ? Music2 : kind === "animation" ? WandSparkles : Box;
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
-  const threeD = kind === "model" || kind === "animation";
   const audio = kind === "audio";
   const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;
   const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url ?? exampleUrl, assetAspectRatio ?? parseAspectRatio(aspectRatio));
@@ -829,7 +831,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
       <CanvasNodeLabel icon={Icon} label={label} details={details} className={`is-${kind === "animation" ? "model" : kind}`} />
-      <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
+      <div ref={stageRef} data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
@@ -838,7 +840,8 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {exampleUrl && !runtime?.generating ? (
           <TemplateExampleImage src={exampleUrl} alt="" className="story-media-preview-example" onLoad={mediaLayout.onImageLoad} />
         ) : null}
-        {!preview.url && !exampleUrl && !runtime?.generating ? (
+        {largeModel && !runtime?.generating ? <LargeModelPlaceholder {...largeModel} /> : null}
+        {!preview.url && !exampleUrl && !runtime?.generating && !largeModel ? (
           <div className="story-media-empty">
             <Icon size={34} />
             <strong>{assetId ? preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset") : t(`assetCanvas.media.${kind}.none`)}</strong>
@@ -859,6 +862,32 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
     </div>
   );
 }
+/**
+ * 3D files above this wait for the person on the canvas. Their textures can
+ * take gigabytes of GPU memory, and parsing them stalls the window.
+ */
+const LARGE_CANVAS_MODEL_BYTES = 32 * 1024 * 1024;
+
+/** A canvas node's file, downloaded once the node comes near the screen, and a large 3D file only once asked for. */
+export function useCanvasMedia(assetId: string | undefined, threeD: boolean, knownSize?: number) {
+  const [stage, stageRef] = useState<HTMLDivElement | null>(null);
+  const seen = useSeenOnScreen(stage);
+  const [requested, setRequested] = useState(false);
+  const size = useCanvasAssetSources().get(assetId ?? "")?.size ?? knownSize;
+  // A 3D file whose size isn't known yet, such as one just added, waits as a large one does.
+  const waiting = threeD && !!assetId && !requested && (size === undefined || size > LARGE_CANVAS_MODEL_BYTES);
+  const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId, seen && !waiting);
+  return { preview, stageRef, largeModel: waiting ? { size, onLoad: () => setRequested(true) } : undefined };
+}
+
+export function LargeModelPlaceholder({ size, onLoad }: { size?: number; onLoad: () => void }) {
+  return <div className="story-media-empty">
+    <Box size={34} />
+    <strong>{size === undefined ? t("assetCanvas.modelSizeUnknown") : t("assetCanvas.largeModel", { size: formatBytes(size) })}</strong>
+    <button className="canvas-asset-retry nodrag" type="button" onClick={onLoad}>{t("assetCanvas.loadModel")}</button>
+  </div>;
+}
+
 export function CanvasAssetRecovery({ preview }: { preview: ReturnType<typeof useWorkspaceAssetUrl> }) {
   return preview.error ? <><span role="status">{preview.error}</span><button className="canvas-asset-retry nodrag" type="button" disabled={preview.loading} onClick={preview.retry}>{preview.loading ? t("assetCanvas.checking") : t("canvasDoc.checkAgain")}</button></> : null;
 }

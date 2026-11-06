@@ -16,6 +16,16 @@ export function RuntimeNotice() {
     return null;
   const recovering =
     state.status === "starting" || state.status === "recovering" || pending;
+  const restart = (safeMode: boolean) => {
+    setPending(true);
+    setError(undefined);
+    void window
+      .ohMyGameDesktop!.runtimeService!.restart({ safeMode })
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      )
+      .finally(() => setPending(false));
+  };
   return (
     <aside
       className="runtime-notice"
@@ -50,24 +60,15 @@ export function RuntimeNotice() {
         ) : null}
       </div>
       {!recovering ? (
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={() => {
-            setPending(true);
-            setError(undefined);
-            void window
-              .ohMyGameDesktop!.runtimeService!.restart()
-              .catch((cause) =>
-                setError(
-                  cause instanceof Error ? cause.message : String(cause),
-                ),
-              )
-              .finally(() => setPending(false));
-          }}
-        >
-          {t("runtimeNotice.restart")}
-        </Button>
+        <div className="runtime-notice-actions">
+          {/* Plugins run outside the service, but one can still be why it keeps stopping. */}
+          <Button size="sm" variant="ghost" onClick={() => restart(true)}>
+            {t("runtimeNotice.restartSafe")}
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => restart(false)}>
+            {t("runtimeNotice.restart")}
+          </Button>
+        </div>
       ) : null}
     </aside>
   );

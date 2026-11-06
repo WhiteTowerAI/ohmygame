@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
+import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
-import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
-import { isAppProjectType, MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
+import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
+import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -17,6 +17,7 @@ import type {
 } from "../shared/contracts.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import "./project-create-dialog.css";
 
 /** What Home's prompt box hands over: it becomes the project's first message. */
@@ -136,6 +137,15 @@ export function ProjectCreateDialog({
     void getProjectLocation().then((value) => { if (active) setDefaultLocation(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+  // A folder that names its type starts on it; creating it as another type is refused.
+  useEffect(() => {
+    if (!workspacePath) return;
+    let active = true;
+    void getProjectFolderType(workspacePath).then(({ type: named }) => {
+      if (active && named) setChosenType(named);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [workspacePath]);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
   const [creating, setCreating] = useState(false);
@@ -280,17 +290,15 @@ export function ProjectCreateDialog({
         {typePluginConsent?.capabilities.length ? (
           <div className="new-project-consent">
             <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
-            <ul className="project-plugins-capabilities">
-              {typePluginConsent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-            </ul>
+            <PluginCapabilityList capabilities={typePluginConsent.capabilities} />
+            <NativeCodeWarning asks={typePluginConsent.capabilities} />
           </div>
         ) : null}
         {turnOnConsent.map((plugin) => (
           <div className="new-project-consent" key={plugin.id}>
             <p>{t("createDialog.pluginConsent", { name: plugin.displayName })}</p>
-            <ul className="project-plugins-capabilities">
-              {plugin.asks!.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-            </ul>
+            <PluginCapabilityList capabilities={plugin.asks!} />
+            <NativeCodeWarning asks={plugin.asks!} />
           </div>
         ))}
         {/* Only a folder shown by its path needs saying how it is used. */}

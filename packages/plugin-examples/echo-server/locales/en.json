@@ -1,0 +1,5 @@
+{
+  "plugin.name": "Echo server",
+  "plugin.description": "A local MCP server the agent can call.",
+  "mcp.title": "Echo server"
+}

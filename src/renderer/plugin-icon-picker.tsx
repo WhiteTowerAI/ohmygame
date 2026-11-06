@@ -1,15 +1,26 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   PLUGIN_ICON_MEDIA_TYPES,
   PLUGIN_ICON_MAX_BYTES,
 } from "../shared/plugin-icons.js";
-import { isPluginIcon } from "../shared/plugins.js";
 import type { PluginDraftPlugin, PluginIconChange } from "../shared/plugin-setup.js";
-import { PluginIcon } from "./plugin-icons.js";
-import { PluginFilePicker } from "./plugin-file-picker.js";
+import { PluginGlyph } from "./plugin-icons.js";
+import { Upload } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button, Dialog } from "./ui/index.js";
 
+const ICON_FILE = /\.(png|webp|svg)$/i;
+
+/** What the icon will be: an image to upload, or one already in the package. */
+type Choice = { type: "upload"; file: File } | { type: "asset"; path: string };
+
+/** A manifest path and a package file name the same image with and without `./`. */
+const packagePath = (path: string) => path.replace(/^\.\//, "");
+
+/**
+ * Picks a plugin's icon from the images in its package, or from one uploaded
+ * into it. Every choice is a tile, so there's no path to type.
+ */
 export function PluginIconPicker({
   plugin,
   setupId,
@@ -25,106 +36,32 @@ export function PluginIconPicker({
   onClose: () => void;
   onSave: (change: PluginIconChange) => Promise<void>;
 }) {
-  const titleId = useId(),
-    pathsId = useId();
-  const dialog = useRef<HTMLElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
-  const [mode, setMode] = useState<"upload" | "path">(
-    plugin.icon?.type === "asset" ? "path" : "upload",
-  );
-  const [assetPath, setAssetPath] = useState(
-    plugin.icon?.type === "asset" ? plugin.icon.path : "",
-  );
-  const [file, setFile] = useState<File>();
-  const [localImage, setLocalImage] = useState<string>();
+  const current = plugin.icon?.type === "asset" ? packagePath(plugin.icon.path) : undefined;
+  const images = files.map(entry => entry.path).filter(path => ICON_FILE.test(path));
+  const [choice, setChoice] = useState<Choice | undefined>(current ? { type: "asset", path: current } : undefined);
+  const [upload, setUpload] = useState<{ file: File; url: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const pending = useRef(false);
   pending.current = busy || disabled;
-  useEffect(() => {
-    const previous =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : undefined;
-    dialog.current?.focus();
-    const keyboard = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!pending.current) close.current();
-      }
-      if (event.key !== "Tab" || !dialog.current) return;
-      const elements = [
-        ...dialog.current.querySelectorAll<HTMLElement>(
-          "button:not(:disabled), input:not(:disabled):not([tabindex='-1'])",
-        ),
-      ];
-      const first = elements[0],
-        last = elements.at(-1);
-      if (!first) {
-        event.preventDefault();
-        dialog.current.focus();
-      } else if (
-        !dialog.current.contains(document.activeElement) ||
-        document.activeElement === dialog.current
-      ) {
-        event.preventDefault();
-        (event.shiftKey ? last : first)?.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", keyboard, true);
-    return () => {
-      window.removeEventListener("keydown", keyboard, true);
-      previous?.focus();
-    };
-  }, []);
-  useEffect(() => {
-    if (!file) {
-      setLocalImage(undefined);
+  useEffect(() => () => { if (upload) URL.revokeObjectURL(upload.url); }, [upload]);
+
+  function choose(file: File | undefined) {
+    setError(undefined);
+    if (!file) return;
+    if (!ICON_FILE.test(file.name) || file.size > PLUGIN_ICON_MAX_BYTES || !file.size) {
+      setError(t("pluginIconPicker.invalidFile"));
       return;
     }
-    const url = URL.createObjectURL(file);
-    setLocalImage(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-  const icon = { type: "asset", path: assetPath.trim() };
-  const valid = mode === "upload" ? Boolean(file) : isPluginIcon(icon);
-  const preview = {
-    ...plugin,
-    icon: isPluginIcon(icon) ? icon : undefined,
-    iconRevision: undefined,
-  };
-  async function save(change?: PluginIconChange) {
+    setUpload({ file, url: URL.createObjectURL(file) });
+    setChoice({ type: "upload", file });
+  }
+
+  async function save(change: PluginIconChange) {
     if (pending.current) return;
     setBusy(true);
     setError(undefined);
     try {
-      if (!change) {
-        if (mode === "upload" && file) {
-          const data = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result).split(",")[1]);
-            reader.onerror = () =>
-              reject(new Error(t("pluginIconPicker.readFailed")));
-            reader.readAsDataURL(file);
-          });
-          change = {
-            image: {
-              data,
-              mediaType: PLUGIN_ICON_MEDIA_TYPES[file.name.toLowerCase().split(".").at(-1) as keyof typeof PLUGIN_ICON_MEDIA_TYPES],
-            },
-          };
-        } else if (isPluginIcon(icon)) change = { icon };
-      }
-      if (!change) throw new Error(t("pluginIconPicker.chooseIcon"));
       await onSave(change);
       onClose();
     } catch (cause) {
@@ -133,154 +70,61 @@ export function PluginIconPicker({
       setBusy(false);
     }
   }
-  return createPortal(
-    <div
-      className="plugin-install-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending.current) onClose();
-      }}
-    >
-      <section
-        ref={dialog}
-        className="plugin-install-dialog plugin-icon-picker"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-      >
-        <header className="plugin-icon-picker-heading">
-          {mode === "upload" && localImage ? (
-            <span className="plugin-row-icon">
-              <img
-                className="plugin-icon-image"
-                src={localImage}
-                width={36}
-                height={36}
-                alt={t("pluginIconPicker.preview")}
-              />
-            </span>
-          ) : (
-            <PluginIcon
-              plugin={preview}
-              setupId={setupId}
-              previewAsset={mode === "path"}
-            />
-          )}
-          <div>
-            <h2 id={titleId}>{t("pluginIconPicker.title")}</h2>
-            <p>{plugin.displayName}</p>
-          </div>
-        </header>
-        <div
-          className="plugin-icon-modes"
-          role="group"
-          aria-label={t("pluginIconPicker.source")}
-        >
-          {(["upload", "path"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={mode === value}
-              disabled={busy || disabled}
-              onClick={() => {
-                if (value !== mode) setFile(undefined);
-                setMode(value);
-                setError(undefined);
-              }}
-            >
-              {t(`pluginIconPicker.${value}`)}
-            </button>
-          ))}
-        </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <fieldset key={mode} disabled={busy || disabled}>
-            {mode === "upload" ? (
-              <>
-                <PluginFilePicker
-                  label={t("pluginIconPicker.imageFile")}
-                  inputLabel={t("pluginIconPicker.imageInput")}
-                  chooseLabel={t("common.chooseFile")}
-                  emptyLabel={t("common.noFileSelected")}
-                  file={file}
-                  accept="image/png,image/webp,image/svg+xml,.png,.webp,.svg"
-                  disabled={busy || disabled}
-                  onChange={(selected) => {
-                    setFile(undefined);
-                    setError(undefined);
-                    if (!selected) return;
-                    if (
-                      !/\.(png|webp|svg)$/i.test(selected.name) ||
-                      selected.size > PLUGIN_ICON_MAX_BYTES ||
-                      !selected.size
-                    ) {
-                      setError(t("pluginIconPicker.invalidFile"));
-                      return;
-                    }
-                    setFile(selected);
-                  }}
-                />
-                <p className="plugin-icon-help">
-                  {t("pluginIconPicker.fileHelp")}
-                </p>
-              </>
-            ) : (
-              <>
-                <label>
-                  {t("pluginIconPicker.imagePath")}
-                  <input
-                    aria-label={t("pluginIconPicker.pathInput")}
-                    value={assetPath}
-                    onChange={(event) => setAssetPath(event.target.value)}
-                    placeholder="./assets/icon.png"
-                    list={pathsId}
-                    aria-invalid={!valid}
-                  />
-                </label>
-                <datalist id={pathsId}>
-                  {files
-                    .filter((entry) => /\.(png|webp|svg)$/.test(entry.path))
-                    .map((entry) => (
-                      <option key={entry.path} value={`./${entry.path}`} />
-                    ))}
-                </datalist>
-                <p className="plugin-icon-help">
-                  {t("pluginIconPicker.pathHelp")}
-                </p>
-              </>
-            )}
-          </fieldset>
-          {error ? (
-            <p className="plugin-builder-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <footer>
-            <button
-              type="button"
-              disabled={busy || disabled}
-              onClick={() => void save({ icon: null })}
-            >
-              {t("pluginIconPicker.useDefault")}
-            </button>
-            <button type="button" disabled={busy || disabled} onClick={onClose}>
-              {t("common.cancel")}
-            </button>
-            <button
-              className="plugin-install-submit"
-              type="submit"
-              disabled={busy || disabled || !valid}
-            >
-              {busy ? t("common.saving") : t("pluginIconPicker.save")}
-            </button>
-          </footer>
-        </form>
-      </section>
-    </div>,
-    document.body,
-  );
+
+  async function saveChoice() {
+    if (!choice) return;
+    if (choice.type === "asset") return save({ icon: { type: "asset", path: `./${choice.path}` } });
+    const { file } = choice;
+    let data: string;
+    try {
+      data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error(t("pluginIconPicker.readFailed")));
+        reader.readAsDataURL(file);
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return;
+    }
+    const extension = file.name.toLowerCase().split(".").at(-1) as keyof typeof PLUGIN_ICON_MEDIA_TYPES;
+    return save({ image: { data, mediaType: PLUGIN_ICON_MEDIA_TYPES[extension] } });
+  }
+
+  const locked = busy || disabled;
+  const tile = (selected: boolean, label: string, glyph: ReactNode, onSelect: () => void, key: string) =>
+    <button key={key} type="button" className="plugin-icon-tile" aria-pressed={selected} title={label} disabled={locked} onClick={onSelect}>
+      <span className="plugin-icon-tile-image">{glyph}</span>
+      <span className="plugin-icon-tile-name">{label}</span>
+    </button>;
+
+  return <Dialog open size="sm" onClose={() => { if (!pending.current) onClose(); }}
+    title={t("pluginIconPicker.title")} description={plugin.displayName}
+    footer={<>
+      <Button variant="ghost" className="plugin-icon-default" disabled={locked} onClick={() => void save({ icon: null })}>{t("pluginIconPicker.useDefault")}</Button>
+      <Button disabled={locked} onClick={onClose}>{t("common.cancel")}</Button>
+      <Button variant="primary" disabled={locked || !choice} onClick={() => void saveChoice()}>
+        {busy ? t("common.saving") : t("pluginIconPicker.save")}
+      </Button>
+    </>}>
+    <div className="plugin-icon-picker">
+      <div className="plugin-icon-grid" role="group" aria-label={t("pluginIconPicker.source")}>
+        <label className={`plugin-icon-tile plugin-icon-upload${locked ? " is-disabled" : ""}`}>
+          <input className="visually-hidden" type="file" aria-label={t("pluginIconPicker.imageInput")} disabled={locked}
+            accept="image/png,image/webp,image/svg+xml,.png,.webp,.svg"
+            onChange={event => { choose(event.target.files?.[0]); event.target.value = ""; }} />
+          <span className="plugin-icon-tile-image"><Upload size={18} aria-hidden="true" /></span>
+          <span className="plugin-icon-tile-name">{t("pluginIconPicker.upload")}</span>
+        </label>
+        {upload ? tile(choice?.type === "upload", upload.file.name,
+          <img src={upload.url} width={32} height={32} alt="" className="plugin-icon-image" />,
+          () => setChoice({ type: "upload", file: upload.file }), "upload") : null}
+        {images.map(path => tile(choice?.type === "asset" && choice.path === path, path.split("/").at(-1)!,
+          <PluginGlyph plugin={{ id: plugin.id, icon: { type: "asset", path: `./${path}` } }} size={32} setupId={setupId} previewAsset />,
+          () => setChoice({ type: "asset", path }), path))}
+      </div>
+      <p className="plugin-icon-help">{t("pluginIconPicker.fileHelp")}</p>
+      {error ? <p className="plugin-builder-error" role="alert">{error}</p> : null}
+    </div>
+  </Dialog>;
 }

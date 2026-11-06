@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  customNpmRegistry,
   isPluginIcon,
   isNewerPluginVersion,
   isPluginVersion,
@@ -16,6 +17,12 @@ describe("plugin protocol", () => {
     for (const icon of [{ type: "preset", id: "image" }, { type: "asset", path: "./../icon.png" }, { type: "asset", path: "https://example.com/icon.png" }, { type: "asset", path: "./icon.gif" }]) {
       expect(isPluginIcon(icon)).toBe(false);
     }
+  });
+
+  it("takes another npm registry's address over HTTPS", () => {
+    expect(customNpmRegistry(" https://registry.example.com/npm/ ")).toBe("https://registry.example.com/npm");
+    for (const bad of ["http://registry.example.com", "http://localhost:4873", "https://me:secret@registry.example.com", "https://registry.example.com/?token=1", "ftp://registry.example.com", "registry.example.com"])
+      expect(customNpmRegistry(bad), bad).toBeUndefined();
   });
 
   it("accepts SemVer versions only", () => {

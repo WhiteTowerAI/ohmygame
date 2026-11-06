@@ -7,6 +7,8 @@ import type { DesktopRuntimeState } from "../shared/desktop-runtime.js";
 
 interface SupervisorOptions extends StartDaemonOptions {
   onState?: (state: DesktopRuntimeState) => void;
+  /** Starts in safe mode, with no plugins running, as `--safe-mode` asks. */
+  safeMode?: boolean;
   maxAutomaticRestarts?: number;
   restartWindowMs?: number;
 }
@@ -22,8 +24,11 @@ export class DaemonSupervisor {
   };
   #stopped = false;
   #restarts: number[] = [];
+  #safeMode: boolean;
 
-  constructor(private readonly options: SupervisorOptions) {}
+  constructor(private readonly options: SupervisorOptions) {
+    this.#safeMode = options.safeMode ?? false;
+  }
 
   get runtime() {
     if (!this.#daemon || this.#state.status !== "ready")
@@ -39,8 +44,10 @@ export class DaemonSupervisor {
     return this.#launch(false);
   }
 
-  restart(): Promise<DesktopRuntimeState> {
+  /** Restarts the service, in safe mode or, without it, normally; an automatic restart keeps the mode. */
+  restart(options: { safeMode?: boolean } = {}): Promise<DesktopRuntimeState> {
     this.#restarts = [];
+    this.#safeMode = options.safeMode ?? false;
     return this.#launch(true);
   }
 
@@ -79,11 +86,15 @@ export class DaemonSupervisor {
       generation,
       recovered,
       error: this.#state.error,
+      ...(this.#safeMode ? { safeMode: true } : {}),
     });
     try {
       await previous?.stop();
+      // An inherited setting never decides the mode; the supervisor does.
+      const { OHMYGAME_SAFE_MODE: _inherited, ...environment } = this.options.environment ?? process.env;
       const daemon = await startDaemon({
         ...this.options,
+        environment: this.#safeMode ? { ...environment, OHMYGAME_SAFE_MODE: "1" } : environment,
         onUnexpectedExit: (error) => {
           void this.#unexpectedExit(generation, error).catch(() => {});
         },
@@ -98,6 +109,7 @@ export class DaemonSupervisor {
         generation,
         recovered,
         runtime: daemon.runtime,
+        ...(this.#safeMode ? { safeMode: true } : {}),
       });
       return this.state();
     } catch (cause) {
@@ -106,6 +118,7 @@ export class DaemonSupervisor {
         generation,
         recovered,
         error: cause instanceof Error ? cause.message : String(cause),
+        ...(this.#safeMode ? { safeMode: true } : {}),
       });
       throw cause;
     }

@@ -250,7 +250,7 @@ describe("examples", () => {
     await writeFile(path.join(empty, ".DS_Store"), "");
     const created = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", exampleId: "pond", workspacePath: empty } });
     expect(created.statusCode).toBe(201);
-    expect((await readdir(empty)).sort()).toEqual([".DS_Store", "package.json", "src"]);
+    expect((await readdir(empty)).sort()).toEqual([".DS_Store", ".ohmygame", "ohmygame.json", "package.json", "src"]);
   });
 
   it("validates prepared catalogs", () => {

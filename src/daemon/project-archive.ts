@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -16,9 +16,13 @@ import {
   PROJECT_ARCHIVE_SETTING_KEYS,
   PROJECT_ARCHIVE_VERSION,
   PROJECT_ARCHIVE_WORKSPACE,
-  projectArchiveSettings,
+  PROJECT_SETTING_KEYS,
+  PROJECT_SETTING_KINDS,
+  projectSettings,
+  projectSettingsFileText,
   type ProjectArchiveManifest,
   type ProjectArchiveSettings,
+  type ProjectSettings,
 } from "../shared/project-archive.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType } from "../shared/project-runtime.js";
@@ -37,31 +41,52 @@ import {
 import { sniffImageType } from "./image-format.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
+import { realFolders } from "./project-layout.js";
 import type { ProjectManager } from "./projects.js";
+import {
+  AUTOMATIC_COVER_FILE,
+  PROJECT_BUILD_DIRECTORY,
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_SETTINGS_FILE,
+  PROJECT_SETTINGS_VERSION,
+} from "../shared/project-layout.js";
 
 const GRAPH_FILE = "graph.json";
 
 // Dependencies and version control are left out wherever they are, as are
 // environment files, which usually hold secrets. Build output, caches and
-// OhMyGame's agent data are left out at the workspace root only, like in
-// checkpoints. The rest of `.data/` is kept: asset metadata and previews must
-// travel with the assets they describe.
+// OhMyGame's files for this computer are left out at the workspace root only,
+// like in checkpoints. The rest of `.ohmygame/` is kept: asset metadata and
+// previews must travel with the assets they describe.
 const EXCLUDED_ANYWHERE = new Set(["node_modules", ".git"]);
 const EXCLUDED_AT_ROOT = new Set([
   "dist",
   "build",
   "out",
   ".godot",
-  ".ohmygame",
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_BUILD_DIRECTORY,
   ".ohmygame-install-pending",
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept agent attachments in `.data/`.
   ".data/agent-attachments",
   "canvas/jobs.json",
 ]);
 const SKIPPED_ON_IMPORT_AT_ROOT = new Set([
-  ".ohmygame",
+  PROJECT_LOCAL_DIRECTORY,
+  PROJECT_BUILD_DIRECTORY,
   ".ohmygame-install-pending",
-  ".data/agent-attachments",
 ]);
+// The images an archive's `.ohmygame/` may hold, with their largest size. One that is larger or is not a WebP image
+// is dropped on import: an automatic cover is captured again, and the default icon replaces a logo.
+const ARCHIVE_IMAGES: ReadonlyArray<readonly [string, number]> = [
+  [".ohmygame/cover.webp", MAX_PROJECT_COVER_BYTES],
+  [".ohmygame/cover-frozen.webp", MAX_PROJECT_COVER_BYTES],
+  [AUTOMATIC_COVER_FILE, MAX_PROJECT_COVER_BYTES],
+  [".ohmygame/logo.webp", MAX_PROJECT_LOGO_BYTES],
+];
+
+/** What an import found: the first version's manifest, or one made from the folder's settings or an old story. */
+type ArchiveManifest = Omit<ProjectArchiveManifest, "project"> & { project: ProjectSettings | ProjectArchiveSettings; rootIsWorkspace: boolean };
 
 const EXTRACTION_ERRORS: Record<ArchiveExtractionFailure, string> = {
   "invalid-zip": "The file is not a valid ZIP archive.",
@@ -99,8 +124,8 @@ export function excludedFromProjectArchive(relativePath: string): boolean {
 
 /**
  * Whether an import skips a workspace-relative path. Only version control,
- * dependencies and agent data are skipped: whatever else a hand-made archive
- * holds was put there on purpose.
+ * dependencies, plugin builds and OhMyGame's files for another computer are
+ * skipped: whatever else a hand-made archive holds was put there on purpose.
  */
 function skippedOnImport(relativePath: string): boolean {
   return matchesPath(relativePath, SKIPPED_ON_IMPORT_AT_ROOT, false);
@@ -141,8 +166,6 @@ export async function exportProjectArchive(
   project: ProjectState,
   options: {
     library?: AssetLibrary;
-    cover?: { contents: Buffer; mode: ProjectCoverMode };
-    logo?: Buffer;
     limits?: ProjectArchiveLimits;
   } = {},
 ): Promise<Readable> {
@@ -155,43 +178,33 @@ export async function exportProjectArchive(
     files,
     options.library,
   );
-  const manifest: ProjectArchiveManifest = {
-    format: PROJECT_ARCHIVE_FORMAT,
-    version: PROJECT_ARCHIVE_VERSION,
-    project: projectArchiveSettings(project),
-    ...(options.cover ? { cover: { mode: options.cover.mode } } : {}),
-  };
-  const workspaceEntry = (file: string) =>
-    `${PROJECT_ARCHIVE_WORKSPACE}/${file}`;
+  // The settings are written as the project has them now, whatever the folder's copy says.
   const entries: ArchiveFile[] = [
     {
-      path: PROJECT_ARCHIVE_MANIFEST,
-      source: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8"),
+      path: PROJECT_SETTINGS_FILE,
+      source: Buffer.from(projectSettingsFileText(projectSettings(project)), "utf8"),
     },
   ];
-  if (options.cover) {
-    entries.push({
-      path: PROJECT_ARCHIVE_COVER,
-      source: options.cover.contents,
-    });
-  }
-  if (options.logo) {
-    entries.push({ path: PROJECT_ARCHIVE_LOGO, source: options.logo });
-  }
   for (const file of files) {
+    if (file === PROJECT_SETTINGS_FILE) continue;
     entries.push({
-      path: workspaceEntry(file),
+      path: file,
       source:
         graph !== undefined && file === GRAPH_FILE
           ? Buffer.from(graph, "utf8")
           : path.join(project.workspacePath, ...file.split("/")),
     });
   }
+  // Like every other file, it goes only when it and the folders it is in are no symbolic links.
+  const automaticCover = path.join(project.workspacePath, ...AUTOMATIC_COVER_FILE.split("/"));
+  if (
+    (await realFolders(project.workspacePath, path.posix.dirname(AUTOMATIC_COVER_FILE))) &&
+    (await lstat(automaticCover).then((stats) => stats.isFile(), () => false))
+  ) {
+    entries.push({ path: AUTOMATIC_COVER_FILE, source: automaticCover });
+  }
   for (const copy of copies) {
-    entries.push({
-      path: workspaceEntry(copy.path),
-      source: copy.absolutePath,
-    });
+    entries.push({ path: copy.path, source: copy.absolutePath });
   }
   const limits = options.limits ?? DEFAULT_LIMITS;
   const prepared = await prepareArchiveFiles(entries, limits);
@@ -376,10 +389,9 @@ export async function importProjectArchive(
         if (relative === PROJECT_ARCHIVE_MANIFEST) return true;
         if (relative === PROJECT_ARCHIVE_COVER || relative === PROJECT_ARCHIVE_LOGO) return true;
         const [top, ...rest] = relative.split("/");
-        if (top === PROJECT_ARCHIVE_WORKSPACE)
-          return !skippedOnImport(rest.join("/"));
-        // Kept for an archive without a manifest, whose root is the workspace.
-        return !skippedOnImport(relative);
+        // An archive of the first version holds the workspace below `workspace/`; in others the root is the workspace.
+        const file = top === PROJECT_ARCHIVE_WORKSPACE ? rest.join("/") : relative;
+        return file === AUTOMATIC_COVER_FILE || !skippedOnImport(file);
       },
       error: (reason) =>
         new ProjectArchiveError(
@@ -388,13 +400,19 @@ export async function importProjectArchive(
         ),
     });
     await rm(archivePath);
+    // A folder's own `ohmygame-project.json` is one of its files when it has `.ohmygame/settings.json`.
     const manifest =
+      (await readFolderManifest(root)) ??
       (await readManifest(root)) ??
       (await legacyStoryManifest(root, options.name));
-    const workspace = manifest.legacy
+    const workspace = manifest.rootIsWorkspace
       ? root
       : path.join(root, PROJECT_ARCHIVE_WORKSPACE);
     await mkdir(workspace, { recursive: true });
+    for (const [image, maxBytes] of ARCHIVE_IMAGES) {
+      const file = path.join(workspace, ...image.split("/"));
+      if (!(await readArchiveImage(file, maxBytes))) await rm(file, { force: true });
+    }
     if (manifest.cover) {
       // A missing, oversized or damaged cover is replaced by the next automatic capture.
       const coverPath = path.join(root, PROJECT_ARCHIVE_COVER);
@@ -408,7 +426,7 @@ export async function importProjectArchive(
         cover = { contents, mode: manifest.cover.mode };
       }
     }
-    if (manifest.project.appearance?.logo) {
+    if (manifest.project.appearance?.logo && !manifest.rootIsWorkspace) {
       logo = await readArchiveImage(path.join(root, PROJECT_ARCHIVE_LOGO), MAX_PROJECT_LOGO_BYTES);
     }
     project = await projects.import(workspace, manifest.project);
@@ -424,7 +442,7 @@ export async function importProjectArchive(
     }
     if (cover) await projects.setCover(project.id, cover.contents, cover.mode);
     // A logo the archive names but does not hold falls back to the default icon.
-    if (project.appearance?.logo) await projects.setLogo(project.id, logo);
+    if (project.appearance?.logo && (logo || !(await projects.logo(project.id)))) await projects.setLogo(project.id, logo);
     return await projects.refreshPreviewReadiness(project.id);
   } catch (error) {
     await projects.delete(project.id);
@@ -432,6 +450,7 @@ export async function importProjectArchive(
   }
 }
 
+// compat: since beta.4.14, kept for archives until a major version (docs/compatibility.md). Archives without a manifest; see also renderer/api.ts.
 /**
  * Earlier versions export only Interactive Stories, as their bare workspace
  * with graph.json at the root of the archive.
@@ -439,7 +458,7 @@ export async function importProjectArchive(
 async function legacyStoryManifest(
   root: string,
   name: string | undefined,
-): Promise<ProjectArchiveManifest & { legacy: true }> {
+): Promise<ArchiveManifest> {
   try {
     if (!(await stat(path.join(root, GRAPH_FILE))).isFile()) throw new Error();
   } catch {
@@ -454,13 +473,58 @@ async function legacyStoryManifest(
       name: name?.trim() || defaultProjectName("interactive-story"),
       type: "interactive-story",
     },
-    legacy: true,
+    rootIsWorkspace: true,
   };
+}
+
+/** The settings of an archive of the project folder, from its `.ohmygame/settings.json`. */
+async function readFolderManifest(root: string): Promise<ArchiveManifest | undefined> {
+  let text: string;
+  try {
+    text = await readFile(path.join(root, ...PROJECT_SETTINGS_FILE.split("/")), "utf8");
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw cause;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new ProjectArchiveError("The project settings are not valid JSON.");
+  }
+  if (isRecord(value) && typeof value.version === "number" && value.version > PROJECT_SETTINGS_VERSION) {
+    throw new ProjectArchiveError(
+      "This project was exported by a newer version of OhMyGame. Update OhMyGame to import it.",
+    );
+  }
+  if (!isRecord(value) || value.version !== PROJECT_SETTINGS_VERSION) {
+    throw new ProjectArchiveError("The project settings are invalid.");
+  }
+  if (value.kind !== undefined && !(PROJECT_SETTING_KINDS as readonly unknown[]).includes(value.kind)) {
+    throw new ProjectArchiveError("The project settings are invalid.");
+  }
+  // The type is the one the folder's `ohmygame.json` names, read when the project is created.
+  const project = Object.fromEntries(
+    [...PROJECT_SETTING_KEYS, "kind"].filter((key) => value[key] !== undefined).map((key) => [key, value[key]]),
+  ) as unknown as ProjectSettings;
+  return { format: PROJECT_ARCHIVE_FORMAT, version: PROJECT_ARCHIVE_VERSION, project, rootIsWorkspace: true };
+}
+
+/** The settings an archive names, checked like saved project settings when the project is created. */
+function archiveSettings(settings: Record<string, unknown>): ProjectArchiveSettings {
+  if (!isProjectType(settings.type)) {
+    throw new ProjectArchiveError("The project type is not supported.");
+  }
+  return Object.fromEntries(
+    PROJECT_ARCHIVE_SETTING_KEYS.filter(
+      (key) => settings[key] !== undefined,
+    ).map((key) => [key, settings[key]]),
+  ) as unknown as ProjectArchiveSettings;
 }
 
 async function readManifest(
   root: string,
-): Promise<(ProjectArchiveManifest & { legacy?: false }) | undefined> {
+): Promise<ArchiveManifest | undefined> {
   let text: string;
   try {
     text = await readFile(path.join(root, PROJECT_ARCHIVE_MANIFEST), "utf8");
@@ -490,21 +554,13 @@ async function readManifest(
   if (value.version !== PROJECT_ARCHIVE_VERSION || !isRecord(value.project)) {
     throw new ProjectArchiveError("The project manifest is invalid.");
   }
-  const settings = value.project;
-  if (!isProjectType(settings.type)) {
-    throw new ProjectArchiveError("The project type is not supported.");
-  }
-  // Settings are checked like saved project settings when the project is created.
-  const project = Object.fromEntries(
-    PROJECT_ARCHIVE_SETTING_KEYS.filter(
-      (key) => settings[key] !== undefined,
-    ).map((key) => [key, settings[key]]),
-  ) as unknown as ProjectArchiveSettings;
+  const project = archiveSettings(value.project);
   const mode = isRecord(value.cover) ? value.cover.mode : undefined;
   return {
     format: PROJECT_ARCHIVE_FORMAT,
     version: PROJECT_ARCHIVE_VERSION,
     project,
+    rootIsWorkspace: false,
     ...(mode === "auto" || mode === "custom" ? { cover: { mode } } : {}),
   };
 }

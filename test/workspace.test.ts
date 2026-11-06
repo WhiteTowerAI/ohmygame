@@ -1,10 +1,35 @@
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile } from "../src/daemon/workspace.js";
+import { deleteAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "../src/daemon/asset-metadata.js";
 
 describe("workspace inspection", () => {
+  it("lists immediate children without descending into nonempty or excluded folders", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
+    await mkdir(path.join(workspace, "src", "empty"));
+    await mkdir(path.join(workspace, "node_modules"));
+    await writeFile(path.join(workspace, "root.ts"), "root");
+    await writeFile(path.join(workspace, "src", "deep", "hidden.ts"), "deep");
+    await writeFile(path.join(workspace, "src", "hero.png"), "image");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([
+      { path: "root.ts", size: 4 }, { path: "src", size: 0, directory: true },
+    ]);
+    await expect(listWorkspaceFiles(workspace, "src")).resolves.toEqual([
+      { path: "src/deep", size: 0, directory: true },
+      { path: "src/empty", size: 0, directory: true },
+      { path: "src/hero.png", size: 5, mediaType: "image" },
+    ]);
+    for (const directory of ["..", "src/../../outside", "/tmp", "C:/Windows", "C:Windows", "node_modules", ".ohmygame", "src//deep"]) {
+      await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow();
+    }
+    await expect(listWorkspaceFiles(workspace, "root.ts")).rejects.toThrow("not a directory");
+    await expect(listWorkspaceFiles(workspace, "missing")).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
+  });
+
   it("lists source files and ignores generated directories", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "src"));
@@ -25,23 +50,55 @@ describe("workspace inspection", () => {
     ]);
   });
 
+  it("does not list or enter directory links in shallow listings", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "ohmygame-outside-"));
+    await mkdir(path.join(outside, "nested"));
+    await writeFile(path.join(outside, "nested", "secret.ts"), "secret");
+    await symlink(outside, path.join(workspace, "linked"), process.platform === "win32" ? "junction" : "dir");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
+    await expect(listWorkspaceFiles(workspace, "linked")).rejects.toThrow("Symbolic links cannot be opened");
+    await expect(listWorkspaceFiles(workspace, "linked/nested")).rejects.toThrow("Symbolic links cannot be opened");
+  });
+
   it("adds stored local Asset metadata", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "assets", "generated"), { recursive: true });
-    await mkdir(path.join(workspace, ".data"));
+    await mkdir(path.join(workspace, ".ohmygame"));
     await writeFile(path.join(workspace, "assets", "generated", "image.webp"), "image");
-    await writeFile(path.join(workspace, ".data", "assets.json"), JSON.stringify({
+    await writeFile(path.join(workspace, ".ohmygame", "assets.json"), JSON.stringify({
       version: 1,
       prompts: { "assets/generated/image.webp": "A forest shrine" },
-      previews: { "assets/generated/image.webp": ".data/asset-previews/image.jpg" },
+      previews: { "assets/generated/image.webp": ".ohmygame/asset-previews/image.jpg" },
       libraryAssets: {},
     }));
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       {
-        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".data/asset-previews/image.jpg",
+        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg",
       },
     ]);
+  });
+
+  it("leaves Asset metadata it can't read unchanged instead of replacing it", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, "assets"));
+    await mkdir(path.join(workspace, ".data"));
+    await writeFile(path.join(workspace, "assets", "image.webp"), "image");
+    const file = path.join(workspace, ".data", "assets.json");
+    for (const unreadable of [
+      JSON.stringify({ version: 2, prompts: { "assets/image.webp": "A forest shrine" } }),
+      "{ \"version\": 1, <<<<<<< HEAD",
+    ]) {
+      await writeFile(file, unreadable);
+      // Each change still goes through, recording nothing, so nothing around it is left half done.
+      await writeAssetMetadata(workspace, "assets/other.webp", { prompt: "A lake" });
+      await renameAssetMetadata(workspace, "assets/image.webp", "assets/moved.webp");
+      await expect(deleteAssetMetadata(workspace, "assets/image.webp")).resolves.toEqual([]);
+      expect(await readFile(file, "utf8")).toBe(unreadable);
+      // Reading still works; it only knows nothing of the file's records.
+      await expect(listWorkspaceFiles(workspace, "assets")).resolves.toEqual([{ path: "assets/image.webp", size: 5, mediaType: "image" }]);
+    }
   });
 
   it("reads bounded text and reports binary files", async () => {

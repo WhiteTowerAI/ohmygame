@@ -22,6 +22,7 @@ export interface DoubaoVoiceConnection {
   defaultVoiceId?: string;
 }
 
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Merges the two earlier settings files.
 // Files written by the separate stores this one replaces.
 const LEGACY_FILES: Record<DoubaoService, string> = {
   "volcengine-tts": "volcengine-tts.json",

@@ -74,7 +74,7 @@ An Interactive Story opens in the project frame with two panels:
 - **Publish → Export web build** downloads a build that players can play
   anywhere. **Export project** in the project name's menu downloads the
   editable project: its source files without
-  `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
+  `node_modules/`, `.git/` or `.ohmygame/local/`, with
   each Library asset copied to `assets/library/` and `graph.json` pointing at
   the copy. Copied filenames avoid collisions between letter case variants
   and canonically equivalent Unicode spellings, so extracting on Windows
@@ -643,7 +643,7 @@ web story's are taken from its own page, opened at the Scene without sound.
   the display's pixel density, up to 1280 pixels wide. The hidden window
   runs Scene code, so it may only read its assigned build snapshot, capture,
   and report its result.
-- Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
+- Thumbnails are editor cache stored under `.ohmygame/local/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
 - A thumbnail records the Scene's content hash: its files and everything they

@@ -390,6 +390,7 @@ export function allActionsPrompt(actions: string, pixelLevel: PixelArtLevel = "c
   return withPixelArtLevel(pixelPromptWithRequest("Requested actions", actions, `Use the supplied image as the subject design reference. Create one 3-row by 3-column sprite sheet of nine distinct full-body action poses for this subject. If fewer than nine actions are specified, add useful game actions. Keep the subject recognizable through its head silhouette, main costume shapes, primary color blocks, essential equipment or species traits, and body proportions. Simplify secondary accessories and facial detail according to the selected density and reuse those choices in every cell. Keep the mapped palette, camera angle, and selected pixel density consistent. Show one complete subject per equal-sized cell, with a consistent scale and baseline and a plain uniform background. Do not add text, labels, borders, extra characters, or unrelated objects.`), pixelLevel, "sprite", { assetType: "animation", grid: { columns: 3, rows: 3, unit: "frame" } });
 }
 
+// compat: since beta.5.3, remove from beta.7 and 2026-12-04. Image nodes saved with a generationMode.
 export function normalizeLegacyCharacterModes(
   canvas: AssetCanvasDocument,
 ): AssetCanvasDocument {

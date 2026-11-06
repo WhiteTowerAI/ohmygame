@@ -311,6 +311,10 @@ describe("project shell layout", () => {
       }, "conversation", "live"));
       await settle();
     }
+    // Streamed text renders at most every 50 ms.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
     expect(container.textContent).toContain("Working next next next");
     expect(formattedResponse).not.toHaveBeenCalled();
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -319,6 +323,43 @@ describe("project shell layout", () => {
     expect(
       daemon.requests.find((request) => request.route.endsWith("/branch"))?.body,
     ).toContain("history-entry");
+  });
+
+  it("applies streamed text together on a frame, at most every 50 ms, before any later event", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const daemon = await openProject(() => undefined, detail("history"));
+    await act(async () => daemon.send(1, "agent.started", { prompt: "Continue" }, "conversation", "live"));
+    await act(async () => daemon.send(2, "item.started", {
+      item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft", status: "inProgress" },
+    }, "conversation", "live"));
+    await settle();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    await act(async () => {
+      daemon.send(3, "item.agentMessage.delta", { itemId: "live-answer", delta: " one" }, "conversation", "live");
+      daemon.send(4, "item.agentMessage.delta", { itemId: "live-answer", delta: " two" }, "conversation", "live");
+    });
+    // Both tokens wait for one frame.
+    expect(frames).toHaveLength(1);
+    expect(container.textContent).not.toContain("Draft one");
+    await act(async () => frames[0]!(performance.now()));
+    expect(container.textContent).toContain("Draft one two");
+    // Text that follows soon after waits for a later frame.
+    await act(async () => daemon.send(5, "item.agentMessage.delta", { itemId: "live-answer", delta: " and" }, "conversation", "live"));
+    await act(async () => frames[1]!(performance.now() + 10));
+    expect(container.textContent).not.toContain("two and");
+    expect(frames).toHaveLength(3);
+    await act(async () => frames[2]!(performance.now() + 60));
+    expect(container.textContent).toContain("Draft one two and");
+    await act(async () => {
+      daemon.send(6, "item.agentMessage.delta", { itemId: "live-answer", delta: " three" }, "conversation", "live");
+      // The final text arrives before that frame and must not gain the token again.
+      daemon.send(7, "item.completed", {
+        item: { id: "live-answer", turnId: "live", type: "agentMessage", text: "Draft one two and three", status: "completed" },
+      }, "conversation", "live");
+    });
+    expect(container.textContent).toContain("Draft one two and three");
+    expect(container.textContent).not.toContain("three three");
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
@@ -453,15 +494,27 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
     // The page's bridge says once it has applied the theme it was sent.
     let page: MessagePort | undefined;
     const ready = vi.fn();
-    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready);
+    // It also answers pings, and passes on errors the page didn't catch, cut to length.
+    const onPong = vi.fn();
+    const onError = vi.fn();
+    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready, { onPong, onError });
     page!.postMessage({ event: "ready" });
     await vi.waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
+    page!.postMessage({ event: "pong" });
+    page!.postMessage({ event: "error", message: `TypeError: ${"x".repeat(5000)}` });
+    page!.postMessage({ event: "error", message: { not: "text" } });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+    expect(onPong).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]![0]).toHaveLength(4000);
+    expect(onError.mock.calls[1]![0]).toBe("Error");
     connection.close();
     page!.close();
 
@@ -522,6 +575,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -544,6 +599,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files: NO_FILES,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast,
       confirm,
     };
@@ -604,6 +661,48 @@ describe("plugins in the project shell", () => {
     }
   });
 
+  it("passes a page's net.fetch to the app only when the page may use it", async () => {
+    const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
+    const fetch = vi.fn(async () => ({ status: 200, statusText: "OK", url: "https://api.example.com/a", headers: {}, body: "hi" }));
+    const context = {
+      plugin: { id: "_project/stats", version: "r1", panel: "stats" },
+      locale: "en" as const,
+      capabilities: { net: ["api.example.com"] },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
+      toast: vi.fn(),
+      confirm: vi.fn(async () => true),
+      fetch,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Stats" context={context} visible />));
+      await act(async () => {
+        container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 1, method: "net.fetch", params: { url: "https://api.example.com/a" } });
+      await vi.waitFor(() => expect(replies.get(1)?.result).toMatchObject({ status: 200, body: "hi" }));
+      expect(fetch).toHaveBeenCalledWith({ url: "https://api.example.com/a" });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Stats" context={{ ...context, capabilities: {} }} visible />));
+      page!.postMessage({ id: 2, method: "net.fetch", params: { url: "https://api.example.com/a" } });
+      await vi.waitFor(() => expect(replies.get(2)?.error).toContain("net capability"));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
   it("hands a page the project's files as far as it may use them, and says when they change", async () => {
     const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
     // A browser's port carries a Blob; jsdom's Blob doesn't survive Node's port, and Node's own does.
@@ -626,6 +725,8 @@ describe("plugins in the project shell", () => {
       storage: { get: async () => null, set: async () => {} },
       files,
       runCommand: async () => null,
+      history: async () => ({ turns: [] }),
+      usage: async () => ({ rows: [] }),
       toast: () => {},
       confirm: async () => false,
     };
@@ -657,6 +758,13 @@ describe("plugins in the project shell", () => {
       expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
       await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
       await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
+      // Changes that arrive before one render reach the page together.
+      const { mergeFileChanges } = await import("../src/renderer/project-shell.js");
+      const both = mergeFileChanges(mergeFileChanges(undefined, { paths: ["src/b.ts"] }), { paths: ["src/a.ts", ".env"] });
+      expect(both).toEqual({ paths: [".env", "src/a.ts", "src/b.ts"] });
+      expect(mergeFileChanges({ paths: Array.from({ length: 200 }, (_, index) => `f${index}`) }, { paths: ["g"] })).toMatchObject({ truncated: true });
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} fileChange={both} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files", paths: ["src/a.ts", "src/b.ts"] }));
       page!.close();
     } finally {
       post.mockRestore();
@@ -897,7 +1005,7 @@ describe("checkpoints in the project shell", () => {
     const daemon = await openProject((route, init) => {
       if (route === `/agent-runtimes/${runtime}/profiles`) return Response.json([
         { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription", account: "personal@example.com" } },
-        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" } },
+        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" }, limits: [{ id: "codex/primary", usedPercent: 96, windowMinutes: 300 }] },
       ]);
       if (route.endsWith("/account-profile") && init.method === "PUT") return Response.json({ profileId: "work" });
     }, chat);
@@ -906,11 +1014,13 @@ describe("checkpoints in the project shell", () => {
     expect(selector).not.toBeNull();
     const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
     await act(async () => selector.click());
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
+    const option = [...document.querySelectorAll<HTMLButtonElement>('.agent-account-menu [role="radio"]')].find((button) => button.textContent?.includes("Work"))!;
+    // Each account shows its busiest window, so one with room left is easy to pick.
+    expect(option.querySelector(".agent-account-row-usage.is-danger")?.textContent).toBe("96%");
     await act(async () => option.click());
     await settle();
     expect(confirm).not.toHaveBeenCalled();
-    expect(selector.textContent).toBe("Work");
+    expect(selector.querySelector(".agent-account-trigger-name")?.textContent).toBe("Work");
     expect(container.querySelector(`[aria-label^="${label}:"]`)).toBe(selector);
     expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
     expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
@@ -955,11 +1065,11 @@ describe("checkpoints in the project shell", () => {
         ...(!removed ? [{ id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription" } }] : []),
       ]);
     }, chat);
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("Work");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Work");
     removed = true;
     await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
     await settle();
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("System default");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Default");
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 
@@ -1107,7 +1217,7 @@ describe("checkpoints in the project shell", () => {
       "2 files reapplied.",
     );
     const fileReads = daemon.requests.filter(
-      (request) => request.route === "/projects/project/files",
+      (request) => request.route === "/projects/project/files?directory=",
     ).length;
     await act(async () =>
       daemon.send(
@@ -1126,7 +1236,7 @@ describe("checkpoints in the project shell", () => {
     await settle();
     expect(
       daemon.requests.filter(
-        (request) => request.route === "/projects/project/files",
+        (request) => request.route === "/projects/project/files?directory=",
       ).length,
     ).toBeGreaterThan(fileReads);
     expect(

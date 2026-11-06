@@ -23,6 +23,8 @@ describe("preview content isolation", () => {
     const proxy = await createPreviewProxy(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, vi.fn(), { onTuningConnected: connected });
     cleanups.push(() => proxy.close());
     proxy.setTuning({ "player.jump": 420 });
+    const pad = { buttons: [[0, "Space"]] as [number, string][], axes: [], deadZone: 0.5 };
+    proxy.setInputMap(pad);
     const open = async (view: string) => {
       const html = await (await fetch(`${proxy.url}/?__ohmygame_client=${view}&__ohmygame_view=${view}`)).text();
       const bridge = new URL(html.match(/src="([^"]+bridge[^"]+)"/)![1], proxy.url).href;
@@ -34,8 +36,15 @@ describe("preview content isolation", () => {
       return { next, report, close: () => controller.abort() };
     };
     const editor = await open("editor"), test = await open("playtest");
-    expect((await editor.next()).tuning).toEqual({ "player.jump": 420 });
-    expect(await test.next()).not.toHaveProperty("tuning");
+    const first = await editor.next();
+    expect(first.tuning).toEqual({ "player.jump": 420 });
+    // A gamepad map reaches the person's pages, never an AI test's.
+    expect(first.inputMap).toEqual(pad);
+    const tested = await test.next();
+    expect(tested).not.toHaveProperty("tuning");
+    expect(tested).not.toHaveProperty("inputMap");
+    proxy.setInputMap(undefined);
+    expect((await editor.next()).inputMap).toBeNull();
 
     proxy.setTuning({ "player.jump": 500 });
     expect((await editor.next()).tuning).toEqual({ "player.jump": 500 });

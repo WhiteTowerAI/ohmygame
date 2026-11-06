@@ -15,6 +15,16 @@ import {
 } from "../src/shared/asset-canvas.js";
 import { t } from "../src/renderer/i18n.js";
 
+/** happy-dom lays nothing out and its observer never reports; here everything is on screen. */
+class OnScreen {
+  readonly #callback: IntersectionObserverCallback;
+  constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+  observe(target: Element) {
+    queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+  }
+  disconnect() {}
+}
+
 type CanvasProps = Parameters<typeof EditorCanvas<Node>>[0];
 let props: CanvasProps;
 const getWorkspaceAsset = vi.fn(
@@ -32,6 +42,10 @@ vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
     props = value;
     return <div />;
   },
+}));
+// Viewers need WebGL; these tests only follow the files.
+vi.doMock(path.resolve("src/renderer/model-preview.tsx"), () => ({
+  ModelPreview: ({ source }: { source: string }) => <span data-model={source} />,
 }));
 vi.doMock(
   path.resolve("src/renderer/model-selector.tsx"),
@@ -116,6 +130,7 @@ const assets: CanvasAssetCatalogEntry[] = [
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("IntersectionObserver", OnScreen);
   localStorage.clear();
   getWorkspaceAsset.mockClear();
   getLibraryAsset.mockClear();
@@ -357,4 +372,67 @@ it("downloads the current title after renaming a node and falls back when cleare
         .click(),
     );
   }
+});
+
+async function renderNode(nodeId: string, catalog = assets, data?: Record<string, unknown>, type?: string) {
+  const { ReactFlowProvider } = await import("@xyflow/react");
+  const node = props.nodes.find((item) => item.id === nodeId)!;
+  const Component = props.nodeTypes![type ?? node.type!] as unknown as (value: { data: unknown; selected: boolean }) => React.ReactNode;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const nodeRoot = createRoot(host);
+  await act(async () => nodeRoot.render(
+    <ReactFlowProvider>
+      <CanvasAssetProvider assets={canvasAssetSources("download", catalog)}>
+        <Component data={{ ...node.data, ...data }} selected={false} />
+      </CanvasAssetProvider>
+    </ReactFlowProvider>,
+  ));
+  return { host, unmount: async () => { await act(async () => nodeRoot.unmount()); host.remove(); } };
+}
+
+it("downloads a node's file only once the node comes near the screen", async () => {
+  const observers: IntersectionObserverCallback[] = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback: IntersectionObserverCallback) { observers.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const node = await renderNode("image-0");
+  expect(getWorkspaceAsset).not.toHaveBeenCalled();
+  await act(async () => observers.at(-1)!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+  expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/output.webp");
+  await node.unmount();
+});
+
+it("waits for the person before it downloads a large 3D file", async () => {
+  const large = assets.map((asset) => asset.id === "model-output" ? { ...asset, size: 100 * 1024 * 1024 } : asset);
+  // An imported model is an asset node.
+  const node = await renderNode("library", large, { assetId: "model-output", mediaType: "model" });
+  expect(getWorkspaceAsset).not.toHaveBeenCalled();
+  expect(node.host.textContent).toContain(t("assetCanvas.largeModel", { size: "100.0 MB" }));
+  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
+  await act(async () => load.click());
+  expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/model.glb");
+  await node.unmount();
+});
+
+it("waits for the person while a 3D file's size isn't known yet", async () => {
+  // Just added from the Library: in neither the project's assets nor the loaded Library list.
+  const node = await renderNode("library", assets, { assetId: "new-model", mediaType: "model", assetSize: undefined });
+  expect(getLibraryAsset).not.toHaveBeenCalled();
+  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
+  await act(async () => load.click());
+  expect(getLibraryAsset).toHaveBeenCalledExactlyOnceWith("new-model");
+  await node.unmount();
+});
+
+it("keeps a plugin node's large 3D output waiting for the person", async () => {
+  const large = assets.map((asset) => asset.id === "model-output" ? { ...asset, size: 100 * 1024 * 1024 } : asset);
+  const node = await renderNode("library", large, { assetId: "model-output", pluginRuntime: { output: "model", sources: {} } }, "plugin");
+  expect(getWorkspaceAsset).not.toHaveBeenCalled();
+  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
+  await act(async () => load.click());
+  expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/model.glb");
+  await node.unmount();
 });

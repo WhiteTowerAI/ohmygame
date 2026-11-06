@@ -13,7 +13,72 @@ export type PluginUiMethod =
   | "files.write"
   | "files.createFolder"
   | "files.move"
-  | "files.delete";
+  | "files.delete"
+  | "history.list"
+  | "usage.get"
+  | "net.fetch";
+
+/**
+ * An HTTPS request made by the app, for a project panel whose `panel.json`
+ * lists the host in `net`. No cookies go along, a redirect comes back as the
+ * answer rather than being followed, and it gives up after 30 seconds.
+ */
+export interface PluginUiFetch {
+  url: string;
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** At most 30. */
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/** A `net.fetch` answer, its body as text of at most 5 MB. */
+export interface PluginUiFetchResponse {
+  status: number;
+  statusText: string;
+  url: string;
+  /** Only content-type, content-length, etag, last-modified, location and retry-after. */
+  headers: Record<string, string>;
+  body: string;
+}
+
+/**
+ * Puts text, files or both in the composer, for a plugin with the `composer`
+ * capability. The person sends it; a page never can. Text goes after what is
+ * already there; files join the ones already attached, within the same
+ * limits as files the person attaches.
+ */
+export interface PluginUiComposerFill {
+  /** At most 20,000 characters. */
+  text?: string;
+  /** At most 10 files. */
+  attachments?: Array<{ name: string; data: string | Blob; type?: string }>;
+}
+
+/** A turn that changed the project's files, from `history.list` with the `project.history` capability. */
+export interface PluginHistoryTurn {
+  conversation: { id: string; title: string };
+  /** When the message was sent, as an ISO date. */
+  at?: string;
+  /** What the person asked, cut to 2,000 characters. */
+  message: string;
+  changes: Array<{ path: string; kind: "added" | "modified" | "removed"; lines?: { added: number; removed: number } }>;
+  /** The turn's changes were taken back with Undo. */
+  undone?: boolean;
+}
+
+/** One day's use of one model in the project, from `usage.get` with the `project.usage` capability. */
+export interface PluginUsageRow {
+  /** Local calendar day, `YYYY-MM-DD`. */
+  date: string;
+  provider: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  turns: number;
+  durationMs: number;
+}
 
 /** Shows a toast the app draws, under the plugin's id. A plugin shows at most 5 in 10 seconds. */
 export interface PluginUiToast {
@@ -81,12 +146,21 @@ export interface PluginUiHost {
   files: PluginFiles;
   request(method: "ui.toast", params: PluginUiToast): Promise<null>;
   request(method: "ui.confirm", params: PluginUiConfirm): Promise<boolean>;
+  request(method: "composer.fill", params: PluginUiComposerFill): Promise<null>;
+  /** The project's latest turns that changed files, newest first; `limit` is 1 to 100, 20 when left out. */
+  request(method: "history.list", params?: { limit?: number }): Promise<{ turns: PluginHistoryTurn[] }>;
+  request(method: "usage.get"): Promise<{ rows: PluginUsageRow[] }>;
+  request(method: "net.fetch", params: PluginUiFetch): Promise<PluginUiFetchResponse>;
   request<T = unknown>(method: PluginUiMethod, params?: Record<string, unknown>): Promise<T>;
   /** The app's design tokens (`--color-surface`, `--text-md`…), already set on `:root`, and its appearance. */
   on(event: "theme", listener: (theme: { tokens: Record<string, string>; appearance: "dark" | "light" }) => void): () => void;
   on(event: "visibility", listener: (value: { visible: boolean }) => void): () => void;
-  /** Something changed the project's files, such as an agent or the page itself. */
-  on(event: "files", listener: () => void): () => void;
+  /**
+   * Something changed the project's files, such as an agent, the page itself,
+   * or an edit outside OhMyGame. `paths` names them when the app knows, with
+   * `truncated` when there were more than it sends at once.
+   */
+  on(event: "files", listener: (value: { paths?: string[]; truncated?: boolean }) => void): () => void;
   /** How one of the plugin's commands, by its manifest id, is going while it runs. */
   on(event: "progress", listener: (value: { command: string; message: string }) => void): () => void;
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */

@@ -11,5 +11,6 @@ it("ignores broken pipes on stdio and rethrows other stream errors", () => {
   ignoreBrokenStdio([stream]);
 
   expect(() => stream.emit("error", streamError("EPIPE"))).not.toThrow();
+  expect(() => stream.emit("error", streamError("EBADF"))).not.toThrow();
   expect(() => stream.emit("error", streamError("EACCES"))).toThrow("write EACCES");
 });

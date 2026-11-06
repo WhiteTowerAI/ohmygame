@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Who to greet"
+    }
+  },
+  "additionalProperties": false
+}

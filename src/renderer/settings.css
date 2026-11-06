@@ -1094,8 +1094,26 @@
   gap: var(--space-2);
 }
 
+/* Fixed columns, so the windows line up within a row and across agents. */
 .settings-agent-row .agent-usage-inline {
-  max-width: 220px;
+  display: grid;
+  grid-template-columns: max-content 64px 32px;
+  gap: 4px 8px;
+  align-items: center;
+  width: 160px;
+}
+
+.settings-agent-row .agent-usage-inline > span {
+  display: contents;
+}
+
+.settings-agent-row .agent-usage-inline .agent-usage-meter {
+  width: 64px;
+  height: 4px;
+}
+
+.settings-agent-row .agent-usage-inline small:last-child {
+  text-align: right;
 }
 
 /* ---------- the custom provider dialog on the ui Dialog ---------- */

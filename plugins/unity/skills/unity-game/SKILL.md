@@ -13,7 +13,7 @@ Start with `unity --version`, `unity status`, and `unity --help`; the CLI is exp
 
 Pass `--project-path <ABSOLUTE_PROJECT>` and confirm the returned project; never take the first connected Editor. Discover Editor commands with `unity command` before running them. `unity eval` runs arbitrary C# in the Editor; use it only when no command fits. Do not run `unity skill install` or `unity mcp configure`: this Skill already provides the integration.
 
-For older Editors, use the project's existing batch-mode build and test scripts and report live control as unavailable. Do not upgrade the project or add a community bridge.
+For older Editors, use the project's existing batch-mode build and test scripts and report live control as unavailable. Batch mode needs the Editor matching `ProjectVersion.txt`; Unity Hub installs it under `Hub/Editor/<VERSION>`, by default in `Program Files/Unity` on Windows and `/Applications/Unity` on macOS, or in the folder Hub's settings name. On Windows the install can be on any drive: also check Start menu shortcuts and their targets (`%ProgramData%` and `%APPDATA%` under `Microsoft/Windows/Start Menu/Programs`). If none is found, ask the user for the executable's path instead of reporting it as not installed. Do not upgrade the project or add a community bridge.
 
 ## Change and verify
 
