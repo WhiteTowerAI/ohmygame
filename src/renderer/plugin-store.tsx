@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
@@ -121,9 +121,9 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
 }
 
-/** A newer version on the market. Only for a plugin added from npm: from anywhere else it couldn't join. */
+/** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */
 export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
-  if (plugin.origin?.type !== "npm") return undefined;
+  if (plugin.origin?.type !== "npm" || !(PLUGIN_NPM_REGISTRIES as readonly string[]).includes(plugin.origin.registry)) return undefined;
   const listed = market?.plugins.find((item) => item.id === plugin.id);
   return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }

@@ -586,16 +586,27 @@ the source again and refuses a package whose digest isn't the one reviewed.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
-| npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| npm, from `registry.npmjs.org`, `registry.npmmirror.com` or another registry's address | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
 | GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
 | This computer | A folder, chosen on the desktop or typed as a full path, or an uploaded `.tgz` | As any package. A folder gives what npm would publish from it ([Tools for plugin authors](#tools-for-plugin-authors)) |
 
+- **npm registries.** The dialog offers npm, npmmirror (the default in Chinese)
+  and **Another registry…**, which takes a public registry's address over HTTPS,
+  with no sign-in, query or trailing slash
+  (`customNpmRegistry`). OhMyGame doesn't sign in to registries, so one that
+  answers 401 or 403 is refused with a message saying so. The choice is
+  remembered in the renderer's local storage and also applies to market cards.
+  A package downloads from the registry's own host or from `registry.npmjs.org`,
+  where a mirror points a version it hasn't copied yet; either way it has to
+  match the registry's SHA-512. The origin stays the registry chosen, even when a
+  market version came from npm instead, so updates are looked for there.
 - A package allows nothing when it's added. What it asks for waits for the person
   to approve it, on its page or when they turn it on in a project's Plugins sheet.
   One that only adds Skills asks for nothing, so it applies right away and replaces
   its older versions.
 - A package joins an installed plugin only from the same source: the same npm
-  scope or GitHub repository. Approvals and settings belong to the id, so from
+  scope or GitHub repository. npm and npmmirror count as one source; another
+  registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
   anywhere else, and from this computer always, the person uninstalls it first,
   which clears them. Other contents under an installed version are refused; a
   new release needs a new version.
@@ -632,7 +643,8 @@ Nothing updates a package by itself: adding a newer one is the update.
 `GET /plugin-store/updates` (`PluginSources.updates`) looks where each
 plugin's newest version came from, at startup and when the Plugins page opens,
 reusing a check for five minutes: npm's `latest` dist-tag, or the commit the
-GitHub branch or tag is at now. A plugin with an update says so, and its page
+GitHub branch or tag is at now. An npm version the market blocked or turned
+away isn't offered, since adding it would be refused. A plugin with an update says so, and its page
 opens the same review as Add plugin, at that version or commit; the market's
 own update comes first when it has one. A package from this computer has
 nowhere to look, so its page says to add it again.
@@ -651,9 +663,11 @@ nowhere to look, so its page says to add it again.
 The market lists the plugins published on npm. A job in the
 [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
 finds them, runs the same package checks as the app, and publishes an index file.
-`src/daemon/plugin-market.ts` reads it from the address in
-`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
-HTTP on this computer), there's no market and nothing is read.
+`src/daemon/plugin-market.ts` reads it from
+`https://plugins.ohmygame.ai/plugins/index.json` (`PLUGIN_INDEX_URL`), on
+Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
+or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
+nothing is read.
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
   file, then the index it names if that changed, checks the index against the
@@ -667,7 +681,7 @@ HTTP on this computer), there's no market and nothing is read.
   counts for nothing, since nothing signed says when a package was published: after
   npm retires a key, versions signed only with it need publishing again. The
   package then comes
-  from the chosen registry or the other one and has to match that SHA-512, so the
+  from the chosen registry, falling back to npm and npmmirror, and has to match that SHA-512, so the
   index and a mirror can't get a changed package installed. A card's review and
   install both need that signed entry, so one gone from the index is refused rather
   than read from the registry. Registry metadata isn't needed, since a mirror can
@@ -679,7 +693,7 @@ HTTP on this computer), there's no market and nothing is read.
 - **Source verified** means npm's provenance names the repository, or the
   repository's `package.json` names the package. Stars show only then. Weekly
   downloads come from npm.
-- **After installing.** A plugin added from npm shows **Update available** when the
+- **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
