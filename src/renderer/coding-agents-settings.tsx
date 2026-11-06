@@ -383,7 +383,7 @@ export function CodingAgentDetail({
           </div>
         ) : null}
       </SettingsGroup>
-      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onRemoved={async () => {
+      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onChanged={async () => {
         setAgent((await listAgentRuntimes()).find((item) => item.id === id));
         notifyAgentModelsChanged();
       }} disabled={busy !== undefined} /> : null}
@@ -419,6 +419,11 @@ export function CodingAgentDetail({
           // Agents from plugins report no usage limits to wait for.
           <SettingsRow title={t("codingAgents.autoContinue")} description={t("codingAgents.autoContinueHint", { name: agent.name })}>
             <Switch label={t("codingAgents.autoContinue")} checked={agent.autoContinue} onChange={(autoContinue) => void update({ autoContinue })} />
+          </SettingsRow>
+        ) : null}
+        {agent.installed && agent.identifyAsOhMyGame !== undefined ? (
+          <SettingsRow title={t("codingAgents.identifyAsOhMyGame")} description={t("codingAgents.identifyAsOhMyGameHint")}>
+            <Switch label={t("codingAgents.identifyAsOhMyGame")} checked={agent.identifyAsOhMyGame} onChange={(identifyAsOhMyGame) => void update({ identifyAsOhMyGame })} />
           </SettingsRow>
         ) : null}
         <form className="settings-pad" onSubmit={savePath}>

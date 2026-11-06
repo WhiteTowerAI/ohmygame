@@ -134,6 +134,11 @@
   cursor: pointer;
 }
 
+/* In a locked layout no close button holds the tab's end. */
+.dock-tab-button:last-child {
+  padding-right: var(--space-2);
+}
+
 .dock-tab[draggable="true"] {
   cursor: grab;
 }

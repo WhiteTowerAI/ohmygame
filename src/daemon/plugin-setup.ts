@@ -10,55 +10,52 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { Type } from "typebox";
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  SettingsManager,
-  type AgentSession,
-  type ModelRuntime,
-  type ToolDefinition,
-  type SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
-import type {
-  PluginSetupPrompt,
-  PluginSetupState,
-  PluginSetupSummary,
-  PluginDraft,
-  PluginIconUpdate,
-  PluginSetupMode,
+import {
+  NEW_PLUGIN_TITLE,
+  type PluginSetupSummary,
+  type PluginDraft,
+  type PluginIconUpdate,
+  type PluginSetupMode,
 } from "../shared/plugin-setup.js";
+import type { ProjectState } from "../shared/contracts.js";
 import type { McpServerDefinition, PluginMcpResult } from "../shared/plugins.js";
-import { compatibleRuntimeModel, conversationItems, lastAssistantError } from "./agent.js";
-import type { ThreadItem, Turn } from "../shared/contracts.js";
-import type { RuntimeModel } from "./agent.js";
+import { sessionDirectory } from "./conversations.js";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
 import type { PluginServices } from "./plugin-services.js";
 import { inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
-import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
-import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { localizePluginString } from "./plugin-index.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
-const SETUP_PROMPT = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
-${PLUGIN_AUTHORING_RULES}
-Read existing files before editing. Use read/write/edit/bash to author files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Use plugin_manage read and test on the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview, then fills in any settings on the plugin's page. Report its actual state and required input, concisely and in the user's language.`;
+/** What's kept of a workspace; its conversations are its project's. */
+type SetupRuntimeState = Pick<PluginSetupSummary, "id" | "mode" | "pluginId" | "title" | "createdAt" | "updatedAt"> & {
+  projectId: string;
+  /** Held while an icon change, a test or an install runs. */
+  busy: boolean;
+  draftPath?: string;
+  installedRevision?: string;
+  baseRevision?: string;
+  checks?: PluginDraft["checks"];
+};
 
-type SetupRuntimeState = PluginSetupSummary & { busy: boolean; error?: string; draftPath?: string; installedRevision?: string; baseRevision?: string; checks?: PluginDraft["checks"] };
+/** The hidden project behind each workspace, which holds its conversations. */
+export interface PluginWorkspaceProjects {
+  create(name: string | undefined, workspacePath: string): Promise<ProjectState>;
+  get(projectId: string): ProjectState | undefined;
+  remove(project: ProjectState): Promise<void>;
+  busy(projectId: string): boolean;
+  /** Runs while the project takes no turns, so the agent can't change what is being installed. */
+  exclusive<T>(projectId: string, operation: () => Promise<T>): Promise<T>;
+}
 
 export class PluginSetupManager {
   #states = new Map<string, SetupRuntimeState>();
-  #history = new Map<string, SessionManager>();
+  #loading = new Map<string, Promise<SetupRuntimeState>>();
   #writes = new Map<string, Promise<void>>();
-  #sessions = new Map<string, AgentSession>();
-  #closed = false;
-  #runs = new Set<Promise<void>>();
-  #aborted = new Set<string>();
-  #live = new Map<string, ThreadItem[]>();
   #installs: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly dataDirectory: string,
@@ -66,33 +63,28 @@ export class PluginSetupManager {
     private readonly host: PluginMcpHost,
     private readonly services: PluginServices,
     private readonly invalidate: () => void,
-    private readonly model: (
-      ref: PluginSetupPrompt["model"],
-    ) => Promise<{ runtime: ModelRuntime; model: RuntimeModel }>,
+    private readonly projects: PluginWorkspaceProjects,
   ) {}
   #directory(id: string): string {
     return path.join(this.dataDirectory, "plugin-setup", id);
   }
-  async create(pluginId?: string, mode: PluginSetupMode = pluginId ? "edit" : "create"): Promise<PluginSetupState> {
-    if (this.#closed) throw new Error("Plugin assistant is closed");
+  #workspace(id: string): string {
+    return path.join(this.#directory(id), "workspace");
+  }
+  async create(pluginId?: string, mode: PluginSetupMode = pluginId ? "edit" : "create"): Promise<PluginSetupSummary> {
     if (mode === "create" && pluginId) throw new Error("Create a new plugin without an installed target");
     await this.services.ready();
     const editing = mode === "edit" && pluginId ? this.services.index.get(pluginId) : undefined;
     if (mode === "edit" && !editing) throw new Error("Select an installed plugin");
     if (editing && !editing.id.startsWith(`${PERSONAL_PUBLISHER}/`)) throw new Error("Only a plugin you made can be edited");
     const id = randomUUID();
-    const state: SetupRuntimeState = {
-      id,
-      mode,
-      pluginId,
-      busy: false,
-      title: editing ? localizePluginString(editing, editing.manifest.displayName, "en") : "New plugin",
-      createdAt: Date.now(), updatedAt: Date.now(), status: "idle",
-    };
-    await mkdir(this.#directory(state.id), { recursive: true });
-    const workspace = path.join(this.#directory(state.id), "workspace");
+    const title = editing ? localizePluginString(editing, editing.manifest.displayName, "en") : NEW_PLUGIN_TITLE;
+    const workspace = this.#workspace(id);
     await mkdir(workspace, { recursive: true });
+    let project: ProjectState | undefined;
     try {
+      project = await this.projects.create(editing ? title : undefined, workspace);
+      const state: SetupRuntimeState = { id, mode, pluginId, projectId: project.id, busy: false, title, createdAt: Date.now(), updatedAt: Date.now() };
       if (editing) {
         const name = editing.id.slice(editing.id.indexOf("/") + 1);
         const root = path.join(workspace, name);
@@ -100,51 +92,61 @@ export class PluginSetupManager {
         state.baseRevision = editing.digest;
         state.draftPath = name;
         state.installedRevision = (await inspectPluginFiles(root)).revision;
-        state.status = "installed";
       }
+      this.#states.set(id, state);
+      await this.#save(state);
     } catch (cause) {
-      await rm(this.#directory(state.id), { recursive: true, force: true });
+      if (project) await this.projects.remove(project);
+      await rm(this.#directory(id), { recursive: true, force: true });
       throw cause;
     }
-    this.#states.set(state.id, state);
-    await this.#save(state);
-    return this.read(state.id);
+    return this.read(id);
   }
-  async read(id: string): Promise<PluginSetupState> {
-    const state = await this.#loadState(id);
-    return { ...structuredClone(summary(state)), busy: state.busy, error: state.error, turns: this.#turns(id, state) };
+  async read(id: string): Promise<PluginSetupSummary> {
+    return this.#summary(await this.#loadState(id));
   }
-  async #loadState(id: string): Promise<SetupRuntimeState> {
-    if (!/^[0-9a-f-]{36}$/.test(id))
-      throw new Error("Invalid plugin setup session");
-    let state = this.#states.get(id);
-    if (!state) {
-      const stored = JSON.parse(
-        await readFile(path.join(this.#directory(id), "state.json"), "utf8"),
-      ) as SetupRuntimeState;
+  #loadState(id: string): Promise<SetupRuntimeState> {
+    if (!/^[0-9a-f-]{36}$/.test(id)) return Promise.reject(new Error("Invalid plugin setup session"));
+    const loaded = this.#states.get(id);
+    const state = loaded ? Promise.resolve(loaded) : this.#loading.get(id) ?? this.#load(id);
+    return state.then(state => this.#forgetUninstalled(state));
+  }
+  /** One read at a time, so readers share a state and a workspace gets one project. */
+  #load(id: string): Promise<SetupRuntimeState> {
+    const loading = (async () => {
+      const stored = JSON.parse(await readFile(path.join(this.#directory(id), "state.json"), "utf8")) as Partial<SetupRuntimeState>;
       // Sessions that configured an older kind of plugin have nothing to work on now.
       if ((stored.mode as string | undefined) === "configure" || (!stored.mode && stored.pluginId && !stored.draftPath))
         throw new Error("This plugin assistant session is no longer available");
-      state = {
-        id,
-        mode: stored.mode ?? "create",
-        pluginId: stored.pluginId,
-        error: stored.error,
-        busy: false,
-        title: stored.title ?? "Plugin workspace",
+      const title = stored.title ?? "Plugin workspace";
+      const state: SetupRuntimeState = {
+        id, title, mode: stored.mode ?? "create", pluginId: stored.pluginId, busy: false,
+        projectId: stored.projectId && this.projects.get(stored.projectId) ? stored.projectId : await this.#adopt(id, title),
         createdAt: stored.createdAt ?? Date.now(), updatedAt: stored.updatedAt ?? Date.now(),
-        status: stored.status === "working" ? "interrupted" : stored.status ?? "idle",
-        model: stored.model, reasoningLevel: stored.reasoningLevel,
         draftPath: stored.draftPath, installedRevision: stored.installedRevision,
-        baseRevision: stored.baseRevision,
-        checks: stored.checks,
+        baseRevision: stored.baseRevision, checks: stored.checks,
       };
-      // Keep the first concurrent reader's state so a prompt cannot be hidden
-      // by another request loading the same session from disk.
-      state = this.#states.get(id) ?? state;
-
+      if (state.projectId !== stored.projectId) await this.#save(state);
       this.#states.set(id, state);
-    }
+      return state;
+    })().finally(() => this.#loading.delete(id));
+    this.#loading.set(id, loading);
+    return loading;
+  }
+  /** A workspace from before they were projects: its project takes over the conversation. */
+  async #adopt(id: string, title: string): Promise<string> {
+    const workspace = this.#workspace(id);
+    await mkdir(workspace, { recursive: true });
+    const project = await this.projects.create(title === NEW_PLUGIN_TITLE ? undefined : title, workspace);
+    const from = path.join(this.#directory(id), "sessions");
+    const files = await readdir(from).catch(() => []);
+    const to = sessionDirectory(project);
+    await mkdir(to, { recursive: true });
+    await Promise.all(files.map(file => rename(path.join(from, file), path.join(to, file))));
+    await rm(from, { recursive: true, force: true });
+    return project.id;
+  }
+  async #forgetUninstalled(state: SetupRuntimeState): Promise<SetupRuntimeState> {
     if (state.pluginId && !state.busy) {
       const pluginId = state.pluginId;
       const installed = await this.#installed(state);
@@ -153,10 +155,7 @@ export class PluginSetupManager {
         state.installedRevision = undefined;
         state.baseRevision = undefined;
         state.checks = {};
-        if (state.status === "installed") state.status = state.draftPath ? "ready" : "idle";
         state.updatedAt = Date.now();
-        this.#sessions.get(id)?.dispose();
-        this.#sessions.delete(id);
         await this.#save(state);
       }
     }
@@ -167,76 +166,62 @@ export class PluginSetupManager {
     return this.services.index.versions(state.pluginId!).length > 0;
   }
   async list(): Promise<PluginSetupSummary[]> {
+    const summaries = await Promise.all((await this.#all()).map(state => this.#summary(state)));
+    return summaries.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+  async #all(): Promise<SetupRuntimeState[]> {
     const directory = path.join(this.dataDirectory, "plugin-setup");
     const entries = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code === "ENOENT") return [];
       throw cause;
     });
     const results = await Promise.allSettled(entries.filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => this.#loadState(id)));
-    return results.flatMap(result => result.status === "fulfilled" ? [summary(result.value)] : [])
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   }
   async remove(id: string): Promise<void> {
     const state = await this.#loadState(id);
-    if (state.busy) throw new Error("Wait for the builder to finish before deleting its workspace");
-    state.busy = true;
+    this.#hold(state, "Wait for the builder to finish before deleting its workspace");
     try {
       await this.#writes.get(id);
-      this.#sessions.get(id)?.dispose();
-      this.#sessions.delete(id);
+      const project = this.projects.get(state.projectId);
+      if (project) await this.projects.remove(project);
       const directory = this.#directory(id);
       const removed = `${directory}.removed-${randomUUID()}`;
       await rename(directory, removed);
       this.#states.delete(id);
-      this.#history.delete(id);
       this.#writes.delete(id);
-      this.#aborted.delete(id);
-      this.#live.delete(id);
       await rm(removed, { recursive: true, force: true });
     } finally { state.busy = false; }
   }
-  async clearConversation(id: string): Promise<PluginSetupState> {
-    const state = await this.#loadState(id);
-    if (state.busy) throw new Error("Stop the assistant before deleting its conversation");
+  /** Keeps others off the workspace, and waits for its agent to finish. */
+  #hold(state: SetupRuntimeState, busy: string): void {
+    if (state.busy || this.projects.busy(state.projectId)) throw new Error(busy);
     state.busy = true;
-    try {
-      await this.#writes.get(id);
-      this.#sessions.get(id)?.dispose();
-      this.#sessions.delete(id);
-      await rm(path.join(this.#directory(id), "sessions"), { recursive: true, force: true });
-      this.#history.delete(id);
-      this.#live.delete(id);
-      this.#aborted.delete(id);
-      state.error = undefined;
-      state.status = state.pluginId && state.installedRevision ? "installed" : state.draftPath ? "ready" : "idle";
-      state.updatedAt = Date.now();
-    } finally { state.busy = false; await this.#save(state); }
-    return this.read(id);
   }
-  #turns(id: string, state: SetupRuntimeState): Turn[] {
-    const items = conversationItems(this.#sessionManager(id).getBranch(), !state.busy);
-    const live = this.#live.get(id) ?? [];
-    for (const item of live) {
-      const index = items.findIndex(existing => existing.id === item.id);
-      if (index < 0) items.push(item); else items[index] = item;
-    }
-    const grouped = new Map<string, Turn>();
-    for (const item of items) {
-      let turn = grouped.get(item.turnId);
-      if (!turn) { turn = { id: item.turnId, conversationId: id, status: "completed", items: [] }; grouped.set(item.turnId, turn); }
-      turn.items.push(item);
-      if ("status" in item && item.status === "failed") turn.status = "failed";
-      if ("status" in item && item.status === "interrupted") turn.status = "interrupted";
-    }
-    const turns = [...grouped.values()];
-    const latest = turns.at(-1);
-    if (latest && state.busy) latest.status = "inProgress";
-    return turns;
+  async #summary(state: SetupRuntimeState): Promise<PluginSetupSummary> {
+    const project = this.projects.get(state.projectId);
+    // The agent may be midway through writing the manifest; the icon then just waits.
+    const icon = await this.#draftIcon(state).catch(() => undefined);
+    return {
+      id: state.id, projectId: state.projectId, mode: state.mode, pluginId: state.pluginId,
+      // Until its draft has a name, a new workspace goes by what its project was named after.
+      title: state.title === NEW_PLUGIN_TITLE && project?.nameSource === "ai" ? project.name : state.title,
+      ...(icon ? { icon: { type: "asset" as const, path: icon } } : {}),
+      createdAt: state.createdAt,
+      updatedAt: Math.max(state.updatedAt, project ? Date.parse(project.updatedAt) : 0),
+      status: state.busy || this.projects.busy(state.projectId) ? "working"
+        : state.pluginId && state.installedRevision ? "installed" : state.draftPath ? "ready" : "idle",
+    };
   }
   async draft(id: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);
     if (!state.draftPath) return { files: [], errors: [] };
-    const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
+    // Undoing the turn that made the draft takes its folder away, and with it the draft.
+    const root = await pluginDraftPath(this.#workspace(id), state.draftPath).catch((cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw cause;
+    });
+    if (!root) return { files: [], errors: [] };
     const draft = await inspectPluginDraft(root, state.installedRevision);
     if (draft.plugin && state.pluginId && draft.plugin.id !== state.pluginId) {
       draft.errors.push(`This draft updates ${state.pluginId}, so it must keep that id`);
@@ -246,12 +231,11 @@ export class PluginSetupManager {
   }
   async prepare(id: string, requested: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);
-    const workspace = path.join(this.#directory(id), "workspace");
+    const workspace = this.#workspace(id);
     const root = await pluginDraftPath(workspace, requested);
     state.draftPath = path.relative(workspace, root) || ".";
     const draft = await this.draft(id);
     if (draft.plugin) state.title = draft.plugin.displayName;
-    if (!state.busy) state.status = draft.errors.length ? "error" : "ready";
     state.updatedAt = Date.now();
     await this.#save(state);
     return draft;
@@ -259,27 +243,32 @@ export class PluginSetupManager {
   async file(id: string, requested: string) {
     const state = await this.#loadState(id);
     if (!state.draftPath) throw new Error("No plugin draft yet");
-    const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
+    const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
     return readPluginDraftFile(root, requested);
   }
   async icon(id: string, requested?: string) {
     const state = await this.#loadState(id);
     if (!state.draftPath) return undefined;
-    const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-    if (requested) return readPluginIconAsset(root, { type: "asset", path: requested });
+    const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
+    const icon = requested ?? await this.#draftIcon(state);
+    return readPluginIconAsset(root, icon ? { type: "asset", path: icon } : undefined);
+  }
+  /** The icon the draft's manifest names, as it stands on disk. */
+  async #draftIcon(state: SetupRuntimeState): Promise<string | undefined> {
+    if (!state.draftPath) return undefined;
+    const root = await pluginDraftPath(this.#workspace(state.id), state.draftPath);
     const { content } = await readPluginDraftFile(root, PLUGIN_MANIFEST_PATH);
     const { icon } = JSON.parse(content) as { icon?: unknown };
-    return readPluginIconAsset(root, typeof icon === "string" ? { type: "asset", path: icon } : undefined);
+    return typeof icon === "string" ? icon : undefined;
   }
   async updateIcon(id: string, input: PluginIconUpdate): Promise<PluginDraft> {
     const state = await this.#loadState(id);
-    if (state.busy) throw new Error("Wait for the builder to finish before changing its icon");
-    state.busy = true;
+    this.#hold(state, "Wait for the builder to finish before changing its icon");
     try {
       const draft = await this.draft(id);
       if (!draft.plugin || draft.errors.length || !state.draftPath) throw new Error("Prepare a valid draft before changing its icon");
       if (draft.revision !== input.revision) throw new Error("The draft changed. Refresh the preview before changing its icon");
-      const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
+      const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
       let icon = "icon" in input ? input.icon : undefined;
       if ("image" in input) {
         const { data, mediaType } = input.image;
@@ -308,15 +297,13 @@ export class PluginSetupManager {
         await rename(temporary, file);
       } finally { await rm(temporary, { force: true }); }
       state.checks = {};
-      state.status = "ready";
       state.updatedAt = Date.now();
       return await this.draft(id);
     } finally { state.busy = false; await this.#save(state); }
   }
   async testDraft(id: string, server: string, revision: string) {
     const state = await this.#loadState(id);
-    if (state.busy) throw new Error("Wait for the builder to finish before testing");
-    state.busy = true;
+    this.#hold(state, "Wait for the builder to finish before testing");
     try { return await this.#testDraft(state, server, revision); }
     finally { state.busy = false; await this.#save(state); }
   }
@@ -324,7 +311,7 @@ export class PluginSetupManager {
     const draft = await this.draft(state.id);
     if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
     if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
-    const root = await pluginDraftPath(path.join(this.#directory(state.id), "workspace"), state.draftPath);
+    const root = await pluginDraftPath(this.#workspace(state.id), state.draftPath);
     const { definition, secrets } = await this.services.draftMcpServer(root, server, {
       withSaved: draft.plugin.id === state.pluginId && draft.revision === state.installedRevision,
     });
@@ -345,33 +332,31 @@ export class PluginSetupManager {
       throw new Error(redact(cause instanceof Error ? cause.message : String(cause)));
     }
   }
-  async installDraft(id: string, revision: string): Promise<PluginSetupState> {
+  async installDraft(id: string, revision: string): Promise<PluginSetupSummary> {
     const state = await this.#loadState(id);
-    if (state.busy) throw new Error("Wait for the builder to finish before installing");
-    state.busy = true;
+    this.#hold(state, "Wait for the builder to finish before installing");
     let packageInstalled = false;
     try {
-      const draft = await this.draft(id);
-      if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
-      if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
-      const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-      // Workspaces install one at a time, so none passes these checks while another replaces the package.
-      const entry = await this.#oneInstallAtATime(async () => {
-        await this.services.ready();
-        const current = this.services.index.get(draft.plugin!.id);
-        if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
-        if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
-        return this.services.installPersonal(root, { consent: true });
+      // No turn starts meanwhile, so what is installed is what was reviewed.
+      await this.projects.exclusive(state.projectId, async () => {
+        const draft = await this.draft(id);
+        if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
+        if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
+        const root = await pluginDraftPath(this.#workspace(id), state.draftPath);
+        // Workspaces install one at a time, so none passes these checks while another replaces the package.
+        const entry = await this.#oneInstallAtATime(async () => {
+          await this.services.ready();
+          const current = this.services.index.get(draft.plugin!.id);
+          if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
+          if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
+          return this.services.installPersonal(root, { consent: true });
+        });
+        packageInstalled = true;
+        state.pluginId = entry.id;
+        state.baseRevision = entry.digest;
+        state.installedRevision = revision;
+        state.updatedAt = Date.now();
       });
-      packageInstalled = true;
-      state.pluginId = entry.id;
-      state.baseRevision = entry.digest;
-      state.installedRevision = revision;
-      state.status = "installed"; state.error = undefined; state.updatedAt = Date.now();
-    } catch (cause) {
-      state.status = "error";
-      state.error = cause instanceof Error ? cause.message : String(cause);
-      throw cause;
     } finally {
       if (packageInstalled) this.invalidate();
       state.busy = false;
@@ -384,136 +369,14 @@ export class PluginSetupManager {
     this.#installs = run.catch(() => {});
     return run;
   }
-  #sessionManager(id: string): SessionManager {
-    let history = this.#history.get(id);
-    if (!history) {
-      history = SessionManager.continueRecent(
-        path.join(this.#directory(id), "workspace"),
-        path.join(this.#directory(id), "sessions"),
-      );
-      this.#history.set(id, history);
-    }
-    return history;
-  }
-  async prompt(id: string, input: PluginSetupPrompt): Promise<void> {
-    const state = await this.#loadState(id);
-    if (state.busy) throw new Error("The plugin assistant is already working");
-    if (this.#closed) throw new Error("Plugin assistant is closed");
-    state.busy = true;
-    state.status = "working";
-    state.model = input.model;
-    state.reasoningLevel = input.reasoningLevel;
-    state.updatedAt = Date.now();
-    if (state.title === "New plugin") state.title = input.prompt.trim().slice(0, 64);
-    this.#aborted.delete(id);
-    state.error = undefined;
-    const initialWrite = this.#save(state);
-    // Track model lookup and initialization as part of the run, so close/abort
-    // covers the entire operation rather than only the inference phase.
-    const run = (async () => {
-      await initialWrite;
-      if (this.#closed || this.#aborted.has(id)) return;
-      const selected = await this.model(input.model);
-      if (this.#closed || this.#aborted.has(id)) return;
-      await this.#run(state, input.prompt, selected);
-    })()
-      .catch((cause) => {
-        state.error = cause instanceof Error ? cause.message : String(cause);
-      })
-      .finally(async () => {
-        state.busy = false;
-        this.#live.delete(id);
-        state.status = state.error ? "error" : this.#aborted.has(id) || this.#closed ? "interrupted" : state.draftPath ? "ready" : "idle";
-        state.updatedAt = Date.now();
-        await this.#save(state);
-      });
-    this.#runs.add(run);
-    void run.finally(() => this.#runs.delete(run)).catch(() => {});
-    await initialWrite;
-  }
-  async #run(
-    state: SetupRuntimeState,
-    prompt: string,
-    selected: { runtime: ModelRuntime; model: RuntimeModel },
-  ): Promise<void> {
-    let session = this.#sessions.get(state.id);
-    if (!session) {
-      const cwd = path.join(this.#directory(state.id), "workspace");
-      await mkdir(cwd, { recursive: true });
-      const settingsManager = SettingsManager.inMemory({
-        packages: [],
-        cacheWarming: "off",
-      });
-      const resourceLoader = new DefaultResourceLoader({
-        cwd,
-        agentDir: this.agentDirectory,
-        settingsManager,
-        noExtensions: true,
-        noSkills: true,
-        noPromptTemplates: true,
-        noThemes: true,
-        noContextFiles: true,
-        systemPrompt:
-          SETUP_PROMPT +
-          (state.pluginId ? `\nThe selected plugin is ${state.pluginId}.` : ""),
-        extensionFactories: [
-          {
-            name: "openrouter-attribution",
-            factory: openRouterAttributionExtension,
-          },
-        ],
-      });
-      await resourceLoader.reload();
-      const created = await createAgentSession({
-        cwd,
-        agentDir: this.agentDirectory,
-        resourceLoader,
-        settingsManager,
-        modelRuntime: selected.runtime,
-        model: compatibleRuntimeModel(selected.model),
-        sessionManager: this.#sessionManager(state.id),
-        customTools: [this.#tool(cwd, state)],
-      });
-      session = created.session;
-      this.#sessions.set(state.id, session);
-      try {
-        await session.bindExtensions({ mode: "rpc" });
-      } catch (cause) {
-        session.dispose();
-        this.#sessions.delete(state.id);
-        throw cause;
-      }
-    } else await session.setModel(compatibleRuntimeModel(selected.model));
-    if (state.reasoningLevel) session.setThinkingLevel(state.reasoningLevel);
-    if (this.#closed || this.#aborted.has(state.id)) {
-      state.busy = false;
-      session.dispose();
-      this.#sessions.delete(state.id);
-      return;
-    }
-    const unsubscribe = session.subscribe((event) => {
-      if (event.type === "message_update") {
-        if (event.message.role === "assistant")
-        {
-          const entries: SessionEntry[] = [...this.#sessionManager(state.id).getBranch(), {
-            type: "message", id: `${state.id}:live`, parentId: null,
-            timestamp: new Date().toISOString(), message: event.message as Extract<SessionEntry, { type: "message" }>["message"],
-          }];
-          this.#live.set(state.id, conversationItems(entries, false).filter(item => item.id.startsWith(`${state.id}:live`))
-            .map(item => item.type === "agentMessage" || item.type === "reasoning" ? { ...item, status: "inProgress" } : item));
-        }
-      }
-      if (event.type === "message_end") this.#live.delete(state.id);
-    });
-    try {
-      await session.prompt(prompt);
-      state.error = lastAssistantError(session.messages)?.message;
-    } finally {
-      unsubscribe();
-    }
+  /** The tool an agent drafts a workspace's plugin with; a project of another kind has none. */
+  async agentTools(project: Pick<ProjectState, "id" | "type">): Promise<ToolDefinition[]> {
+    if (project.type !== "plugin") return [];
+    const state = (await this.#all()).find(state => state.projectId === project.id);
+    return state ? [this.#tool(state)] : [];
   }
 
-  #tool(cwd: string, state: SetupRuntimeState): ToolDefinition {
+  #tool(state: SetupRuntimeState): ToolDefinition {
     return {
       name: "plugin_manage",
       label: "Manage plugin",
@@ -576,32 +439,6 @@ export class PluginSetupManager {
       },
     };
   }
-  async abort(id: string): Promise<void> {
-    this.#aborted.add(id);
-    await this.#sessions.get(id)?.abort();
-  }
-  async close(): Promise<void> {
-    this.#closed = true;
-    await Promise.allSettled(
-      [...this.#sessions.values()].map((session) => session.abort()),
-    );
-    await Promise.allSettled([...this.#runs]);
-    // A session may have finished initializing while close was awaiting runs.
-    await Promise.allSettled(
-      [...this.#sessions.values()].map(async (session) => {
-        try {
-          await session.extensionRunner.emit({
-            type: "session_shutdown",
-            reason: "quit",
-          });
-        } finally {
-          session.dispose();
-        }
-      }),
-    );
-    this.#sessions.clear();
-    this.#history.clear();
-  }
   #save(state: SetupRuntimeState): Promise<void> {
     const filePath = path.join(this.#directory(state.id), "state.json");
     const contents = JSON.stringify(state);
@@ -624,11 +461,6 @@ export class PluginSetupManager {
       .catch(() => {});
     return write;
   }
-}
-
-function summary(state: PluginSetupSummary): PluginSetupSummary {
-  const { id, mode, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel } = state;
-  return { id, mode, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel };
 }
 
 export function registerPluginSetupRoutes(
@@ -710,11 +542,6 @@ export function registerPluginSetupRoutes(
         .send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
-  app.delete<{ Params: { id: string } }>("/plugins/setup-sessions/:id/conversation", async (request, reply) => {
-    try { return await manager.clearConversation(request.params.id); }
-    catch (cause) { return reply.code((cause as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 409)
-      .send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-  });
   app.get<{ Params: { id: string }; Querystring: { path: string } }>("/plugins/setup-sessions/:id/file", {
     schema: { querystring: { type: "object", required: ["path"], additionalProperties: false, properties: { path: { type: "string", minLength: 1 } } } },
   }, async (request, reply) => {
@@ -733,47 +560,4 @@ export function registerPluginSetupRoutes(
     try { return await manager.testDraft(request.params.id, request.params.server, request.body.revision); }
     catch (cause) { return reply.code(400).send({ error: String(cause) }); }
   });
-  app.post<{ Params: { id: string }; Body: PluginSetupPrompt }>(
-    "/plugins/setup-sessions/:id/prompt",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["prompt", "model"],
-          properties: {
-            prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-            reasoningLevel: { enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
-            model: {
-              type: "object",
-              required: ["provider", "id"],
-              additionalProperties: false,
-              properties: {
-                provider: { type: "string" },
-                id: { type: "string" },
-              },
-            },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      try {
-        await manager.prompt(request.params.id, request.body);
-        return reply.code(202).send(await manager.read(request.params.id));
-      } catch (cause) {
-        return reply.code(409).send({
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-      }
-    },
-  );
-  app.post<{ Params: { id: string } }>(
-    "/plugins/setup-sessions/:id/abort",
-    async (request, reply) => {
-      await manager.abort(request.params.id);
-      return reply.code(204).send();
-    },
-  );
-  app.addHook("onClose", () => manager.close());
 }

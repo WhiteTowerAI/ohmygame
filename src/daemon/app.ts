@@ -120,10 +120,10 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
-import { HOOK_CHANGES_MAX, manifestHooks } from "../shared/plugin-hooks.js";
+import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -997,7 +997,7 @@ export function createApp(options: AppOptions = {}) {
       playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
-    )];
+    ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
@@ -1321,11 +1321,12 @@ export function createApp(options: AppOptions = {}) {
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
-  const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, async ref => {
-    const runtime = await getModelRuntime();
-    const model = await availableModel(ref.provider, ref.id);
-    if (!model) throw new Error("Select an available model in Providers");
-    return { runtime, model };
+  const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
+    create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
+    get: (projectId) => projects.get(projectId),
+    remove: (project) => removeProject(project),
+    busy: (projectId) => agents.isProjectBusy(projectId),
+    exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
   registerPluginSetupRoutes(app, pluginSetup);
   registerPluginIconRoutes(app, async (id) => {
@@ -1500,7 +1501,6 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
-      const contributes = entry.manifest.contributes ?? {};
       const added = await pluginSources.origin(entry.id, entry.version);
       return {
         id: entry.id,
@@ -1533,17 +1533,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.required ? { required: true } : {}),
           ...(field.options ? { options: field.options } : {}),
         })),
-        adds: {
-          projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
-          panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
-          commands: (contributes.commands ?? []).map((command) => text(command.title)),
-          mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
-          modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
-          agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
-          tools: contributes.tools?.length ?? 0,
-          skills: entry.skills.length,
-          ...(manifestHooks(entry.manifest).length ? { hooks: [...manifestHooks(entry.manifest)] } : {}),
-        },
+        adds: pluginAdds(entry, text),
       };
     }));
   });
@@ -1574,7 +1564,7 @@ export function createApp(options: AppOptions = {}) {
     oneOf: [
       {
         required: ["name", "registry"], additionalProperties: false,
-        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { enum: [...PLUGIN_NPM_REGISTRIES] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
+        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { anyOf: [{ enum: [...PLUGIN_NPM_REGISTRIES] }, { type: "string", pattern: "^https://", maxLength: 300 }] }, market: { const: true }, version: { type: "string", minLength: 1, maxLength: 256 } },
       },
       {
         required: ["url"], additionalProperties: false,
@@ -2427,7 +2417,8 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/projects", async () => projects.list());
+  // A plugin workspace's project opens from the Plugins page, not from the list of projects.
+  app.get("/projects", async () => projects.list().filter((project) => project.type !== "plugin"));
 
   const projectActivity = () => ({
     activity: agents.projectActivity(),
@@ -2884,7 +2875,15 @@ export function createApp(options: AppOptions = {}) {
     // A project reads as idle from the end of a run, a little before its turn is closed; what is asked of it then waits.
     await agents.turnsClosed(project.id);
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
-    return projectWrites.exclusive(project.id, async () => {
+    if (request.query.keep === "1") return projectWrites.exclusive(project.id, async () => {
+      await forgetProject(project);
+      return reply.send({ movedTo: await projects.remove(project.id) });
+    });
+    await removeProject(project);
+    return reply.code(204).send();
+  });
+  /** Lets go of everything the app holds for a project, before its files go. */
+  async function forgetProject(project: ProjectState): Promise<void> {
     await previews.forget(project);
     gameTuning.forget(project);
     agents.forgetProject(project.id);
@@ -2902,11 +2901,13 @@ export function createApp(options: AppOptions = {}) {
     await checkpoints.settled(project);
     await pluginServices.closeProject(project.workspacePath).catch(() => {});
     fileWatches.close(project.workspacePath);
-    if (request.query.keep === "1") return reply.send({ movedTo: await projects.remove(project.id) });
-    await projects.delete(project.id);
-    return reply.code(204).send();
+  }
+  function removeProject(project: ProjectState): Promise<void> {
+    return projectWrites.exclusive(project.id, async () => {
+      await forgetProject(project);
+      await projects.delete(project.id);
     });
-  });
+  }
 
   registerCommunityRoutes(app, publisher, projects);
 

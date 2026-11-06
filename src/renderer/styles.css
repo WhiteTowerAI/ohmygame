@@ -289,21 +289,6 @@ body {
   height: 48px;
 }
 
-.desktop-window-frame .plugin-builder-shell .viewer-header {
-  padding-right: calc(var(--window-controls-width) + 12px);
-}
-
-/* The Plugin Builder is a full-window workspace with no project bar or sidebar,
-   so its pane headers are the only place to drag the window. */
-.desktop-window-frame .plugin-builder-shell .window-drag-handle {
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-window-frame .plugin-builder-shell .window-drag-handle :is(a, button, input, label, select, textarea) {
-  app-region: no-drag;
-}
-
 /* The window's controls share a sheet's top corner: keep the sheet's own
    surface behind them and start its header below, rather than lifting the
    whole sheet off the window edge. Sheets render in a portal. */
@@ -4364,44 +4349,6 @@ select.settings-search-input {
   max-height: 100%;
 }
 
-.plugin-switch {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: var(--border-strong);
-  cursor: pointer;
-}
-
-.plugin-switch span {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #a0aaac;
-  transition:
-    transform 120ms ease,
-    background 120ms ease;
-}
-
-.plugin-switch[aria-checked="true"] {
-  background: var(--settings-switch-accent);
-}
-
-.plugin-switch[aria-checked="true"] span {
-  background: #fff;
-  transform: translateX(14px);
-}
-
-.plugin-switch:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
 .plugins-installed {
   container: plugins / inline-size;
   margin-top: 28px;
@@ -4622,48 +4569,8 @@ button {
   outline: 0;
 }
 
-.workspace-shell {
-  --workspace-navigation-left: 16px;
-  position: relative;
-  display: grid;
-  grid-template-columns:
-    clamp(320px, var(--agent-width, 430px), 65vw)
-    1px minmax(0, 1fr);
-  grid-template-areas: "agent resizer viewer";
-  min-height: 100dvh;
-  height: 100dvh;
-  background: var(--canvas);
-}
-
-.agent-pane {
-  grid-area: agent;
-}
-
-.workspace-resizer {
-  grid-area: resizer;
-}
-
-.viewer-pane {
-  grid-area: viewer;
-}
-
-.desktop-macos .workspace-shell {
-  --workspace-navigation-left: 88px;
-}
-
-.workspace-shell-agent-collapsed {
-  grid-template-columns: 0 0 minmax(0, 1fr);
-  grid-template-areas: "agent resizer viewer";
-}
-
 .tool-artifact-preview {
   min-height: 120px;
-}
-
-.workspace-shell-agent-collapsed .agent-pane {
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
 }
 
 /* A chat in the middle of the workspace reads in one centered column. */
@@ -7751,7 +7658,6 @@ button {
   .pixel-preset-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 175px), 1fr)); }
 }
 
-.workspace-resizer,
 .file-explorer-resizer {
   position: relative;
   z-index: 3;
@@ -7762,7 +7668,6 @@ button {
   touch-action: none;
 }
 
-.workspace-resizer::after,
 .file-explorer-resizer::after {
   position: absolute;
   top: 0;
@@ -7774,29 +7679,9 @@ button {
   transition: background 120ms ease;
 }
 
-.workspace-resizer:hover::after,
-.workspace-resizer:focus-visible::after,
-.workspace-shell-resizing .workspace-resizer::after,
 .file-explorer-resizer:hover::after,
 .file-explorer-resizer:active::after {
   background: var(--border-strong);
-}
-
-.workspace-resizer:focus-visible {
-  outline: 0;
-}
-
-.workspace-shell-agent-collapsed .workspace-resizer {
-  pointer-events: none;
-}
-
-.workspace-resize-shield {
-  position: fixed;
-  z-index: 20;
-  inset: 0;
-  cursor: col-resize;
-  touch-action: none;
-  user-select: none;
 }
 
 .pane-header {
@@ -7807,10 +7692,6 @@ button {
   min-width: 0;
   padding: 0 16px;
   border-bottom: 0;
-}
-
-.agent-pane > .pane-header {
-  padding-left: calc(var(--workspace-navigation-left) + 36px);
 }
 
 .agent-pane > .pane-header,
@@ -8016,63 +7897,6 @@ button {
 .pane-header-action:disabled {
   cursor: default;
   opacity: 0.45;
-}
-
-.workspace-navigation-actions {
-  position: absolute;
-  z-index: 20;
-  top: 11px;
-  left: var(--workspace-navigation-left);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  pointer-events: auto;
-  app-region: no-drag;
-}
-
-.workspace-navigation-actions .icon-button {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: #9ca1aa;
-  app-region: no-drag;
-}
-
-.workspace-navigation-actions .icon-button:hover {
-  background: var(--surface-hover);
-  color: #e5e7eb;
-}
-
-.workspace-navigation-actions .workspace-home-button,
-.workspace-navigation-actions .workspace-home-button:hover {
-  color: #fff;
-}
-
-.workspace-navigation-drag-exclusion {
-  position: absolute;
-  top: 0;
-  left: var(--workspace-navigation-left);
-  width: 28px;
-  height: 50px;
-  pointer-events: none;
-  app-region: no-drag;
-}
-
-.viewer-header > .workspace-navigation-drag-exclusion,
-.interactive-story-header > .workspace-navigation-drag-exclusion {
-  display: none;
-}
-
-.workspace-shell-agent-collapsed
-  :is(.viewer-header, .interactive-story-header)
-  > .workspace-navigation-drag-exclusion {
-  display: block;
-  width: 102px;
-}
-
-.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-  padding-left: calc(var(--workspace-navigation-left) + 112px);
 }
 
 .agent-body {
@@ -11906,31 +11730,6 @@ summary.work-summary:hover {
   display: block;
 }
 
-.publish-button {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.publish-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.publish-button:disabled {
-  cursor: default;
-  opacity: 0.42;
-}
-
 @container workspace-header (max-width: 520px) {
   .workspace-tabs {
     --workspace-active-tab-width: var(--workspace-tab-width);
@@ -11940,21 +11739,6 @@ summary.work-summary:hover {
     display: none;
   }
 
-  .workspace-publish-button {
-    width: 32px;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .workspace-publish-button span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
 }
 
 @container workspace-header (max-width: 380px) {
@@ -11962,7 +11746,6 @@ summary.work-summary:hover {
     --workspace-tab-width: 28px;
   }
 
-  .viewer-navigation .workspace-home-button,
   .viewer-publish > button,
   .preview-controls > .icon-button {
     width: 28px;
@@ -12963,24 +12746,6 @@ summary.work-summary:hover {
     flex: 1 0 100%;
     text-align: right;
   }
-  .workspace-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(340px, 48dvh) minmax(380px, 52dvh);
-    height: auto;
-    min-height: 100dvh;
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-shell-agent-collapsed {
-    grid-template-columns: 1fr;
-    grid-template-rows: 0 minmax(380px, 100dvh);
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-resizer {
-    display: none;
-  }
-
   .agent-pane {
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -12997,10 +12762,6 @@ summary.work-summary:hover {
   .viewer-header {
     padding-left: 10px;
     padding-right: 8px;
-  }
-
-  .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-    padding-left: calc(var(--workspace-navigation-left) + 80px);
   }
 
   .preview-controls {
@@ -13107,20 +12868,6 @@ summary.work-summary:hover {
   background: rgb(0 0 0 / 38%);
 }
 
-:root[data-appearance="light"] .plugin-switch {
-  border: 1px solid var(--border-strong);
-}
-
-:root[data-appearance="light"] .plugin-switch span {
-  top: 2px;
-  left: 2px;
-  background: var(--surface);
-}
-
-:root[data-appearance="light"] .plugin-switch[aria-checked="true"] {
-  border-color: var(--settings-switch-accent);
-}
-
 :root[data-appearance="light"] .plugin-detail-secondary {
   border-color: var(--border);
   background: var(--surface);
@@ -13139,22 +12886,6 @@ summary.work-summary:hover {
 :root[data-appearance="light"] :is(.pane-header-action, .design-header-actions > .icon-button):hover:not(:disabled),
 :root[data-appearance="light"] .pane-header-action[aria-expanded="true"],
 :root[data-appearance="light"] .pane-header-action.is-active {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button,
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button:hover {
-  color: var(--text-muted);
-}
-
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
@@ -14247,11 +13978,105 @@ summary.work-summary:hover {
 .agent-account-profile-form { display: grid; gap: 8px; }
 .agent-account-profile-form .settings-detail-inline > input,
 .agent-account-profile-form .settings-detail-inline > button,
+.agent-account-profile-form > input,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: 12px; }
 .chat-account-selector { min-width: 0; }
-.chat-account-selector .canvas-chip { max-width: 140px; height: 26px; padding: 0 6px; border-radius: 6px; background: transparent; }
-.chat-account-selector .canvas-chip:hover:not(:disabled),
-.chat-account-selector .canvas-chip[aria-expanded="true"] { background: var(--menu-hover); }
+
+
+/* The chat header's account menu (agent-account-menu.tsx). */
+.agent-account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-account-trigger:hover:not(:disabled),
+.agent-account-trigger[aria-expanded="true"] { background: var(--menu-hover); color: var(--text); }
+.agent-account-trigger:disabled { cursor: default; opacity: 0.6; }
+.agent-account-trigger-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-account-trigger-usage { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* A window's share used turns amber near its limit and red at it, wherever it shows. */
+:is(.agent-account-trigger-usage, .agent-account-row-usage, .agent-account-window).is-warning { --usage-color: var(--warning); }
+:is(.agent-account-trigger-usage, .agent-account-row-usage, .agent-account-window).is-danger { --usage-color: var(--danger); }
+:is(.agent-account-trigger-usage, .agent-account-row-usage):is(.is-warning, .is-danger) { color: var(--usage-color); }
+
+.agent-account-heading > span { flex: 1; }
+/* Tracks dark enough that an empty ring or bar still reads. */
+:is(.agent-account-menu, .agent-account-peek) { --agent-account-track: color-mix(in srgb, var(--color-text-tertiary) 35%, transparent); }
+.ui-popover.agent-account-menu {
+  width: 300px;
+  max-height: min(560px, calc(100vh - 16px));
+}
+
+.agent-account-windows { display: grid; gap: 12px; padding: 8px 8px 10px; }
+.agent-account-window { display: grid; gap: 6px; }
+.agent-account-window-head { display: flex; justify-content: space-between; gap: 8px; font-size: var(--text-sm); }
+.agent-account-window-head > span:first-child { color: var(--color-text-secondary); }
+.agent-account-window-head > span:last-child { color: var(--usage-color, var(--color-text)); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.agent-account-window .agent-usage-meter { height: 6px; border-radius: 3px; background: var(--agent-account-track); }
+.agent-account-window .agent-usage-meter > span { background: var(--usage-color, var(--color-ink)); }
+.agent-account-window > small { color: var(--color-text-tertiary); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+
+.agent-account-heading { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.agent-account-list { display: grid; gap: 1px; }
+.agent-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-account-row:is(:hover, :focus-visible):not(:disabled) { outline: none; background: var(--color-hover); }
+.agent-account-row:disabled { cursor: default; opacity: 0.6; }
+.agent-account-row-text { display: grid; flex: 1; min-width: 0; }
+.agent-account-row-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-account-row-text > span { font-size: var(--text-md); }
+.agent-account-row-text > small { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.agent-account-row[aria-checked="true"] .agent-account-row-text > span { font-weight: var(--weight-medium); }
+/* A ring per window, so both read at a glance without opening the card. */
+.agent-account-rings { display: inline-flex; flex: none; gap: 4px; }
+.agent-account-ring { flex: none; }
+.agent-account-ring circle { fill: none; stroke: var(--agent-account-track); stroke-width: 2.5; }
+.agent-account-ring circle + circle { stroke: var(--color-text-secondary); stroke-linecap: round; }
+.agent-account-ring.is-warning circle + circle { stroke: var(--warning); }
+.agent-account-ring.is-danger circle + circle { stroke: var(--danger); }
+.agent-account-row-usage { flex: none; min-width: 32px; color: var(--color-text-secondary); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }
+.agent-account-check { display: inline-grid; flex: none; place-items: center; width: 14px; color: var(--color-text-secondary); }
+
+/* Another account's windows, beside the menu while its row is hovered. */
+.agent-account-peek {
+  position: fixed;
+  z-index: 101;
+  display: grid;
+  gap: 2px;
+  padding: 10px 6px 2px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  pointer-events: none;
+  animation: ui-pop-in var(--duration-fast) var(--ease-out);
+}
+.agent-account-peek > strong { overflow: hidden; padding: 0 8px; font-size: var(--text-sm); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) {
   .agent-account-profiles .provider-model-row { flex-wrap: wrap; }
   .agent-account-profiles .provider-model-row > label { flex-basis: calc(100% - 96px); }
@@ -14346,10 +14171,79 @@ summary.work-summary:hover {
   white-space: normal;
 }
 
-.project-plugins-capabilities {
+/* What a plugin asks for, one line per kind of access (plugin-consent-dialog.tsx). */
+.plugin-capability-list {
+  display: grid;
   margin: var(--space-2) 0 0;
-  padding-left: var(--space-5);
-  font-size: var(--text-sm);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+
+.plugin-capability-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  font-size: var(--text-md);
+}
+
+.plugin-capability-list > li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.plugin-capability-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.plugin-capability-list > li.is-danger .plugin-capability-icon {
+  color: var(--color-danger);
+}
+
+.plugin-capability-text > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.plugin-capability-items code.is-new {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent);
+}
+
+.plugin-capability-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  line-height: 20px;
+}
+
+.plugin-capability-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plugin-capability-items code {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Beside the game, not over it: see GameTuningPanel. */

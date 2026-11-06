@@ -1,4 +1,5 @@
 import type { ProjectState } from "../shared/contracts.js";
+import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
@@ -45,7 +46,12 @@ const INTERACTIVE_STORY_INSTRUCTIONS = [
   "A user message may end with an <editor-context> block about what the user is looking at: the Node open in the editor, whose source files are attached as references; elements they picked in its preview, each with its source location; a drawing they made over the preview, shown in orange on the attached screenshot; a moment they marked in the Node's background video, in seconds from the start of the file, with a screenshot of the preview at that moment; and media they added, already declared on the Node as an Asset. Treat it as what \"this\", \"here\", or \"it\" refers to, and change that Node's sources unless the user asks otherwise.",
 ] as const;
 
+const PLUGIN_WORKSPACE_INSTRUCTIONS = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
+${PLUGIN_AUTHORING_RULES}
+Read existing files before editing. Start from plugin_manage read, which says what this workspace is working on. Author the files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Use plugin_manage read and test on the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview, then fills in any settings on the plugin's page. Report its actual state and required input, concisely and in the user's language.`;
+
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
+  if (project.type === "plugin") return [PLUGIN_WORKSPACE_INSTRUCTIONS];
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,
     ...GENERAL_GAME_INSTRUCTIONS,

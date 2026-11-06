@@ -1,13 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
+import { customNpmRegistry, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
-import { NativeCodeWarning } from "./plugin-consent-dialog.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
-import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
 
@@ -19,8 +19,43 @@ interface Review {
   folder?: string;
 }
 
-/** npm can be slow to reach from China, where the mirror is the usual choice. */
-const preferredRegistry = (): PluginNpmRegistry => language === "zh-CN" ? "npmmirror" : "npmjs";
+const REGISTRY_KEY = "ohmygame.pluginRegistry";
+
+/**
+ * The registry chosen last, here and for market cards. Otherwise npm, or in
+ * Chinese the mirror, since npm can be slow to reach from China.
+ */
+function preferredRegistry(): PluginNpmRegistry {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(REGISTRY_KEY);
+  } catch {
+    // Storage may be off; the default does.
+  }
+  if (saved && ((PLUGIN_NPM_REGISTRIES as readonly string[]).includes(saved) || customNpmRegistry(saved) === saved)) return saved as PluginNpmRegistry;
+  return language === "zh-CN" ? "npmmirror" : "npmjs";
+}
+
+function rememberRegistry(registry: PluginNpmRegistry): void {
+  try {
+    localStorage.setItem(REGISTRY_KEY, registry);
+  } catch {
+    // Next time starts from the default.
+  }
+}
+
+const isKnownRegistry = (registry: PluginNpmRegistry): registry is (typeof PLUGIN_NPM_REGISTRIES)[number] =>
+  (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(registry);
+
+/** What to call a registry: its name, or for another one, its host. */
+export function registryLabel(registry: PluginNpmRegistry): string {
+  if (isKnownRegistry(registry)) return t(`pluginAdd.registries.${registry}`);
+  try {
+    return new URL(registry).host;
+  } catch {
+    return registry;
+  }
+}
 
 /**
  * One place to add a plugin from outside the app: read the package, show what it
@@ -36,7 +71,14 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
   const started = Boolean(listed ?? source);
   const [kind, setKind] = useState<SourceKind>("npm");
   const [name, setName] = useState("");
-  const [registry, setRegistry] = useState<PluginNpmRegistry>(preferredRegistry);
+  const [registry, setRegistry] = useState<(typeof PLUGIN_NPM_REGISTRIES)[number] | "custom">(() => {
+    const preferred = preferredRegistry();
+    return isKnownRegistry(preferred) ? preferred : "custom";
+  });
+  const [customRegistry, setCustomRegistry] = useState(() => {
+    const preferred = preferredRegistry();
+    return isKnownRegistry(preferred) ? "" : preferred;
+  });
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File>();
   /** A folder typed in, where there's no desktop folder picker. */
@@ -85,7 +127,15 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
   function submit(event: FormEvent): void {
     event.preventDefault();
     if (review) void add();
-    else if (kind === "npm") void readSource({ type: "npm", name: name.trim(), registry });
+    else if (kind === "npm") {
+      const chosen = registry === "custom" ? customNpmRegistry(customRegistry) : registry;
+      if (!chosen) {
+        setError(t("pluginAdd.customRegistryInvalid"));
+        return;
+      }
+      rememberRegistry(chosen);
+      void readSource({ type: "npm", name: name.trim(), registry: chosen });
+    }
     else if (kind === "github") void readSource({ type: "github", url: url.trim() });
     else if (folderPath.trim()) void readSource(folderSource(folderPath.trim()), folderPath.trim());
     else if (file) void readFile(file);
@@ -97,7 +147,7 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
       if (selected) setReview({ preview: await inspectAddedPlugin(folderSource(selected)), folder: selected });
     });
   }
-  const canContinue = review || (kind === "npm" ? name.trim() : kind === "github" ? url.trim() : folderPath.trim() || file);
+  const canContinue = review || (kind === "npm" ? name.trim() && (registry !== "custom" || customRegistry.trim()) : kind === "github" ? url.trim() : folderPath.trim() || file);
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
     title={review ? t("pluginAdd.reviewTitle", { name: review.preview.displayName }) : t("pluginAdd.title")}
@@ -116,7 +166,11 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
         ]} />
         {kind === "npm" ? <>
           <Field label={t("pluginAdd.packageName")} hint={t("pluginAdd.packageHint")}>{(props) => <Input {...props} autoFocus required disabled={busy} value={name} placeholder="@publisher/plugin" spellCheck={false} onChange={(event) => setName(event.target.value)} />}</Field>
-          <Field label={t("pluginAdd.registry")}>{(props) => <Select {...props} label={t("pluginAdd.registry")} value={registry} disabled={busy} onChange={setRegistry} options={PLUGIN_NPM_REGISTRIES.map((value) => ({ value, label: t(`pluginAdd.registries.${value}`) }))} />}</Field>
+          <Field label={t("pluginAdd.registry")}>{(props) => <Select {...props} label={t("pluginAdd.registry")} value={registry} disabled={busy} onChange={setRegistry} options={[
+            ...PLUGIN_NPM_REGISTRIES.map((value) => ({ value, label: t(`pluginAdd.registries.${value}`) })),
+            { value: "custom" as const, label: t("pluginAdd.customRegistry") },
+          ]} />}</Field>
+          {registry === "custom" ? <Field label={t("pluginAdd.customRegistryAddress")} hint={t("pluginAdd.customRegistryHint")}>{(props) => <Input {...props} required disabled={busy} type="url" value={customRegistry} placeholder="https://registry.example.com" spellCheck={false} onChange={(event) => setCustomRegistry(event.target.value)} />}</Field> : null}
         </> : null}
         {kind === "github" ? <Field label={t("pluginAdd.repository")} hint={t("pluginAdd.repositoryHint")}>{(props) => <Input {...props} autoFocus required disabled={busy} type="url" value={url} placeholder="https://github.com/publisher/plugin" spellCheck={false} onChange={(event) => setUrl(event.target.value)} />}</Field> : null}
         {kind === "local" ? <>
@@ -145,10 +199,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
       {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}</a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
     <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnPerProject")}</p>
-    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}>
-      <code>{ask}</code>{preview.newAsks && !preview.newAsks.includes(ask) ? <span className="plugins-note"> · {t("pluginAdd.allowedBefore")}</span> : null}
-      {preview.newAsks?.includes(ask) ? <Badge tone="outline">{t("pluginAdd.newAsk")}</Badge> : null}
-    </li>)}</ul>
+    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><PluginCapabilityList capabilities={preview.asks} newAsks={preview.newAsks} />
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
     <NativeCodeWarning asks={preview.asks} />
@@ -164,7 +215,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
 }
 
 function sourceLabel({ origin }: PluginAddPreview, local: string | undefined): string {
-  if (origin?.type === "npm") return `${origin.package} · ${t(`pluginAdd.registries.${origin.registry}`)}`;
+  if (origin?.type === "npm") return `${origin.package} · ${registryLabel(origin.registry)}`;
   if (origin?.type === "github") return `github.com/${origin.repository} · ${origin.commit.slice(0, 7)}`;
   if (origin?.type === "development") return `${origin.folder} · ${t("plugins.inDevelopment")}`;
   return local ?? t("pluginAdd.local");

@@ -85,7 +85,7 @@ import {
   type Model3DAnimationAction,
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
-import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -164,6 +164,7 @@ declare global {
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      browseAccountDirectory?: (runtime: AccountRuntimeId, profileId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
@@ -415,6 +416,14 @@ export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false):
 
 export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
   return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function updateAccountProfile(runtime: AccountRuntimeId, profileId: string, change: UpdateAgentAccountProfileRequest): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export function moveAccountProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
 }
 
 export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
@@ -1741,7 +1750,7 @@ export async function saveConnectionConfiguration(id: string, values: import("..
 export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
 }
 async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
@@ -1749,22 +1758,12 @@ async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
 }
-export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
-}
-export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);
 }
 export async function deletePluginSetup(id: string): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-export async function promptPluginSetup(id: string, prompt: string, model: AgentModelRef, reasoningLevel?: import("../shared/contracts.js").AgentReasoningLevel): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/prompt`, { method: "POST", body: JSON.stringify({ prompt, model, reasoningLevel }) });
-}
-export async function abortPluginSetup(id: string): Promise<void> {
-  await request(`/plugins/setup-sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
-}
-
 export async function listPluginSetups(): Promise<import("../shared/plugin-setup.js").PluginSetupSummary[]> {
   return request("/plugins/setup-sessions");
 }
@@ -1784,8 +1783,8 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);
 }
-export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  const state = await request<import("../shared/plugin-setup.js").PluginSetupState>(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
+export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
+  const state = await request<import("../shared/plugin-setup.js").PluginSetupSummary>(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
   void syncPluginTheme(listPluginThemes);
   return state;
 }

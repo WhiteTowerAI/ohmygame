@@ -107,6 +107,8 @@ safe mode starts the app with every plugin off. See
   can read it.
 - Packages added by name or from GitHub outside the market aren't reviewed
   or signature checked beyond the registry's checksum or the pinned commit.
+  A registry the person enters by address is trusted for that checksum like
+  npm is.
 - One project's extension host runs all of that project's native plugins, so
   they can reach each other's memory and data folders.
 - There is no remote access yet. If plugins are ever used from another

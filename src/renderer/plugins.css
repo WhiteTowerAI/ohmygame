@@ -61,12 +61,6 @@
   font-weight: var(--weight-semibold);
 }
 
-.plugins-count {
-  margin-left: 4px;
-  color: var(--color-text-tertiary);
-  font-weight: var(--weight-regular);
-}
-
 .plugins-mono {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -534,25 +528,76 @@
 /* What uninstalling removes and leaves (plugin-store.tsx). */
 .plugin-uninstall {
   display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.plugin-uninstall section {
+  display: grid;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.plugin-uninstall p,
-.plugin-uninstall ul {
+.plugin-uninstall h3 {
   margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.plugin-uninstall p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 .plugin-uninstall ul {
-  padding-left: var(--space-6);
-}
-
-.plugin-store-capabilities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.plugin-uninstall ul.plugin-uninstall-removes {
+  display: grid;
+  gap: 4px;
+  padding-left: var(--space-5);
+  list-style: disc;
+  font-size: var(--text-md);
+}
+
+/* A long list scrolls in its own box; names don't widen the dialog. */
+.plugin-uninstall-box {
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.plugin-uninstall-box li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 6px var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.plugin-uninstall-box li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.plugin-uninstall-box li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-uninstall-box li > small {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 .plugin-store-adds {

@@ -13,7 +13,25 @@ export type PluginOrigin =
   | { type: "development"; folder: string };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
-export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
+/** A registry the app knows by name, or another npm registry by its address, as `customNpmRegistry` writes it. */
+export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number] | `https://${string}`;
+
+/**
+ * Another npm registry's address, such as a company's or another mirror's:
+ * HTTPS, with no sign-in, query or trailing slash.
+ * Undefined when it can't be one. A registry that needs signing in isn't
+ * supported, as OhMyGame keeps no npm tokens.
+ */
+export function customNpmRegistry(value: string): `https://${string}` | undefined {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return undefined;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}` as `https://${string}`;
+}
 
 /** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
 export type PluginAddSource =

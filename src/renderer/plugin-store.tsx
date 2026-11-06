@@ -1,17 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, exportStorePlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
-import { hookLabel } from "./plugin-hook-labels.js";
+import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
+import { PluginCapabilityList, PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -121,9 +121,9 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
 }
 
-/** A newer version on the market. Only for a plugin added from npm: from anywhere else it couldn't join. */
+/** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */
 export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
-  if (plugin.origin?.type !== "npm") return undefined;
+  if (plugin.origin?.type !== "npm" || !(PLUGIN_NPM_REGISTRIES as readonly string[]).includes(plugin.origin.registry)) return undefined;
   const listed = market?.plugins.find((item) => item.id === plugin.id);
   return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
 }
@@ -149,7 +149,7 @@ export function marketContributions({ adds }: MarketPlugin): PluginContribution[
 }
 
 /** A plugin on the market, not installed yet; opening it reviews the package. */
-export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onOpen: () => void }): ReactNode {
+export function MarketPluginCard({ plugin, installed = false, onOpen }: { plugin: MarketPlugin; installed?: boolean; onOpen: () => void }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
@@ -169,7 +169,7 @@ export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onO
         </span>
       </span>
     </button>
-    <span className="plugins-installed-label">{t("plugins.install")}</span>
+    <span className="plugins-installed-label">{t(installed ? "plugins.installed" : "plugins.install")}</span>
   </article>;
 }
 
@@ -220,29 +220,6 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
     {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
     {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled}
       label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
-  </article>;
-}
-
-/** A listing on the browse page: where it comes from and what it adds. */
-export function StorePluginBrowseCard({ group, onOpen }: { group: StorePluginGroup; onOpen: () => void }): ReactNode {
-  const { plugin } = group;
-  return <article className="plugin-card">
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
-      <StoreTile plugin={plugin} />
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.bundled ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.official")} /> : null}
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.bundled ? t("plugins.officialSource") : plugin.id}</span>
-          <StoreTags plugin={plugin} />
-        </span>
-      </span>
-    </button>
-    <span className="plugins-installed-label">{t("plugins.installed")}</span>
   </article>;
 }
 
@@ -357,36 +334,20 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     for (const version of unused) await uninstallStorePlugin(plugin.id, version.version);
     setUsage(undefined);
   });
-  const adds = [
-    ...plugin.adds.projectTypes.map((title) => ({ kind: t("pluginStore.addsType"), title })),
-    ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
-    ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
-    ...plugin.adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
-    ...(plugin.adds.hooks ?? []).map((hook) => ({ kind: t("pluginStore.addsHook"), title: hookLabel(hook) })),
-    ...plugin.adds.modelProviders.map((title) => ({ kind: t("pluginStore.addsModelProvider"), title })),
-    ...plugin.adds.agents.map((title) => ({ kind: t("pluginStore.addsAgent"), title })),
-    ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
-    ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
-  ];
+  const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
-    <header className="plugin-head">
-      <StoreTile plugin={plugin} large />
-      <div className="plugin-head-copy">
-        <h1>
-          <span>{plugin.displayName}</span>
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-          {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
-          {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
-        </h1>
-        <p>{plugin.description}</p>
-      </div>
+    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
+      {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
+      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
+      {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
+    </>}>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
         <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
         {tryIt.popover}
       </div> : null}
-    </header>
+    </PluginHead>
     {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
     {plugin.developmentError ? <Alert tone="danger" title={t("pluginStore.developmentError")}>{plugin.developmentError}</Alert> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
@@ -415,13 +376,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </section> : null}
           {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
             <h2>{t("pluginStore.adds")}</h2>
-            <ul className="plugin-store-adds">
-              {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
-            </ul>
+            <PluginAddsList rows={adds} />
           </section> : null}
           {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
             <h2>{t("pluginStore.asksFor")}</h2>
-            <ul className="plugin-store-capabilities">{plugin.capabilities.map((capability) => <li key={capability} className="plugins-tag plugins-mono">{capability}</li>)}</ul>
+            <PluginCapabilityList capabilities={plugin.capabilities} />
           </section> : null}
         </div>
         {plugin.skills.length ? <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.skills")} hidden={tab !== "skills"}>
@@ -502,6 +461,13 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   </div>;
 }
 
+/** Names in their first order, each once with how many times it came. */
+function countNames(names: readonly string[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts];
+}
+
 /** Says what uninstalling a version removes, and what it leaves, before it does. */
 function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
   plugin: StorePlugin;
@@ -529,23 +495,29 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
     {error ? <Alert tone="danger" title={error} /> : null}
     {!preview && !error ? <Skeleton height={64} /> : null}
     {preview ? <div className="plugin-uninstall">
-      <p>{t("pluginStore.uninstallRemoves")}</p>
-      <ul>
-        <li>{t("pluginStore.uninstallFiles", { version: version.version })}</li>
-        {preview.last ? <li>{t("pluginStore.uninstallPermissions")}</li> : null}
-        {preview.last && preview.settings && !keepData ? <li>{t("pluginStore.uninstallSettings", { count: preview.settings })}</li> : null}
-        {preview.last && preview.dataBytes && !keepData ? <li>{t("pluginStore.uninstallData", { size: formatBytes(preview.dataBytes) })}</li> : null}
-      </ul>
-      {hasData ? <Checkbox checked={keepData} onChange={setKeepData} label={t("pluginStore.uninstallKeepData")}
-        description={t("pluginStore.uninstallKeepDataHint")} /> : null}
-      {preview.projects.length ? <>
+      <section>
+        <h3>{t("pluginStore.uninstallRemoves")}</h3>
+        <ul className="plugin-uninstall-removes">
+          <li>{t("pluginStore.uninstallFiles", { version: version.version })}</li>
+          {preview.last ? <li>{t("pluginStore.uninstallPermissions")}</li> : null}
+          {preview.last && preview.settings && !keepData ? <li>{t("pluginStore.uninstallSettings", { count: preview.settings })}</li> : null}
+          {preview.last && preview.dataBytes && !keepData ? <li>{t("pluginStore.uninstallData", { size: formatBytes(preview.dataBytes) })}</li> : null}
+        </ul>
+        {hasData ? <Checkbox checked={keepData} onChange={setKeepData} label={t("pluginStore.uninstallKeepData")}
+          description={t("pluginStore.uninstallKeepDataHint")} /> : null}
+      </section>
+      {preview.projects.length ? <section>
+        <h3>{t("pluginStore.uninstallProjectsTitle", { count: preview.projects.length })}</h3>
         <p>{t("pluginStore.uninstallProjects", { count: preview.projects.length })}</p>
-        <ul>{preview.projects.map((name) => <li key={name}>{name}</li>)}</ul>
-      </> : null}
-      {preview.projectFiles.length ? <>
+        <ul className="plugin-uninstall-box">{countNames(preview.projects).map(([name, count]) => <li key={name}>
+          <span title={name}>{name}</span>{count > 1 ? <small>×{count}</small> : null}
+        </li>)}</ul>
+      </section> : null}
+      {preview.projectFiles.length ? <section>
+        <h3>{t("pluginStore.uninstallProjectFilesTitle")}</h3>
         <p>{t("pluginStore.uninstallProjectFiles")}</p>
-        <ul>{preview.projectFiles.map((file) => <li key={file} className="plugins-mono">{file}</li>)}</ul>
-      </> : null}
+        <ul className="plugin-uninstall-box">{preview.projectFiles.map((file) => <li key={file} className="plugins-mono"><span title={file}>{file}</span></li>)}</ul>
+      </section> : null}
     </div> : null}
   </Dialog>;
 }
