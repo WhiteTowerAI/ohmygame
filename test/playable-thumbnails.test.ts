@@ -15,7 +15,7 @@ import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 const IMAGE = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
 
 describe("Node thumbnail cache", () => {
-  it("stores a thumbnail with its hash under .ohmygame/thumbnails", async () => {
+  it("stores a thumbnail with its hash under .ohmygame/local/thumbnails", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnails-"));
     const nodeIds = new Set(["menu", "archive"]);
 
@@ -26,7 +26,7 @@ describe("Node thumbnail cache", () => {
     expect(entry.hash).toBe("0123abcd0123ab");
     expect(await listPlayableThumbnails(workspace)).toEqual({ menu: entry });
     expect(await readPlayableThumbnail(workspace, "menu")).toEqual(IMAGE);
-    expect((await readdir(path.join(workspace, ".ohmygame", "thumbnails"))).sort()).toEqual(["menu.json", "menu.webp"]);
+    expect((await readdir(path.join(workspace, ".ohmygame", "local", "thumbnails"))).sort()).toEqual(["menu.json", "menu.webp"]);
   });
 
   it("covers the project with the Start Scene's thumbnail, or else the first one captured", async () => {
@@ -57,9 +57,9 @@ describe("Node thumbnail cache", () => {
 
   it("ignores broken cache entries", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnails-"));
-    await mkdir(path.join(workspace, ".ohmygame", "thumbnails"), { recursive: true });
-    await writeFile(path.join(workspace, ".ohmygame", "thumbnails", "menu.json"), "{");
-    await writeFile(path.join(workspace, ".ohmygame", "thumbnails", "lobby.json"), JSON.stringify({ hash: "no" }));
+    await mkdir(path.join(workspace, ".ohmygame", "local", "thumbnails"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "local", "thumbnails", "menu.json"), "{");
+    await writeFile(path.join(workspace, ".ohmygame", "local", "thumbnails", "lobby.json"), JSON.stringify({ hash: "no" }));
 
     expect(await listPlayableThumbnails(workspace)).toEqual({});
   });

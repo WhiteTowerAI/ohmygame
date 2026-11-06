@@ -49,7 +49,7 @@ const webp = (label: string) =>
   ]);
 
 describe("project archive export", () => {
-  it("packs the manifest, cover and workspace without dependencies, build output or secrets", async () => {
+  it("packs the project folder with its settings and cover, without dependencies, build output or secrets", async () => {
     const projects = new ProjectManager(await temporaryDirectory());
     const project = await projects.create("Moon Garden", "web-game");
     await projects.setMediaModelDefaults(project.id, {
@@ -60,8 +60,8 @@ describe("project archive export", () => {
       "src/main.js": "start()",
       "levels/build/keep.txt": "level build data",
       ".gitignore": "dist\n",
-      ".data/assets.json": "{}",
-      ".data/asset-previews/hero.png": "preview",
+      ".ohmygame/assets.json": "{}",
+      ".ohmygame/asset-previews/hero.png": "preview",
       "canvas/board.json": "{}",
       "canvas/jobs.json": "[]",
       "node_modules/pkg/index.js": "dependency",
@@ -71,8 +71,10 @@ describe("project archive export", () => {
       "build/out.txt": "build",
       "out/out.txt": "build",
       ".godot/cache": "cache",
-      ".ohmygame/state.json": "agent",
-      ".data/agent-attachments/a.txt": "attachment",
+      ".ohmygame/state.json": "project data",
+      ".ohmygame/local/attachments/a.txt": "attachment",
+      ".ohmygame/local/thumbnails/a.webp": "thumbnail",
+      ".ohmygame/build/web/index.html": "build",
       ".env": "SECRET=1",
       "config/.env.local": "SECRET=2",
     };
@@ -88,37 +90,41 @@ describe("project archive export", () => {
         path.join(project.workspacePath, "index.html"),
         path.join(project.workspacePath, "link.html"),
       );
+      // Not even the automatic cover, which goes along otherwise.
+      await mkdir(path.join(project.workspacePath, ".ohmygame/local/thumbnails"), { recursive: true });
+      await symlink(
+        path.join(project.workspacePath, "index.html"),
+        path.join(project.workspacePath, ".ohmygame/local/cover-auto.webp"),
+      );
     }
 
-    const archive = await readArchive(
-      await exportProjectArchive(project, {
-        cover: { contents: webp("cover"), mode: "custom" },
-      }),
-    );
+    await projects.setCover(project.id, webp("cover"));
+    // The archive says what the project's settings are now, whatever the folder's copy says.
+    await writeFile(path.join(project.workspacePath, ".ohmygame/settings.json"), "{}");
+
+    const archive = await readArchive(await exportProjectArchive(project));
 
     expect(Object.keys(archive).sort()).toEqual([
-      "cover.webp",
-      "ohmygame-project.json",
-      "workspace/.data/asset-previews/hero.png",
-      "workspace/.data/assets.json",
-      "workspace/.gitignore",
-      "workspace/canvas/board.json",
-      "workspace/index.html",
-      "workspace/levels/build/keep.txt",
-      "workspace/src/main.js",
+      ".gitignore",
+      ".ohmygame/asset-previews/hero.png",
+      ".ohmygame/assets.json",
+      ".ohmygame/cover-state.json",
+      ".ohmygame/cover.webp",
+      ".ohmygame/settings.json",
+      ".ohmygame/state.json",
+      "canvas/board.json",
+      "index.html",
+      "levels/build/keep.txt",
+      "src/main.js",
     ]);
-    expect(archive["cover.webp"]).toEqual(webp("cover"));
-    expect(JSON.parse(archive["ohmygame-project.json"]!.toString())).toEqual({
-      format: "ohmygame-project",
+    expect(archive[".ohmygame/cover.webp"]).toEqual(webp("cover"));
+    expect(JSON.parse(archive[".ohmygame/settings.json"]!.toString())).toEqual({
       version: 1,
-      project: {
-        name: "Moon Garden",
-        type: "web-game",
-        mediaModelDefaults: {
-          image: { provider: "openai", id: "gpt-image-1" },
-        },
+      name: "Moon Garden",
+      type: "web-game",
+      mediaModelDefaults: {
+        image: { provider: "openai", id: "gpt-image-1" },
       },
-      cover: { mode: "custom" },
     });
   });
 
@@ -146,17 +152,14 @@ describe("project archive export", () => {
     );
 
     expect(
-      archive["workspace/assets/library/Hero-Portrait.png"]?.toString(),
+      archive["assets/library/Hero-Portrait.png"]?.toString(),
     ).toBe("portrait");
-    const graph = JSON.parse(archive["workspace/graph.json"]!.toString());
+    const graph = JSON.parse(archive["graph.json"]!.toString());
     expect(graph.assets.portrait.source).toEqual({
       kind: "workspace",
       path: "assets/library/Hero-Portrait.png",
     });
-    expect(archive["cover.webp"]).toBeUndefined();
-    expect(
-      JSON.parse(archive["ohmygame-project.json"]!.toString()).cover,
-    ).toBeUndefined();
+    expect(Object.keys(archive).filter((file) => file.includes("cover"))).toEqual([]);
 
     graph.assets.portrait.source = { kind: "library", assetId: "gone" };
     await writeFile(
@@ -235,17 +238,15 @@ describe("project archive export", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toBe("application/zip");
     const archive = await readArchive(response.rawPayload);
-    expect(archive["workspace/main.gd"]?.toString()).toBe("extends Node");
-    expect(archive["cover.webp"]).toEqual(webp("automatic"));
+    expect(archive["main.gd"]?.toString()).toBe("extends Node");
+    // The automatic cover is this computer's, but goes along so the imported project has one.
+    expect(archive[".ohmygame/local/cover-auto.webp"]).toEqual(webp("automatic"));
     expect(
-      JSON.parse(archive["ohmygame-project.json"]!.toString()),
+      JSON.parse(archive[".ohmygame/settings.json"]!.toString()),
     ).toMatchObject({
-      project: {
-        name: "Engine game",
-        type: "general",
-        webPreviewEnabled: true,
-      },
-      cover: { mode: "auto" },
+      name: "Engine game",
+      type: "general",
+      webPreviewEnabled: true,
     });
     expect(
       (await app.inject({ method: "POST", url: "/projects/missing/export" }))
@@ -274,10 +275,8 @@ describe("project archive export", () => {
     });
 
     const archive = await readArchive((await app.inject({ method: "POST", url: `/projects/${project.id}/export` })).rawPayload);
-    expect(archive["logo.webp"]).toEqual(webp("logo"));
-    // The template replaces the cover, so there is none to pack.
-    expect(archive["cover.webp"]).toBeUndefined();
-    expect(JSON.parse(archive["ohmygame-project.json"]!.toString()).project.appearance)
+    expect(archive[".ohmygame/logo.webp"]).toEqual(webp("logo"));
+    expect(JSON.parse(archive[".ohmygame/settings.json"]!.toString()).appearance)
       .toEqual({ icon: "rocket", tone: 2, cover: "template", logo: true });
 
     const imported = (await app.inject({
@@ -293,7 +292,7 @@ describe("project archive export", () => {
     }
 
     // An archive that names a logo without holding one falls back to the icon.
-    const { "logo.webp": _logo, ...withoutLogo } = archive;
+    const { ".ohmygame/logo.webp": _logo, ...withoutLogo } = archive;
     const missing = (await app.inject({
       method: "POST",
       url: "/projects/import",
@@ -303,7 +302,7 @@ describe("project archive export", () => {
     expect(missing.appearance).toEqual({ icon: "rocket", tone: 2, cover: "template" });
   });
 
-  it("counts the manifest even when the workspace is empty", async () => {
+  it("counts the settings even when the workspace is empty", async () => {
     const projects = new ProjectManager(await temporaryDirectory());
     const project = await projects.create("Empty project");
     await expect(
@@ -336,9 +335,7 @@ describe("project archive export", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(
-      (await readArchive(response.rawPayload))[
-        "workspace/index.html"
-      ]?.toString(),
+      (await readArchive(response.rawPayload))["index.html"]?.toString(),
     ).toBe("restored game");
   });
 
@@ -395,7 +392,7 @@ describe("project archive export", () => {
     const files = await readArchive(
       await exportProjectArchive(project, { library }),
     );
-    const manifestBytes = files["ohmygame-project.json"]!.length;
+    const manifestBytes = files[".ohmygame/settings.json"]!.length;
     await expect(
       exportProjectArchive(project, {
         library,
@@ -552,7 +549,14 @@ describe("project archive import", () => {
           mode: 0o120777,
         },
         "workspace/.data/agent-attachments/a.txt": "attachment",
-        "workspace/.data/assets.json": "{}",
+        "workspace/.data/assets.json": JSON.stringify({
+          version: 1,
+          prompts: { "art/hero.png": "A hero" },
+          previews: { "art/hero.png": ".data/asset-previews/hero.jpg" },
+          libraryAssets: {},
+        }),
+        "workspace/.data/asset-previews/hero.jpg": "preview",
+        "workspace/.ohmygame/thumbnails/menu.webp": "thumbnail",
         "notes.txt": "outside the workspace",
       }),
     );
@@ -570,10 +574,19 @@ describe("project archive import", () => {
         ),
       ),
     ).toEqual([{ ...job, context: { ...job.context, projectId: project.id } }]);
+    // An archive from before keeps OhMyGame's files in `.data/`; they move into `.ohmygame/`.
     expect(await listFiles(project.workspacePath)).toEqual([
-      ".data/assets.json",
+      ".ohmygame/.gitignore",
+      ".ohmygame/asset-previews/hero.jpg",
+      ".ohmygame/assets.json",
+      ".ohmygame/local/attachments/a.txt",
+      ".ohmygame/local/thumbnails/menu.webp",
+      ".ohmygame/settings.json",
       "canvas/jobs.json",
     ]);
+    expect(
+      JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/assets.json"), "utf8")),
+    ).toMatchObject({ previews: { "art/hero.png": ".ohmygame/asset-previews/hero.jpg" } });
     const restored = new ProjectManager(dataDirectory);
     await restored.load();
     expect(restored.get(project.id)).toMatchObject({
@@ -750,6 +763,35 @@ describe("project archive import", () => {
       message,
     );
     await expectNothingImported(projects, dataDirectory);
+  });
+
+  it("imports an archive of a project folder, dropping a cover or logo that is not a WebP image", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const project = await importProjectArchive(
+      projects,
+      await zipArchive({
+        ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Folder game", type: "web-game", appearance: { icon: "rocket", logo: true } }),
+        ".ohmygame/cover.webp": "not an image",
+        ".ohmygame/logo.webp": "not an image",
+        ".ohmygame/local/cover-auto.webp": webp("automatic"),
+        ".ohmygame/local/thumbnails/menu.webp": "thumbnail",
+        "workspace/notes.txt": "the project's own folder",
+        "index.html": "game",
+      }),
+    );
+    expect(project).toMatchObject({ name: "Folder game", type: "web-game", appearance: { icon: "rocket" } });
+    expect(project.appearance?.logo).toBeUndefined();
+    expect(await projects.cover(project.id)).toEqual(webp("automatic"));
+    expect(await listFiles(project.workspacePath)).toEqual([
+      ".ohmygame/.gitignore",
+      ".ohmygame/local/cover-auto.webp",
+      ".ohmygame/settings.json",
+      "index.html",
+      "workspace/notes.txt",
+    ]);
+    await expect(
+      importProjectArchive(projects, await zipArchive({ ".ohmygame/settings.json": JSON.stringify({ version: 2, name: "Later", type: "web-game" }) })),
+    ).rejects.toThrow("exported by a newer version of OhMyGame");
   });
 
   it.each([

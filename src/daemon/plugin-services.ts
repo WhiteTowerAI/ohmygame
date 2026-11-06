@@ -9,7 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
@@ -100,6 +100,8 @@ export interface ProjectPanel {
   id: string;
   plugin: string;
   version: string;
+  /** The package's digest, which changes only when a plugin in development changes under the same version. */
+  revision: string;
   title: string;
   area: "left" | "center" | "right" | "bottom";
   when?: string;
@@ -165,7 +167,6 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 }
 
 /** Publishers whose names only the app and the Plugin Builder can give out. */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 export function assertAddablePlugin(id: string): void {
   const publisher = id.slice(0, id.indexOf("/"));
@@ -588,6 +589,7 @@ export class PluginServices {
           id: panel.id,
           plugin: entry.id,
           version: entry.version,
+          revision: entry.digest,
           title: localizePluginString(entry, panel.title, locale),
           area: panel.area,
           ...(panel.when ? { when: panel.when } : {}),
@@ -750,8 +752,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
-    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  installManaged(source: string, { consent = true, before }: { consent?: boolean; before?: () => Promise<void> } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(async () => {
+      await before?.();
+      return this.#installManaged(source, consent);
+    });
   }
 
   async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
@@ -806,12 +811,13 @@ export class PluginServices {
   /**
    * Installs a package the person added from npm, GitHub or a file. It allows
    * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses.
+   * sheet. It can't take a name the app or the Plugin Builder uses. `before`
+   * runs first, with no other package changing, to call the install off.
    */
-  async installAdded(source: string): Promise<PluginIndexEntry> {
+  async installAdded(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
   }
 
   /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */

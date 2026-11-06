@@ -10,6 +10,8 @@ import { PluginSetupManager, registerPluginSetupRoutes, type PluginWorkspaceProj
 import type { ProjectState } from "../src/shared/contracts.js";
 import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
+import { exportPlugin } from "../src/daemon/plugin-export.js";
+import { checkFolder } from "../scripts/plugin-check.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -141,6 +143,32 @@ describe("Plugin Builder", () => {
     await expect(setup.installDraft(state.id, draft.revision!)).rejects.toThrow("personal/<name>");
     await expect(services.installPersonal(root, { consent: false })).rejects.toThrow("personal/<name>");
     expect(services.index.entries()).toEqual([]);
+  });
+
+  it("exports a plugin it made as a package to publish under the person's publisher", async () => {
+    const { setup, directory, services } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await services.installPersonal(root, { consent: false });
+    const entry = services.index.get(ID)!;
+    const into = path.join(directory, "exports");
+    await expect(exportPlugin(entry, "personal", into)).rejects.toThrow("kept for OhMyGame");
+    const folder = await exportPlugin(entry, "acme", into);
+    const name = ID.slice("personal/".length);
+    expect(folder).toBe(path.join(into, name));
+    expect(JSON.parse(await readFile(path.join(folder, ".ohmygame-plugin/plugin.json"), "utf8")).id).toBe(`acme/${name}`);
+    expect(JSON.parse(await readFile(path.join(folder, "package.json"), "utf8"))).toMatchObject({ name: `@acme/${name}`, version: "0.1.0" });
+    expect(await checkFolder(folder)).toEqual([]);
+    // Nothing installed changes, and a folder with files isn't overwritten.
+    expect(services.index.entries().map((item) => item.id)).toEqual([ID]);
+    await expect(exportPlugin(entry, "acme", into)).rejects.toThrow("already has files");
+    // Nor is a file of that name.
+    const other = path.join(directory, "elsewhere");
+    await mkdir(other);
+    await writeFile(path.join(other, name), "mine");
+    await expect(exportPlugin(entry, "acme", other)).rejects.toThrow("already has files");
+    expect(await readFile(path.join(other, name), "utf8")).toBe("mine");
+    await expect(exportPlugin({ ...entry, id: "acme/other" }, "acme", into)).rejects.toThrow("Only a plugin you made");
   });
 
   it("allows what a reviewed draft asks for, but not one the agent installs", async () => {

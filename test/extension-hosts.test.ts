@@ -1882,7 +1882,7 @@ describe("plugin hooks", () => {
 
   it("watches a project's files, leaving out tools' own folders", async () => {
     expect(watchedPath("src\\game.js")).toBe("src/game.js");
-    for (const ignored of [".git/index", "node_modules/a/b.js", ".data/x", ".ohmygame/build/web/index.html"])
+    for (const ignored of [".git/index", "node_modules/a/b.js", ".ohmygame/assets.json", ".ohmygame/build/web/index.html"])
       expect(watchedPath(ignored)).toBeUndefined();
     const folder = await realpath(await mkdtemp(path.join(tmpdir(), "ohmygame-watch-")));
     const changes: Array<{ paths: string[]; truncated?: boolean }> = [];

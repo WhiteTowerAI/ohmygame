@@ -130,6 +130,8 @@ import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
+import { PluginDevelopment } from "./plugin-development.js";
+import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { capabilityGrants, missingGrants, projectFolderKey, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
@@ -222,6 +224,8 @@ export interface AppOptions {
   pluginMarketKeys?: PluginMarketOptions["keys"];
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
+  /** How long a plugin in development waits for its edits to settle, in tests. */
+  pluginDevelopmentSettleMs?: number;
   preinstalledPluginsDirectory?: string;
   /** Safe mode: every plugin is off, its own choices kept for when the app starts normally. */
   pluginSafeMode?: boolean;
@@ -1367,6 +1371,8 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
     void syncPluginAgents();
+    // Folders in development may have changed while the app was closed.
+    void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -1504,6 +1510,7 @@ export function createApp(options: AppOptions = {}) {
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
         ...(added ? { origin: added } : {}),
+        ...(added?.type === "development" && pluginDevelopment.error(entry.id) ? { developmentError: pluginDevelopment.error(entry.id) } : {}),
         ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
@@ -1535,6 +1542,9 @@ export function createApp(options: AppOptions = {}) {
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
   });
   const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
+  const pluginDevelopment = new PluginDevelopment(pluginServices, pluginSources, options.pluginDevelopmentSettleMs === undefined ? {} : { settleMs: options.pluginDevelopmentSettleMs });
+  // Adding or uninstalling a plugin in development starts or stops watching its folder.
+  pluginServices.onChange(() => void pluginDevelopment.sync().catch(() => undefined));
   // The last check, shared by the startup check and every Plugins page opened within a few minutes of it.
   const pluginUpdates = {
     last: undefined as { at: number; result: Promise<PluginSourceUpdate[]> } | undefined,
@@ -1560,7 +1570,7 @@ export function createApp(options: AppOptions = {}) {
       },
       {
         required: ["path"], additionalProperties: false,
-        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 } },
+        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 }, development: { const: true } },
       },
     ],
   } as const;
@@ -1659,6 +1669,20 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
+    }
+  });
+  // A plugin made in the Plugin Builder, copied out as a package to publish under the person's own publisher.
+  app.post<{ Params: { publisher: string; name: string }; Body: { publisher: string; folder: string } }>("/plugin-store/:publisher/:name/export", {
+    schema: { body: { type: "object", required: ["publisher", "folder"], additionalProperties: false, properties: { publisher: { type: "string", minLength: 1, maxLength: 100 }, folder: { type: "string", minLength: 1, maxLength: 4096 } } } },
+  }, async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not found" });
+    try {
+      return { folder: await exportPlugin(entry, request.body.publisher.trim(), request.body.folder) };
+    } catch (cause) {
+      if (cause instanceof PluginExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
     }
   });
   /** The names of the projects using each version of a plugin. */
@@ -1820,7 +1844,11 @@ export function createApp(options: AppOptions = {}) {
     void syncFileWatch(project.workspacePath);
     if (!panels.length) return [];
     const server = await pluginUiServer();
-    return panels.map((panel) => ({ ...panel, url: server.panelUrl(panel.plugin, panel.version, panel.id) }));
+    // The revision makes a changed page a new address, so an open panel loads it again.
+    return panels.map((panel) => {
+      const url = server.panelUrl(panel.plugin, panel.version, panel.id);
+      return { ...panel, url: url && `${url}?revision=${panel.revision.slice(0, 16)}` };
+    });
   });
   // Only a plugin the project uses, with a page, has storage there.
   const pagePlugin = async (projectId: string, publisher: string, name: string) => {
@@ -2279,6 +2307,7 @@ export function createApp(options: AppOptions = {}) {
             throw new ExampleError(cause instanceof Error ? cause.message : String(cause), 400);
           }
         }
+        await projects.storeSettings(project.id);
         return reply.code(201).send(project);
       }
       const type = request.body?.type ?? "web-game";
@@ -2293,6 +2322,7 @@ export function createApp(options: AppOptions = {}) {
           await projects.delete(project.id);
           throw cause;
         }
+        await projects.storeSettings(project.id);
       }
       return reply.code(201).send(project);
     } catch (cause) {
@@ -4335,8 +4365,13 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
     try {
-      const [cover, coverState, logo] = await Promise.all([projects.cover(project.id), projects.coverState(project.id), projects.logo(project.id)]);
-      const archive = await exportProjectArchive(project, { library, ...(cover ? { cover: { contents: cover, mode: coverState.mode } } : {}), ...(logo ? { logo } : {}) });
+      // An archive of settings that can't be read would carry stand-ins for them.
+      await projects.readySettings(project.id);
+    } catch (cause) {
+      return reply.code(409).send({ error: (cause as Error).message });
+    }
+    try {
+      const archive = await exportProjectArchive(project, { library });
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
@@ -4409,6 +4444,7 @@ export function createApp(options: AppOptions = {}) {
     codexImages.close();
     await projectNaming.close();
     await pluginMcpHost.close();
+    await pluginDevelopment.close();
     fileWatches.dispose();
     await pluginServices.close();
     await (await pluginUi?.catch(() => undefined))?.close();
