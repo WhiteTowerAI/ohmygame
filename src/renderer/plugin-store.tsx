@@ -11,7 +11,7 @@ import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
+import { PluginCapabilityList, PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -380,7 +380,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </section> : null}
           {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
             <h2>{t("pluginStore.asksFor")}</h2>
-            <ul className="plugin-store-capabilities">{plugin.capabilities.map((capability) => <li key={capability} className="plugins-tag plugins-mono">{capability}</li>)}</ul>
+            <PluginCapabilityList capabilities={plugin.capabilities} />
           </section> : null}
         </div>
         {plugin.skills.length ? <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.skills")} hidden={tab !== "skills"}>
@@ -461,6 +461,13 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   </div>;
 }
 
+/** Names in their first order, each once with how many times it came. */
+function countNames(names: readonly string[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts];
+}
+
 /** Says what uninstalling a version removes, and what it leaves, before it does. */
 function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
   plugin: StorePlugin;
@@ -488,23 +495,29 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
     {error ? <Alert tone="danger" title={error} /> : null}
     {!preview && !error ? <Skeleton height={64} /> : null}
     {preview ? <div className="plugin-uninstall">
-      <p>{t("pluginStore.uninstallRemoves")}</p>
-      <ul>
-        <li>{t("pluginStore.uninstallFiles", { version: version.version })}</li>
-        {preview.last ? <li>{t("pluginStore.uninstallPermissions")}</li> : null}
-        {preview.last && preview.settings && !keepData ? <li>{t("pluginStore.uninstallSettings", { count: preview.settings })}</li> : null}
-        {preview.last && preview.dataBytes && !keepData ? <li>{t("pluginStore.uninstallData", { size: formatBytes(preview.dataBytes) })}</li> : null}
-      </ul>
-      {hasData ? <Checkbox checked={keepData} onChange={setKeepData} label={t("pluginStore.uninstallKeepData")}
-        description={t("pluginStore.uninstallKeepDataHint")} /> : null}
-      {preview.projects.length ? <>
+      <section>
+        <h3>{t("pluginStore.uninstallRemoves")}</h3>
+        <ul className="plugin-uninstall-removes">
+          <li>{t("pluginStore.uninstallFiles", { version: version.version })}</li>
+          {preview.last ? <li>{t("pluginStore.uninstallPermissions")}</li> : null}
+          {preview.last && preview.settings && !keepData ? <li>{t("pluginStore.uninstallSettings", { count: preview.settings })}</li> : null}
+          {preview.last && preview.dataBytes && !keepData ? <li>{t("pluginStore.uninstallData", { size: formatBytes(preview.dataBytes) })}</li> : null}
+        </ul>
+        {hasData ? <Checkbox checked={keepData} onChange={setKeepData} label={t("pluginStore.uninstallKeepData")}
+          description={t("pluginStore.uninstallKeepDataHint")} /> : null}
+      </section>
+      {preview.projects.length ? <section>
+        <h3>{t("pluginStore.uninstallProjectsTitle", { count: preview.projects.length })}</h3>
         <p>{t("pluginStore.uninstallProjects", { count: preview.projects.length })}</p>
-        <ul>{preview.projects.map((name) => <li key={name}>{name}</li>)}</ul>
-      </> : null}
-      {preview.projectFiles.length ? <>
+        <ul className="plugin-uninstall-box">{countNames(preview.projects).map(([name, count]) => <li key={name}>
+          <span title={name}>{name}</span>{count > 1 ? <small>×{count}</small> : null}
+        </li>)}</ul>
+      </section> : null}
+      {preview.projectFiles.length ? <section>
+        <h3>{t("pluginStore.uninstallProjectFilesTitle")}</h3>
         <p>{t("pluginStore.uninstallProjectFiles")}</p>
-        <ul>{preview.projectFiles.map((file) => <li key={file} className="plugins-mono">{file}</li>)}</ul>
-      </> : null}
+        <ul className="plugin-uninstall-box">{preview.projectFiles.map((file) => <li key={file} className="plugins-mono"><span title={file}>{file}</span></li>)}</ul>
+      </section> : null}
     </div> : null}
   </Dialog>;
 }

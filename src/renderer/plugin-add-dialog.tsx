@@ -3,11 +3,11 @@ import { customNpmRegistry, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, typ
 import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
-import { NativeCodeWarning } from "./plugin-consent-dialog.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { settingsHash } from "./routes.js";
-import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
 
@@ -199,10 +199,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
       {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}</a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
     <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnPerProject")}</p>
-    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}>
-      <code>{ask}</code>{preview.newAsks && !preview.newAsks.includes(ask) ? <span className="plugins-note"> · {t("pluginAdd.allowedBefore")}</span> : null}
-      {preview.newAsks?.includes(ask) ? <Badge tone="outline">{t("pluginAdd.newAsk")}</Badge> : null}
-    </li>)}</ul>
+    {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><PluginCapabilityList capabilities={preview.asks} newAsks={preview.newAsks} />
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
     <NativeCodeWarning asks={preview.asks} />

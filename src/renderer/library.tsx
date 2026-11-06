@@ -1,11 +1,11 @@
 import { useListPage } from "./use-list-page.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
-import { Copy, Layers3, LoaderCircle, Pencil, Scissors, Trash2 } from "./icons.js";
+import { Copy, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2 } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryFilterRow, libraryFiltersActive } from "./library-filters.js";
@@ -46,6 +46,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [selectedId, setSelectedId] = useState<string>();
   const [dialog, setDialog] = useState<LibraryDialog>();
   const [busy, setBusy] = useState(false);
+  const audio = useTileAudio();
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -102,6 +103,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
     if (busy) return;
     const remove = target.references.length ? forceDeleteLibraryAsset : deleteLibraryAsset;
     if (await runAssetAction(() => remove(target.asset.id))) {
+      if (audio.playing?.id === target.asset.id) audio.stop();
       setDialog(undefined);
       if (selectedId === target.asset.id) setSelectedId(undefined);
     }
@@ -157,7 +159,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         : phase === "loading" && assets.length === 0 ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 12 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
         : visibleAssets.length === 0 ? <Empty title={assets.length ? t("library.noMatch") : t("library.none")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
         : <div className="library-tiles">{visibleAssets.slice(0, page.limit).map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
-            <LibraryTile asset={asset} selected={selectedId === asset.id} onOpen={() => setSelectedId(asset.id)} />
+            <LibraryTile asset={asset} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
+              audio={asset.mediaType === "audio" ? { state: audio.playing?.id === asset.id ? audio.playing.state : undefined, toggle: () => audio.toggle(asset.id) } : undefined} />
           </ContextMenu>)}</div>}
 
       {phase === "ready" ? page.next : null}
@@ -217,11 +220,64 @@ function assetMeta(asset: LibraryAsset): string {
   return `${where} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`;
 }
 
-function LibraryTile({ asset, selected, onOpen }: { asset: LibraryAsset; selected: boolean; onOpen: () => void }) {
+type TileAudioState = "loading" | "playing" | "paused";
+interface TilePlayer { id: string; element: HTMLAudioElement; url?: string }
+
+/** One audio tile plays at a time; its file downloads on the first play. */
+function useTileAudio() {
+  const [playing, setPlaying] = useState<{ id: string; state: TileAudioState }>();
+  const player = useRef<TilePlayer>(undefined);
+  const stop = useCallback(() => {
+    const current = player.current;
+    player.current = undefined;
+    if (current) {
+      current.element.pause();
+      current.element.removeAttribute("src");
+      if (current.url) URL.revokeObjectURL(current.url);
+    }
+    setPlaying(undefined);
+  }, []);
+  useEffect(() => stop, [stop]);
+  const toggle = useCallback((id: string) => {
+    const current = player.current;
+    if (current?.id === id) {
+      if (!current.url) return;
+      if (current.element.paused) void current.element.play().catch(() => undefined);
+      else current.element.pause();
+      return;
+    }
+    stop();
+    const element = new Audio();
+    const next: TilePlayer = { id, element };
+    player.current = next;
+    const update = (state: TileAudioState) => { if (player.current === next) setPlaying({ id, state }); };
+    element.addEventListener("play", () => update("playing"));
+    element.addEventListener("pause", () => update("paused"));
+    update("loading");
+    void getLibraryAsset(id).then((blob) => {
+      if (player.current !== next) return;
+      next.url = URL.createObjectURL(blob);
+      element.src = next.url;
+      return element.play();
+    }).catch(() => { if (player.current === next) stop(); });
+  }, [stop]);
+  return { playing, toggle, stop };
+}
+
+function LibraryTile({ asset, selected, onOpen, audio }: { asset: LibraryAsset; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState; toggle: () => void } }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
-  return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset)} selected={selected} onClick={onOpen}
+  const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset)} selected={selected} onClick={onOpen}
     preview={<TilePreview asset={asset} visible={visible} />}
-    badge={asset.mediaType === "video" && asset.duration ? clock(asset.duration) : undefined} />;
+    badge={(asset.mediaType === "video" || asset.mediaType === "audio") && asset.duration ? clock(asset.duration) : undefined} />;
+  if (!audio) return media;
+  // The preview plays the sound; the name below it still opens the details.
+  const name = fileName(asset.path);
+  return <div className={`library-audio-tile${audio.state ? ` is-${audio.state}` : ""}`}>
+    {media}
+    <button type="button" className="library-audio-play" aria-label={audio.state === "playing" ? t("library.pauseAudio", { name }) : t("library.playAudio", { name })} onClick={audio.toggle}>
+      <span>{audio.state === "loading" ? <LoaderCircle className="spin" size={18} /> : audio.state === "playing" ? <Pause size={18} /> : <Play size={18} />}</span>
+    </button>
+  </div>;
 }
 
 /** An image, a video's first frame or a still 3D model, loaded once the tile is near the screen; otherwise its kind and file type. */

@@ -646,7 +646,7 @@ location. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
 being cancelled. Home waits while it is made. **Blank project** opens
-the dialog empty, and **Import folder** (desktop app) picks an existing folder,
+the dialog empty, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt
 box's type menu adds the enabled plugins that set up their own projects, such
@@ -654,7 +654,7 @@ as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
 mentions lead the first message in the order chosen. **Ideas**, in the row under
-the box with **Blank project** and **Import folder**, lists a few prompts for
+the box with **Blank project** and **Choose project**, lists a few prompts for
 the type that fill the box. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.

@@ -313,14 +313,14 @@ describe("plugin catalog browsing", () => {
       await renderCatalog();
       const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       expect(card("Installed owned").textContent).toContain("Update available");
+      // Another registry is a source of its own, so npm's package couldn't join it.
+      expect(card("Installed other").textContent).not.toContain("Update available");
       // The tab says so too, with a dot rather than a count.
       const installedTab = container.querySelector('[role="tab"]')!;
       expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
       // One added from this computer is the person's own, under Mine, and never updates from the market.
       await click("Mine");
       expect(card("Installed local").textContent).not.toContain("Update available");
-      // Another registry is a source of its own, so npm's package couldn't join it.
-      expect(card("Installed other").textContent).not.toContain("Update available");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
       expect(document.querySelector(".ui-dialog")).toBeTruthy();

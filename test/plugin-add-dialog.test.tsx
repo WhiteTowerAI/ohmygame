@@ -107,7 +107,7 @@ describe("PluginAddDialog", () => {
     expect(onAdded).not.toHaveBeenCalled();
     const text = dialog().textContent!;
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
-    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "network:api.example.com", "API", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
+    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "Connect to these sites", "api.example.com", "API", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
       expect(text, shown).toContain(shown);
     expect(text).not.toContain("runs its own code");
     await submit();
@@ -252,9 +252,10 @@ describe("PluginAddDialog", () => {
     await act(async () => root.render(<PluginAddDialog source={source} onClose={onClose} onAdded={onAdded} />));
     expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source } });
     expect(dialog().querySelector('[role="tab"]')).toBeNull();
-    const items = [...dialog().querySelectorAll("li")].map((item) => item.textContent);
-    expect(items).toContain("network:api.example.com · allowed before");
-    expect(items).toContain("secretsNew");
+    const items = [...dialog().querySelectorAll(".plugin-capability-list > li")].map((item) => item.textContent);
+    expect(items).toContain("Connect to these sitesapi.example.com");
+    expect(items).toContain("Keep keys and sign-insNew");
+    expect(dialog().querySelector(".plugin-capability-items code.is-new")).toBeNull();
     expect(dialog().textContent).toContain("You'll be asked to allow only what's new.");
     await act(async () => button("Add plugin").click());
     expect(onAdded).toHaveBeenCalledWith("acme/maker");

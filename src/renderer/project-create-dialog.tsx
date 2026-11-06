@@ -17,7 +17,7 @@ import type {
 } from "../shared/contracts.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
-import { NativeCodeWarning } from "./plugin-consent-dialog.js";
+import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import "./project-create-dialog.css";
 
 /** What Home's prompt box hands over: it becomes the project's first message. */
@@ -281,18 +281,14 @@ export function ProjectCreateDialog({
         {typePluginConsent?.capabilities.length ? (
           <div className="new-project-consent">
             <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
-            <ul className="project-plugins-capabilities">
-              {typePluginConsent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-            </ul>
+            <PluginCapabilityList capabilities={typePluginConsent.capabilities} />
             <NativeCodeWarning asks={typePluginConsent.capabilities} />
           </div>
         ) : null}
         {turnOnConsent.map((plugin) => (
           <div className="new-project-consent" key={plugin.id}>
             <p>{t("createDialog.pluginConsent", { name: plugin.displayName })}</p>
-            <ul className="project-plugins-capabilities">
-              {plugin.asks!.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-            </ul>
+            <PluginCapabilityList capabilities={plugin.asks!} />
             <NativeCodeWarning asks={plugin.asks!} />
           </div>
         ))}

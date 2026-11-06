@@ -963,7 +963,7 @@ describe("checkpoints in the project shell", () => {
     const daemon = await openProject((route, init) => {
       if (route === `/agent-runtimes/${runtime}/profiles`) return Response.json([
         { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription", account: "personal@example.com" } },
-        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" } },
+        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" }, limits: [{ id: "codex/primary", usedPercent: 96, windowMinutes: 300 }] },
       ]);
       if (route.endsWith("/account-profile") && init.method === "PUT") return Response.json({ profileId: "work" });
     }, chat);
@@ -972,11 +972,13 @@ describe("checkpoints in the project shell", () => {
     expect(selector).not.toBeNull();
     const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
     await act(async () => selector.click());
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
+    const option = [...document.querySelectorAll<HTMLButtonElement>('.agent-account-menu [role="radio"]')].find((button) => button.textContent?.includes("Work"))!;
+    // Each account shows its busiest window, so one with room left is easy to pick.
+    expect(option.querySelector(".agent-account-row-usage.is-danger")?.textContent).toBe("96%");
     await act(async () => option.click());
     await settle();
     expect(confirm).not.toHaveBeenCalled();
-    expect(selector.textContent).toBe("Work");
+    expect(selector.querySelector(".agent-account-trigger-name")?.textContent).toBe("Work");
     expect(container.querySelector(`[aria-label^="${label}:"]`)).toBe(selector);
     expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
     expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
@@ -1021,11 +1023,11 @@ describe("checkpoints in the project shell", () => {
         ...(!removed ? [{ id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription" } }] : []),
       ]);
     }, chat);
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("Work");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Work");
     removed = true;
     await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
     await settle();
-    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("System default");
+    expect(container.querySelector('[aria-label^="Codex account:"] .agent-account-trigger-name')?.textContent).toBe("Default");
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 

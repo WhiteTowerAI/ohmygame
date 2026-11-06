@@ -107,8 +107,8 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   await act(async () => button("Blank project").click());
   expect(document.querySelector('[role="dialog"] textarea')).toBeNull();
   expect(button("Create")).toBeDefined();
-  // Import folder needs the desktop folder picker.
-  expect(button("Import folder")).toBeUndefined();
+  // Choose project needs the desktop folder picker.
+  expect(button("Choose project")).toBeUndefined();
 });
 
 it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {

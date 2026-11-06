@@ -184,8 +184,14 @@ menu set the order, which the chat header's account menu follows.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
 each agent's selection. With multiple profiles, the chat header offers an account
-menu showing the selected account name. Picking another account switches it
-without an additional confirmation. Wait for the current request to finish before switching.
+menu showing the selected account name and its shortest quota window's share
+used, such as the 5-hour one. The menu lists every account with that share and
+a ring per window; hovering or focusing an account shows its windows with how
+much is used and how long until each resets beside the menu. The times count
+down while the menu is open, from each account's last quota report. The
+system account is called **Default** there. Buttons beside the heading open
+the agent's account settings and check the accounts again.
+Picking another account switches it without an additional confirmation. Wait for the current request to finish before switching.
 Choosing the account the chat already uses changes nothing. When the selected
 account's model catalog does not offer the chat's model, the chat moves to the
 new-chat default model if that account offers it, otherwise to the first model
