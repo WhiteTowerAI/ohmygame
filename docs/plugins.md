@@ -64,6 +64,9 @@ and waits until what the plugin asks for is allowed.
   (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
   plugin that asks for nothing) or `false` (off here). The type's plugin is
   always listed at a version. It asks for plugins; it never allows them.
+  Every project has one, and its type is the project's: see
+  [runtime persistence](runtime.md#persistence). Publishing a game leaves it
+  out.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
@@ -390,8 +393,9 @@ was opened.
   version moves the project to another installed one, which is both an
   update and a rollback. It writes only what differs
   from the every-project choice, and turning one on allows it for the
-  folder. A project without `ohmygame.json` gets one the first time it
-  needs one, typed `general`, or its own core type. Turning on one never
+  folder. A project without `ohmygame.json`, from before every project had
+  one, gets one the first time it needs one, typed `general`, or its own core
+  type. Turning on one never
   allowed asks first in the app, then posts the consent. The type's plugin
   can't be turned off.
 - A plugin's page reads `GET /plugin-store/plugins`: its icon, long

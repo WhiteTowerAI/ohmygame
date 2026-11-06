@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
+import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
@@ -137,6 +137,15 @@ export function ProjectCreateDialog({
     void getProjectLocation().then((value) => { if (active) setDefaultLocation(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+  // A folder that names its type starts on it; creating it as another type is refused.
+  useEffect(() => {
+    if (!workspacePath) return;
+    let active = true;
+    void getProjectFolderType(workspacePath).then(({ type: named }) => {
+      if (active && named) setChosenType(named);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [workspacePath]);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
   const [creating, setCreating] = useState(false);

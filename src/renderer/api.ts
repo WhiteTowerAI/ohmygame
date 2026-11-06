@@ -242,6 +242,11 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
   return request("/projects", { method: "POST", body: JSON.stringify(input) });
 }
 
+/** The type a folder chosen to open names, as the new-project dialog lists types; none when it doesn't say. */
+export async function getProjectFolderType(workspacePath: string): Promise<{ type?: string }> {
+  return request("/projects/folder-type", { method: "POST", body: JSON.stringify({ workspacePath }) });
+}
+
 export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }

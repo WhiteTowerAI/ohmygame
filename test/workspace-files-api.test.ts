@@ -61,7 +61,8 @@ describe("project file management", () => {
     expect(await readFile(path.join(project.workspacePath, "game", "main.ts"), "utf8")).toBe("original");
     expect((await app.inject({ method: "DELETE", url: `${base}?path=game/main.ts` })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `${base}?path=game` })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: base })).json()).toEqual([]);
+    // What is left is the file that names the project's type.
+    expect((await app.inject({ method: "GET", url: base })).json()).toEqual([{ path: "ohmygame.json", size: expect.any(Number) }]);
   });
 
   it("renames files and folders when only the letter case changes", async () => {
@@ -124,7 +125,7 @@ describe("project file management", () => {
     // Emulates historical project metadata containing only a Library link.
     await writeFile(path.join(project.workspacePath, "ref.png"), "image");
     await writeAssetMetadata(project.workspacePath, "ref.png", { libraryAssetId: asset.id });
-    expect((await app.inject({ method: "GET", url: base })).json<WorkspaceFile[]>()[0]).toMatchObject({ origin: "uploaded", purpose: "reference" });
+    expect((await app.inject({ method: "GET", url: base })).json<WorkspaceFile[]>().find((file) => file.path === "ref.png")).toMatchObject({ origin: "uploaded", purpose: "reference" });
     const canvas = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject({ method: "GET", url: `${canvas}/workspace` })).json();
     const boardUrl = `${canvas}/boards/${workspace.boards[0].id}`;

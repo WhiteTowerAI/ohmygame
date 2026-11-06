@@ -118,7 +118,9 @@ describe("daemon", () => {
     const project = response.json();
     expect(project.name).toBe("First");
     expect(project.type).toBe("web-game");
-    expect(await readdir(project.workspacePath)).toEqual([]);
+    // The folder holds only the file that names its type.
+    expect(await readdir(project.workspacePath)).toEqual(["ohmygame.json"]);
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
@@ -434,7 +436,7 @@ describe("daemon", () => {
     expect(await readdir(godot.json().workspacePath)).toContain("project.godot");
     expect(general.statusCode).toBe(201);
     expect(general.json()).toMatchObject({ type: "general", webPreviewEnabled: true, preview: { status: "waiting" } });
-    expect(await readdir(general.json().workspacePath)).toEqual([]);
+    expect(await readdir(general.json().workspacePath)).toEqual(["ohmygame.json"]);
     expect(unknown.statusCode).toBe(400);
     const preview = await app.inject({ method: "POST", url: `/projects/${general.json().id}/preview?reuse=1` });
     expect(preview.statusCode).toBe(409);
@@ -467,7 +469,7 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html"]);
+    expect((await readdir(duplicated.json().workspacePath)).sort()).toEqual([".ohmygame", "index.html", "ohmygame.json"]);
     expect(JSON.parse(await readFile(path.join(duplicated.json().workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ version: 1, name: "Renamed copy" });
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
@@ -538,6 +540,7 @@ describe("daemon", () => {
       { path: "cover.png", size: 3, mediaType: "image", origin: "workspace", purpose: "asset" },
       { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
+      { path: "ohmygame.json", size: expect.any(Number) },
     ]);
     expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
     expect(media.headers["content-type"]).toBe("image/png");

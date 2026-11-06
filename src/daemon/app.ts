@@ -79,7 +79,7 @@ import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
-import { ProjectAssetError, ProjectManager, ProjectWorkspaceError } from "./projects.js";
+import { ProjectAssetError, ProjectManager, projectFolderType, ProjectWorkspaceError } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -2340,6 +2340,15 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  // The type a folder chosen to open names, so the new-project dialog starts on it.
+  app.post<{ Body: { workspacePath: string } }>("/projects/folder-type", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["workspacePath"], properties: { workspacePath: { type: "string", minLength: 1 } } } },
+  }, async (request, reply) => {
+    if (!path.isAbsolute(request.body.workspacePath)) return reply.code(400).send({ error: "Workspace path must be absolute" });
+    const type = await projectFolderType(request.body.workspacePath);
+    return type ? { type } : {};
+  });
+
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
       if (request.body?.exampleId) {
@@ -2852,6 +2861,8 @@ export function createApp(options: AppOptions = {}) {
     if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
       const imported = await importProjectArchive(projects, upload, { name: request.query.name });
+      // A plugin's type previews as the version its `ohmygame.json` pins says.
+      await syncPluginType(imported).catch((err) => app.log.warn({ err, projectId: imported.id }, "Could not update the project's plugin type"));
       return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
