@@ -14,9 +14,9 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 // are the source of the published JSON Schema (`schemas/plugin-2.json`), and
 // `validatePluginManifest` adds the rules a schema can't express.
 
-/** Served from the repository's `main` branch, which releases update. */
+/** On the website, which serves `schemas/` from the repository's `main` branch, so releases update it. */
 export const PLUGIN_MANIFEST_SCHEMA_URL =
-  "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/plugin-2.json";
+  "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
 export const PLUGIN_HOST_API_VERSION = "2.3.0";
 

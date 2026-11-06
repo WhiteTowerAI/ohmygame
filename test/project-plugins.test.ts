@@ -168,7 +168,7 @@ describe("project file", () => {
     const text = await readFile(path.join(folder, "ohmygame.json"), "utf8");
     expect(
       text.startsWith(
-        '{\n  "$schema": "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/project-1.json"',
+        '{\n  "$schema": "https://www.ohmygame.ai/schema/project-1.json"',
       ),
     ).toBe(true);
     expect(JSON.parse(text)).toMatchObject({

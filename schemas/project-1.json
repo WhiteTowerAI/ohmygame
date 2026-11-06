@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/project-1.json",
+  "$id": "https://www.ohmygame.ai/schema/project-1.json",
   "title": "OhMyGame project file (ohmygame.json)",
   "type": "object",
   "required": [

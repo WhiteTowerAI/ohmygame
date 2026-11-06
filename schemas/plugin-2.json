@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/plugin-2.json",
+  "$id": "https://www.ohmygame.ai/schema/plugin-2.json",
   "title": "OhMyGame plugin manifest, format 2",
   "type": "object",
   "required": [

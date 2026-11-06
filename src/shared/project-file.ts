@@ -11,9 +11,9 @@ import { isPluginVersion } from "./plugins.js";
 // so later project settings can live here too.
 
 export const PROJECT_FILE_NAME = "ohmygame.json";
-/** The JSON Schema in `schemas/project-1.json`, served from the repository's `main` branch. */
+/** The JSON Schema in `schemas/project-1.json`, which the website serves from the repository's `main` branch. */
 export const PROJECT_FILE_SCHEMA_URL =
-  "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/project-1.json";
+  "https://www.ohmygame.ai/schema/project-1.json";
 
 /** Types the app has without plugins; every other type comes from one. */
 export const CORE_PROJECT_TYPES = ["general", "interactive-story"] as const;

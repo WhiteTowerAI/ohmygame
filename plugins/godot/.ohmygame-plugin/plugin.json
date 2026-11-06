@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/WhiteTowerAI/ohmygame/main/schemas/plugin-2.json",
+  "$schema": "https://www.ohmygame.ai/schema/plugin-2.json",
   "id": "ohmygame/godot",
   "version": "1.0.0",
   "engines": { "ohmygame-api": "^2.0.0" },
