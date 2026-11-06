@@ -495,7 +495,8 @@ Each project lives under the daemon data directory:
 
 ```text
 projects/<project-id>/
-├── project.json   this computer's record: id, folder, latest publication, when it changed
+├── project.json   this computer's record: id, folder, latest publication, when
+│                  it changed, and the type as the app last read it
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -513,13 +514,27 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json  explicit cover mode, including when no cover exists
 ├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
-├── settings.json     the name, type, run and preview settings, appearance and
-│                     media model defaults: the project's record of them
+├── settings.json     the name, run and preview settings, appearance and media
+│                     model defaults: the project's record of them
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
                       (cover-auto.webp), agent attachments, Node thumbnails,
                       newer story runtime files
 ```
+
+The project's type is in `ohmygame.json` at the folder's root, beside
+`.ohmygame/`; see [plugins](plugins.md#files). It names `interactive-story`,
+a plugin's type, or `general` for the app's General projects, Web games and
+Asset Canvases, which `settings.json` tells apart with `kind` (`web-game` or
+`asset-canvas`). A new project of the app's own types gets the file when it
+is created, a plugin's type when its plugin starts the folder, and an older
+project when it loads. The app reads the type from the folder when a project
+loads: an edit there is what the next start shows, and `project.json` keeps
+the type only for a folder without the file, or one that isn't there. A
+plugin's type previews as `project.json` last recorded it until the app reads
+the version the file pins. Opening a folder whose file names a type as
+another type is refused, and the new-project dialog starts on the folder's
+type (`POST /projects/folder-type`).
 
 Everything but `local/` and `build/` goes with the project into snapshots,
 exports and its repository, except that snapshots leave out the settings,
@@ -531,9 +546,9 @@ still empty, until its type or example fills it or something changes, or one
 that isn't there. A folder that isn't there shows by its folder name, and a
 `settings.json` that can't be read is never written over; until either is
 back, the project's settings can't change. A folder opened as a project
-again, as the same type, gets back its name and settings from it; a name
-typed when opening it wins. A `project.json` from before (`version: 1`) held
-them itself; they move to the folder when it loads. A project from an older OhMyGame keeps asset
+again gets back its name and settings from it; a name typed when opening it
+wins. A `project.json` from before (`version: 1`) held
+them and the type itself; they move to the folder when it loads. A project from an older OhMyGame keeps asset
 records, previews and attachments in `.data/`, its caches straight in
 `.ohmygame/`, and its covers and logo beside `project.json`; they move when
 the project loads, is imported, or a snapshot from before comes back. What is

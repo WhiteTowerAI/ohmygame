@@ -115,13 +115,16 @@ describe("project archive export", () => {
       "canvas/board.json",
       "index.html",
       "levels/build/keep.txt",
+      "ohmygame.json",
       "src/main.js",
     ]);
     expect(archive[".ohmygame/cover.webp"]).toEqual(webp("cover"));
+    // The type is in ohmygame.json; the settings tell a Web game from other General projects.
+    expect(JSON.parse(archive["ohmygame.json"]!.toString())).toMatchObject({ type: "general" });
     expect(JSON.parse(archive[".ohmygame/settings.json"]!.toString())).toEqual({
       version: 1,
       name: "Moon Garden",
-      type: "web-game",
+      kind: "web-game",
       mediaModelDefaults: {
         image: { provider: "openai", id: "gpt-image-1" },
       },
@@ -245,9 +248,9 @@ describe("project archive export", () => {
       JSON.parse(archive[".ohmygame/settings.json"]!.toString()),
     ).toMatchObject({
       name: "Engine game",
-      type: "general",
       webPreviewEnabled: true,
     });
+    expect(archive[".ohmygame/settings.json"]!.toString()).not.toContain("kind");
     expect(
       (await app.inject({ method: "POST", url: "/projects/missing/export" }))
         .statusCode,
@@ -583,6 +586,7 @@ describe("project archive import", () => {
       ".ohmygame/local/thumbnails/menu.webp",
       ".ohmygame/settings.json",
       "canvas/jobs.json",
+      "ohmygame.json",
     ]);
     expect(
       JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/assets.json"), "utf8")),
@@ -770,7 +774,8 @@ describe("project archive import", () => {
     const project = await importProjectArchive(
       projects,
       await zipArchive({
-        ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Folder game", type: "web-game", appearance: { icon: "rocket", logo: true } }),
+        "ohmygame.json": JSON.stringify({ type: "general" }),
+        ".ohmygame/settings.json": JSON.stringify({ version: 1, name: "Folder game", kind: "web-game", appearance: { icon: "rocket", logo: true } }),
         ".ohmygame/cover.webp": "not an image",
         ".ohmygame/logo.webp": "not an image",
         ".ohmygame/local/cover-auto.webp": webp("automatic"),
@@ -787,11 +792,30 @@ describe("project archive import", () => {
       ".ohmygame/local/cover-auto.webp",
       ".ohmygame/settings.json",
       "index.html",
+      "ohmygame.json",
       "workspace/notes.txt",
     ]);
     await expect(
       importProjectArchive(projects, await zipArchive({ ".ohmygame/settings.json": JSON.stringify({ version: 2, name: "Later", type: "web-game" }) })),
     ).rejects.toThrow("exported by a newer version of OhMyGame");
+  });
+
+  it("imports a folder as the type its ohmygame.json names", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const projects = new ProjectManager(dataDirectory);
+    const settings = JSON.stringify({ version: 1, name: "Typed game", kind: "web-game" });
+    // A kind is only for the types ohmygame.json calls general.
+    const story = await importProjectArchive(projects, await zipArchive({
+      "ohmygame.json": JSON.stringify({ type: "interactive-story" }), ".ohmygame/settings.json": settings, "graph.json": "{}",
+    }));
+    expect(story).toMatchObject({ name: "Typed game", type: "interactive-story" });
+    // A plugin's type runs outside OhMyGame until the app reads how its plugin previews it.
+    const plugin = await importProjectArchive(projects, await zipArchive({
+      "ohmygame.json": JSON.stringify({ type: "acme/engine:level", plugins: { "acme/engine": "1.0.0" } }), ".ohmygame/settings.json": settings,
+    }));
+    expect(plugin).toMatchObject({ type: "general", pluginType: { id: "acme/engine:level", plugin: "acme/engine", preview: "native" } });
+    await expect(importProjectArchive(projects, await zipArchive({ "ohmygame.json": "{", ".ohmygame/settings.json": settings }))).rejects.toThrow("ohmygame.json is invalid");
+    expect(projects.list()).toHaveLength(2);
   });
 
   it.each([

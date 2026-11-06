@@ -16,10 +16,13 @@ import {
   PROJECT_ARCHIVE_SETTING_KEYS,
   PROJECT_ARCHIVE_VERSION,
   PROJECT_ARCHIVE_WORKSPACE,
-  projectArchiveSettings,
+  PROJECT_SETTING_KEYS,
+  PROJECT_SETTING_KINDS,
+  projectSettings,
   projectSettingsFileText,
   type ProjectArchiveManifest,
   type ProjectArchiveSettings,
+  type ProjectSettings,
 } from "../shared/project-archive.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType } from "../shared/project-runtime.js";
@@ -83,7 +86,7 @@ const ARCHIVE_IMAGES: ReadonlyArray<readonly [string, number]> = [
 ];
 
 /** What an import found: the first version's manifest, or one made from the folder's settings or an old story. */
-type ArchiveManifest = ProjectArchiveManifest & { rootIsWorkspace: boolean };
+type ArchiveManifest = Omit<ProjectArchiveManifest, "project"> & { project: ProjectSettings | ProjectArchiveSettings; rootIsWorkspace: boolean };
 
 const EXTRACTION_ERRORS: Record<ArchiveExtractionFailure, string> = {
   "invalid-zip": "The file is not a valid ZIP archive.",
@@ -179,7 +182,7 @@ export async function exportProjectArchive(
   const entries: ArchiveFile[] = [
     {
       path: PROJECT_SETTINGS_FILE,
-      source: Buffer.from(projectSettingsFileText(projectArchiveSettings(project)), "utf8"),
+      source: Buffer.from(projectSettingsFileText(projectSettings(project)), "utf8"),
     },
   ];
   for (const file of files) {
@@ -497,7 +500,14 @@ async function readFolderManifest(root: string): Promise<ArchiveManifest | undef
   if (!isRecord(value) || value.version !== PROJECT_SETTINGS_VERSION) {
     throw new ProjectArchiveError("The project settings are invalid.");
   }
-  return { format: PROJECT_ARCHIVE_FORMAT, version: PROJECT_ARCHIVE_VERSION, project: archiveSettings(value), rootIsWorkspace: true };
+  if (value.kind !== undefined && !(PROJECT_SETTING_KINDS as readonly unknown[]).includes(value.kind)) {
+    throw new ProjectArchiveError("The project settings are invalid.");
+  }
+  // The type is the one the folder's `ohmygame.json` names, read when the project is created.
+  const project = Object.fromEntries(
+    [...PROJECT_SETTING_KEYS, "kind"].filter((key) => value[key] !== undefined).map((key) => [key, value[key]]),
+  ) as unknown as ProjectSettings;
+  return { format: PROJECT_ARCHIVE_FORMAT, version: PROJECT_ARCHIVE_VERSION, project, rootIsWorkspace: true };
 }
 
 /** The settings an archive names, checked like saved project settings when the project is created. */

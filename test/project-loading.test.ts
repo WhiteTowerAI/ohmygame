@@ -16,8 +16,8 @@ afterEach(async () => {
 
 /** A project record with `value` in it; the name and settings wait in it while the new project's folder is empty. */
 function changed(record: Record<string, unknown>, value: Record<string, unknown>): Record<string, unknown> {
-  const { version, id, ...settings } = value;
-  return { ...record, ...(version === undefined ? {} : { version }), ...(id === undefined ? {} : { id }), settings: { ...(record.settings as object), ...settings } };
+  const { version, id, type, ...settings } = value;
+  return { ...record, ...(version === undefined ? {} : { version }), ...(id === undefined ? {} : { id }), ...(type === undefined ? {} : { type }), settings: { ...(record.settings as object), ...settings } };
 }
 
 async function dataDirectory(): Promise<string> {
@@ -107,8 +107,9 @@ describe("project loading", () => {
     await manager.load(onError);
 
     expect(manager.get(id)).toMatchObject({ name: "Untitled project", type: "web-game" });
-    expect(JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8"))).toEqual({ version: 2, id, updatedAt: expect.any(String) });
-    expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/.ohmygame/settings.json"), "utf8"))).toMatchObject({ name: "Untitled project", type: "web-game" });
+    expect(JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8"))).toEqual({ version: 2, id, updatedAt: expect.any(String), type: "web-game" });
+    expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/.ohmygame/settings.json"), "utf8"))).toEqual({ version: 1, name: "Untitled project", kind: "web-game" });
+    expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -123,9 +124,11 @@ describe("project loading", () => {
     const manager = new ProjectManager(directory);
     await manager.load();
     expect(manager.get(id)).toMatchObject({ name: "Old Garden", type: "general", startupScript: "start" });
-    expect(JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8"))).toEqual({ version: 2, id, nameSource: "manual", updatedAt: "2026-10-01T00:00:00.000Z" });
+    expect(JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8"))).toEqual({ version: 2, id, nameSource: "manual", updatedAt: "2026-10-01T00:00:00.000Z", type: "general" });
     const settingsFile = path.join(projectDirectory, "workspace/.ohmygame/settings.json");
-    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ version: 1, name: "Old Garden", type: "general", startupScript: "start" });
+    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toEqual({ version: 1, name: "Old Garden", webPreviewEnabled: false, startupScript: "start" });
+    // The type goes to the folder's ohmygame.json.
+    expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
 
     // The folder's file decides: one edited there is what the next start reads.
     await writeFile(settingsFile, JSON.stringify({ ...JSON.parse(await readFile(settingsFile, "utf8")), name: "Edited Garden" }));
@@ -178,7 +181,7 @@ describe("project loading", () => {
     expect(broken.get(opened.id)?.type).toBe("general");
     await broken.setAppearance(opened.id, { icon: "leaf" });
     expect(broken.get(opened.id)).toMatchObject({ name: "Sky Garden", type: "general" });
-    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ name: "Sky Garden", type: "general" });
+    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ name: "Sky Garden" });
     const fixed = new ProjectManager(directory);
     await fixed.load();
     expect(fixed.get(opened.id)).toMatchObject({ name: "Sky Garden", appearance: { icon: "leaf" } });
@@ -216,11 +219,11 @@ describe("project loading", () => {
     await manager.touch(project.id);
     expect(await readFile(settingsFile, "utf8")).toBe("{");
     expect(JSON.parse(await readFile(path.join(directory, "projects", project.id, "project.json"), "utf8"))).not.toHaveProperty("settings");
-    // Fixed, it is read again without a restart, type and all.
-    await writeFile(settingsFile, JSON.stringify({ version: 1, name: "Fixed Garden", type: "general", webPreviewEnabled: false }));
+    // Fixed, it is read again without a restart.
+    await writeFile(settingsFile, JSON.stringify({ version: 1, name: "Fixed Garden", webPreviewEnabled: false }));
     await manager.setAppearance(project.id, { icon: "leaf" });
     expect(manager.get(project.id)).toMatchObject({ name: "Fixed Garden", type: "general", webPreviewEnabled: false, appearance: { icon: "leaf" } });
-    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ type: "general", webPreviewEnabled: false });
+    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ webPreviewEnabled: false });
     // A run setting changed there stays when another one changes here.
     await writeFile(settingsFile, JSON.stringify({ ...JSON.parse(await readFile(settingsFile, "utf8")), previewPath: "/play" }));
     await manager.setStartupDirectory(project.id, ".");
@@ -254,6 +257,27 @@ describe("project loading", () => {
     expect(exported.json().error).toContain("settings.json");
     expect((await app.inject({ method: "PATCH", url: `/projects/${project.id}`, payload: { name: "Other" } })).statusCode).toBe(400);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "leaf" } })).statusCode).toBe(409);
+  });
+
+  it("tells the new-project dialog the type a folder names, and refuses another", async () => {
+    const directory = await dataDirectory();
+    const folder = await dataDirectory();
+    const writer = new ProjectManager(directory);
+    const story = await writer.create("Night Train", "interactive-story", folder);
+    await writeFile(path.join(folder, "graph.json"), "{}");
+    await writer.setAppearance(story.id, { icon: "leaf" });
+    await writer.remove(story.id);
+    const app = createApp({ dataDirectory: directory });
+    apps.push(app);
+    await app.ready();
+    const named = await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: folder } });
+    expect(named.json()).toEqual({ type: "interactive-story" });
+    expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: await dataDirectory() } })).json()).toEqual({});
+    expect((await app.inject({ method: "POST", url: "/projects/folder-type", payload: { workspacePath: "relative" } })).statusCode).toBe(400);
+    const refused = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", workspacePath: folder } });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toContain("says it is interactive-story");
+    expect(JSON.parse(await readFile(path.join(folder, ".ohmygame/settings.json"), "utf8"))).toMatchObject({ name: "Night Train", appearance: { icon: "leaf" } });
   });
 
   it("still rejects an unavailable project storage directory", async () => {

@@ -24,6 +24,7 @@ folder, described in [runtime persistence](runtime.md#persistence):
 
 | Entry                             | Contents                                                       |
 | --------------------------------- | -------------------------------------------------------------- |
+| `ohmygame.json`                   | The project's type and plugins, as in the folder.              |
 | `.ohmygame/settings.json`         | The project's name and settings, as the project has them now.  |
 | `.ohmygame/cover.webp`, …         | The cover, frozen cover, cover mode and logo, when it has them. |
 | `.ohmygame/local/cover-auto.webp` | The last automatic cover, so the imported project has a cover. |
@@ -35,23 +36,27 @@ The settings file looks like this:
 {
   "version": 1,
   "name": "Moon Garden",
-  "type": "general",
-  "webPreviewEnabled": true,
+  "kind": "web-game",
   "mediaModelDefaults": {
     "image": { "provider": "openai", "id": "gpt-image-1" }
   }
 }
 ```
 
-It holds the name, type, plugin type, preview and run settings, media model
-defaults and appearance: the keys listed in `PROJECT_ARCHIVE_SETTING_KEYS`.
-A key is present only when the project sets it.
+It holds the name, preview and run settings, media model defaults and
+appearance: the keys listed in `PROJECT_SETTING_KEYS`. A key is present only
+when the project sets it. The type is the one `ohmygame.json` names. `kind`
+says which of the types that file calls `general` the project is: `web-game`
+or `asset-canvas`, and no `kind` for a General project. A plugin's type comes
+from `ohmygame.json` too; until the app reads the version it pins, the
+imported project runs outside OhMyGame.
 
 ### Archives of the first version
 
 Archives made before this layout are still imported. They hold a manifest,
 `ohmygame-project.json`, with `format: "ohmygame-project"`, `version: 1`, the
-same settings under `project`, and `cover.mode`; the workspace below
+same settings and the type (`type`, `pluginType`) under `project`, and
+`cover.mode`; an `ohmygame.json` in the workspace names the type instead; the workspace below
 `workspace/`; and the cover and logo as `cover.webp` and `logo.webp` at the
 root. An older OhMyGame cannot import an archive of the current layout.
 
@@ -107,8 +112,9 @@ memory. Import then works like **Duplicate**:
   too large or not a WebP image, the project shows its icon instead;
 - preview readiness is checked again.
 
-Settings pass the same checks as saved project settings. An archive with a
-newer settings or manifest version asks for an OhMyGame update. If any step fails, nothing
+Settings pass the same checks as saved project settings, and an
+`ohmygame.json` that can't be read is refused. An archive with a newer
+settings or manifest version asks for an OhMyGame update. If any step fails, nothing
 of the import remains; a staging folder left by a crash is removed on the next
 start.
 
