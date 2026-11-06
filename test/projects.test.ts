@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ProjectManager } from "../src/daemon/projects.js";
+import { ProjectManager, projectFolderType } from "../src/daemon/projects.js";
 
 describe("Web Game project codebase", () => {
   it("persists name ownership and leaves legacy projects unchanged", async () => {
@@ -76,7 +76,7 @@ describe("Web Game project codebase", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-general-projects-"));
     const manager = new ProjectManager(directory);
     const project = await manager.create("Native game", "general");
-    expect(await readdir(project.workspacePath)).toEqual([]);
+    expect(await readdir(project.workspacePath)).toEqual(["ohmygame.json"]);
     await writeFile(path.join(project.workspacePath, "project.godot"), "config_version=5\n");
 
     const restored = new ProjectManager(directory);
@@ -84,7 +84,7 @@ describe("Web Game project codebase", () => {
     expect(restored.get(project.id)).toMatchObject({ type: "general", preview: { status: "waiting" } });
     const copy = await restored.duplicate(project.id);
     expect(copy.type).toBe("general");
-    expect((await readdir(copy.workspacePath)).sort()).toEqual([".ohmygame", "project.godot"]);
+    expect((await readdir(copy.workspacePath)).sort()).toEqual([".ohmygame", "ohmygame.json", "project.godot"]);
   });
   it("binds copied Canvas generation history to the duplicate", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-duplicate-history-")));
@@ -177,11 +177,11 @@ describe("Web Game project codebase", () => {
     expect(await manager.setRunSettings(project.id, { ...settings, webPreviewEnabled: false })).toMatchObject({ startupDirectory: "client", webPreviewEnabled: false, preview: { status: "waiting" } });
   });
 
-  it("starts with an empty workspace; the platform contract lives in the system prompt", async () => {
+  it("starts with only the file naming its type; the platform contract lives in the system prompt", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Game", "web-game");
 
-    expect(await readdir(project.workspacePath)).toEqual([]);
+    expect(await readdir(project.workspacePath)).toEqual(["ohmygame.json"]);
   });
 
   it("keeps project media defaults through unrelated saves and removes cleared overrides on disk", async () => {
@@ -321,15 +321,87 @@ describe("Web Game project codebase", () => {
       await manager.setAppearance(project.id, { icon: "leaf" });
       await manager.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
       expect(JSON.parse(await readFile(path.join(folder, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({
-        version: 1, name: "Moon Garden", type: "general", webPreviewEnabled: false, appearance: { icon: "leaf" },
+        version: 1, name: "Moon Garden", webPreviewEnabled: false, appearance: { icon: "leaf" },
       });
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
       await manager.remove(project.id);
+      expect(await projectFolderType(folder)).toBe("general");
 
       const reopened = await manager.create(undefined, "general", folder);
       expect(reopened).toMatchObject({ name: "Moon Garden", nameSource: "manual", webPreviewEnabled: false, appearance: { icon: "leaf" } });
       await manager.remove(reopened.id);
       expect(await manager.create("Typed name", "general", folder)).toMatchObject({ name: "Typed name", appearance: { icon: "leaf" } });
       expect((await manager.create(undefined, "interactive-story", await mkdtemp(path.join(tmpdir(), "ohmygame-other-")))).name).not.toBe("Moon Garden");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("opens a folder as the type its ohmygame.json names, and keeps its settings when asked for another", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-type-"));
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-project-folder-"));
+    try {
+      const manager = new ProjectManager(directory);
+      const story = await manager.create(undefined, "interactive-story", folder);
+      await writeFile(path.join(folder, "graph.json"), "{}");
+      await manager.rename(story.id, "Moon Garden");
+      await manager.setAppearance(story.id, { icon: "leaf" });
+      await manager.remove(story.id);
+      expect(await projectFolderType(folder)).toBe("interactive-story");
+
+      // Asked for another type, nothing of the folder changes.
+      const settings = await readFile(path.join(folder, ".ohmygame", "settings.json"), "utf8");
+      await expect(manager.create(undefined, "web-game", folder)).rejects.toThrow("says it is interactive-story");
+      expect(await readFile(path.join(folder, ".ohmygame", "settings.json"), "utf8")).toBe(settings);
+      expect(await manager.create(undefined, "interactive-story", folder)).toMatchObject({ type: "interactive-story", name: "Moon Garden", appearance: { icon: "leaf" } });
+
+      // The app's types that are General projects keep their kind in the settings.
+      const web = await manager.create("Sky", "web-game", await mkdtemp(path.join(tmpdir(), "ohmygame-web-")));
+      await writeFile(path.join(web.workspacePath, "index.html"), "<p>");
+      await manager.rename(web.id, "Sky Garden");
+      expect(JSON.parse(await readFile(path.join(web.workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ kind: "web-game" });
+      expect(await projectFolderType(web.workspacePath)).toBe("web-game");
+      // The folder's file decides the type at the next start.
+      await writeFile(path.join(web.workspacePath, "ohmygame.json"), JSON.stringify({ type: "interactive-story" }));
+      const next = new ProjectManager(directory);
+      await next.load();
+      expect(next.get(web.id)).toMatchObject({ type: "interactive-story", name: "Sky Garden" });
+      expect(JSON.parse(await readFile(path.join(directory, "projects", web.id, "project.json"), "utf8"))).toMatchObject({ type: "interactive-story" });
+
+      // Settings that can't be read keep the kind the app last knew.
+      const canvas = await manager.create("Board", "asset-canvas");
+      await manager.rename(canvas.id, "Board game");
+      await writeFile(path.join(canvas.workspacePath, ".ohmygame", "settings.json"), "{");
+      const broken = new ProjectManager(directory);
+      await broken.load();
+      expect(broken.get(canvas.id)?.type).toBe("asset-canvas");
+      expect(JSON.parse(await readFile(path.join(directory, "projects", canvas.id, "project.json"), "utf8"))).toMatchObject({ type: "asset-canvas" });
+      // A folder that lost its file, as to an older snapshot, gets it back with the next save.
+      await rm(path.join(web.workspacePath, "ohmygame.json"));
+      await next.touch(web.id);
+      expect(JSON.parse(await readFile(path.join(web.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "interactive-story" });
+      // The kinds ohmygame.json can't name stay in the settings: a plugin's workspace, given a file by a plugin turned on in it…
+      const workspace = await manager.create("Builder", "plugin");
+      await writeFile(path.join(workspace.workspacePath, "README.md"), "plugin");
+      await manager.rename(workspace.id, "Builder workspace");
+      expect(JSON.parse(await readFile(path.join(workspace.workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ kind: "plugin" });
+      await writeFile(path.join(workspace.workspacePath, "ohmygame.json"), JSON.stringify({ type: "general" }));
+      const reloaded = new ProjectManager(directory);
+      await reloaded.load();
+      expect(reloaded.get(workspace.id)?.type).toBe("plugin");
+      // …and a Godot project from before Godot was a plugin, through an export and an import.
+      const legacy = await manager.create("Old Godot", "godot-game");
+      await writeFile(path.join(legacy.workspacePath, "project.godot"), "config_version=5\n");
+      await manager.rename(legacy.id, "Old Godot game");
+      expect(await readdir(legacy.workspacePath)).not.toContain("ohmygame.json");
+      const staged = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-"));
+      await cp(legacy.workspacePath, staged, { recursive: true });
+      expect(await manager.import(staged, JSON.parse(await readFile(path.join(staged, ".ohmygame", "settings.json"), "utf8")))).toMatchObject({ type: "godot-game" });
+      // The dialog names a plugin's type that the app had as its own by the app's name.
+      const godot = await mkdtemp(path.join(tmpdir(), "ohmygame-godot-"));
+      await writeFile(path.join(godot, "ohmygame.json"), JSON.stringify({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }));
+      expect(await projectFolderType(godot)).toBe("godot-game");
     } finally {
       await rm(directory, { recursive: true, force: true });
       await rm(folder, { recursive: true, force: true });

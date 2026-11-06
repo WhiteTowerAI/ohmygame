@@ -1,22 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
+import { pluginCreatorSkill } from "./plugin-authoring.js";
 
-const PLUGIN_CREATOR_SKILL = `---
-name: plugin-creator
-description: Create or update an OhMyGame plugin from a natural-language request, validate it, and install it for the user.
----
+/** Where @ohmygame/plugin-ui is: the desktop app names it, and a checkout has it in packages/. */
+const PLUGIN_UI_DIRECTORY = process.env.OHMYGAME_PLUGIN_UI_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../packages/plugin-ui");
+let skillFiles: Promise<Record<string, string>> | undefined;
 
-# OhMyGame Plugin Creator
-
-Create or update a plugin directory inside the current workspace. Read existing files before editing.
-
-${PLUGIN_AUTHORING_RULES}
-
-Call \`install_plugin\` with the directory relative to the workspace to validate and install the completed package. Correct reported validation errors before retrying. Summarize what it adds, the checks and the source directory, and pass on what the tool says the person still has to do.
-`;
 const pendingConfiguration = new Map<string, Promise<void>>();
 
 export function isOhMyGameManagedPiPackage(source: string): boolean {
@@ -51,14 +43,22 @@ async function configure(agentDir: string): Promise<void> {
 
 async function ensurePluginCreatorSkill(agentDir: string): Promise<void> {
   const directory = path.join(agentDir, "skills", "plugin-creator");
-  const filePath = path.join(directory, "SKILL.md");
-  await mkdir(directory, { recursive: true });
-  try {
-    if (await readFile(filePath, "utf8") === PLUGIN_CREATOR_SKILL) return;
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  const files = await (skillFiles ??= pluginCreatorSkill(PLUGIN_UI_DIRECTORY));
+  for (const [name, contents] of Object.entries(files)) {
+    const filePath = path.join(directory, name);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    try {
+      if (await readFile(filePath, "utf8") === contents) continue;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+    await writeConfig(filePath, contents);
   }
-  await writeConfig(filePath, PLUGIN_CREATOR_SKILL);
+  // References an older app wrote and this one doesn't.
+  const references = await readdir(path.join(directory, "references")).catch(() => []);
+  await Promise.all(references
+    .filter((name) => !(`references/${name}` in files))
+    .map((name) => rm(path.join(directory, "references", name), { recursive: true, force: true })));
 }
 
 async function writeConfig(filePath: string, contents: string): Promise<void> {

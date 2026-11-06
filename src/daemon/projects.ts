@@ -8,7 +8,7 @@ import { isPreviewViewport } from "../shared/contracts.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -21,7 +21,9 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
-import { PROJECT_ARCHIVE_SETTING_KEYS, projectSettingsFileText, type ProjectArchiveSettings } from "../shared/project-archive.js";
+import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
+import { projectTypePlugin } from "../shared/project-file.js";
+import { readProjectFile, writeProjectFile } from "./project-plugins.js";
 import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
@@ -245,10 +247,12 @@ export class ProjectManager {
       ? await this.#validateExternalWorkspace(selectedWorkspacePath)
       : path.join(projectDirectory, "workspace");
     const updatedAt = new Date().toISOString();
-    // A folder that was a project before brings back its name and settings, when it is opened as the same type.
+    // A folder is the type its `ohmygame.json` names, and a folder that was a project before brings back its name and settings.
+    const named = hasExternalWorkspace ? await readFolderType(workspacePath) : "missing";
+    const asked = fileTypeOf({ type, pluginType });
+    if (typeof named === "object" && asked && named.type !== asked) throw new ProjectWorkspaceError(`The folder's ohmygame.json says it is ${named.type}`);
     const found = hasExternalWorkspace ? await readFolderSettings(workspacePath) : undefined;
-    const carried = typeof found === "object" ? found : undefined;
-    const kept = carried?.type === type && carried.pluginType?.id === pluginType?.id ? carried : undefined;
+    const kept = typeof found === "object" ? found : undefined;
     const metadata: ProjectMetadata = {
       ...(kept ? parseMetadata({ ...kept, version: 1, id, updatedAt }, id, updatedAt).metadata : {}),
       version: 1,
@@ -269,6 +273,9 @@ export class ProjectManager {
     // A folder that is empty stays so until its type or example fills it; then `storeSettings`, or the next change, writes them.
     const empty = !(await readdir(workspacePath)).some((item) => item !== ".DS_Store");
     this.#settings.set(id, await writeProject(projectDirectory, workspacePath, metadata, found === "unreadable" ? "unknown" : "pending", !empty));
+    // The app's own types are named from the start, so the first turn's snapshot already holds the file.
+    // A plugin's type is named by its plugin, which pins its version there.
+    if (!metadata.pluginType) await nameFolderType(workspacePath, metadata);
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
     this.onListChange?.();
@@ -456,17 +463,25 @@ export class ProjectManager {
    * Creates a managed project around a workspace staged in a folder from
    * createImportStaging, moving the workspace into it. Like a duplicate, the
    * project gets a new id and no publication, and copied Canvas generation
-   * history is bound to it.
+   * history is bound to it. Its type is the one its `ohmygame.json` names;
+   * a first-version archive's manifest names one for a folder without it.
    */
-  async import(workspacePath: string, settings: ProjectArchiveSettings): Promise<ProjectState> {
-    if (!isProjectType(settings.type)) throw new ProjectWorkspaceError("The project type is not supported");
+  async import(workspacePath: string, settings: ProjectSettings | ProjectArchiveSettings): Promise<ProjectState> {
+    const manifest = "type" in settings ? { type: settings.type, ...(settings.pluginType ? { pluginType: settings.pluginType } : {}) } : undefined;
+    if (manifest && !isProjectType(manifest.type)) throw new ProjectWorkspaceError("The project type is not supported");
+    const named = await readFolderType(workspacePath);
+    if (named === "unreadable") throw new ProjectWorkspaceError("The project's ohmygame.json is invalid");
+    const typed = typeof named === "object"
+      ? typeFromFile(named.type, "kind" in settings ? settings.kind : manifest && projectSettingKind(manifest), manifest)
+      : manifest ?? { type: ("kind" in settings ? settings.kind : undefined) ?? "web-game" };
     const id = randomUUID();
     const updatedAt = new Date().toISOString();
     const staging = await this.createImportStaging();
     let metadata: ProjectMetadata;
     try {
       const candidate = {
-        ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        ...Object.fromEntries(PROJECT_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        ...typed,
         version: 1, id, nameSource: "manual", updatedAt,
       };
       try {
@@ -1004,7 +1019,7 @@ export class ProjectManager {
       // A name the folder's file got elsewhere, as through Git, is no longer the default one to replace.
       if (changes.nameSource === "ai" && (project.nameSource !== "default" || project.name !== defaultProjectName(project.type))) return false;
       const settings = this.#settings.get(project.id) ?? "pending";
-      const portable = Object.keys(changes).some((key) => (PROJECT_ARCHIVE_SETTING_KEYS as readonly string[]).includes(key));
+      const portable = Object.keys(changes).some((key) => (PROJECT_SETTING_KEYS as readonly string[]).includes(key));
       // Settings that can't be read are never written over, so they can't change until they can be read.
       if (settings === "unknown" && portable) {
         if (changes.nameSource === "ai") return false;
@@ -1065,9 +1080,11 @@ export class ProjectManager {
       if (found === "unreadable") this.#settings.set(project.id, "unknown");
       return;
     }
+    // The type is read when the project loads; the settings' kind only says what it was then.
+    const { kind: _kind, ...settings } = found;
     const metadata = metadataFor(project);
-    for (const key of PROJECT_ARCHIVE_SETTING_KEYS) delete metadata[key as keyof ProjectMetadata];
-    this.#apply(project, { ...metadata, ...found });
+    for (const key of PROJECT_SETTING_KEYS) delete metadata[key as keyof ProjectMetadata];
+    this.#apply(project, { ...metadata, ...settings });
     this.#settings.set(project.id, "folder");
   }
 
@@ -1330,8 +1347,15 @@ interface ProjectRecord {
   updatedAt: string;
   workspacePath?: string;
   publication?: PublicationState;
+  /**
+   * The type as the app last knew it, with how its plugin previews it. The
+   * folder's `ohmygame.json` and settings decide; this is for a folder
+   * without them, or one that isn't there.
+   */
+  type?: ProjectType;
+  pluginType?: ProjectState["pluginType"];
   /** The settings, only while the folder can't take them. */
-  settings?: ProjectArchiveSettings;
+  settings?: ProjectSettings;
 }
 
 async function readProject(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<{ metadata: ProjectMetadata; settings: SettingsSource; rewrite: boolean }> {
@@ -1342,18 +1366,31 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     parsed = { version: 2, id, updatedAt: fallbackUpdatedAt };
   }
-  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. project.json held the name and settings too.
-  if (parsed?.version === 1) return { metadata: parseMetadata(parsed, id, fallbackUpdatedAt).metadata, settings: "pending", rewrite: true };
+  // compat: since beta.5.5, remove from beta.7 and 2026-12-06. project.json held the type, name and settings too.
+  if (parsed?.version === 1) {
+    const { metadata } = parseMetadata(parsed, id, fallbackUpdatedAt);
+    const named = await readFolderType(metadata.workspacePath ?? path.join(projectDirectory, "workspace"));
+    const typed = typeof named === "object" ? typeFromFile(named.type, projectSettingKind(metadata), metadata) : metadata;
+    return { metadata: withType(metadata, typed), settings: "pending", rewrite: true };
+  }
   const record = parsed as Partial<ProjectRecord>;
-  if (record?.version !== 2 || record.id !== id || (record.workspacePath !== undefined && (typeof record.workspacePath !== "string" || !path.isAbsolute(record.workspacePath))))
+  if (record?.version !== 2 || record.id !== id || (record.workspacePath !== undefined && (typeof record.workspacePath !== "string" || !path.isAbsolute(record.workspacePath))) ||
+    (record.type !== undefined && !isProjectType(record.type)) || (record.pluginType !== undefined && !validPluginType(record.pluginType)))
     throw new Error("Invalid project metadata");
   const workspacePath = record.workspacePath ?? path.join(projectDirectory, "workspace");
   const found = record.settings ?? await readFolderSettings(workspacePath);
   // A folder without settings starts over with the defaults; it is the folder's name that the person knows it by.
   const settings: SettingsSource = record.settings ? "pending" : typeof found === "object" ? "folder" : found === "missing" ? "pending" : "unknown";
-  const defaults = { name: record.workspacePath ? path.basename(record.workspacePath) : "Untitled project", type: "web-game" };
+  const defaults = { name: record.workspacePath ? path.basename(record.workspacePath) : "Untitled project" };
+  // A record that doesn't say goes by the settings' kind.
+  const known = { type: record.type ?? (typeof found === "object" ? found.kind : undefined) ?? "web-game", ...(record.pluginType ? { pluginType: record.pluginType } : {}) };
+  // Settings that can't be read keep the kind the app last knew.
+  const { kind = typeof found === "object" ? undefined : projectSettingKind(known), ...carried } = typeof found === "object" ? found : defaults as ProjectSettings;
+  const named = await readFolderType(workspacePath);
+  const typed = typeof named === "object" ? typeFromFile(named.type, kind, known) : known;
   const { metadata, missing } = parseMetadata({
-    ...(typeof found === "object" ? found : defaults),
+    ...carried,
+    ...typed,
     version: 1,
     id,
     ...(record.nameSource ? { nameSource: record.nameSource } : {}),
@@ -1361,7 +1398,21 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
     ...(record.workspacePath ? { workspacePath: record.workspacePath } : {}),
     ...(record.publication ? { publication: record.publication } : {}),
   }, id, fallbackUpdatedAt);
-  return { metadata, settings, rewrite: missing && settings !== "unknown" };
+  // The record learns the type the folder names, and a folder that names none gets it.
+  const retyped = record.type !== metadata.type || record.pluginType?.id !== metadata.pluginType?.id;
+  const unnamed = named === "missing" && settings === "folder" && fileTypeOf(metadata) !== undefined;
+  return { metadata, settings, rewrite: (missing && settings !== "unknown") || retyped || unnamed };
+}
+
+function validPluginType(value: unknown): value is NonNullable<ProjectState["pluginType"]> {
+  const type = value as Partial<NonNullable<ProjectState["pluginType"]>> | undefined;
+  return typeof type?.id === "string" && typeof type.plugin === "string" && type.id.startsWith(`${type.plugin}:`) && ["web", "web-build", "native"].includes(type.preview as string);
+}
+
+/** The metadata with the type the folder names. */
+function withType(metadata: ProjectMetadata, typed: Pick<ProjectMetadata, "type" | "pluginType">): ProjectMetadata {
+  const { pluginType: _pluginType, ...rest } = metadata;
+  return { ...rest, ...typed };
 }
 
 function withAppearance(appearance: ProjectAppearance): MetadataChanges {
@@ -1375,7 +1426,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
     (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
     (parsed.type === undefined || isProjectType(parsed.type)) &&
-    (parsed.pluginType === undefined || (typeof parsed.pluginType?.id === "string" && typeof parsed.pluginType.plugin === "string" && parsed.pluginType.id.startsWith(`${parsed.pluginType.plugin}:`) && ["web", "web-build", "native"].includes(parsed.pluginType.preview))) &&
+    (parsed.pluginType === undefined || validPluginType(parsed.pluginType)) &&
     (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
     (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
     (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
@@ -1456,13 +1507,15 @@ function metadataFor(project: ProjectState): ProjectMetadata {
  * settings when the folder didn't take them. Says where the settings are now.
  */
 async function writeProject(projectDirectory: string, workspacePath: string, metadata: ProjectMetadata, settings: SettingsSource, folder = true): Promise<SettingsSource> {
-  const portable = folderSettings(metadata);
+  const portable = projectSettings(metadata);
   let next: SettingsSource = settings;
   if (settings !== "unknown" && folder) {
     const written = await writeFolderSettings(workspacePath, portable);
     // A file that can't be read is the record still: the settings are unknown, unless a copy is waiting for it.
     next = written === "written" ? "folder" : written === "unreadable" && settings === "folder" ? "unknown" : "pending";
   }
+  // A folder that lost the file, as to an older snapshot, gets it back.
+  if (next === "folder") await nameFolderType(workspacePath, metadata);
   await writeRecord(projectDirectory, {
     version: 2,
     id: metadata.id,
@@ -1470,9 +1523,78 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
     updatedAt: metadata.updatedAt,
     ...(metadata.workspacePath ? { workspacePath: metadata.workspacePath } : {}),
     ...(metadata.publication ? { publication: metadata.publication } : {}),
+    type: metadata.type,
+    ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(next === "pending" ? { settings: portable } : {}),
   });
   return next;
+}
+
+/**
+ * The type `ohmygame.json` names for a project: `general` for the app's
+ * types that are General projects, whose kind the settings keep. Undefined
+ * for the kinds it can't name, a plugin's workspace and an older Godot project.
+ */
+function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): string | undefined {
+  if (project.pluginType) return project.pluginType.id;
+  if (project.type === "interactive-story") return project.type;
+  return project.type === "general" || project.type === "web-game" || project.type === "asset-canvas" ? "general" : undefined;
+}
+
+/**
+ * The app's type for a folder whose `ohmygame.json` names `fileType`. A
+ * plugin's type keeps how `known` says its plugin previews it, until the app
+ * reads the plugin's own (`syncPluginType` in app.ts); without that, it runs
+ * outside OhMyGame meanwhile.
+ */
+function typeFromFile(fileType: string, kind: ProjectSettingKind | undefined, known?: Pick<ProjectMetadata, "type" | "pluginType">): Pick<ProjectMetadata, "type" | "pluginType"> {
+  if (fileType === "interactive-story") return { type: fileType };
+  const plugin = projectTypePlugin(fileType);
+  if (!plugin) return { type: kind ?? "general" };
+  const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === fileType)?.[0] as ProjectType | undefined;
+  return {
+    type: alias ?? "general",
+    pluginType: known?.pluginType?.id === fileType ? known.pluginType : { id: fileType, plugin, preview: "native" },
+  };
+}
+
+/** The type a folder's `ohmygame.json` names, or why there is none. */
+async function readFolderType(workspacePath: string): Promise<{ type: string } | "missing" | "unreadable"> {
+  try {
+    const read = await readProjectFile(workspacePath);
+    if (!read) return "missing";
+    return read.ok ? { type: read.file.type } : "unreadable";
+  } catch {
+    return "unreadable";
+  }
+}
+
+/**
+ * The project's type for a folder chosen to open, as the new-project dialog
+ * names types: undefined when the folder doesn't say, as one without
+ * `ohmygame.json`, or a General project from before settings named its kind.
+ */
+export async function projectFolderType(workspacePath: string): Promise<string | undefined> {
+  const named = await readFolderType(workspacePath);
+  if (typeof named !== "object") return undefined;
+  // The dialog offers a plugin's type that the app had as its own by the app's name.
+  const alias = Object.entries(PLUGIN_PROJECT_KINDS).find(([, id]) => id === named.type)?.[0];
+  if (alias) return alias;
+  if (named.type !== "general") return named.type;
+  const found = await readFolderSettings(workspacePath);
+  if (typeof found !== "object") return undefined;
+  return found.kind === undefined ? "general" : found.kind === "web-game" || found.kind === "asset-canvas" ? found.kind : undefined;
+}
+
+/**
+ * Writes `ohmygame.json` with the project's type when the folder has none.
+ * One that exists is the folder's own, so it is never rewritten here.
+ */
+async function nameFolderType(workspacePath: string, metadata: ProjectMetadata): Promise<void> {
+  const type = fileTypeOf(metadata);
+  if (!type || (await readFolderType(workspacePath)) !== "missing") return;
+  // Another writer may make it meanwhile; the update keeps what it wrote.
+  await writeProjectFile(workspacePath, (file) => file, { type }).catch(() => {});
 }
 
 async function writeRecord(projectDirectory: string, record: ProjectRecord): Promise<void> {
@@ -1486,20 +1608,13 @@ async function writeRecord(projectDirectory: string, record: ProjectRecord): Pro
   }
 }
 
-/** The name and settings a project folder carries in `.ohmygame/settings.json`. */
-function folderSettings(metadata: ProjectMetadata): ProjectArchiveSettings {
-  return Object.fromEntries(
-    PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => metadata[key] !== undefined).map((key) => [key, metadata[key]]),
-  ) as ProjectArchiveSettings;
-}
-
 /**
  * Writes `.ohmygame/settings.json`, the record of a project's name and
  * settings, which go wherever its folder goes. It isn't written when the
  * folder isn't there or can't be written ("failed"), or holds a file that
  * can't be read ("unreadable"), which is left for the person to fix.
  */
-async function writeFolderSettings(workspacePath: string, settings: ProjectArchiveSettings): Promise<"written" | "unreadable" | "failed"> {
+async function writeFolderSettings(workspacePath: string, settings: ProjectSettings): Promise<"written" | "unreadable" | "failed"> {
   const destination = path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/"));
   const text = projectSettingsFileText(settings);
   try {
@@ -1522,7 +1637,7 @@ async function writeFolderSettings(workspacePath: string, settings: ProjectArchi
 }
 
 /** The name and settings a folder carries, checked like saved ones, or why there are none. */
-async function readFolderSettings(workspacePath: string): Promise<ProjectArchiveSettings | "missing" | "unreadable"> {
+async function readFolderSettings(workspacePath: string): Promise<ProjectSettings | "missing" | "unreadable"> {
   if (!(await isDirectory(workspacePath))) return "unreadable";
   try {
     return parseFolderSettings(await readFile(path.join(workspacePath, ...PROJECT_SETTINGS_FILE.split("/")), "utf8"));
@@ -1531,13 +1646,20 @@ async function readFolderSettings(workspacePath: string): Promise<ProjectArchive
   }
 }
 
-function parseFolderSettings(text: string): ProjectArchiveSettings | "unreadable" {
+function parseFolderSettings(text: string): ProjectSettings | "unreadable" {
   try {
     const value = JSON.parse(text) as Record<string, unknown>;
     if (value?.version !== PROJECT_SETTINGS_VERSION) return "unreadable";
-    const candidate = Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+    if (value.kind !== undefined && !(PROJECT_SETTING_KINDS as readonly unknown[]).includes(value.kind)) return "unreadable";
+    const candidate = Object.fromEntries(PROJECT_SETTING_KEYS.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
     const updatedAt = new Date(0).toISOString();
-    return folderSettings(parseMetadata({ ...candidate, version: 1, id: "folder", updatedAt }, "folder", updatedAt).metadata);
+    // Checked as a General project's, the type whose settings have them all.
+    const { webPreviewEnabled, ...settings } = projectSettings(parseMetadata({ ...candidate, type: "general", version: 1, id: "folder", updatedAt }, "folder", updatedAt).metadata);
+    return {
+      ...settings,
+      ...(value.webPreviewEnabled !== undefined ? { webPreviewEnabled } : {}),
+      ...(value.kind ? { kind: value.kind as ProjectSettingKind } : {}),
+    };
   } catch {
     return "unreadable";
   }

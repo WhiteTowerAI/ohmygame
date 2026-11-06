@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
+import { PROJECT_FILE_NAME } from "../../shared/project-file.js";
 import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
@@ -264,6 +265,8 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
 
 function ignored(name: string, relative: string, plugin: boolean): boolean {
   if (name === "node_modules" || name === ".git" || name === ".data" || (!plugin && name === "AGENTS.md")) return true;
+  // Every project names its type in it: OhMyGame's file, not the game's.
+  if (!plugin && !relative && name === PROJECT_FILE_NAME) return true;
   if (!name.startsWith(".")) return false;
   return !(plugin && !relative && name === ".ohmygame-plugin");
 }

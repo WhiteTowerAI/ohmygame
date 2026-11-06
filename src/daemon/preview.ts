@@ -30,6 +30,7 @@ import {
 } from "./process-lifecycle.js";
 import { GAME_TUNING_FILES, type GameTuningScalar } from "../shared/game-tuning.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
+import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { createPreviewProxy, type PreviewProxy } from "./preview-proxy.js";
 import {
   previewDependencyDirectory,
@@ -1144,9 +1145,9 @@ function isDesignCanvasFile(parts: string[]): boolean {
 }
 
 /**
- * Hidden entries, generated folders and the files Design keeps in `canvas/`
- * (written as soon as a new project opens) are not files someone wrote for
- * the project.
+ * Hidden entries, generated folders, `ohmygame.json` and the files Design
+ * keeps in `canvas/` (written as soon as a new project opens) are not files
+ * someone wrote for the project.
  */
 async function hasProjectFiles(directory: string): Promise<boolean> {
   let names: string[];
@@ -1156,7 +1157,7 @@ async function hasProjectFiles(directory: string): Promise<boolean> {
     return false;
   }
   for (const name of names) {
-    if (name.startsWith(".") || ["node_modules", "dist", "build"].includes(name)) continue;
+    if (name.startsWith(".") || ["node_modules", "dist", "build", PROJECT_FILE_NAME].includes(name)) continue;
     if (name !== "canvas" || (await hasGameCanvasFiles(path.join(directory, name)))) return true;
   }
   return false;
