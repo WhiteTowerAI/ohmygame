@@ -15,6 +15,7 @@ const agent = (
   name,
   enabled,
   autoContinue: true,
+  ...(id === "claude-code-cli" ? { identifyAsOhMyGame: true } : {}),
   installed: true,
   version: "1.0.0",
   auth: { status: "signed-in", billing: "subscription" },
@@ -270,6 +271,13 @@ it("offers each agent's own permission modes and says what the chosen one means"
   expect(bypass.checked).toBe(true);
   expect(host.textContent).toContain(trust);
   expect(host.textContent).not.toContain("Command sandbox");
+  const identify = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Report OhMyGame as the client"]')!;
+  expect(identify.getAttribute("aria-checked")).toBe("true");
+  await act(async () => identify.click());
+  expect(api.updateAgentRuntime).toHaveBeenCalledWith("claude-code-cli", { identifyAsOhMyGame: false });
+  // The switch is only on Claude Code's page.
+  await detail("codex-cli");
+  expect(host.querySelector('[aria-label="Report OhMyGame as the client"]')).toBeNull();
 });
 
 it("shows a plugin agent's command line before turning it on, from the list and its page", async () => {
