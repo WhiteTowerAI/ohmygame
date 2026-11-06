@@ -1066,8 +1066,10 @@ A project can hold panels of its own, without a plugin: each is a folder in
 `panel.json` and its page (`src/shared/project-panels.ts`,
 `src/daemon/project-panels.ts`). They travel with the project, in its
 [snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. A project
-shows at most 12, each of at most 500 files and folders.
+project's agent can write and change them like any other file. The Code
+panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
+shows, and Assets leaves them out. A project shows at most 12, each of at most
+500 files and folders.
 
 ```json
 {

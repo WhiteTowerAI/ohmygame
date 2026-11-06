@@ -1,11 +1,13 @@
 import { mapConcurrent } from "./map-concurrent.js";
+import type { Dirent } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
+import { PROJECT_DATA_DIRECTORY, PROJECT_PANELS_DIRECTORY } from "../shared/project-layout.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
-const IGNORED_DIRECTORIES = new Set([".git", ".ohmygame", "build", "dist", "node_modules", "out"]);
+const IGNORED_DIRECTORIES = new Set([".git", PROJECT_DATA_DIRECTORY, "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
 
 export class WorkspaceError extends Error {
@@ -18,7 +20,7 @@ export async function listWorkspaceFiles(workspacePath: string, directory?: stri
   if (directory === undefined) await visit(workspacePath, "", files);
   else {
     const normalized = directory.replaceAll("\\", "/");
-    if (normalized.split("/").some((part) => IGNORED_DIRECTORIES.has(part))) throw new WorkspaceError("Directory is excluded from the file browser");
+    if (excludedDirectory(normalized)) throw new WorkspaceError("Directory is excluded from the file browser");
     const absolute = await resolveWorkspaceDirectory(workspacePath, normalized);
     files.push(...await directoryEntries(absolute, normalized));
   }
@@ -96,9 +98,36 @@ export async function getWorkspaceMedia(
   return { absolutePath, relativePath, contentType: media.contentType, mediaType: media.mediaType, size: fileStat.size };
 }
 
+/**
+ * OhMyGame's own folder stays out of the file browser, all but the project's
+ * panels: pages the agent writes, which the person may want to read first.
+ * It shows at the root only once a panel folder is there.
+ */
+function excludedDirectory(relativeDirectory: string): boolean {
+  if (relativeDirectory === PROJECT_DATA_DIRECTORY || relativeDirectory === PROJECT_PANELS_DIRECTORY) return false;
+  const inside = relativeDirectory.startsWith(`${PROJECT_PANELS_DIRECTORY}/`);
+  const parts = (inside ? relativeDirectory.slice(PROJECT_PANELS_DIRECTORY.length + 1) : relativeDirectory).split("/");
+  return parts.some((part) => IGNORED_DIRECTORIES.has(part));
+}
+
+/** The entries of `directory`, at `relativeDirectory` in the workspace, that the file browser shows. */
+async function shownEntries(directory: string, relativeDirectory: string): Promise<Dirent[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  // Within OhMyGame's folder, only the panels show.
+  if (relativeDirectory === PROJECT_DATA_DIRECTORY) return entries.filter((entry) => entry.isDirectory() && `${relativeDirectory}/${entry.name}` === PROJECT_PANELS_DIRECTORY);
+  const panels = !relativeDirectory && entries.some((entry) => entry.isDirectory() && entry.name === PROJECT_DATA_DIRECTORY)
+    && await stat(path.join(directory, ...PROJECT_PANELS_DIRECTORY.split("/"))).then((found) => found.isDirectory(), () => false);
+  return entries.filter((entry) => {
+    if (entry.isFile()) return true;
+    if (!entry.isDirectory()) return false;
+    if (!relativeDirectory && entry.name === PROJECT_DATA_DIRECTORY) return panels;
+    return !excludedDirectory(relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name);
+  });
+}
+
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<boolean> {
   const directory = path.join(root, ...relativeDirectory.split("/").filter(Boolean));
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = await shownEntries(directory, relativeDirectory);
   const regular = entries.filter((entry) => entry.isFile());
   const details = await mapConcurrent(regular, 8, async (entry) => {
     const media = workspaceMediaInfo(entry.name);
@@ -109,7 +138,7 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
     };
   });
   for (const detail of details) files.push(detail);
-  const directories = entries.filter((entry) => entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name));
+  const directories = entries.filter((entry) => entry.isDirectory());
   for (const entry of directories) {
     const child = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
     if (!(await visit(root, child, files))) files.push({ path: child, size: 0, directory: true });
@@ -118,8 +147,7 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
 }
 
 async function directoryEntries(directory: string, relativeDirectory: string): Promise<WorkspaceFile[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const visible = entries.filter((entry) => entry.isFile() || (entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)));
+  const visible = await shownEntries(directory, relativeDirectory);
   return mapConcurrent(visible, 8, async (entry): Promise<WorkspaceFile> => {
     const entryPath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
     if (entry.isDirectory()) return { path: entryPath, size: 0, directory: true };
