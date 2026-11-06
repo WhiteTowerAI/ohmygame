@@ -1382,7 +1382,8 @@ async function readProject(projectDirectory: string, id: string, fallbackUpdated
   // A folder without settings starts over with the defaults; it is the folder's name that the person knows it by.
   const settings: SettingsSource = record.settings ? "pending" : typeof found === "object" ? "folder" : found === "missing" ? "pending" : "unknown";
   const defaults = { name: record.workspacePath ? path.basename(record.workspacePath) : "Untitled project" };
-  const known = { type: record.type ?? "web-game", ...(record.pluginType ? { pluginType: record.pluginType } : {}) };
+  // A record that doesn't say goes by the settings' kind.
+  const known = { type: record.type ?? (typeof found === "object" ? found.kind : undefined) ?? "web-game", ...(record.pluginType ? { pluginType: record.pluginType } : {}) };
   // Settings that can't be read keep the kind the app last knew.
   const { kind = typeof found === "object" ? undefined : projectSettingKind(known), ...carried } = typeof found === "object" ? found : defaults as ProjectSettings;
   const named = await readFolderType(workspacePath);
@@ -1532,7 +1533,7 @@ async function writeProject(projectDirectory: string, workspacePath: string, met
 /**
  * The type `ohmygame.json` names for a project: `general` for the app's
  * types that are General projects, whose kind the settings keep. Undefined
- * for one it can't name without its plugin's version.
+ * for the kinds it can't name, a plugin's workspace and an older Godot project.
  */
 function fileTypeOf(project: Pick<ProjectMetadata, "type" | "pluginType">): string | undefined {
   if (project.pluginType) return project.pluginType.id;

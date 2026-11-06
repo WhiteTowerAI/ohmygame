@@ -111,6 +111,15 @@ describe("project loading", () => {
     expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/.ohmygame/settings.json"), "utf8"))).toEqual({ version: 1, name: "Untitled project", kind: "web-game" });
     expect(JSON.parse(await readFile(path.join(projectDirectory, "workspace/ohmygame.json"), "utf8"))).toMatchObject({ type: "general" });
     expect(onError).not.toHaveBeenCalled();
+
+    // Without the record or ohmygame.json, the settings' kind says the type.
+    const godot = randomUUID();
+    const godotWorkspace = path.join(directory, "projects", godot, "workspace");
+    await mkdir(path.join(godotWorkspace, ".ohmygame"), { recursive: true });
+    await writeFile(path.join(godotWorkspace, ".ohmygame/settings.json"), JSON.stringify({ version: 1, name: "Old Godot", kind: "godot-game" }));
+    const next = new ProjectManager(directory);
+    await next.load();
+    expect(next.get(godot)).toMatchObject({ name: "Old Godot", type: "godot-game" });
   });
 
   it("moves an older record's name and settings into the folder, which is then the record", async () => {
