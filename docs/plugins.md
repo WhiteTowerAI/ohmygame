@@ -465,7 +465,8 @@ same path that checks a package with `indexPluginPackage` and copies it under
 removed, later releases included. One the app stops bringing is listed in
 `RETIRED` there: the copy it installed is uninstalled once, and a version
 installed apart is kept. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled.
+and can't be uninstalled; one whose folder the app no longer has is dropped
+from the index when it starts.
 
 ## Model providers
 

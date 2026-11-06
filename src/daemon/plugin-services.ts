@@ -743,6 +743,11 @@ export class PluginServices {
         capabilityGrants(result.entry.manifest),
       );
     }
+    // A plugin the app no longer brings goes too, not only an older version of one it does.
+    const inside = path.resolve(directory) + path.sep;
+    const current = new Set(results.flatMap((result) => result.ok ? [`${result.entry.id}@${result.entry.version}`] : []));
+    for (const entry of this.index.entries())
+      if (entry.root.startsWith(inside) && !current.has(`${entry.id}@${entry.version}`)) await this.index.verify(entry.id, entry.version);
     await this.#notify();
     return results;
   }

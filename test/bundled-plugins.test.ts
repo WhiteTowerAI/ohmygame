@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -72,6 +72,28 @@ describe("bundled plugins", () => {
       expect(services.grants.plugin("ohmygame/game-studio")?.enabled).toBe(true);
     } finally {
       await services.close();
+    }
+  });
+
+  it("forgets a bundled plugin the app no longer brings", async () => {
+    const store = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-gone-")), "store");
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
+    for (const name of ["game-studio", "tiled"]) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
+    const start = async () => {
+      const services = new PluginServices({ directory: store, bundled: directory });
+      await services.ready();
+      return services;
+    };
+    const first = await start();
+    expect(first.index.get("ohmygame/tiled")).toBeDefined();
+    await first.close();
+    await rm(path.join(directory, "tiled"), { recursive: true });
+    const second = await start();
+    try {
+      expect(second.index.get("ohmygame/tiled")).toBeUndefined();
+      expect(second.index.get("ohmygame/game-studio")).toBeDefined();
+    } finally {
+      await second.close();
     }
   });
 });
