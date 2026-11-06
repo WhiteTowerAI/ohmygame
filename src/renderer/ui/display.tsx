@@ -301,6 +301,8 @@ export function Tabs<T extends string>({
     label: ReactNode;
     icon?: ReactNode;
     count?: number;
+    /** Something waits there, such as an update: a dot, with this for screen readers. */
+    attention?: string;
   }[];
   onChange: (value: T) => void;
   variant?: "underline" | "pills";
@@ -343,6 +345,9 @@ export function Tabs<T extends string>({
           {tab.label}
           {tab.count !== undefined ? (
             <span className="ui-tab-count">{tab.count}</span>
+          ) : null}
+          {tab.attention ? (
+            <span className="ui-tab-dot"><span className="visually-hidden">{tab.attention}</span></span>
           ) : null}
         </button>
       ))}

@@ -11,9 +11,7 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
-import { PluginServices } from "../src/daemon/plugin-services.js";
 import { createApp } from "../src/daemon/app.js";
-import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((fn) => fn()));
@@ -27,43 +25,6 @@ async function environment() {
   return { directory, agentDir, host };
 }
 describe("plugin MCP host", () => {
-  it("tracks model lookup during assistant shutdown and persists lookup failures", async () => {
-    const { host, directory, agentDir } = await environment();
-    let rejectModel!: (cause: Error) => void;
-    const resolveModel = vi.fn(
-      () =>
-        new Promise<never>((_, reject) => {
-          rejectModel = reject;
-        }),
-    );
-    const manager = new PluginSetupManager(
-      directory,
-      agentDir,
-      host,
-      new PluginServices({ directory: path.join(directory, "plugin-store") }),
-      () => {},
-      resolveModel,
-    );
-    cleanup.push(() => manager.close());
-    const state = await manager.create();
-    await manager.prompt(state.id, {
-      prompt: "Set up a plugin",
-      model: { provider: "fixture", id: "fixture" },
-    });
-    expect((await manager.read(state.id)).busy).toBe(true);
-    let closed = false;
-    const closing = manager.close().then(() => {
-      closed = true;
-    });
-    await Promise.resolve();
-    expect(closed).toBe(false);
-    rejectModel(new Error("Provider lookup failed"));
-    await closing;
-    expect(await manager.read(state.id)).toMatchObject({
-      busy: false,
-      error: "Provider lookup failed",
-    });
-  });
   it("connects to a real STDIO server, lists tools and shuts the process down", async () => {
     const { host, directory, agentDir } = await environment();
     const pidFile = path.join(directory, "server.pid");
@@ -243,7 +204,7 @@ describe("plugin MCP host", () => {
     }
   });
 
-  it("runs a persistent plugin assistant through a model tool call without a game project", async () => {
+  it("runs a plugin workspace's agent in its hidden project, through a model tool call", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "ohmygame-setup-model-"),
     );
@@ -261,7 +222,8 @@ describe("plugin MCP host", () => {
       const payload = JSON.parse(body);
       for (const message of payload.messages)
         if (message.role === "tool") toolResults.set(message.tool_call_id, message.content);
-      const index = requests++;
+      // The project names itself from the first message, with no tools to call.
+      const index = payload.tools?.length ? requests++ : calls.length;
       const delta = index < calls.length
         ? { role: "assistant", tool_calls: [{ index: 0, id: `plugin-tool-${index}`, type: "function",
           function: { name: "plugin_manage", arguments: JSON.stringify(calls[index]) },
@@ -334,33 +296,22 @@ describe("plugin MCP host", () => {
       contributes: { mcpServers: [{ id: "api", title: "API", command: "node", args: ["./server.mjs"], tools: ["echo"] }] },
     }));
     await writeFile(path.join(draftRoot, "server.mjs"), await readFile(path.resolve("test/fixtures/plugin-mcp-server.mjs")));
-    const prompt = await app.inject({
-      method: "POST",
-      url: `/plugins/setup-sessions/${state.id}/prompt`,
-      payload: {
-        prompt: "Create an MCP plugin",
-        model: { provider: created.json().id, id: "fixture" },
-      },
-    });
+    // The workspace's conversations are its project's, run as any project's are.
+    const conversations = `/projects/${state.projectId}/conversations`;
+    const conversation = (await app.inject({ method: "POST", url: conversations, payload: { model: { provider: created.json().id, id: "fixture" } } })).json();
+    const prompt = await app.inject({ method: "POST", url: `${conversations}/${conversation.id}/turns`, payload: { prompt: "Create an MCP plugin" } });
     expect(prompt.statusCode, prompt.body).toBe(202);
+    const items = async (on = app) => ((await on.inject({ method: "GET", url: `${conversations}/${conversation.id}` })).json().turns as Array<{ items: unknown[] }>)
+      .flatMap(turn => turn.items);
     await vi.waitFor(
       async () => {
-        const current = (
-          await app.inject({
-            method: "GET",
-            url: `/plugins/setup-sessions/${state.id}`,
-          })
-        ).json();
-        expect(current.busy).toBe(false);
-        expect(current.error).toBeUndefined();
-        expect(current.pluginId).toBeUndefined();
-        expect(current.status).toBe("ready");
-        expect(current.turns.flatMap((turn: { items: unknown[] }) => turn.items)).toEqual(expect.arrayContaining([
-          expect.objectContaining({ type: "dynamicToolCall", tool: "plugin_manage", status: "completed" }),
-        ]));
-        expect(current.turns.flatMap((turn: { items: unknown[] }) => turn.items)).toContainEqual(expect.objectContaining({
+        expect(await items()).toContainEqual(expect.objectContaining({
           type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder.",
         }));
+        expect(await items()).toContainEqual(expect.objectContaining({ type: "dynamicToolCall", tool: "plugin_manage", status: "completed" }));
+        const current = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${state.id}` })).json();
+        expect(current).toMatchObject({ status: "ready" });
+        expect(current.pluginId).toBeUndefined();
       },
       { timeout: 15_000 },
     );
@@ -394,14 +345,7 @@ describe("plugin MCP host", () => {
       createModelRuntime: async () => runtime,
     });
     cleanup.push(() => restarted.close());
-    expect(
-      (
-        await restarted.inject({
-          method: "GET",
-          url: `/plugins/setup-sessions/${state.id}`,
-        })
-      ).json().turns.flatMap((turn: { items: unknown[] }) => turn.items),
-    ).toEqual(expect.arrayContaining([
+    expect(await items(restarted)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "userMessage", text: "Create an MCP plugin" }),
       expect.objectContaining({ type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder." }),
     ]));
@@ -520,7 +464,7 @@ describe("plugin MCP host", () => {
     ).not.toContain("fixture-access-token");
   }, 45_000);
 
-  it("creates persistent assistant sessions without creating game projects", async () => {
+  it("keeps a workspace's project out of the list of projects", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-setup-api-")),
     });
@@ -538,7 +482,7 @@ describe("plugin MCP host", () => {
           url: `/plugins/setup-sessions/${response.json().id}`,
         })
       ).json(),
-    ).toMatchObject({ id: response.json().id, turns: [], busy: false });
+    ).toMatchObject({ id: response.json().id, projectId: expect.any(String), status: "idle" });
     expect(
       (await app.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);
