@@ -18,8 +18,9 @@ import {
 import { GameGrid } from "./community-game-card.js";
 import { LoaderCircle, RefreshCw } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
+import { CommunityPage, CommunityState } from "./community-page.js";
+import { Button, IconButton } from "./ui/index.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { UserAvatar } from "./user-avatar.js";
 
 function applyProfileStats(
@@ -129,80 +130,87 @@ export function CommunityProfilePage({
   ]);
 
   const visible = filterCommunityGames(profile?.games ?? [], filters);
+  // The service has no total; sum the games' counts while every one has them.
+  const totalViews = profile?.games.every((game) => game.stats)
+    ? profile.games.reduce((sum, game) => sum + game.stats!.viewCount, 0)
+    : undefined;
   return (
-    <SidebarPageLayout active="community" onNavigate={onNavigate}>
-      <SidebarPageHeader
-        title={
-          owner
-            ? t("community.myProfile")
-            : (profile?.author.displayName ?? t("community.creator"))
-        }
-        breadcrumb={{ label: t("community.title"), onClick: onBack }}
-        actions={
-          <button
-            className="projects-icon-button"
-            type="button"
-            onClick={() => void load()}
-            disabled={loading}
-            aria-label={t("common.refresh")}
-            title={t("common.refresh")}
-          >
-            <RefreshCw size={15} className={loading ? "spin" : undefined} />
-          </button>
-        }
-      />
-      <section className="explore-content">
-        {profile ? (
-          <div className="community-profile-summary">
-            <UserAvatar
-              className="community-profile-avatar"
-              name={profile.author.displayName}
-              avatarUrl={profile.author.avatarUrl}
-            />
-            <div>
-              <h2>{profile.author.displayName}</h2>
-              <p>
-                {t("community.publishedGames", { count: profile.games.length })}{" "}
-                · {t("community.likes", { count: profile.totalLikes })}
-              </p>
-            </div>
-          </div>
-        ) : null}
-        <CommunityToolbar value={filters} onChange={setFilters} />
-        {error ? (
-          <div className="community-page-error" role="alert">
-            <span>{error}</span>
-            <button
-              className="quiet-button"
-              type="button"
-              onClick={() => void load()}
-            >
-              {t("common.retry")}
-            </button>
-          </div>
-        ) : null}
-        {loading && !profile ? (
-          <div className="explore-state">
-            <LoaderCircle className="spin" size={20} />
-            {t("community.loadingProfile")}
-          </div>
-        ) : null}
-        {!loading && profile && !visible.length ? (
-          <div className="explore-state">
-            {profile.games.length
-              ? t("community.noMatches")
-              : t("community.none")}
-          </div>
-        ) : null}
-        {profile && visible.length ? (
-          <GameGrid
-            games={visible}
-            accessToken={owner ? accessToken : undefined}
-            onOpen={(game) => onOpenGame(game.id)}
-            onStatsChange={owner ? undefined : updateStats}
+    <CommunityPage
+      onNavigate={onNavigate}
+      onBack={onBack}
+      actions={
+        <IconButton
+          label={t("common.refresh")}
+          onClick={() => void load()}
+          disabled={loading}
+        >
+          <RefreshCw size={16} className={loading ? "spin" : undefined} />
+        </IconButton>
+      }
+    >
+      {profile ? (
+        <header className="community-profile-summary">
+          <UserAvatar
+            className="community-avatar community-avatar-lg"
+            name={profile.author.displayName}
+            avatarUrl={profile.author.avatarUrl}
           />
-        ) : null}
-      </section>
-    </SidebarPageLayout>
+          <div>
+            <h1>
+              {profile.author.displayName}
+              {owner ? <small>{t("community.myProfile")}</small> : null}
+            </h1>
+            <p>
+              {[
+                t("community.publishedGames", { count: profile.games.length }),
+                ...(totalViews !== undefined
+                  ? [t("community.views", { count: totalViews })]
+                  : []),
+                t("community.likes", { count: profile.totalLikes }),
+              ].join(" · ")}
+            </p>
+          </div>
+        </header>
+      ) : null}
+      {error ? (
+        <CommunityState
+          tone="error"
+          action={
+            <Button size="sm" onClick={() => void load()}>
+              {t("common.retry")}
+            </Button>
+          }
+        >
+          {error}
+        </CommunityState>
+      ) : null}
+      {loading && !profile ? (
+        <CommunityState>
+          <LoaderCircle className="spin" size={16} />
+          {t("community.loadingProfile")}
+        </CommunityState>
+      ) : null}
+      {profile ? (
+        <section className="community-section">
+          <h2>{t("community.games")}</h2>
+          <CommunityToolbar value={filters} onChange={setFilters} search />
+          {!loading && !visible.length ? (
+            <CommunityState>
+              {profile.games.length
+                ? t("community.noMatches")
+                : t("community.none")}
+            </CommunityState>
+          ) : null}
+          {visible.length ? (
+            <GameGrid
+              games={visible}
+              accessToken={owner ? accessToken : undefined}
+              onOpen={(game) => onOpenGame(game.id)}
+              onStatsChange={owner ? undefined : updateStats}
+            />
+          ) : null}
+        </section>
+      ) : null}
+    </CommunityPage>
   );
 }

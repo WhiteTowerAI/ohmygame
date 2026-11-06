@@ -30,6 +30,32 @@ describe("Web Game project codebase", () => {
       expect(await restored.nameAutomatically(manual.id, "Changed legacy title")).toBeUndefined();
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
+  it("makes new projects in the chosen project location, each in its own folder", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-location-"));
+    const location = await mkdtemp(path.join(tmpdir(), "ohmygame-project-location-target-"));
+    try {
+      const manager = new ProjectManager(directory);
+      await manager.load();
+      await expect(manager.setLocation("relative/folder")).rejects.toThrow("absolute path");
+      await expect(manager.setLocation(path.join(location, "missing"))).rejects.toThrow("not an available folder");
+      await expect(manager.setLocation(path.join(directory, "projects"))).rejects.toThrow("project storage");
+      await manager.setLocation(location);
+      const first = await manager.create("Moon/Garden", "general");
+      const second = await manager.create("Moon/Garden", "general");
+      const real = (await import("node:fs/promises")).realpath;
+      expect(first.workspacePath).toBe(path.join(await real(location), "Moon-Garden"));
+      expect(second.workspacePath).toBe(path.join(await real(location), "Moon-Garden 2"));
+      const restored = new ProjectManager(directory);
+      await restored.load();
+      expect(restored.location).toBe(await real(location));
+      await restored.setLocation(undefined);
+      const stored = await restored.create("Inside", "general");
+      expect(stored.workspacePath.startsWith(path.join(directory, "projects"))).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(location, { recursive: true, force: true });
+    }
+  });
   it("checks name ownership inside queued writes and never recreates a deleted project", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-name-races-"));
     try {

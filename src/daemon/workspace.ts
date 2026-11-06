@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
@@ -91,26 +92,22 @@ export async function getWorkspaceMedia(
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<boolean> {
   const directory = path.join(root, ...relativeDirectory.split("/").filter(Boolean));
   const entries = await readdir(directory, { withFileTypes: true });
-  let containsEntries = false;
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) continue;
-    const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-      if (!(await visit(root, relativePath, files))) files.push({ path: relativePath, size: 0, directory: true });
-      containsEntries = true;
-      continue;
-    }
-    if (!entry.isFile()) continue;
+  const regular = entries.filter((entry) => entry.isFile());
+  const details = await mapConcurrent(regular, 8, async (entry) => {
     const media = workspaceMediaInfo(entry.name);
-    files.push({
-      path: relativePath,
+    return {
+      path: relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name,
       size: (await stat(path.join(directory, entry.name))).size,
       ...(media ? { mediaType: media.mediaType } : {}),
-    });
-    containsEntries = true;
+    };
+  });
+  for (const detail of details) files.push(detail);
+  const directories = entries.filter((entry) => entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name));
+  for (const entry of directories) {
+    const child = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    if (!(await visit(root, child, files))) files.push({ path: child, size: 0, directory: true });
   }
-  return containsEntries;
+  return regular.length + directories.length > 0;
 }
 
 export { workspaceMediaInfo };

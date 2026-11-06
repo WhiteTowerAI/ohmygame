@@ -10,6 +10,7 @@ import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
 import type { ImageModel, ProjectState, ToolJob } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { LibraryAsset } from "../src/renderer/library-assets.js";
+import type { ImageNodeRuntime } from "../src/renderer/asset-canvas-flow.js";
 
 const captured = {
   props: undefined as Parameters<typeof EditorCanvas<Node>>[0] | undefined,
@@ -83,6 +84,7 @@ vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/library-assets.js")>()),
   loadLibraryAssets: loadAssets,
 }));
+const { setTemplateExampleStore } = await import("../src/renderer/template-example-cache.js");
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
 const { CanvasTableStorage } =
@@ -356,6 +358,70 @@ it("turns a template example into the node's output before running a media tool"
     operation: "split-image-grid", assetIds: ["materialized"],
     options: { columns: 2, rows: 2, format: "png" },
   });
+});
+
+const imageRuntime = (id: string) => captured.props!.nodes.find((node) => node.id === id)!.data.imageRuntime as ImageNodeRuntime & { error?: string };
+
+it("generates from a template reference slot by uploading its example", async () => {
+  const fetchExample = vi.fn(async () => new Response(new Blob(["pixels"], { type: "image/webp" })));
+  vi.stubGlobal("fetch", fetchExample);
+  await act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: "reference", type: "image", position: { x: 0, y: 600 }, data: { prompt: "", images: [], sourceInput: true, exampleImage: "reference/creature" } } },
+    { type: "add", item: { id: "generator", type: "image", position: { x: 600, y: 600 }, data: { prompt: "a slime", model: { provider: "google", id: "image-ref" }, resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: "reference" }] } } },
+  ]));
+  const reference = imageRuntime("generator").references[0]!;
+  expect(reference.assetId).toBeUndefined();
+  expect(reference.exampleUrl).toBe("https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp");
+
+  await act(async () => imageRuntime("generator").onGenerate());
+
+  expect(fetchExample).toHaveBeenCalledWith("https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp");
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+  expect(captured.props!.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
+  const saved = save.mock.calls.at(-1)![0] as { nodes: Array<{ id: string; data: { assetId?: string } }> };
+  expect(saved.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
+  expect(generate).toHaveBeenCalledWith("generator");
+  expect(save.mock.invocationCallOrder.at(-1)).toBeLessThan(generate.mock.invocationCallOrder.at(-1)!);
+});
+
+it("keeps each example it fetches and generates from that copy while offline", async () => {
+  const saved = new Map<string, Blob>();
+  setTemplateExampleStore({ get: async (url) => saved.get(url), put: async (url, image) => { saved.set(url, image); } });
+  const exampleUrl = "https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp";
+  const addSlot = (suffix: string) => act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: `reference-${suffix}`, type: "image", position: { x: 0, y: 600 }, data: { prompt: "", images: [], sourceInput: true, exampleImage: "reference/creature" } } },
+    { type: "add", item: { id: `generator-${suffix}`, type: "image", position: { x: 600, y: 600 }, data: { prompt: "a slime", model: { provider: "google", id: "image-ref" }, resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: `reference-${suffix}` }] } } },
+  ]));
+  try {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["pixels"], { type: "image/webp" }))));
+    await addSlot("online");
+    await act(async () => imageRuntime("generator-online").onGenerate());
+    expect(saved.has(exampleUrl)).toBe(true);
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    upload.mockClear();
+    generate.mockClear();
+    await addSlot("offline");
+    await act(async () => imageRuntime("generator-offline").onGenerate());
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+    expect(generate).toHaveBeenCalledWith("generator-offline");
+  } finally {
+    setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });
+  }
+});
+
+it("reports an unavailable template example instead of generating", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+  await act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: "reference", type: "image", position: { x: 0, y: 600 }, data: { prompt: "", images: [], sourceInput: true, exampleImage: "reference/creature" } } },
+    { type: "add", item: { id: "generator", type: "image", position: { x: 600, y: 600 }, data: { prompt: "a slime", model: { provider: "google", id: "image-ref" }, resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: "reference" }] } } },
+  ]));
+
+  await act(async () => imageRuntime("generator").onGenerate());
+
+  expect(upload).not.toHaveBeenCalled();
+  expect(generate).not.toHaveBeenCalled();
+  expect(imageRuntime("generator").error).toBe("Could not load the example image. Check your network connection and try again.");
 });
 
 it("runs a grid preset immediately without a confirmation dialog", async () => {

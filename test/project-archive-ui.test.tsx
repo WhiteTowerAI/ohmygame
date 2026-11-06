@@ -17,8 +17,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));
-vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), () => ({
-  AppSidebar: () => null,
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 const { ProjectCard } = await import("../src/renderer/project-card.js");
 const { archiveProjectName } = await import("../src/renderer/api.js");
@@ -128,6 +128,23 @@ describe("project import", () => {
     return container.querySelector<HTMLInputElement>('input[type="file"]')!;
   }
 
+  /** The archive import in the New project menu, opening the menu first. */
+  async function importItem(): Promise<HTMLButtonElement | undefined> {
+    if (!document.querySelector('[role="menu"]')) {
+      const trigger = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "New project",
+      )!;
+      await act(async () => trigger.click());
+    }
+    return [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ].find((item) =>
+      ["Import project ZIP…", "Importing…"].includes(
+        item.querySelector(".ui-menu-label")?.firstChild?.textContent ?? "",
+      ),
+    );
+  }
+
   async function choose(input: HTMLInputElement, file: File): Promise<void> {
     Object.defineProperty(input, "files", {
       value: [file],
@@ -164,9 +181,9 @@ describe("project import", () => {
 
   it("imports a chosen archive and shows the new project", async () => {
     const input = await renderPage();
-    expect(
-      container.querySelector('[aria-label="Import project"]'),
-    ).not.toBeNull();
+    expect((await importItem())?.textContent).toContain(
+      "Import project ZIP…",
+    );
     importProject.mockImplementation(async () => {
       listProjects.mockResolvedValue([project]);
       return project;
@@ -189,7 +206,7 @@ describe("project import", () => {
       return project;
     });
     expect((await drag("dragenter", [file])).defaultPrevented).toBe(true);
-    const child = container.querySelector(".project-card-new")!;
+    const child = container.querySelector(".projects-controls")!;
     await drag("dragenter", [file], child);
     await drag("dragleave", [file], child);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
@@ -254,11 +271,9 @@ describe("project import", () => {
         }),
     );
     await drag("drop", [file]);
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[aria-label="Import project"]',
-      )?.disabled,
-    ).toBe(true);
+    const busy = await importItem();
+    expect(busy?.disabled).toBe(true);
+    expect(busy?.textContent).toContain("Importing…");
     await drag("dragenter", [file]);
     expect(container.querySelector('[role="status"]')).toBeNull();
     const over = await drag("dragover", [file]);
@@ -270,11 +285,7 @@ describe("project import", () => {
     await act(async () => {
       finish(project);
     });
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[aria-label="Import project"]',
-      )?.disabled,
-    ).toBe(false);
+    expect((await importItem())?.disabled).toBe(false);
     importProject.mockResolvedValue(project);
     await drag("drop", [file]);
     expect(importProject).toHaveBeenCalledTimes(2);

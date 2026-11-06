@@ -1,8 +1,17 @@
-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const reads = vi.hoisted(() => [] as Array<{ start?: number }>);
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return { ...fs, createReadStream: (file: string, options?: { start?: number }) => {
+    reads.push({ start: options?.start });
+    return fs.createReadStream(file, options);
+  } };
+});
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { ConversationCache } from "../src/daemon/conversation-cache.js";
 import { ConversationImageStore } from "../src/daemon/conversation-images.js";
@@ -45,6 +54,34 @@ describe("conversation UI cache", () => {
     expect(view!.getEntries().find((item) => item.id === "large")).toEqual(entry);
     expect((await readFile(stored.sessionPath)).equals(before)).toBe(true);
     expect(await cache.read(project, stored.sessionPath)).toBe(view);
+  });
+
+  it("keeps only the tool output a conversation shows, and shows the same", async () => {
+    const { project, stored, session } = await fixture();
+    const toolResult = (id: string, content: object[]) => {
+      session.appendMessage({ role: "assistant", provider: "test", model: "model", stopReason: "toolUse", timestamp: 20,
+        content: [{ type: "toolCall", id, name: "bash", arguments: { command: id } }] } as never);
+      session.appendMessage({ role: "toolResult", toolCallId: id, toolName: "bash", isError: false, timestamp: 21, content } as never);
+    };
+    const long = (mark: string) => `${mark} start ${"影🚀x".repeat(40_000)} ${mark} end`;
+    toolResult("short", [{ type: "text", text: "short output" }]);
+    toolResult("long", [{ type: "text", text: long("one") }]);
+    toolResult("blocks", [{ type: "text", text: long("two") }, { type: "text", text: long("three") }]);
+    toolResult("just-over", [{ type: "text", text: "y".repeat(12_001) }]);
+    toolResult("many", Array.from({ length: 1_000 }, (_, index) => ({ type: "text", text: `${index} ${"z".repeat(10_000)}` })));
+    toolResult("with-image", [{ type: "text", text: long("four") }, { type: "image", mimeType: "image/png", data: "aW1hZ2U=" }, { type: "text", text: long("five") }]);
+    const prompt = "a long message ".repeat(2_000);
+    session.appendMessage({ role: "user", content: prompt, timestamp: 22 } as never);
+    const before = await readFile(stored.sessionPath);
+
+    const view = (await new ConversationCache().read(project, stored.sessionPath))!;
+    const sizes = view.getBranch().flatMap((entry) => entry.type === "message" && entry.message.role === "toolResult"
+      ? [(entry.message.content as Array<{ text?: string }>).reduce((size, block) => size + (block.text?.length ?? 0), 0)] : []);
+    expect(Math.max(...sizes)).toBeLessThan(12_100);
+    expect(conversationItems(view.getBranch())).toEqual(conversationItems(session.getBranch()));
+    const kept = view.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "user");
+    expect(kept).toMatchObject({ message: { content: prompt } });
+    expect((await readFile(stored.sessionPath)).equals(before)).toBe(true);
   });
 
   it("continues after a valid UTF-8 record without a final newline", async () => {
@@ -126,6 +163,32 @@ describe("conversation UI cache", () => {
     expect(before!.getSessionName()).not.toBe("Appended at read completion");
     expect(after!.getSessionName()).toBe("Appended at read completion");
     expect(latest).toBe(after);
+  });
+
+  it("reads only what a long session gained, not all of it again", async () => {
+    const { project, stored, conversations, session } = await fixture();
+    session.appendCustomEntry("padding", { text: "x".repeat(400_000) });
+    await conversations.view(project, stored);
+    const { size } = await stat(stored.sessionPath);
+    reads.length = 0;
+
+    session.appendSessionInfo("Renamed while running");
+    const view = await conversations.view(project, stored);
+    expect(view.getSessionName()).toBe("Renamed while running");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((read) => (read.start ?? 0) >= size)).toBe(true);
+  });
+
+  it("reads a long session again when its start was rewritten", async () => {
+    const { project, stored, conversations, session } = await fixture();
+    session.appendCustomEntry("padding", { text: "x".repeat(400_000) });
+    await conversations.view(project, stored);
+    const original = await readFile(stored.sessionPath, "utf8");
+    await writeFile(stored.sessionPath, original.replace('"text":"Inspect"', '"text":"Changed"'));
+    await appendFile(stored.sessionPath, `${JSON.stringify({ type: "session_info", id: "renamed", parentId: null,
+      timestamp: new Date().toISOString(), name: "Renamed" })}\n`);
+    const user = conversationItems((await conversations.view(project, stored)).getEntries()).find((item) => item.type === "userMessage");
+    expect(user).toMatchObject({ text: "Changed" });
   });
 
   it("invalidates a rewritten prefix even when the previous file boundary is unchanged", async () => {

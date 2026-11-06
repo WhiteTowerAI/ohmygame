@@ -1,58 +1,60 @@
 import { useState } from "react";
-import { RefreshCw, Server } from "./icons.js";
-import {
-  isAgentRuntimeId,
-  type AgentRuntimeId,
-} from "../shared/agent-runtimes.js";
+import { ChevronRight, RefreshCw } from "./icons.js";
+import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import { listAgentRuntimes, notifyAgentModelsChanged } from "./api.js";
-import {
-  CodingAgentDetail,
-  CodingAgentsGroup,
-} from "./coding-agents-settings.js";
+import { CodingAgentDetail, CodingAgentsGroup } from "./coding-agents-settings.js";
 import { useAgentModels } from "./model-selector.js";
+import type { SettingsSection } from "./routes.js";
+import { Badge, Button, IconButton } from "./ui/index.js";
+import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { t } from "./i18n.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
+import { BrandLogo } from "./brand-logo.js";
 
-export type AgentsView =
-  { page: "agents" } | { page: "agent"; id: AgentRuntimeId };
+/** OhMyGame's own agent has a page like the coding agents do. */
+export const OHMYGAME_AGENT = "ohmygame";
 
 /**
  * Who does the work in a conversation: OhMyGame's own agent, which uses the
- * models set up in Providers & Models, and the coding agent CLIs on this
- * computer, which bring their own models and accounts. A conversation picks
- * one in its model picker; this page sets them up.
+ * models set up in Providers, and the coding agent CLIs on this computer,
+ * which bring their own models and accounts. Each opens its own page
+ * (`#/settings/agents/<id>`); a conversation picks one in its model picker.
  */
 export function AgentsSettings({
-  view,
-  onViewChange,
-  onOpenProviders,
+  agent,
+  onOpen,
+  onBack,
+  onOpenSection,
+  onOpenPlugins,
 }: {
-  view: AgentsView;
-  onViewChange: (view: AgentsView) => void;
-  onOpenProviders: () => void;
+  agent?: string;
+  onOpen: (id: string) => void;
+  onBack: () => void;
+  onOpenSection: (section: SettingsSection) => void;
+  onOpenPlugins: () => void;
 }) {
-  if (view.page === "agent")
+  if (agent === OHMYGAME_AGENT)
+    return <OhMyGameAgent onBack={onBack} onOpenSection={onOpenSection} onOpenPlugins={onOpenPlugins} />;
+  if (agent && isAgentRuntimeId(agent))
+    return <CodingAgentDetail key={agent} id={agent} onBack={onBack} />;
+  if (agent)
     return (
-      <CodingAgentDetail
-        id={view.id}
-        onBack={() => onViewChange({ page: "agents" })}
-      />
+      <>
+        <SettingsDetailHead title={t("settings.agents.notFound")} onBack={onBack} backLabel={t("settings.agents.back")} />
+        <div><Button onClick={onBack}>{t("settings.agents.back")}</Button></div>
+      </>
     );
+  return <AgentList onOpen={onOpen} />;
+}
+
+function BrandMark({ size = 20 }: { size?: number }) {
   return (
-    <AgentList
-      onOpen={(id) => onViewChange({ page: "agent", id })}
-      onOpenProviders={onOpenProviders}
-    />
+    <span className="settings-mark is-brand" aria-hidden="true">
+      <BrandLogo size={size} />
+    </span>
   );
 }
 
-function AgentList({
-  onOpen,
-  onOpenProviders,
-}: {
-  onOpen: (id: AgentRuntimeId) => void;
-  onOpenProviders: () => void;
-}) {
+function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
   const catalog = useAgentModels({ agentRuntimes: true });
   const [rescanning, setRescanning] = useState(false);
   const [error, setError] = useState<string>();
@@ -70,82 +72,81 @@ function AgentList({
   }
   const defaultModel = catalog.defaultModel;
   // A CLI still listing its models may hold the default; decide once all have answered.
-  const settled =
-    catalog.status === "ready" && !catalog.loadingRuntimes?.length;
+  const settled = catalog.status === "ready" && !catalog.loadingRuntimes?.length;
   // Without a default, a new conversation starts on the first model, one of OhMyGame's own.
-  const defaultAgent =
-    defaultModel && isAgentRuntimeId(defaultModel.provider)
-      ? defaultModel.provider
-      : undefined;
-  const noModels =
-    catalog.status === "ready" &&
-    !catalog.models.some((model) => !isAgentRuntimeId(model.provider));
+  const defaultAgent = defaultModel && isAgentRuntimeId(defaultModel.provider) ? defaultModel.provider : undefined;
+  const ownModels = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
+  const noModels = catalog.status === "ready" && !ownModels.length;
+  const startsOn = !defaultAgent ? (defaultModel && ownModels.find((model) => model.provider === defaultModel.provider && model.id === defaultModel.id)) ?? ownModels[0] : undefined;
   return (
-    <section className="settings-panel settings-overview-panel">
-      <header className="settings-panel-header">
-        <h3>{t("agents.title")}</h3>
-        <button
-          className="icon-button"
-          type="button"
-          disabled={rescanning}
-          aria-label={t("agents.rescan")}
-          data-tooltip={t("agents.rescan")}
-          onClick={() => void rescan()}
+    <>
+      <SettingsGroup title={t("agents.builtIn")}>
+        <SettingsRow
+          className="settings-agent-row"
+          icon={<BrandMark />}
+          title={<>OhMyGame{settled && !defaultAgent ? <Badge tone="outline">{t("agents.default")}</Badge> : null}</>}
+          description={noModels ? t("agents.ohmygameNoModels") : startsOn ? t("settings.agents.ohmygameModel", { model: startsOn.name }) : t("settings.agents.ohmygameSummary")}
+          onClick={() => onOpen(OHMYGAME_AGENT)}
         >
-          <RefreshCw
-            size={15}
-            className={rescanning ? "spin" : undefined}
-            aria-hidden="true"
-          />
-        </button>
-      </header>
-      <div className="settings-provider-list">
-        <section className="settings-provider-group">
-          <h4>{t("agents.builtIn")}</h4>
-          <div className="settings-provider-row is-featured">
-            <span
-              className="settings-provider-mark is-brand"
-              aria-hidden="true"
-            >
-              <img src={brandMark} alt="" />
-            </span>
-            <span className="settings-provider-copy">
-              <strong className="settings-provider-name">
-                <span>OhMyGame</span>
-                {settled && !defaultAgent ? (
-                  <small>{t("agents.default")}</small>
-                ) : null}
-              </strong>
-              {noModels ? (
-                <span className="settings-provider-details">
-                  <span className="settings-provider-description">
-                    {t("agents.ohmygameNoModels")}
-                  </span>
-                </span>
-              ) : null}
-            </span>
-            <button
-              className="icon-button settings-provider-action"
-              type="button"
-              data-tooltip={t("agents.manageModels")}
-              aria-label={t("agents.manageModels")}
-              onClick={onOpenProviders}
-            >
-              <Server size={17} aria-hidden="true" />
-            </button>
-          </div>
-        </section>
-        <CodingAgentsGroup
-          models={catalog.models}
-          defaultAgent={defaultAgent}
-          onOpen={onOpen}
-        />
-        {error ? (
-          <p className="settings-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </section>
+          <IconButton size="sm" label={t("settings.agents.manage", { name: "OhMyGame" })} onClick={() => onOpen(OHMYGAME_AGENT)}>
+            <ChevronRight size={16} />
+          </IconButton>
+        </SettingsRow>
+      </SettingsGroup>
+      <CodingAgentsGroup
+        models={catalog.models}
+        defaultAgent={defaultAgent}
+        onOpen={onOpen}
+        actions={
+          <IconButton size="sm" label={t("agents.rescan")} disabled={rescanning} onClick={() => void rescan()}>
+            <RefreshCw size={15} className={rescanning ? "spin" : undefined} />
+          </IconButton>
+        }
+      />
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+    </>
+  );
+}
+
+/**
+ * The built-in agent. Its models come from Providers; a conversation picks
+ * one in its model picker and new conversations start on the last one used.
+ */
+function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
+  onBack: () => void;
+  onOpenSection: (section: SettingsSection) => void;
+  onOpenPlugins: () => void;
+}) {
+  const catalog = useAgentModels({ agentRuntimes: true });
+  const ownModels = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
+  const defaultModel = catalog.defaultModel && ownModels.find((model) => model.provider === catalog.defaultModel!.provider && model.id === catalog.defaultModel!.id);
+  const chevron = <ChevronRight size={16} className="settings-row-chevron" />;
+  return (
+    <>
+      <SettingsDetailHead mark={<BrandMark size={28} />} title="OhMyGame" description={t("settings.agents.ohmygameDescription")} onBack={onBack} backLabel={t("settings.agents.back")} />
+      <SettingsGroup
+        title={t("settings.agents.models")}
+        description={t("settings.agents.modelsHint")}
+        actions={<Button size="sm" variant="ghost" onClick={() => onOpenSection("providers")}>{t("agents.manageModels")}</Button>}
+      >
+        <SettingsRow
+          title={t("settings.agents.chatModel")}
+          description={catalog.status === "loading" ? t("common.loading") : !ownModels.length ? t("agents.ohmygameNoModels") : t("settings.agents.chatModelHint", { count: ownModels.length })}
+        >
+          {defaultModel ? <span className="settings-muted">{defaultModel.name}<span className="settings-count"> · {defaultModel.providerName}</span></span> : null}
+        </SettingsRow>
+        <SettingsRow title={t("settings.agents.mediaDefaults")} description={t("settings.agents.mediaDefaultsHint")} onClick={() => onOpenSection("providers")}>
+          <IconButton size="sm" label={t("settings.agents.mediaDefaults")} onClick={() => onOpenSection("providers")}>{chevron}</IconButton>
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.agents.skillsAndTools")}>
+        <SettingsRow title={t("settings.agents.pluginSkills")} description={t("settings.agents.pluginSkillsHint")} onClick={onOpenPlugins}>
+          <IconButton size="sm" label={t("settings.agents.pluginSkills")} onClick={onOpenPlugins}>{chevron}</IconButton>
+        </SettingsRow>
+        <SettingsRow title={t("settings.nav.mcpServer")} description={t("settings.agents.mcpHint")} onClick={() => onOpenSection("mcp-server")}>
+          <IconButton size="sm" label={t("settings.nav.mcpServer")} onClick={() => onOpenSection("mcp-server")}>{chevron}</IconButton>
+        </SettingsRow>
+      </SettingsGroup>
+    </>
   );
 }

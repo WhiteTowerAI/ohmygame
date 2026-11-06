@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PixelTemplateDensityDialog } from "../src/renderer/pixel-template-density-dialog.js";
+import { setTemplateExampleStore } from "../src/renderer/template-example-cache.js";
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -49,4 +50,23 @@ it("closes on Escape without creating a template", async () => {
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onConfirm).not.toHaveBeenCalled();
+});
+
+it("shows the copy kept on this device when a preview cannot be loaded", async () => {
+  const saved = new Map<string, Blob>();
+  setTemplateExampleStore({ get: async (url) => saved.get(url), put: async (url, image) => { saved.set(url, image); } });
+  try {
+    await open();
+    const preview = document.querySelector<HTMLImageElement>(".pixel-template-density-preview img")!;
+    const url = preview.getAttribute("src")!;
+    expect(url).toMatch(/^https:\/\/assets\.ohmygame\.ai\/template-examples\//);
+    saved.set(url, new Blob(["pixels"], { type: "image/webp" }));
+    await act(async () => {
+      preview.dispatchEvent(new Event("error"));
+      await Promise.resolve();
+    });
+    expect(document.querySelector<HTMLImageElement>(".pixel-template-density-preview img")!.getAttribute("src")).toMatch(/^blob:/);
+  } finally {
+    setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });
+  }
 });

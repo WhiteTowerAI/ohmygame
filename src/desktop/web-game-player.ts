@@ -1,5 +1,5 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
-import { BrowserWindow, WebContentsView, shell, type BaseWindow } from "electron";
+import { BrowserWindow, WebContentsView, screen, shell, type BaseWindow, type Input, type WebContents } from "electron";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
 
@@ -23,6 +23,7 @@ interface Game {
   crashed?: boolean;
   error?: string;
   fullscreen?: boolean;
+  recording?: boolean;
 }
 
 export interface WebGamePlayerTarget {
@@ -30,11 +31,25 @@ export interface WebGamePlayerTarget {
   title: string;
 }
 
+function playWindowTitle(game: Game): string {
+  return `${game.recording ? "\u25CF " : ""}${game.title} - Play`;
+}
+
+/** Cmd/Ctrl+Shift+R, which a game is unlikely to want because browsers keep it for reloading. */
+export function isGameRecordingShortcut(input: Pick<Input, "type" | "key" | "control" | "meta" | "shift" | "alt" | "isAutoRepeat">): boolean {
+  return input.type === "keyDown" && !input.isAutoRepeat && input.key.toLowerCase() === "r" && input.shift && !input.alt && (input.control || input.meta);
+}
+
 /** One human game per project; Preview and Play move the same native view. */
 export class WebGamePlayerWindows {
   readonly #games = new Map<string, Game>();
 
-  constructor(private readonly onState: (state: WebGamePlayerState) => void, private readonly hostUrl: string) {}
+  constructor(
+    private readonly onState: (state: WebGamePlayerState) => void,
+    private readonly hostUrl: string,
+    /** The person pressed the recording shortcut with the game in focus. */
+    private readonly onRecordShortcut?: (projectId: string) => void,
+  ) {}
 
   state(projectId: string): WebGamePlayerState {
     const game = this.#games.get(projectId);
@@ -89,6 +104,26 @@ export class WebGamePlayerWindows {
     return (await game.view.webContents.capturePage()).toPNG();
   }
 
+  /** What a recording of this project's running game should capture. */
+  async recordingTarget(projectId: string): Promise<{ contents: WebContents; title: string }> {
+    const game = this.#games.get(projectId);
+    if (!game) throw new Error("The game preview is unavailable.");
+    await game.ready;
+    await game.navigation;
+    if (this.#games.get(projectId) !== game || !game.view || game.crashed || game.view.webContents.isDestroyed()) {
+      throw new Error("The game preview is unavailable.");
+    }
+    return { contents: game.view.webContents, title: game.title ?? "" };
+  }
+
+  /** The Play window has no toolbar, so its title says that it is recording. */
+  setRecording(projectId: string, recording: boolean): void {
+    const game = this.#games.get(projectId);
+    if (!game) return;
+    game.recording = recording;
+    this.#titlePlayWindow(game);
+  }
+
   async open(projectId: string, request: WebGamePlayerRequest, resolveTarget: () => Promise<WebGamePlayerTarget>): Promise<void> {
     const game = this.#ensure(projectId, request.path, resolveTarget);
     if (!game.window && !game.opening) {
@@ -99,10 +134,16 @@ export class WebGamePlayerWindows {
         // Exit HTML fullscreen/pointer lock while this view still belongs to its old window.
         await this.#source(game, "player");
         if (this.#games.get(projectId) !== game) throw new Error("Game launch was cancelled.");
+        const display = game.editor && !game.editor.window.isDestroyed()
+          ? screen.getDisplayMatching(game.editor.window.getBounds())
+          : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+        const scale = Math.min(1, display.workAreaSize.width * 0.85 / request.viewport.width, display.workAreaSize.height * 0.85 / request.viewport.height);
+        const width = Math.max(1, Math.floor(request.viewport.width * scale));
+        const height = Math.max(1, Math.floor(request.viewport.height * scale));
         const window = new BrowserWindow({
-          width: request.viewport.width, height: request.viewport.height,
-          useContentSize: true, minWidth: 240, minHeight: 240,
-          show: false, title: `${game.title} - Play`, autoHideMenuBar: true,
+          width, height,
+          useContentSize: true, minWidth: Math.min(240, width), minHeight: Math.min(240, height),
+          show: false, title: playWindowTitle(game), autoHideMenuBar: true,
           backgroundColor: "#000000",
           webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
         });
@@ -219,6 +260,11 @@ export class WebGamePlayerWindows {
           game.fullscreen = false;
           this.#place(game);
         });
+        contents.on("before-input-event", (event, input) => {
+          if (!isGameRecordingShortcut(input)) return;
+          event.preventDefault();
+          this.onRecordShortcut?.(projectId);
+        });
         const rememberRoute = () => {
           const frame = this.#frame(game);
           if (frame) game.lastUrl = frame.url;
@@ -300,6 +346,10 @@ export class WebGamePlayerWindows {
     }
     game.view.setVisible(visible);
     game.view.webContents.setAudioMuted(!visible);
+  }
+
+  #titlePlayWindow(game: Game): void {
+    if (game.window && !game.window.isDestroyed()) game.window.setTitle(playWindowTitle(game));
   }
 
   #return(projectId: string, game: Game, window: BaseWindow): void {

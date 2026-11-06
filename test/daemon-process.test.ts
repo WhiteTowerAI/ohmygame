@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import * as shellEnvironment from "../src/daemon/agent-runtimes/environment.js";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
@@ -70,6 +71,7 @@ describe("desktop daemon process", () => {
         allowedOrigins: [],
         executable: process.execPath,
         environment: {},
+        gracefulShutdownTimeoutMs: 1_000,
       });
       const descendantPid = Number(await readFile(descendantFile, "utf8"));
       try {
@@ -162,6 +164,7 @@ describe("desktop daemon process", () => {
         response.end(JSON.stringify({ development: process.argv.includes("--dev"), tokenInEnvironment: Object.keys(process.env).some((name) => name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") }));
       });
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
@@ -204,9 +207,11 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(pathFile)}, process.env.Path ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
+    using loginPath = vi.spyOn(shellEnvironment, "loginShellPath").mockResolvedValue("/user/pnpm/bin:.:");
     const daemon = await startDaemon({
       daemonEntry: entry,
       dataDirectory: directory,
@@ -218,8 +223,14 @@ describe("desktop daemon process", () => {
       healthTimeoutMs: 2_000,
     });
 
-    expect(await readFile(pathFile, "utf8")).toBe(`${runtimeBin}${path.delimiter}/system/bin`);
-    await daemon.stop();
+    try {
+      const directories = [runtimeBin, "/system/bin"];
+      if (process.platform === "darwin") directories.push("/user/pnpm/bin");
+      expect(loginPath).toHaveBeenCalledTimes(process.platform === "darwin" ? 1 : 0);
+      expect(await readFile(pathFile, "utf8")).toBe(directories.join(path.delimiter));
+    } finally {
+      await daemon.stop();
+    }
   });
 
   it("passes the OhMyGame Pi agent directory to the daemon", async () => {
@@ -233,6 +244,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(piAgentFile)}, process.env.PI_CODING_AGENT_DIR ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
@@ -262,6 +274,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(logDirectoryFile)}, process.env.OHMYGAME_LOG_DIR ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 

@@ -1,4 +1,4 @@
-import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PublicationState, PromptContextLabel, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
+import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PublicationState, PromptContextLabel, ScheduledMessage, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
 import { finalizeTurnItems } from "../shared/turns.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
@@ -13,6 +13,7 @@ export interface RendererState {
   plan: PlanSessionState;
   turns: Turn[];
   pendingPrompts: PendingPrompt[];
+  scheduledMessages: ScheduledMessage[];
   lastEventId: number;
   notice?: string;
 }
@@ -36,6 +37,7 @@ export const initialRendererState: RendererState = {
   plan: { mode: "normal" },
   turns: [],
   pendingPrompts: [],
+  scheduledMessages: [],
   lastEventId: 0,
 };
 
@@ -53,6 +55,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       plan: detail.plan,
       turns: appendSteeringTurns(detail.turns, detail.conversation.id, steering),
       pendingPrompts: detail.pendingPrompts.filter((item) => !item.steering),
+      scheduledMessages: detail.scheduledMessages,
       notice: undefined,
       lastEventId: detail.cursor,
     };
@@ -73,7 +76,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "conversation.model.changed" || event.type === "checkpoint.created" || event.type === "checkpoint.completed" || event.type === "workspace.undone" || event.type === "workspace.reapplied";
+  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "scheduled.changed" || event.type === "conversation.model.changed" || event.type === "checkpoint.created" || event.type === "checkpoint.completed" || event.type === "workspace.undone" || event.type === "workspace.reapplied";
   if (conversationScopedEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
@@ -169,6 +172,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
         turns: state.turns.filter((turn) => turn.id !== event.turnId || !turn.steering),
       };
+    case "scheduled.changed":
+      return { ...next, scheduledMessages: event.data.messages };
     case "item.started":
     case "item.updated": {
       if (!conversation) return next;

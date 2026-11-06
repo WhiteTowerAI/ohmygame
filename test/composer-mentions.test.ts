@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
+import { skillMentionRanges } from "../src/shared/skill-mentions.js";
 
 const capabilities: ConversationCapabilities = {
   plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame" }],
@@ -11,7 +12,8 @@ describe("composer mentions", () => {
   it("finds a mention at the cursor without matching email-like text", () => {
     expect(mentionQuery("Use @image", 10)).toEqual({ start: 4, end: 10, trigger: "@", query: "image" });
     expect(mentionQuery("mail@example", 12)).toBeUndefined();
-    expect(mentionQuery("Use $review", 11)).toBeUndefined();
+    // Any number of Skills can be named anywhere; "/" opens the commands only at the start.
+    expect(mentionQuery("Use $review", 11)).toEqual({ start: 4, end: 11, trigger: "$", query: "review" });
     expect(mentionQuery("/review", 7)).toEqual({ start: 0, end: 7, trigger: "/", query: "review" });
     expect(mentionQuery("Use /review", 11)).toBeUndefined();
     expect(mentionQuery("@scope/plugin", 13)).toEqual({ start: 0, end: 13, trigger: "@", query: "scope/plugin" });
@@ -74,8 +76,14 @@ describe("composer mentions", () => {
     expect(formatPluginInvocation(undefined, "Create an icon")).toBe("Create an icon");
   });
 
-  it("combines a selected Skill and Plugin for the first Composer prompt", () => {
-    const mention = toPluginMention(capabilities.plugins[0]);
-    expect(formatComposerInvocation("review", mention, "Inspect this change")).toBe("$review @Image Generation Inspect this change");
+  it("finds each known Skill named anywhere, ending at a space, punctuation or a full stop", () => {
+    expect(skillMentionRanges("$review then $game-design, and $review.", ["review", "game-design"])).toEqual([
+      { start: 0, end: 7, name: "review" },
+      { start: 13, end: 25, name: "game-design" },
+      { start: 31, end: 38, name: "review" },
+    ]);
+    // Unknown names, prices and text joined to a word stay text.
+    expect(skillMentionRanges("costs $5, a$review, $reviews", ["review"])).toEqual([]);
+    expect(skillMentionRanges("use $v1.2 now", ["v1.2"])).toEqual([{ start: 4, end: 9, name: "v1.2" }]);
   });
 });

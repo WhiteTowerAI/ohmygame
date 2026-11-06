@@ -1,77 +1,650 @@
-# Native OhMyGame plugins
+# Plugins
 
-Plugins is the single place to install Skills and MCP services, change configuration, test connections, and authorize services. A plugin may bundle Skills (including supporting scripts, references, and assets), existing MCP servers, or both.
+A plugin is a package with a manifest at `.ohmygame-plugin/plugin.json`. It can
+add Skills, MCP servers, tools, commands, panels and project types. Every
+plugin is on or off in each project. Its switch on the Plugins page turns it on
+in every project it suits, and a project can still turn it off or on for
+itself; see [Plugins for every project](#plugins-for-every-project). A plugin
+runs only once the person has allowed what it asks for.
+
+Plugins come bundled with the app, prepared with it from another repository, from
+the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
+from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The library separates **Public** and **Personal** tabs. Public packages are
-grouped into **Game creation**, **Engines & platforms**, and **Art & assets**,
-with **Other plugins** for packages not yet in the curated grouping. Each group
-shows its count and up to six cards; **View all** expands that group. Personal
-plugins use a flat alphabetical list. Search shows all matching plugins in the
-selected tab without group expansion, including disabled plugins.
-Enabling or disabling a plugin does not change its position in the catalog.
-Beta remains a status badge, and saved enablement choices are preserved.
+The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
 
-## Package format
+- **Installed** groups plugins by their `categories` into **Game creation**,
+  **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
+  shows up to six cards and a **View all**. **Personal** comes next: the
+  plugins the person made (`personal/<name>`), ending with **Create a plugin
+  with AI**, then the AI workspaces. Search shows every match in one list.
+  Each card says whether the plugin is on in every project or in chosen ones,
+  and its switch changes that without moving the card. Turning on one that
+  asks for more than was allowed asks first, saying it will run in every
+  project it suits. One stopped everywhere from its page says **Disabled** and
+  has no switch.
+- **Browse** lists every plugin with its source and what it adds, and filters by
+  source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
+  come first, under **Featured** and **On npm**, leaving out what's installed.
+- **Skills** lists each plugin's Skills, with the person's own under **Personal**.
 
-A package contains `.ohmygame-plugin/plugin.json`:
+A project's **Plugins…** sheet, from the project menu, lists every plugin that
+suits the project in one list, each with its switch for this project and how
+many are on, as described in [Routes](#routes). One on in every project is
+on here and says so; switching it off is saved in the project. The type's own
+plugin stays on. **Manage all plugins** opens the Plugins page.
 
-```json
-{
-  "formatVersion": 1,
-  "name": "my-service",
-  "version": "1.0.0",
-  "description": "Tools for my service",
-  "skills": "./skills/",
-  "mcpServers": "./mcp.json",
-  "configuration": {
-    "endpoint": {
-      "type": "text",
-      "label": "MCP URL",
-      "required": true
-    },
-    "api-key": {
-      "type": "secret",
-      "label": "API key",
-      "required": true
-    }
-  },
-  "interface": {
-    "displayName": "My Service",
-    "icon": { "type": "preset", "id": "plug" },
-    "projectTypes": ["web-game", "godot-game"]
-  }
-}
-```
+A plugin's page has **About** (the long description and Try it prompts),
+**Skills**, and **Settings** tabs, beside a **Management** card with the
+**Every project** switch, **Disable everywhere** (which stops it in every
+project, whatever they say, until **Enable**), version, source, and actions. A
+Try it prompt turns the plugin on in the project it starts in, mentions it,
+and waits until what the plugin asks for is allowed.
 
-All paths are relative to the plugin root and start with `./`. Omit components the plugin does not use. Skills use `skills/<skill-name>/SKILL.md` with `name` and `description` frontmatter. Configuration fields support `text`, `secret`, `path`, `boolean`, and `select`. Select fields require string `options`. Nonsecret fields may provide a default of the appropriate type; secret defaults are rejected.
+## Files
 
-Optional `interface.beta: true` displays a Beta badge on the plugin card and
-detail page. Omit it or set it to false for plugins without that label; it does
-not change installation, configuration, or enablement behavior.
+- **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
+  `src/shared/plugin-manifest.ts`. The JSON Schema is
+  `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
+  `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
+  the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
+  a manifest field or something else a plugin can use is added, so a plugin
+  that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
+  says so and, in the desktop app, offers the update; one made for an API this
+  app has left says its author needs to update it.
+- **Project file:** `ohmygame.json` at a project's root names its type and how
+  its plugins differ from the person's choice for every project
+  (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
+  plugin that asks for nothing) or `false` (off here). The type's plugin is
+  always listed at a version. It asks for plugins; it never allows them.
+- **App data,** under `<data>/plugin-store/`:
+  - `index.json`: installed packages, with their tool schemas;
+  - `origins.json`: where packages added from npm or GitHub came from;
+  - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
+  - `grants.json`: per plugin what the person allowed, whether it is stopped
+    everywhere (`enabled`) and their choice for every project
+    (`everyProject`), and what each project folder allows (by real path);
+  - `configuration.json`: settings values, readable only by the person;
+  - `packages/<publisher>/<name>/<version>/`: installed releases;
+  - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
+    versions and projects, made private on first use and deleted with its
+    last version.
+- **Project data,** in the project's storage folder: `plugin-changes.json`
+  (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
+  storage).
+- **Bundled:** `plugins/` ships with the app and is indexed in place by
+  `PluginServices.ready()`, which every service method and route waits for;
+  `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
+  on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
+  the person turns it on.
 
-Optional `enabledByDefault` sets a package's initial plugin switch (default:
-`true`). A saved user choice takes precedence across restarts and package
-updates. Disabled plugins contribute neither Skills nor MCP services to agent
-conversations. Enabled Skills become candidates for compatible project types;
-their full instructions are read when needed rather than injected into every
-message. A lazy MCP service connects when requested.
+## Native code
 
-### Plugin icons
+A native entry exports `activate(context)` (types in
+`src/shared/extension-host-protocol.ts`). It runs in an extension host, a
+Node child process per project (`src/daemon/extension-hosts.ts`), never in
+the daemon. `context.project.folder` is the project and
+`context.dataFolder` the plugin's data folder; each call gets `signal`,
+`progress`, `turn` and `configuration`. Only tools, commands and project
+type hooks the manifest declares can be registered. A tool, native command
+or MCP server may set `timeoutSeconds` (up to 3600) for calls that
+download or build. A native command with `changesFiles: false` runs
+without the project's write lock and leaves no change to undo.
+`progress(message, { url })` carries an https link the person needs, such
+as a device sign-in page; it is never dropped as frequent updates are. For a
+command the app runs, every message arrives as `plugin.command.progress`;
+the project offers to open a link after showing its host, and the plugin's
+own pages get the message as their `progress` event. An agent's tool call
+shows it in the call's progress.
 
-`interface.icon` is optional display metadata. Use a Solar preset with
-`{"type":"preset","id":"image"}`, or a package-owned image with
-`{"type":"asset","path":"./assets/icon.png"}`. Supported preset IDs are
-`package`, `gamepad`, `globe`, `box`, `image`, `palette`, `brush`, `music`,
-`video`, `film`, `code`, `terminal`, `plug`, `server`, `wand`, `sparkles`,
-`document`, `folder`, `layers`, `lightbulb`, `search`, `wrench`, `clipboard`,
-and `flag`. The shared catalog in `src/shared/plugin-icons.ts` supplies the
-picker, validation, and AI authoring instructions.
+## Modules
 
-The `@` and Add context menus show each plugin's configured icon. Home and
-conversation capability responses include `icon` and `iconRevision` so these
-menus share the plugin library's authenticated image loading and fallback.
+| Area | Code | Tests |
+| --- | --- | --- |
+| Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
+| Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
+| Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
+| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
+| Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
+| MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
+| Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
+| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
+| Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
+| Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
+| Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
+| Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
+| Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+
+## Routes
+
+- Types: `GET /project-types`; `POST /projects` with `projectType` creates a
+  typed project in an empty folder or adopts a folder that holds one.
+- Tools reach every agent through the session's tool list and external MCP.
+  Agents and commands both call them through `PluginServices.callTool`, which
+  checks the input and the result against the manifest's schemas.
+- Skills of a project's active plugins load in its agent sessions, both
+  OhMyGame's agent and the coding agents.
+- MCP servers (`contributes.mcpServers`) of a project's active plugins start
+  in its agent sessions beside the person's [connections](#connections), through
+  the same MCP host (`PluginServices.mcpServers`). A server runs a `command` listed in
+  `capabilities.processes`, from the plugin's folder or its `cwd`, or is an
+  HTTP server at a `url`, with optional `headers` (see below).
+  The app sets `OHMYGAME_PLUGIN_DATA_DIR` in its `env` to the plugin's data
+  folder; the manifest can't set that name itself.
+  Its `args` and `env` may name settings as `${config.field}`; a server waits
+  until those are filled in, and a secret needs `capabilities.secrets`.
+  Agents see only the `tools` it lists. Servers start lazily, on a session's
+  first call to one of them. The adapter would read the app's environment
+  variables into `args` and `cwd`, so those can't name one (`${VAR}`,
+  `$env:VAR`, `{env:VAR}`), in the manifest or once settings are filled in;
+  `env` is passed as written. A session keeps the servers it started with,
+  so once one of them is turned off or changed, the session's MCP calls are
+  refused until its next message (`McpGuard`). The guard is asked before
+  each of the adapter's tools runs and again by the adapter's approval
+  request before each MCP call, including calls a script makes. A script
+  already running can still start a server that hadn't started, but every
+  call to it is refused. When an HTTP server reports an expired session, the
+  adapter reconnects and resends a call it already approved without asking
+  again, so that one call can still finish after the change.
+- An HTTP MCP server's `url` must be https, or http on this computer
+  (`127.0.0.1`, `localhost`), carry no user name or password, and be on a
+  host `capabilities.network` lists: an entry names a host with any port, or
+  `host:port` for one port. Its `url` and `headers` may name settings; a URL
+  can't carry a secret, and a header's secret needs `capabilities.secrets`.
+  The manifest check tries the URL with its settings' defaults, saving a
+  setting refuses a value that would move the URL outside those hosts, and a
+  server whose URL is still outside them (a value saved by hand) is left out.
+  The app hands the adapter (`pi-mcp-adapter`, patched in
+  `patches/pi-mcp-adapter@2.27.0.patch`) the URL's origin as
+  `allowedOrigins`: every request stays on it, redirects are refused, the
+  URL and headers are used as written (no `${VAR}` or `!command`), and OAuth,
+  header commands and the failure probe are off.
+- A typed project's preview follows the plugin version its `ohmygame.json`
+  pins; the app updates what it recorded when that file changes and at
+  startup. A `native` preview runs outside the app, so the project has no
+  web preview and can't be published to Community.
+- A project type's `ready` names a native command without input and a panel.
+  Before each prompt the app runs the command (up to 20 seconds); when it
+  answers `{ ready: false, message? }`, the prompt route answers 409 with
+  `code: "project-not-ready"` and the panel, which the project opens, and a
+  new project's first message goes back into the composer. A `%key%` message
+  comes from the plugin's locale files in the language the prompt request
+  names (`?locale=`). A failed or missing check lets the prompt through.
+- Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
+  (`{ command, input? }`; `PluginServices.runCommand` runs it),
+  `GET /projects/:id/plugin-changes`,
+  `POST /projects/:id/plugin-changes/:changeId/undo`.
+- Pages: `GET /projects/:id/plugin-panels`,
+  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
+  page's [project files](#plugin-pages) under
+  `/projects/:id/plugin-files/:publisher/:name`: `GET ?path=&recursive=`
+  lists, `GET`/`PUT content?path=` reads and writes the bytes
+  (`application/octet-stream`), `DELETE ?path=` deletes, and `POST folder`
+  (`{ path }`) and `POST move` (`{ from, to }`). They answer a plugin the
+  project uses, with a panel and the level of `project.files` the route needs.
+- Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
+  source as JSON; `POST /plugin-sources/file/inspect` and
+  `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
+- Market: `GET /plugin-market?locale=` gives the
+  [listing](#the-plugin-market); installing uses the Adding routes.
+- Store: `GET /plugin-store/plugins` (each with `everyProject`),
+  `POST /plugin-store/releases`,
+  `POST /plugin-store/:publisher/:name/consent`,
+  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`),
+  `PUT /plugin-store/:publisher/:name/enabled` (stops it everywhere),
+  `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
+  `DELETE /plugin-store/:publisher/:name/:version`.
+- A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
+  that suit the project, and the type's own, with the version the project
+  uses (none when off), its status, whether it is on in every project, what
+  it asks for, and whether the person allowed that.
+  `PUT /projects/:id/plugins/:publisher/:name` with `{ on, version? }` turns
+  one on or off there. Without a version it gives the newest installed
+  version that works in the project, the `version` the list shows; a
+  version moves the project to another installed one, which is both an
+  update and a rollback. It writes only what differs
+  from the every-project choice, and turning one on allows it for the
+  folder. A project without `ohmygame.json` gets one the first time it
+  needs one, typed `general`, or its own core type. Turning on one never
+  allowed asks first in the app, then posts the consent. The type's plugin
+  can't be turned off.
+- A plugin's page reads `GET /plugin-store/plugins`: its icon, long
+  description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
+  Skill contents and folder come through their own routes
+  (`/plugins/:id/icon`, `/skill-content`, `/skill-file`, `/directory`), with the
+  id `publisher/name` encoded and its newest version read; a bundled plugin's
+  folder isn't offered.
+- A plugin's `appliesTo` names the project types it works in (none means
+  all); the type's own plugin always works in it. It is matched against the
+  project's own kind, which the app records (`web-game`, `asset-canvas`,
+  `general`, `interactive-story`, `godot-game`), or its plugin project type
+  (`appWidePluginSuits`), not the type in `ohmygame.json`, where a Web game
+  or Asset Canvas is `general` too. So a plugin for `general` doesn't suit a
+  Web game. The sheet leaves out one that doesn't suit the project; turning
+  it on is refused, and one the file asks for anyway resolves as
+  `not-applicable`, so it doesn't run.
+- Mentions: `@` offers the plugins that suit the project, marking those off
+  there (`off`) with what they ask for that isn't allowed yet (`asks`).
+  Picking one that is off turns it on in the project first, asking for
+  consent if needed; a prompt that mentions a plugin not on in its project
+  gets a 409.
+- Home: the composer's type menu lists the app's types, then plugins' types
+  from `GET /project-types` (with what each type's plugin `asks` for), then
+  a link to the plugins that add types (`#/plugins?adds=projectType`). There
+  is no plugin menu: the type's plugin and those on in every project are on
+  in the new project. `@` offers the plugins that suit the chosen type,
+  except those that add types, which are picked as the type. Mentioning one
+  that is off asks for its consent, if needed. The new-project dialog then
+  turns on the mentioned plugins that are off and work in the type it
+  creates, going by the prompt and type it ends with, and lists there what
+  creating allows for any whose consent Home didn't ask for.
+
+## Plugins for every project
+
+The person's choice for every project is `grants.json`'s `everyProject`. Until
+they make one, a plugin that only adds Skills, with no native entry, settings
+or capabilities (`isAppWidePlugin`, judged on its newest version), is on in
+every project, unless it is a bundled one in `BUNDLED_PLUGINS_OFF`
+(`src/daemon/plugin-services.ts`); any other plugin is off (`onInEveryProject`).
+The choice is live: changing it changes every project that hasn't set the
+plugin itself in `ohmygame.json`.
+
+`resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
+plugins from the plugins its `ohmygame.json` names, then those on in every
+project that it suits and doesn't turn off, at their newest version. Turning
+one that asks for anything on in every project shows what it asks for and that
+it will run in each of those projects; the person's consent, once, is all it
+needs, with no approval per folder. A bundled plugin that starts off is never
+allowed at startup, only by that consent.
+A plugin a project's file names needs that approval too, unless it only adds
+Skills, since the file may come from someone else. `PluginServices.everyProject`
+and `everyProjectSkills` give the plugins on in every project, and their Skills,
+for a kind of project. A project's Skills come in order: the type's plugin,
+then the others by id. They have no per-Skill switches. Mentions keep
+`{name, marketplaceId}`, with the publisher as `marketplaceId`, so
+`plugin://web-game-studio@ohmygame` names a bundled one.
+
+A project that names an older version keeps running it, in place of the newest.
+**Disable everywhere** on a plugin's page (`enabled: false`) stops it in every
+project, whatever its file says.
+
+`src/daemon/preinstalled-plugins.ts` installs the versions in
+`config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
+same path that checks a package with `indexPluginPackage` and copies it under
+`packages/<publisher>/<name>/<version>`. A package the person removes stays
+removed, later releases included. Bundled plugins are indexed from `plugins/`
+and can't be uninstalled.
+
+## Making a plugin
+
+The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
+(`src/daemon/pi-agent.ts`) follow the rules in `src/daemon/plugin-authoring.ts`.
+What they make is always `personal/<name>`: `PluginServices.installPersonal`
+refuses any other publisher, so it can't replace what the app or a publisher
+ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
+as any package is checked.
+
+- Installing from the builder allows what the plugin asks for, since the person
+  reviewed it and chose Install. `install_plugin`, which the agent calls in a
+  game conversation, allows nothing: the person turns such a plugin on in a
+  project's Plugins sheet, which asks them to approve it. A plugin that only
+  adds Skills asks for nothing and applies right away.
+- A new version of a plugin that only adds Skills replaces its older versions.
+  Any other keeps them for the projects that name them.
+- A draft has no settings of its own; they are saved for the installed plugin.
+  A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
+  gives it the saved settings only if it is the package its workspace installed.
+- An MCP service that signs in with OAuth is a connection, not a plugin
+  ([Connections](#connections)).
+
+## Adding a plugin
+
+**Add plugin…** on the Plugins page (`src/renderer/plugin-add-dialog.tsx`) adds a
+package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
+each one into a temporary folder and never runs anything in it, so npm's install
+scripts don't apply. The person reviews what it does, then adds it: adding reads
+the source again and refuses a package whose digest isn't the one reviewed.
+
+| Source | What's accepted | What's checked |
+| --- | --- | --- |
+| npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit that exact branch or tag is at, recorded as the plugin's origin. GitHub's general commit lookup isn't used, since it also reaches commits in the repository's forks |
+| This computer | A folder (desktop app) or an uploaded `.tgz` | As any package |
+
+- A package allows nothing when it's added. What it asks for waits for the person
+  to approve it, on its page or when they turn it on in a project's Plugins sheet.
+  One that only adds Skills asks for nothing, so it applies right away and replaces
+  its older versions.
+- A package joins an installed plugin only from the same source: the same npm
+  scope or GitHub repository. Approvals and settings belong to the id, so from
+  anywhere else, and from this computer always, the person uninstalls it first,
+  which clears them. Other contents under an installed version are refused; a
+  new release needs a new version.
+- A folder is copied to a private temporary folder before it's reviewed or
+  installed, so it can't change between the two checks that matter.
+- The publishers `ohmygame` and `personal` can't be added this way
+  (`PluginServices.installAdded`), so a package can't stand in for what the app or
+  the Plugin Builder provides.
+- Archives come out through `extractTarball`, which takes only files and folders
+  within the destination. The size and file limits are the release ones.
+- npm leaves `.gitignore` files out of what it publishes, so a template ships
+  `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
+  each project type's `template` folder, unless one is already there.
+- Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
+  its page. Nothing updates a package by itself: adding it again is the update.
+
+## The plugin market
+
+The market lists the plugins published on npm. A job in the
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
+finds them, runs the same package checks as the app, and publishes an index file.
+`src/daemon/plugin-market.ts` reads it from the address in
+`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
+HTTP on this computer), there's no market and nothing is read.
+
+- **Reading the index.** At most every 30 minutes the app reads the small pointer
+  file, then the index it names if that changed, checks the index against the
+  SHA-256 in its name and the schema, and saves it. A failure keeps the last index,
+  says it may be out of date, and tries again after two minutes. The rest of the Plugins page doesn't wait for
+  any of this.
+- **Installing.** Opening a market plugin starts [Add plugin](#adding-a-plugin)'s
+  review at that exact version, so there's no separate install path and it allows
+  nothing. The app checks npm's signature over the name, version and SHA-512 with
+  keys it ships with, asking npm only for a key it doesn't know. An expired key
+  counts for nothing, since nothing signed says when a package was published: after
+  npm retires a key, versions signed only with it need publishing again. The
+  package then comes
+  from the chosen registry or the other one and has to match that SHA-512, so the
+  index and a mirror can't get a changed package installed. A card's review and
+  install both need that signed entry, so one gone from the index is refused rather
+  than read from the registry. Registry metadata isn't needed, since a mirror can
+  lag behind.
+- **What the index does decide:** what's listed and how, the verified mark, and
+  which versions are refused. A version it rejects or blocks can't be added this
+  way, even by name through Add plugin. Add plugin can still add a package the index
+  doesn't list, with the registry's own checksum, as before.
+- **Source verified** means npm's provenance names the repository, or the
+  repository's `package.json` names the package. Stars show only then. Weekly
+  downloads come from npm.
+- **After installing.** A plugin added from npm shows **Update available** when the
+  market has a newer version; the update is the same review. A blocked version gets
+  a badge and a warning on its page, and it stays on until the person uninstalls it.
+- Browse shows each plugin's greatest version, a prerelease only when there's no
+  release, and an open page picks up new answers every two minutes. A market card
+  shows the default icon, since the package hasn't been downloaded. The publishers
+  `ohmygame` and `personal` aren't listed, nor is anything whose name isn't
+  `@publisher/name` or whose version isn't exact.
+
+## More manifest fields
+
+A manifest can also give a `longDescription` and up to five `examples`, shown
+on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
+load page components still in preview, and `ui.major` says which major its
+pages use, so an app without it can say which way to go (see
+[Page components](#page-components)).
+
+## Packaging a repository of Skills
+
+`packageSkills` (`src/daemon/plugin-conversion.ts`) writes a package from a
+repository of Agent Skills, without changing the source.
+`scripts/prepare-preinstalled-plugins.ts` uses it for the plugins the app brings
+along from other repositories, as `config/preinstalled-plugins.json` lists them.
+
+- Every `SKILL.md` its Skills paths reach becomes `skills/<name>/`, copied with
+  its folder. Paths can be one or several, each a folder searched to any depth
+  or a single `SKILL.md`.
+- A Skill nested in another's folder gets its own folder.
+- Each name is the frontmatter name made a folder name, numbered when two
+  match. The frontmatter is rewritten to that name, and gets the plugin's
+  description when it has none.
+- A file a `SKILL.md` links to outside its folder is copied into the Skill's
+  `_shared/` folder, and the link is pointed there.
+- The icon keeps its path, and a missing version becomes `0.0.0`.
+- The result maps each Skill's old path to its new one.
+
+## In the app
+
+- **Plugins page:** `GET /plugin-store/plugins` has one row per installed
+  version, newest first, with the plugin's settings fields and what it
+  adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
+  hasn't been allowed, fills its `configuration` fields (a secret is only
+  replaced or cleared), and uninstalls one version at a time. A plugin in
+  `plugins/` only switches off; uninstalling it is refused.
+- **Panels** of a project's active plugins sit beside its own, in the area
+  the manifest names, when their `when` holds. A panel opens the first time
+  it is offered and stays closed once the person closes it, like the
+  built-in ones.
+- **Commands** show in the slots `composer.slash` (and every command with a
+  `slash` name), `composer.add` and `project.menu`. A prompt is sent, or
+  put in the composer with `insert`; `openPanel` brings the panel forward;
+  `openSettings` opens the plugin's page; a `url` opens after the person
+  sees its host; tool and native commands run in the plugin, and a toast
+  offers Undo when they changed files. The other slots are not shown yet.
+  A plugin page's `command.run` may send `input`: a tool command passes it
+  to the tool instead of the manifest's `input`, and a native command takes
+  it only when its `run.input` names a JSON Schema for it. Both are checked
+  before the plugin runs.
+- **Plugin changes…** in the project menu lists `GET
+  /projects/:id/plugin-changes`, each with its own Undo. A change is noted
+  before it runs. If it can't be recorded afterwards (a full disk) or the app
+  stops partway, the note stays and the list says it can't be undone yet. It
+  is recorded when the list is opened and before the next plugin write or
+  undo, a turn's snapshot or a checkpoint restore, marked as late, since edits
+  saved in the meantime are part of it. It also waits while a file that could
+  be read when it started can't be now. Those are refused, with nothing
+  changed, while it can't be recorded, and a plugin write also while its own
+  note can't be saved.
+
+Releases install only when they are signed by a key the app trusts for
+their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none
+yet. A release's package is checked before it is indexed and may hold what
+a folder install can, dotfiles such as a template's `.gitignore` included;
+only `.ohmygame-plugin/` must sit at the package's top. Uninstalling a
+release deletes its folder.
+
+## Plugin pages
+
+A panel's page is served by its own server on the port the desktop app
+picks, never the daemon's. Its frame has only `allow-scripts`, so its origin
+is opaque; it gets one end of a MessageChannel on its first load and talks
+through `@ohmygame/plugin-ui`. The page's CSP allows no inline scripts, so
+its script is a module file next to it. The desktop app keeps the frame
+within its plugin version's files (`src/desktop/window.ts`); a page that
+loads again is replaced by a new frame at the panel's URL.
+
+The frame has no border. It stays hidden until its page has the app's
+theme: the bridge tells the app once it has applied it, a page without the
+bridge shows half a second after it loads, and any page shows within three
+seconds. A page that
+links `/_ohmygame/plugin-ui.css` has a transparent root, so the panel's
+surface shows through, and the app's type, colours and controls. When it
+connects, and whenever the theme changes, the app sets the tokens in
+`PAGE_TOKENS` (`src/renderer/plugin-frame.tsx`) on the page's `:root`. These
+are the colours a theme sets, the roles the app's own components use
+(`--color-surface`, `--color-text`, `--color-border`, `--color-ink`…), and
+its type, radius, spacing and motion tokens. Until then the stylesheet holds
+the app's defaults, and `test/preview-static.test.ts` keeps them equal to
+`src/renderer/ui/tokens.css`. Pages may rely on these names: a release may
+add tokens but not rename or remove one.
+
+The app also draws around and over a page, with what a page can't change:
+
+- **Brand colour.** The manifest's `ui.accent`, a `#rrggbb` colour or
+  `{ "light": …, "dark": … }`, becomes `--omg-accent` on the page's `:root`,
+  with `--omg-on-accent` for text on it. It marks the busy spinner, switches and
+  checkboxes that are on, and links; buttons, the current step and progress bars
+  stay ink. A colour with less than 3:1 contrast
+  against the panel's surface in the current appearance gives way to the
+  app's accent, as it does when there is none.
+- **Toolbar.** Commands with the `panel.toolbar` slot show as buttons in the
+  toolbar of the plugin's panels, in manifest order, beside the app's own
+  controls, which a plugin can't hide. The first three are buttons and the
+  rest go in a menu. A toolbar button gives no input, so a native command
+  with an `input` schema isn't allowed there. They run as from a menu, with
+  the app's toasts; the page hears a `command` event with `command`, and
+  `result` or `error`, when one finishes.
+- **Toasts and questions.** `host.request("ui.toast", { message, tone })`
+  shows a toast under the plugin's id; `tone` is `default`, `success` or
+  `danger`. `host.request("ui.confirm", { title, message, confirmLabel })`
+  asks in a dialog that says which plugin asks, and resolves to whether the
+  person agreed; it gives the page nothing but the answer. A page that isn't
+  showing can't ask, one question waits at a time, and a plugin, across its
+  panels, gets at most five toasts in ten seconds and five questions in a
+  minute. Beyond that the request fails.
+- **Project files.** With `capabilities["project.files"]`, `read` or
+  `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
+  `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
+  `url(path)` for `<img>`, `<audio>` or `<video>` (a `blob:` address, which
+  the page's CSP allows; `<omg-image file>` does this for a picture), and
+  with `write` also `write(path, text | Blob)`, `createFolder`,
+  `move(from, to)` and `delete`. Paths are relative to the project. A
+  page never reaches a hidden file or folder, so neither `.env`
+  nor an agent's or editor's settings, follows no link, and reads no file
+  that has another name (a hard link). It can't change `ohmygame.json`, an
+  agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
+  such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a
+  move never replaces anything. Each change is one the person can undo, as a
+  plugin command's is, so a page changes only what the project's
+  [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
+  `node_modules` or root build output. A folder it moves or deletes may hold
+  only such files, with no links, hidden files (besides `.gitkeep`, `.keep`
+  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or
+  agent instructions. A replaced file keeps its permissions. A change to a
+  file that can't be read, has other names, isn't a plain file, or is in a
+  folder that can't be listed is refused. Snapshots don't keep empty
+  folders, so making or removing one isn't in the history. A recursive
+  listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
+  10,000 entries; a write is at most
+  200 MB. The agent hears of each change, and while an agent, a job or
+  publishing works in the project a change is refused. The page hears a
+  `files` event when the project's files may have changed.
+
+### Page components
+
+`/_ohmygame/ui/<major>/index.js` defines the app's page components, which
+`packages/plugin-ui/ui/<major>/` holds. Each draws in its own Shadow DOM from
+the tokens above, so a page customizes one only through its attributes, CSS
+custom properties and `::part()`. `--omg-accent` is the plugin's
+[brand colour](#plugin-pages).
+
+Version 1 is stable and loads for every plugin; it became stable in plugin
+API 2.2.0, so a plugin that uses it without `ui.preview` asks for `^2.2.0`,
+and an older app that still has it in preview says so. A later major may first come
+out in preview: then a page's policy loads it only when the manifest has
+`"ui": { "preview": true }`. Featured and certified plugins won't use preview
+components.
+
+A stable major only grows. A change that would break a page waits for a new
+major, and both are then served side by side: a replaced major goes in
+`PLUGIN_UI_RETIRING` with the dates it was replaced and until which it stays,
+at least `PLUGIN_UI_SUPPORT_MONTHS` (12) apart. The contract check wants that
+much from the day it is listed, won't let the date move closer, and lets the
+major go only once the date has passed.
+
+To retire something inside a major, keep it working and mark it: `@deprecated
+what to use instead` on a component, or `@deprecated attr name - what to use
+instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
+`cssprop`). The same words go in the component's static `deprecated` and
+`deprecatedAttributes`, which warn once in the page's console; a deprecated
+attribute must stay in `observedAttributes` so setting it later warns too. It
+can go in the next major.
+
+| Component | What it is |
+| --- | --- |
+| `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
+| `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
+| `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
+| `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
+| `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
+| `omg-divider` | A line between groups. `label`. |
+| `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
+| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-badge` | A short label. `tone`: `neutral`, `info`, `good`, `warning`, `bad`. |
+| `omg-progress` | A bar, or a moving one without `value`. `value`, `max`, `label`. |
+| `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
+| `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
+| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
+| `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
+| `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
+| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
+| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. |
+| `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
+| `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
+
+Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
+
+The components connect to the app themselves, so a page may use them
+without calling `connect()`.
+
+Each component's doc comment is its contract: tags such as `@attr`,
+`@prop`, `@readonly`, `@fires`, `@slot`, `@part` and `@cssprop` list what a
+page may rely on, and anything else in its Shadow DOM may change in any release.
+`bun run plugin-ui:contract` writes them to
+`packages/plugin-ui/ui/<major>/custom-elements.json`, a
+[Custom Elements Manifest](https://github.com/webcomponents/custom-elements-manifest)
+that editors read, and to `index.d.ts`, with each element's type, its
+attributes and its events for `HTMLElementTagNameMap`; `@ohmygame/plugin-ui`
+exports both as `./ui/<major>`. `test/plugin-ui-components.test.ts` keeps
+them up to date and matched to what each component observes, its parts,
+slots and members. On a pull request, CI compares each major's contract
+with the target branch's: a removed component, attribute, member, event,
+slot, part or CSS property, or a changed type, fails for a stable major,
+whose breaking changes wait for the next major, and so does a stable major
+that stops being served or goes back to preview. An attribute that takes
+more values is an addition. A preview major's changes are only listed.
+`src/shared/plugin-ui-versions.ts` says which majors the app serves and
+which are in preview.
+
+`bun run plugin:check <folder>` (`scripts/plugin-check.ts`) tells an author
+what would go wrong before anyone installs the plugin. It runs the checks every
+install runs, then reads the pages. Errors, which also fail the command: an
+inline or remote script, an inline event handler, components loaded without
+`type="module"`, a major this
+app doesn't serve, a preview major without
+`ui.preview`, a component in a page's markup that doesn't exist, or components
+with nothing loading them. Warnings: preview components, a major being retired,
+`ui.major` missing or different from what the pages load, deprecated components
+or attributes, a component named in a script that doesn't exist, attributes and
+parts that don't exist, fixed colours, and custom properties that aren't the
+app's tokens or the page's own.
+
+`bun run plugin-ui:regression [--base <git ref>] [--out <folder>] [plugin folders]`
+(`scripts/plugin-ui-regression.ts`) loads panels in Electron, in both
+appearances, and fails on errors in the console or components that never
+registered. It keeps a picture of each. With `--base` it first runs on that
+ref's components, on the same machine, so only what is newly wrong fails, and
+pictures that changed are listed without failing: a change in how things look
+isn't a break. With no folders it runs this repository's panel plugins. Commands
+fail there, so each panel shows how it takes that;
+`scripts/plugin-ui-regression-scenarios.json` gives a plugin's commands results
+for other states. CI runs it on macOS and Windows, with the pictures as an
+artifact. Before a component changes, it can run on other plugins' folders too.
+
+`packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
+shows every component in its states, with commands that report progress and
+fail, a toolbar command, toasts and a question. It isn't
+bundled: add it from that folder with **Add plugin…**, allow
+it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
+valid and using only documented components.
+
+## Plugin icons
+
+`icon` in the manifest is optional: a path to an image in the package, such as
+`./assets/icon.png`. A plugin with panels needs one, for their tabs. The `@` and
+Add context menus show it too, through the same authenticated image loading and
+fallback as the plugin library.
 
 Custom icons support PNG, WebP, and static SVG, up to 1 MB and 2048 × 2048.
 SVG files must be UTF-8 with an explicit positive `viewBox` no larger than
@@ -82,187 +655,69 @@ Use presentation attributes such as `fill` and `stroke`, and export editor metad
 away before packaging. Keep pixel artwork as PNG instead of tracing it into SVG.
 
 Paths start with `./`, stay inside the plugin root, and cannot use symbolic
-links. Remote URLs, absolute paths, and unknown preset IDs are rejected.
-A square image with consistent transparent padding is recommended. Installed images
-are copied with the package and served by the daemon using authenticated
-requests in the desktop app. Missing or failed image requests show the default
-package glyph. Packages without an icon retain the existing built-in/default
-appearance. Package artwork should remain readable in both themes, including inline
-references; any necessary backplate belongs in the asset itself. Brand resources
-belong to their plugin packages; see [logo sources and maintenance](plugin-logos.md).
+links. Remote URLs and absolute paths are rejected. A square image with consistent
+transparent padding is recommended. Installed images are served by the daemon using
+authenticated requests in the desktop app. A package without an icon, or a missing
+or failed image, shows the default package glyph. Package artwork should remain
+readable in both themes, including inline references; any necessary backplate
+belongs in the asset itself. Brand resources belong to their plugin packages; see
+[logo sources and maintenance](plugin-logos.md).
 
-An existing installed-plugin index from another host version may contain a
-relative SVG icon path. The index reader ignores that icon and uses the default
-glyph, while still validating the rest of the record and the path constraints.
-Reading the index does not rewrite it; SVG assets are never served as icons.
-
-Missing, oversized or undecodable icon images in an imported or installed
-package do not prevent the plugin from installing or loading; their icon
-metadata is omitted so the default glyph appears. Builder preparation and icon
-saves still reject invalid assets.
 Installed image responses use content-based ETags for private revalidation.
 Successful raster decoding and SVG validation are reused by content hash; each
 read still checks the current file and its path. SVG is served with its image MIME
 type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
 plugin SVG text is never inserted into the renderer DOM.
 
-In Plugin Builder's Overview, click the icon beside the plugin name to search
-presets, enter a preset ID, upload an image, choose a package image path, or
-restore the default. This editor is available after a valid draft has been
-prepared, including for an installed plugin with its original builder draft.
-Changes save to the draft; use Install plugin or Update plugin to apply them.
-Uploads use content-addressed filenames under `assets/` and preserve existing
-package files. Icon edits refresh the content revision and clear saved checks;
-stale icon saves and installations are rejected. Image path previews only read
-valid PNG/WebP/SVG files from that draft. AI chooses from the same preset catalog
-and preserves an existing user-selected icon.
+In Plugin Builder's Overview, click the icon beside the plugin name to upload an
+image, choose a package image path, or restore the default. This editor is available
+after a valid draft has been prepared. Changes save to the draft; use Install plugin
+or Update plugin to apply them. Uploads use content-addressed filenames under
+`assets/` and preserve existing package files. Icon edits refresh the content
+revision and clear saved checks; stale icon saves and installations are rejected.
+Image path previews only read valid PNG/WebP/SVG files from that draft.
 
-`mcp.json` declares existing STDIO or HTTP MCP servers:
+## Connections
 
-```json
-{
-  "mcpServers": {
-    "api": {
-      "url": "${config.endpoint}",
-      "headers": { "Authorization": "Bearer ${config.api-key}" }
-    },
-    "local": {
-      "command": "npx",
-      "args": ["-y", "existing-mcp-package@1.0.0"]
-    }
-  }
-}
-```
+MCP servers the person adds themselves are connections (Settings → **MCP
+Connections**; `src/daemon/connections.ts`, `src/daemon/connection-routes.ts`,
+`src/renderer/connections-settings.tsx`). The agent can use them in every
+project, or only in the project types a connection is limited to.
 
-The host resolves `${config.field-id}` from the user's configuration. Missing inputs leave the affected service unconfigured; other configured services and Skills remain available. Each service has one configuration instance. Relative STDIO `cwd` paths resolve from the package root; native services default to that root. Imported connections retain their existing working-directory behavior. HTTP transports, OAuth discovery, tool filtering, timeouts, and other adapter options are preserved. Tools use a stable server namespace; legacy server IDs retain their original names.
-
-### Compatibility and dependencies
-
-`formatVersion` describes the package contract, independently of the plugin's
-SemVer `version`. The host currently supports format `1`; an omitted field also
-means `1`, so existing native packages remain readable. A newer format is
-rejected during discovery, installation, and archive import with an upgrade
-message; in a marketplace, only the incompatible plugins are skipped. Optional
-`minimumHostVersion` is a SemVer release of OhMyGame required by the package.
-It is checked against the running application's version, including prereleases.
-Already installed plugins remain listed after a downgrade, so they can still be
-exported or uninstalled.
-
-Keep plugin names, configuration field IDs/types, and component IDs stable
-across compatible updates. The host preserves user configuration by plugin ID;
-it does not run configuration migration scripts. A breaking configuration
-change therefore needs a new plugin identity or a future explicit migration
-mechanism. Format checks do not guarantee compatibility with an external MCP
-service or a future dependency release.
-
-Optional `requirements` declares executable names and supported systems, for
-example `{"commands":["node","python3"],"platforms":["darwin","linux"]}`.
-The detail page's **Check dependencies** reads the daemon's PATH, MCP commands,
-working directories, and common script paths without running plugin commands
-or installing packages. It reports unavailable tools/files, unresolved
-configuration, unpinned `npx`/`bunx` package versions, and machine-specific paths.
-Use exact package versions and package-relative paths for portable plugins.
-This check does not validate tool versions, arbitrary Skill instructions, or
-remote service availability; use the separate MCP connection test and try the
-Skill in a project for those checks.
-
-## Definition, configuration, and runtime
-
-These responsibilities form the long-term architecture: packages declare capabilities, user configuration supplies values, and the host owns runtime sessions. Future capabilities should extend these boundaries, and must be expressible as Skills or MCP servers: [coding agents](coding-agents.md) receive a plugin's Skills and reach its MCP servers through the daemon, but cannot load Pi extensions.
-
-Installed packages remain versioned. User values, credential references, and edited server definitions live separately in `plugin-configuration.json`, keyed by stable plugin ID. Reinstalling or updating a package preserves these values and overrides. Static credentials use an encrypted local store with a private `0600` key file; OAuth uses the adapter's credential storage. Keep the data directory and key together when backing it up. Credentials entered through the configuration form are never returned by configuration APIs or included in the assistant's structured tool results. Package authors should always use secret fields rather than embedding credentials in package files.
-
-The same effective-configuration resolver supplies game sessions, manual tests, OAuth, and assistant operations. Plugin and per-service switches determine the active server set, together with project-type restrictions. Active game conversations finish the current turn before their session is rebuilt. Session shutdown closes adapter clients and processes. Connection tests use isolated temporary sessions, list capabilities, and close afterward without calling business tools. Pending OAuth sessions expire after ten minutes and cannot complete after the service configuration changes.
-
-Reading a server definition only returns masked templates and never writes configuration. Explicit saves extract literal credentials and remove unused fields generated by previous server edits, while retaining fields still used by other services and fields declared by the package. Ordinary values such as `NODE_ENV`, `LOG_LEVEL`, `Accept`, and `Content-Type` remain in the template.
-
-The legacy `connections` manifest field is a provider reference. It neither owns nor changes the provider's switch. Disabling a consuming plugin leaves an independent provider enabled. Missing providers remain visible and do not invalidate the consuming package.
-
-## Installation and AI assistance
-
-The Add plugin menu supports folder/Git installation, manual MCP configuration, and a dedicated AI assistant. Existing MCP configuration JSON can be pasted into the manual dialog. Credentials in environment/header fields are extracted into private configuration rather than copied into the generated package. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
-
-The library groups plugins into **Public** and **Personal**. Public contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Both groups expose plugin switches, including for bundled plugins. Bundled packages cannot be uninstalled.
-
-Create with AI opens a dedicated Plugin Builder page with a conversation and four preview views: Overview, Files, Setup, and Checks. Each new plugin gets its own persisted workspace. The Plugins page lists AI workspaces that can be resumed or deleted; unsent input and the selected model are saved per workspace on the current device.
-
-Configure with AI opens or resumes a separate configuration workspace for the selected installed plugin, starting on Setup. Its assistant can inspect the selected plugin and its Skill contents, change nonsecret configuration and MCP templates, and test connections. It cannot author or install packages or modify another plugin. Skills-only plugins offer Ask about this plugin. Edit with AI is available for Personal plugins and creates an editable native copy of the installed package, including normalized manifests for imported formats. Configuration and editing workspaces can start a new conversation in a separate workspace.
-
-Game projects and Plugin Builder share `WorkspaceShell`, `WorkspaceAgentPane`, `ComposerActions`, and `WorkspaceFileBrowser`, alongside the existing timeline, prompt, model selector, workspace tabs, and configuration components. Both use the same compact toolbars, resizable panels, saved chat width, chat-side preference, and collapse controls. File preview accepts plugin-owned data and optional document rendering; authoring sessions, draft validation, configuration, and installation remain owned by the plugin service.
-
-The builder exposes plugin enable/disable, conversation deletion, workspace deletion, and Uninstall as independent operations. Deleting only the conversation clears persisted history and unsent input while preserving draft files, configuration, and the installed package. Deleting a workspace removes its conversation, draft files, and private draft configuration; installed packages and their saved configuration remain. Workspace deletion is also available directly from the AI workspace list. Destructive actions require confirmation. Busy workspaces must finish or stop before deletion.
-
-Uninstalling preserves the workspace and restores its draft for reinstallation, including when the plugin was removed from its detail page. A deleted authoring workspace can be replaced with Edit with AI from the installed plugin. AI-created packages have stable authored provenance rather than a conversation-directory identity. Editing updates the original plugin ID and retains configuration and component settings. An edited plugin gets authored provenance, so reinstalling or updating it from its original folder or Git repository is rejected instead of overwriting the edits. An update is rejected when the installed package has changed since the editing workspace was created. Preview views show plugin content, configuration fields, and actual check results; empty views use a single short status.
-
-The assistant authors Skills and supporting files in its workspace, then uses `plugin_manage prepare` to expose and validate the draft. AI authoring validation requires each Skill's `name` and `description` frontmatter before installation; the game conversation's `install_plugin` uses the same validation. Incomplete Skills remain available in Builder's Files view for correction. `create-mcp` prepares a new uninstalled draft and refuses to overwrite an existing directory. The user reviews the overview and files and chooses Install plugin; further changes to the same authored package can be applied with Update plugin. Installation verifies a content revision so an outdated preview cannot install a changed draft. Package validation and MCP connection checks are displayed separately from workflow behavior, which must be tried in a project.
-
-In create/edit workspaces, `plugin_manage` without an `id` reads, configures nonsecret values, or tests the current draft. These operations share the configuration and connection-test logic used by the preview, including credential isolation and invalidation of saved checks. An explicit `id` targets an installed plugin. Configuration workspaces default to their selected installed plugin. Draft MCP definitions are edited as files and prepared again; the definition-editing operations apply to installed plugins.
-
-Draft configuration uses an independent configuration identity per workspace, including for two drafts with the same package name. Installation atomically promotes saved draft configuration to the stable plugin identity and removes the redundant draft copy. The workspace retains that configuration identity after uninstall, so reinstallation preserves the latest values and cleared credentials. If promotion fails after the package is installed, its installed identity is saved and the builder offers retry and uninstall. Draft connection tests use isolated temporary MCP sessions without installing the package or invoking business tools. Saved connection results belong to a content revision and are cleared after configuration changes. Browser OAuth completion remains on the installed plugin's configuration page.
-
-Configuration assistance uses the same effective configuration, service-definition editing, and connection tests as the manual interface. Its package-authoring rules are shared with the `plugin-creator` Skill available in game conversations. Authoring favors small, portable packages with task-specific guidance and supporting resources only when needed. Generating new MCP servers, hooks, custom plugin interfaces, and multiple accounts are outside the current supported scope.
-
-Conversation history and structured tool activity come from the agent's session log and are returned as timeline turns; workspace listings load metadata only. `state.json` stores workspace purpose, package association, edit-source metadata, content revisions, and check results and uses atomic replacement. Shutdown and cancellation cover model lookup and session initialization as well as the active conversation. A workspace restored after an interrupted run explicitly reports interruption and can be continued with another message.
-
-### Export and restore
-
-Installed Personal plugins can be exported as a ZIP package and restored from
-**Add plugin → Import plugin archive**. Preview shows the package before any
-installation. Replacing an installed Personal plugin requires confirmation and
-the revision from the preview; a concurrent package change requires a new
-preview. Public plugins cannot be replaced by imported archives.
-
-Exports contain native package metadata, Skills and supporting files, effective
-MCP templates, nonsecret configuration, and plugin/component switches. Imported
-formats are normalized to native metadata and retain their original Personal
-or third-party marketplace identity. An imported plugin does not take ownership
-of that marketplace, so the marketplace can still be installed from its folder
-or Git repository. `.ohmygame-plugin/backup.json` holds the
-versioned nonsecret restore data; ordinary native ZIP packages without this
-file can also be imported. Executable file permission is preserved without
-special permission bits. ZIP files are limited to 50 MB and extraction rejects
-unsafe paths, symbolic links, private hidden files, and `node_modules`.
-
-Platform-stored credentials, OAuth sessions, AI conversation history, and
-builder workspaces are excluded. Sensitive MCP literals in environment,
-headers, credential URLs, credential-named arguments, and token-shaped
-positional arguments or URL path segments become required secret fields.
-Detection is heuristic. Authors must still avoid embedding credentials in arbitrary
-scripts/assets or ordinary text fields. Exports exclude private hidden files
-and dependency directories; dependencies must be installed on the destination.
-Manifest-declared Skills and the MCP file are checked in the completed export
-before download. Supporting files are included as-is; references inside custom
-scripts are not statically inspected.
-
-On a fresh install, enter credentials and authorize OAuth again. Restoring a
-backup over an existing plugin adopts the archive's templates and nonsecret
-settings while retaining saved credentials for field IDs still declared as
-secret. A package-only import preserves existing user configuration. Package
-installation is atomic; restoring configuration and switches follows in
-separate persisted writes. A settings failure explicitly reports that the
-package was installed and allows the import to be retried.
-
-Installed packages do not depend on the original AI workspace or source
-directory. Bundled package contents follow application updates, while their
-user switches and configuration remain separate. Versioned preinstalled
-packages use the release prepared by the current app; Personal packages update
-only through explicit editing, reinstalling, or importing. Per-turn editing
-snapshots will reuse the shared workspace checkpoint system once it is
-available to Plugin Builder; this change adds no separate snapshot store.
-
-## Migration
-
-On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. Godot is owned by the bundled Godot plugin. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old Connections UI route redirects to Plugins, and its CRUD API is retired.
-
-The migration reader never modifies the old file or creates a missing one. A retry replays credentials and switches for an unfinished import before recording ownership, including when installation succeeded but configuration persistence was interrupted.
+- **Adding:** by URL, by command and arguments, or by pasting the
+  `mcpServers` JSON another app uses (each server becomes a connection named
+  after its key). Credentials in environment variables, headers, URLs and
+  arguments are taken out of the definition into encrypted configuration; the
+  definition editor shows `${config.*}` references in their
+  place. Unlike a plugin's HTTP server, a connection may use OAuth and any
+  other option the MCP adapter supports.
+- **Storage:** `<data>/connections.json` lists them. Each connection's
+  definition, values and secrets are in `<data>/plugin-configuration.json`, owned
+  by `connection:<id>`. Secrets are encrypted with a private `0600` key file
+  (`plugin-credentials.key`), so keep the data directory and key together when
+  backing it up; OAuth uses the adapter's credential storage. Credentials are
+  never returned by the configuration APIs.
+- **Runtime:** a connection runs under a fixed runtime name
+  (`connection-<id>`), which its OAuth
+  sign-in is stored by. Project sessions start connections, then the project's
+  plugins' servers. Any change restarts the sessions using them. A test uses an
+  isolated temporary session, lists what the server offers, and closes without
+  calling its tools. A pending OAuth sign-in expires after ten minutes.
+- **API:** `GET`, `POST /connections`; `GET`, `PATCH`, `DELETE
+  /connections/:id`; `GET`, `PUT /connections/:id/definition` and
+  `/configuration`; `POST /connections/:id/test`, `/auth-start` and
+  `/auth-complete`. `#/settings/connections` opens MCP Connections.
 
 ## Bundled engine workflows
 
-Blender, Godot, and TapTap Maker are marked Beta while their platform workflows
-are being validated. They use the standard Skill/MCP package contract.
-Blender and Godot default to enabled. TapTap Maker defaults to disabled: turn it
-on from **Plugins** in the main sidebar when testing or developing Maker
-projects. Existing saved switch choices are preserved.
+Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
+their platform workflows are being validated, and default to enabled. Blender,
+like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
+Three.js World and the Beta workflows below), applies to every project it suits;
+see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
+Engine (below) start off, and are turned on in a project or for every
+project. See [TapTap Maker](#taptap-maker)
+for that plugin.
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
@@ -273,82 +728,69 @@ projects. Existing saved switch choices are preserved.
   without a target runtime, reimport the GLB into a clean Blender scene and leave
   runtime validation pending. No editor bridge/add-on is required. Use
   `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
-- **Godot:** dedicated Godot Skill plus the existing pinned
-  `@coding-solo/godot-mcp@0.1.1`, available in both General Game and Godot Game
-  projects. Keep Web preview off when using General for native Godot development.
-  The Godot executable configuration defaults to
-  `godot` for upstream automatic discovery and can be replaced with an absolute
-  executable path. Check the actual engine version and import/run logs after
-  testing the MCP connection. Viewport capture and gameplay input are not
-  supplied by this MCP or the web `game_use` integration.
-- **TapTap Maker:** General-project workflow with the official pinned
-  `@taptap/maker@0.0.36` CLI/MCP. Pass the current project's absolute `target_dir`
-  on tools and `--target-dir` on project CLI commands: the MCP process starts in
-  the plugin directory. The plugin's runtime script starts both from the same
-  pinned install with `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin`. Authentication remains in
-  Maker's own local store. Read project `.agents/skills` explicitly as needed;
-  they are not automatically added to OhMyGame's Skill catalog.
-
-Maker's connection panel prepares a private pinned CLI and Python/Lua diagnostics,
-then opens official browser authorization. Python 3.8+ with venv/pip and Git are
-required. Enable the plugin to reveal this panel; enabling alone does not install
-dependencies or log in. The plugin does not install configurations into other AI
-editors. Private dependencies survive package updates and disabling, are removed
-when an installed integration plugin is uninstalled, and stay outside exported
-plugin packages. Credentials remain in Maker's own store.
-
-Reference Maker when creating a project to select General automatically, or select
-it under Project plugin in the new-project window. Project creation includes a
-branded creation dialog before opening a conversation, keeping the original
-description visible behind it. It defaults to **New project**: enter a name and
-choose **Create project** to create the Maker project and
-prepare its empty local directory. A ready account is summarized in one line,
-with reconnect and refresh under **Account options**. Missing environment or
-authorization steps expand only when needed. The explicit new-project window
-uses the same content without opening a second dialog. **Existing project** retains explicit remote
-project selection; an already bound directory can also be imported. Closing setup
-preserves the home prompt. A failed checkout resumes the created project instead
-of creating another one; an unknown creation outcome requires checking the project
-list before reconnecting. Reconnecting the
-same binding only checks its status; it does not run initialization again.
-A newly imported directory with a Maker binding uses the plugin's compatible
-type. A directory already registered as an OhMyGame project reopens unchanged.
-Referencing Maker in an existing compatible project opens the connection panel;
-the project switches to Maker only when you continue, which turns off its Web
-preview and Community publishing. Closing the panel leaves the project as it was.
-While the connection cannot be used, for example after the plugin is disabled or
-removed, the Preview tab offers Disconnect plugin. It returns the project to an
-ordinary General project, stops a running native preview, and
-keeps Maker's binding files, so the project can connect again; Web preview stays
-off until you turn it on in Project settings. Conflicting plugin references
-require a compatible selection.
-
-View shows the plugin and the state of Maker's separate native Runtime window,
-with install/start/refresh/stop controls, a status refresh, and logs. The live
-game cannot be embedded: Maker's Runtime is a native program with its own window.
-Web preview is disabled for these projects. Controls load only while View is
-open. While the
-preview runs, View checks it every ten seconds to notice a closed window;
-otherwise it rereads the daemon's in-memory state, which also reflects agent
-calls, without starting the adapter. Agents use the same adapter through
-`project_preview`.
-The pinned release does not provide `preview validate` or native screenshots.
-Local previews do not submit remotely. `maker_build_current_directory` commits,
-pushes, and builds the bound branch. The TapTap Release Skill uses the
-user's signed-in `taptap-cli` for the store page, Spark version binding, and
-review; it asks before installing the CLI and before each approval-gated write.
-OhMyGame Community publishing is unavailable for integrated projects.
-
-See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
-and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md) Skills.
+- **Godot:** the `ohmygame/godot` plugin brings the Godot game type
+  (played in the game panel as a web build), native tools (`godot_status`,
+  `run_headless`, `export_web`), **Run in Godot**, a Godot Skill, and the
+  pinned `@coding-solo/godot-mcp@0.1.1` as its MCP server. Godot game projects
+  have it: creating one with the app's `godot-game` kind makes it the
+  plugin's type while the plugin is on. A General project turns Godot on in
+  its plugins and approves it for its folder.
+  Keep Web preview off when using General for native Godot development. The
+  **Godot executable** setting (`godotPath`) is an absolute path, or empty to
+  look in `GODOT_PATH`, the PATH and the usual install folders;
+  `native/godot.mjs` does that lookup for both the tools and the MCP server,
+  which `native/mcp.mjs` starts through `npx` (Node.js with npx is needed).
+  Check the actual engine version and import/run logs
+  after testing. Viewport capture and gameplay input are not supplied by this
+  MCP or the web `game_use` integration.
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This
 checks real GLB output, packed textures, transparency, hierarchy, skin animation,
 morph targets, export scope, source preservation, and overwrite behavior;
-it skips when Blender is not provided. Godot import/runtime and authenticated
-Maker initialization/build/publication still need their respective local/account
-environments.
+it skips when Blender is not provided. Godot import/runtime still needs a local
+Godot.
+
+## TapTap Maker
+
+TapTap Maker (`plugins/taptap-maker/`, Beta) is a bundled plugin
+that starts off; turn it on from **Plugins** in the main sidebar. It adds the
+Maker project type, whose game runs in Maker's own native Runtime window, so
+the project has no web preview and isn't published to Community.
+
+- **Maker panel:** a flow of steps built from the page components, each
+  folding to a summary once done. It prepares the pinned
+  `@taptap/maker@0.0.39` CLI and its Python/Lua diagnostics once in the
+  plugin's data folder (Python 3.8+ with venv/pip and Git are required),
+  opens Maker's browser sign-in, creates or connects the Maker project, and
+  starts, refreshes and stops the preview, with its logs. Sign-in stays in Maker's own store in the home folder. One
+  project prepares the CLI at a time; a cancelled step stops Maker's
+  processes.
+- **Creating:** a new Maker project starts empty apart from `ohmygame.json`.
+  Until it is connected, the type's `ready` check holds the first message and
+  opens the panel. Creating and connecting keep the folder's files, unless
+  the Maker project has files at the same paths, and refuse a folder that is
+  already a Git repository, since Maker would replace its remote and branch.
+  `ohmygame.json`, `.ohmygame/` and `canvas/` go in the repository's
+  `.git/info/exclude`, so Maker's commits leave them out unless the
+  project's own `.gitignore` un-ignores them. A failed checkout resumes the created project instead of creating
+  another; when a create's outcome is unknown, the panel asks the person to
+  connect the project instead. Connecting the same project again only checks
+  it.
+- **Agent:** the `maker` MCP server starts from the same pinned install with
+  `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` and offers Maker's tools; tools
+  take the project's absolute `target_dir`. The `maker_preview` tool controls
+  the same preview as the panel. Local previews never submit remotely;
+  `maker_build_current_directory` commits, pushes and builds the bound branch,
+  leaving out the excluded files unless they are already tracked. The TapTap
+  Release Skill uses the person's signed-in `taptap-cli` for the store page,
+  Spark version binding and review, and asks before installing it and before
+  each approval-gated write.
+
+See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
+Skills. Authenticated Maker creation, preview, build and publication still
+need a Maker account to check by hand.
 
 ## Additional Beta workflows
 
@@ -356,9 +798,10 @@ Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
 Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
 Open **Plugins** in the main sidebar and enable only the workflows needed for
 the current project.
-Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
-client installers, custom MCP bridges, or automatic engine upgrades.
+client installers, custom MCP bridges, or automatic engine upgrades. All but
+Unreal Engine only add Skills. Unreal Engine is a plugin with an HTTP MCP server, so once it is on, each General project
+turns it on in its own plugins.
 
 | Plugin | Project scope | Local integration and initial boundary |
 | --- | --- | --- |
@@ -378,9 +821,10 @@ disabled for native editors and developer tools. Serve actual Web exports throug
 the browser workflow only after their build and serving command are known.
 
 Only Unreal adds an MCP connection in this group. Its configurable endpoint
-defaults to `http://127.0.0.1:8000/mcp` and connects lazily. Start the official
-server in the intended Editor, keep it on loopback, and verify the actual
-project/level before editing. The default tool-search mode exposes three
+defaults to `http://127.0.0.1:8000/mcp` and connects lazily. It may only be on
+this computer (`127.0.0.1` or `localhost`, any port), and the connection
+follows no redirect. Start the official server in the intended Editor and
+verify the actual project/level before editing. The default tool-search mode exposes three
 meta-tools; listing them proves neither enabled toolsets nor a working scene
 operation. Other packages use the agent's file/terminal tools and official local
 applications. CLI executables may need absolute paths when absent from PATH.
@@ -388,58 +832,14 @@ applications. CLI executables may need absolute paths when absent from PATH.
 The [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md) gives
 prerequisites, copyable prompts, hands-on checks, pass criteria, and a result
 template for all seven packages. These real engine, account, and device loops
-remain pending manual acceptance. Automated package discovery and switch/scope
+remain pending manual acceptance. Automated package and switch/scope
 tests do not claim to verify them. Upload, review, and production publication
 must follow the user's requested destination and scope.
 
 ## Validation
 
-`test/plugin-capabilities.test.ts` covers credential isolation, reinstall and restart persistence, switches and shared ownership, migration, real STDIO/HTTP tool discovery, tool execution, a simulated OAuth provider, and a simulated model making a real assistant tool call. `test:node-runtime` also exercises MCP installation and connection in the compiled Node daemon.
-
-## Optional project integrations
-
-> **Experimental.** TapTap Maker is the only implementation of this contract. Its
-> actions, result fields, and connection steps may change in a later protocol
-> version without a compatibility layer; third-party packages should not depend
-> on it yet.
-
-A native manifest can declare an integration without adding a host project type:
-
-```json
-"integration": {
-  "entry": "./scripts/integration.mjs",
-  "createProject": true,
-  "projectFiles": ["./.maker-mcp/config.json"],
-  "preview": "external"
-}
-```
-
-`entry` is an installed `.mjs` file within the package. The host launches it with
-its Node runtime and writes one version-1 JSON request to stdin. It receives
-JSON-lines progress/result/error messages, validated against
-[`plugin-integration.ts`](../src/shared/plugin-integration.ts). Requests contain
-an action, private data directory, resolved plugin configuration, and (for project
-actions) the registered workspace path. `projectId` on a bind request is the
-explicitly selected service project; the HTTP query uses the OhMyGame project ID.
-Plugins with `createProject: true` also accept `create`, with the registered
-`projectName` and workspace path. Creation and binding both acquire the project's
-write guard. The adapter must preserve a created identity across initialization
-failures and must not repeat creation when its outcome is unknown.
-The renderer cannot submit arbitrary filesystem paths.
-
-The adapter owns service-specific dependencies, credentials, binding and preview
-identity. The host owns task cancellation, time/output limits, write exclusion,
-and presentation. No adapters run on app startup: import recognition only checks
-that every declared `projectFiles` marker exists inside the workspace, resolving
-symlinks. Project metadata saves the plugin ID and optional preview presentation;
-the service's binding file remains authoritative. Only one integration may own a
-workspace. A compatible project without an integration can check status and bind
-as a candidate; it selects the plugin through
-`PUT /projects/:projectId/integration` when the user continues, and
-`DELETE /projects/:projectId/integration` removes it again. Native preview
-actions require a selected integration. The host retains task outcomes in memory, without an automatic mutation
-retry. Before a prompt, an idle connection result older than ten minutes is
-rechecked; a failed recheck keeps the previous result so local work continues.
-Disabling/removing the plugin cancels its active tasks, and a binding refreshes
-only that project's conversations. Native preview windows remain service-owned
-and are stopped through View or `project_preview`.
+`test/plugin-mcp-host.test.ts` covers real STDIO and HTTP tool discovery and
+execution, a simulated OAuth provider, the session guard, and a simulated model
+making a real assistant tool call. `test/connections.test.ts` covers credential
+isolation and masks. `test:node-runtime` also exercises MCP connection in the
+compiled Node daemon.

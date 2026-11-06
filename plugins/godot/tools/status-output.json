@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "executable": { "type": ["string", "null"] },
+    "version": { "type": ["string", "null"] },
+    "webTemplates": { "type": "boolean" },
+    "problem": { "type": "string" }
+  },
+  "required": ["executable", "version", "webTemplates"]
+}

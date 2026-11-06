@@ -7,6 +7,7 @@ import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } 
 import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
 import { t } from "./i18n.js";
+import { TemplateExampleImage } from "./template-example-cache.js";
 
 type AssetCanvasPixelPresetDialogProps = {
   onClose: () => void;
@@ -122,7 +123,7 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
                   const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
                     <span className={`pixel-preset-card-thumbnail${preset.category === "animation" || effect ? " is-square" : ""}`}>
-                      {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
+                      {previewUrl ? <TemplateExampleImage src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
                     </span>
                     <span className="pixel-preset-card-body">
                       <strong>{preset.label}</strong>

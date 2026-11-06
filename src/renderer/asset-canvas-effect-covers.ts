@@ -1,12 +1,12 @@
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import classicEffectLibraryCover from "./assets/templates/examples/effects/covers/classic-cover.webp";
-import coarseEffectLibraryCover from "./assets/templates/examples/effects/covers/coarse-cover.webp";
-import detailedEffectLibraryCover from "./assets/templates/examples/effects/covers/detailed-cover.webp";
+import { templateAssetUrl } from "./template-assets.js";
+
+const effectLibraryCover = (level: PixelArtLevel) => templateAssetUrl(`examples/effects/covers/${level}-cover.webp`);
 
 export const EFFECT_LIBRARY_COVERS: Record<PixelArtLevel, string> = {
-  coarse: coarseEffectLibraryCover,
-  classic: classicEffectLibraryCover,
-  detailed: detailedEffectLibraryCover,
+  coarse: effectLibraryCover("coarse"),
+  classic: effectLibraryCover("classic"),
+  detailed: effectLibraryCover("detailed"),
 };
 
 export function effectLibraryCoverForLevel(level: PixelArtLevel = "classic"): string {

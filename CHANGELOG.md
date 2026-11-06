@@ -4,6 +4,265 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.4] - 2026-11-04
+
+### Changed
+
+- Rename the home page's creative templates to asset templates, move them
+  below Explore, and give each card a short description of what it makes.
+  ([#685](https://github.com/WhiteTowerAI/ohmygame/pull/685) by @dihuangdh)
+- Rewrite the pixel-art and effect template guides to start with how to begin,
+  with shorter step lists and where each result fits in a game.
+  ([#686](https://github.com/WhiteTowerAI/ohmygame/pull/686) by @dihuangdh)
+
+### Fixed
+
+- Stop showing "The background service is unavailable" when macOS reopens the
+  app, such as after an update, before its background service has started.
+  ([#690](https://github.com/WhiteTowerAI/ohmygame/pull/690) by @xinyang6879)
+
+## [0.0.0-beta.5.3] - 2026-11-04
+
+### Added
+
+- Add pixel-art canvas templates and reusable asset workflows for characters,
+  effects, objects, scenes, skins and terrain.
+- Add bundled media tools for image processing and FFmpeg-backed audio/video
+  workflows in the desktop app.
+
+### Improved
+
+- Improve project switching, canvas performance, interactive workspace
+  rendering, preview reliability and desktop window controls.
+- Improve the updater, startup loading experience, external MCP paths and
+  agent runtime recovery across platforms.
+
+### Fixed
+
+- Package the media dependencies required by installed desktop builds and
+  validate the bundled FFmpeg license on Windows.
+
+## [0.0.0-beta.5.2] - 2026-11-03
+
+### Fixed
+
+- Show plugin panels, such as TapTap Maker, in the installed app, where they
+  were blank in 0.0.0-beta.5.1.
+  ([#663](https://github.com/WhiteTowerAI/ohmygame/pull/663) by @dogxii)
+
+## [0.0.0-beta.5.1] - 2026-11-03
+
+### Added
+
+- A new look across the app: a sidebar with Home, Projects, Library, Community
+  and Plugins, redesigned pages, and a launch screen that picks the AI from
+  cards. Every screen follows the appearance and the Neutral, Warm and High
+  contrast palettes.
+  ([#457](https://github.com/WhiteTowerAI/ohmygame/pull/457) by @dogxii,
+  [#458](https://github.com/WhiteTowerAI/ohmygame/pull/458) by @dogxii,
+  [#471](https://github.com/WhiteTowerAI/ohmygame/pull/471) by @dogxii,
+  [#472](https://github.com/WhiteTowerAI/ohmygame/pull/472) by @dogxii,
+  [#474](https://github.com/WhiteTowerAI/ohmygame/pull/474) by @dogxii,
+  [#476](https://github.com/WhiteTowerAI/ohmygame/pull/476) by @dogxii,
+  [#478](https://github.com/WhiteTowerAI/ohmygame/pull/478) by @dogxii,
+  [#506](https://github.com/WhiteTowerAI/ohmygame/pull/506) by @dogxii,
+  [#508](https://github.com/WhiteTowerAI/ohmygame/pull/508) by @dogxii,
+  [#509](https://github.com/WhiteTowerAI/ohmygame/pull/509) by @dogxii,
+  [#511](https://github.com/WhiteTowerAI/ohmygame/pull/511) by @dogxii,
+  [#514](https://github.com/WhiteTowerAI/ohmygame/pull/514) by @dogxii,
+  [#522](https://github.com/WhiteTowerAI/ohmygame/pull/522) by @dogxii,
+  [#530](https://github.com/WhiteTowerAI/ohmygame/pull/530) by @dogxii)
+- Projects open in a workspace of panels (Chat, Game, Design, Canvas, Code,
+  Assets) that can be arranged in four areas, with a project rail, a top bar
+  with Play and Publish, and layout presets. The interactive story editor uses
+  the same panels, and the game design document opens as its own Design panel.
+  ([#486](https://github.com/WhiteTowerAI/ohmygame/pull/486) by @dogxii,
+  [#488](https://github.com/WhiteTowerAI/ohmygame/pull/488) by @dogxii,
+  [#490](https://github.com/WhiteTowerAI/ohmygame/pull/490) by @dogxii,
+  [#491](https://github.com/WhiteTowerAI/ohmygame/pull/491) by @dogxii,
+  [#494](https://github.com/WhiteTowerAI/ohmygame/pull/494) by @dogxii,
+  [#499](https://github.com/WhiteTowerAI/ohmygame/pull/499) by @dogxii,
+  [#561](https://github.com/WhiteTowerAI/ohmygame/pull/561) by @dihuangdh)
+- Start every project from Home: send a prompt to create the project at once,
+  with its type and plugins chosen in the prompt box. The new-project dialog
+  opens only when something needs an answer.
+  ([#477](https://github.com/WhiteTowerAI/ohmygame/pull/477) by @dogxii,
+  [#525](https://github.com/WhiteTowerAI/ohmygame/pull/525) by @dogxii,
+  [#535](https://github.com/WhiteTowerAI/ohmygame/pull/535) by @dogxii,
+  [#538](https://github.com/WhiteTowerAI/ohmygame/pull/538) by @dogxii,
+  [#551](https://github.com/WhiteTowerAI/ohmygame/pull/551) by @dihuangdh,
+  [#552](https://github.com/WhiteTowerAI/ohmygame/pull/552) by @dihuangdh,
+  [#553](https://github.com/WhiteTowerAI/ohmygame/pull/553) by @dihuangdh)
+- A command menu (⌘K / Ctrl+K) lists pages, panels, layouts and projects, with
+  ⌘N for a new project and ⌘, for Settings.
+  ([#500](https://github.com/WhiteTowerAI/ohmygame/pull/500) by @dogxii)
+- While the Chat panel is closed, the composer floats over the middle of the
+  project.
+  ([#501](https://github.com/WhiteTowerAI/ohmygame/pull/501) by @dogxii)
+- Mention any number of plugins and Skills in a message; they show as chips in
+  the prompt, and every agent receives each Skill named.
+  ([#548](https://github.com/WhiteTowerAI/ohmygame/pull/548) by @dihuangdh,
+  [#549](https://github.com/WhiteTowerAI/ohmygame/pull/549) by @dihuangdh)
+- Schedule a message for later with `/later`.
+  ([#652](https://github.com/WhiteTowerAI/ohmygame/pull/652) by @dogxii)
+- Archive conversations, and see a status line under the composer.
+  Conversation history opens from an icon in the chat header.
+  ([#522](https://github.com/WhiteTowerAI/ohmygame/pull/522) by @dogxii,
+  [#634](https://github.com/WhiteTowerAI/ohmygame/pull/634) by @dogxii)
+- Click chat images to view them larger, and copy or save them with a
+  right-click.
+  ([#639](https://github.com/WhiteTowerAI/ohmygame/pull/639) by @dogxii)
+- Desktop notifications for approvals, questions, plans and finished or failed
+  turns, with a Dock badge on macOS and a taskbar overlay on Windows.
+  ([#481](https://github.com/WhiteTowerAI/ohmygame/pull/481) by @dihuangdh)
+- Tune a running game's values from a **Tune** panel without reloading it.
+  ([#614](https://github.com/WhiteTowerAI/ohmygame/pull/614) by @dogxii)
+- Record a running game to a video in the Library from the top bar, or with
+  Cmd/Ctrl+Shift+R.
+  ([#619](https://github.com/WhiteTowerAI/ohmygame/pull/619) by @dogxii)
+- Export the web build from the Publish menu, to host the game elsewhere.
+  ([#503](https://github.com/WhiteTowerAI/ohmygame/pull/503) by @dogxii)
+- Connect canvas nodes from ports and pick references on the board, and let
+  the agent generate up to eight canvas nodes in one call.
+  ([#638](https://github.com/WhiteTowerAI/ohmygame/pull/638) by @dogxii,
+  [#628](https://github.com/WhiteTowerAI/ohmygame/pull/628) by @dogxii)
+- Settings → Account shows token usage over 7 days, 30 days or all time, by
+  model and by project, with a shareable image.
+  ([#621](https://github.com/WhiteTowerAI/ohmygame/pull/621) by @dogxii)
+- Choose in Settings → About whether usage data is sent; when signed in, it is
+  linked to the account id only.
+  ([#466](https://github.com/WhiteTowerAI/ohmygame/pull/466) by @dihuangdh)
+- Plugin format 2: plugins can add project types, Skills, tools, MCP servers
+  (local or HTTP), panels and commands, and are turned on per project. Add
+  plugins from npm, GitHub or a local package, or browse and install them from
+  the plugin market. The Plugin Builder creates format 2 plugins.
+  ([#456](https://github.com/WhiteTowerAI/ohmygame/pull/456) by @dogxii,
+  [#539](https://github.com/WhiteTowerAI/ohmygame/pull/539) by @dogxii,
+  [#545](https://github.com/WhiteTowerAI/ohmygame/pull/545) by @dogxii,
+  [#577](https://github.com/WhiteTowerAI/ohmygame/pull/577) by @dogxii,
+  [#584](https://github.com/WhiteTowerAI/ohmygame/pull/584) by @dogxii,
+  [#592](https://github.com/WhiteTowerAI/ohmygame/pull/592) by @dogxii,
+  [#594](https://github.com/WhiteTowerAI/ohmygame/pull/594) by @dogxii,
+  [#610](https://github.com/WhiteTowerAI/ohmygame/pull/610) by @dogxii)
+- Plugin panels look like part of the app and can use page components, a brand
+  colour, a toolbar, toasts and questions, and the project's files.
+  ([#602](https://github.com/WhiteTowerAI/ohmygame/pull/602) by @dogxii,
+  [#606](https://github.com/WhiteTowerAI/ohmygame/pull/606) by @dogxii,
+  [#616](https://github.com/WhiteTowerAI/ohmygame/pull/616) by @dogxii,
+  [#618](https://github.com/WhiteTowerAI/ohmygame/pull/618) by @dogxii,
+  [#626](https://github.com/WhiteTowerAI/ohmygame/pull/626) by @dogxii,
+  [#627](https://github.com/WhiteTowerAI/ohmygame/pull/627) by @dogxii,
+  [#629](https://github.com/WhiteTowerAI/ohmygame/pull/629) by @dogxii,
+  [#630](https://github.com/WhiteTowerAI/ohmygame/pull/630) by @dogxii,
+  [#633](https://github.com/WhiteTowerAI/ohmygame/pull/633) by @dogxii,
+  [#637](https://github.com/WhiteTowerAI/ohmygame/pull/637) by @dogxii,
+  [#642](https://github.com/WhiteTowerAI/ohmygame/pull/642) by @dogxii)
+- MCP servers you add yourself now live in Settings → MCP Connections.
+  ([#580](https://github.com/WhiteTowerAI/ohmygame/pull/580) by @dogxii)
+- TapTap Maker shows its setup as steps until it is ready, connects from a
+  folder that already has files, reports Maker's own preview errors and
+  retries failed downloads.
+  ([#568](https://github.com/WhiteTowerAI/ohmygame/pull/568) by @dogxii,
+  [#603](https://github.com/WhiteTowerAI/ohmygame/pull/603) by @dogxii,
+  [#609](https://github.com/WhiteTowerAI/ohmygame/pull/609) by @dogxii,
+  [#632](https://github.com/WhiteTowerAI/ohmygame/pull/632) by @dogxii,
+  [#540](https://github.com/WhiteTowerAI/ohmygame/pull/540) by @dogxii,
+  [#576](https://github.com/WhiteTowerAI/ohmygame/pull/576) by @dogxii)
+- Windows and Linux get Back and Forward in the title bar, and the Windows
+  title bar menus follow the UI language.
+  ([#502](https://github.com/WhiteTowerAI/ohmygame/pull/502) by @dogxii,
+  [#643](https://github.com/WhiteTowerAI/ohmygame/pull/643) by @dogxii,
+  [#646](https://github.com/WhiteTowerAI/ohmygame/pull/646) by @dogxii)
+
+### Changed
+
+- The bundled plugins (Godot, Unreal Engine, img2threejs, TapTap Maker and the
+  Skills-only plugins) are now format 2 plugins, and Godot is one plugin.
+  ([#572](https://github.com/WhiteTowerAI/ohmygame/pull/572) by @dogxii,
+  [#575](https://github.com/WhiteTowerAI/ohmygame/pull/575) by @dogxii,
+  [#577](https://github.com/WhiteTowerAI/ohmygame/pull/577) by @dogxii,
+  [#581](https://github.com/WhiteTowerAI/ohmygame/pull/581) by @dogxii,
+  [#568](https://github.com/WhiteTowerAI/ohmygame/pull/568) by @dogxii)
+- A plugin runs only in the project types it names.
+  ([#578](https://github.com/WhiteTowerAI/ohmygame/pull/578) by @dogxii)
+- After a usage limit resets, an agent continues the turn on its own while
+  OhMyGame is open, and the error card shows when it will.
+  ([#648](https://github.com/WhiteTowerAI/ohmygame/pull/648) by @dogxii,
+  [#651](https://github.com/WhiteTowerAI/ohmygame/pull/651) by @dogxii)
+- An unused game preview stops after a minute, and at most one keeps running
+  after leaving a project.
+  ([#641](https://github.com/WhiteTowerAI/ohmygame/pull/641) by @dogxii)
+- Settings → Providers shows and hides models with a checkbox on every
+  provider's rows, and Settings → MCP Server shows other MCP clients the
+  launcher's command, arguments and environment as separate fields.
+  ([#529](https://github.com/WhiteTowerAI/ohmygame/pull/529) by @dogxii,
+  [#533](https://github.com/WhiteTowerAI/ohmygame/pull/533) by @dogxii,
+  [#524](https://github.com/WhiteTowerAI/ohmygame/pull/524) by @dogxii)
+- Community leads with search and **My games**, and reloads when the window
+  returns.
+  ([#562](https://github.com/WhiteTowerAI/ohmygame/pull/562) by @dihuangdh)
+- Agents that join a conversation get a shorter handoff, with only what they
+  cannot find themselves.
+  ([#597](https://github.com/WhiteTowerAI/ohmygame/pull/597) by @dogxii,
+  [#607](https://github.com/WhiteTowerAI/ohmygame/pull/607) by @dogxii)
+
+### Removed
+
+- Plugin format 1. Installed format 1 plugins are not converted; their data
+  stays on disk unused. Projects made with format 1 TapTap Maker, Godot or
+  Unreal Engine plugins are not migrated.
+  ([#583](https://github.com/WhiteTowerAI/ohmygame/pull/583) by @dogxii,
+  [#605](https://github.com/WhiteTowerAI/ohmygame/pull/605) by @dogxii)
+
+### Fixed
+
+- Keep Claude Code's session after **Stop**, and keep the chosen account,
+  model and thinking level when a message is edited.
+  ([#596](https://github.com/WhiteTowerAI/ohmygame/pull/596) by @dogxii,
+  [#650](https://github.com/WhiteTowerAI/ohmygame/pull/650) by @dogxii,
+  [#653](https://github.com/WhiteTowerAI/ohmygame/pull/653) by @dogxii)
+- Keep the file tree and the open file in place when files refresh, and keep
+  recent projects from reordering on open.
+  ([#625](https://github.com/WhiteTowerAI/ohmygame/pull/625) by @dogxii,
+  [#528](https://github.com/WhiteTowerAI/ohmygame/pull/528) by @dogxii)
+- Don't reload the game for design canvas changes, and don't show a missing
+  dev script error on a new empty project.
+  ([#489](https://github.com/WhiteTowerAI/ohmygame/pull/489) by @dogxii,
+  [#585](https://github.com/WhiteTowerAI/ohmygame/pull/585) by @dihuangdh)
+- Show images that file tools return in their details, and say that the retry
+  count covers the whole turn.
+  ([#624](https://github.com/WhiteTowerAI/ohmygame/pull/624) by @dogxii,
+  [#623](https://github.com/WhiteTowerAI/ohmygame/pull/623) by @dogxii)
+- Back and Forward in a project's title bar take clicks on macOS.
+  ([#558](https://github.com/WhiteTowerAI/ohmygame/pull/558) by @dihuangdh)
+- Note a plugin's change before it runs, so a failure can't lose its Undo.
+  ([#644](https://github.com/WhiteTowerAI/ohmygame/pull/644) by @dogxii)
+- Use the CLI's default config directory for the System default agent account.
+  ([#512](https://github.com/WhiteTowerAI/ohmygame/pull/512) by @dogxii)
+- Long sessions use less memory, and sending a message reads only what the
+  session gained.
+  ([#631](https://github.com/WhiteTowerAI/ohmygame/pull/631) by @dogxii,
+  [#636](https://github.com/WhiteTowerAI/ohmygame/pull/636) by @dogxii)
+- Make the publish cover preview crop match project and Community cards.
+  ([#485](https://github.com/WhiteTowerAI/ohmygame/pull/485) by @dihuangdh)
+- Fix layout and styling issues in the composer, menus, sheets, sidebar,
+  canvas and Settings.
+  ([#505](https://github.com/WhiteTowerAI/ohmygame/pull/505) by @dogxii,
+  [#534](https://github.com/WhiteTowerAI/ohmygame/pull/534) by @dogxii,
+  [#536](https://github.com/WhiteTowerAI/ohmygame/pull/536) by @dogxii,
+  [#537](https://github.com/WhiteTowerAI/ohmygame/pull/537) by @dogxii,
+  [#550](https://github.com/WhiteTowerAI/ohmygame/pull/550) by @dihuangdh,
+  [#556](https://github.com/WhiteTowerAI/ohmygame/pull/556) by @dihuangdh,
+  [#557](https://github.com/WhiteTowerAI/ohmygame/pull/557) by @dihuangdh,
+  [#559](https://github.com/WhiteTowerAI/ohmygame/pull/559) by @dihuangdh,
+  [#560](https://github.com/WhiteTowerAI/ohmygame/pull/560) by @dihuangdh,
+  [#563](https://github.com/WhiteTowerAI/ohmygame/pull/563) by @dihuangdh,
+  [#564](https://github.com/WhiteTowerAI/ohmygame/pull/564) by @dihuangdh,
+  [#586](https://github.com/WhiteTowerAI/ohmygame/pull/586) by @dihuangdh,
+  [#620](https://github.com/WhiteTowerAI/ohmygame/pull/620) by @dogxii,
+  [#645](https://github.com/WhiteTowerAI/ohmygame/pull/645) by @dogxii,
+  [#647](https://github.com/WhiteTowerAI/ohmygame/pull/647) by @dogxii)
+
 ## [0.0.0-beta.5.0] - 2026-10-29
 
 ### Added

@@ -10,6 +10,9 @@ import { MAX_MEDIA_FRAMES, MAX_MEDIA_OUTPUT_BYTES, MAX_MEDIA_TOTAL_PIXELS } from
 import { readMediaDimensions } from "./media-dimensions.js";
 
 const execFileAsync = promisify(execFile);
+// libvips keeps recently read files open, and Windows cannot delete or move an
+// open file. Media tools read workspace assets the person may remove next.
+sharp.cache({ files: 0 });
 const MAX_PIXELS = 100_000_000;
 const MAX_FRAMES = MAX_MEDIA_FRAMES;
 const IMAGE_FORMATS = new Set(["png", "jpeg", "webp"] as const);
@@ -55,7 +58,9 @@ async function inputPixels(paths: readonly string[]): Promise<number> {
 function ffmpegExecutable(): string {
   if (process.env.OHMYGAME_FFMPEG_PATH) return process.env.OHMYGAME_FFMPEG_PATH;
   try {
-    const binary = (require("@ffmpeg-installer/ffmpeg") as { path: string }).path;
+    // ffmpeg-static exports null when it has no binary for this platform.
+    const binary = require("ffmpeg-static") as string | null;
+    if (!binary) return "ffmpeg";
     return binary.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
   } catch {
     return "ffmpeg";

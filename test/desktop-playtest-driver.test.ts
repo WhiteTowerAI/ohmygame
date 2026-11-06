@@ -83,6 +83,7 @@ const electron = vi.hoisted(() => {
         };
       }),
       capturePage: vi.fn(async () => new FakeImage()),
+      setAudioMuted: vi.fn(),
       isDestroyed: vi.fn(() => this.destroyed),
       mainFrame: {
         frames: this.childFrames,
@@ -133,6 +134,7 @@ describe("electron playtest driver", () => {
     expect(electron.windows[0]?.loadedUrl).toBe("http://127.0.0.1:43123/game?ohmygamePlaytest=1");
     expect(electron.windows[0]?.debugger.attach).toHaveBeenCalledWith("1.3");
     expect(electron.windows[0]?.options.resizable).toBe(true);
+    expect(electron.windows[0]?.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
     driver.close();
   });
 
@@ -156,7 +158,7 @@ describe("electron playtest driver", () => {
     driver.close();
   });
 
-  it("reveals loaded sessions without focusing and hides them without closing", async () => {
+  it("reveals loaded sessions without focusing and hides and mutes them without closing", async () => {
     const states: Array<{ visible: boolean; activeSessions: number }> = [];
     const driver = new ElectronPlaytestDriver((state) => states.push(state));
     driver.setVisible(true);
@@ -169,12 +171,14 @@ describe("electron playtest driver", () => {
     const window = electron.windows[0]!;
 
     expect(window.showInactive).toHaveBeenCalledOnce();
+    expect(window.webContents.setAudioMuted).toHaveBeenLastCalledWith(false);
     expect(driver.watchState()).toEqual({ visible: true, activeSessions: 1 });
 
     const closeEvent = { preventDefault: vi.fn() };
     window.closeHandler?.(closeEvent);
     expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
     expect(window.hide).toHaveBeenCalledOnce();
+    expect(window.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
     expect(window.destroyed).toBe(false);
     expect(driver.watchState()).toEqual({ visible: false, activeSessions: 1 });
 
@@ -183,6 +187,40 @@ describe("electron playtest driver", () => {
     expect(driver.watchState()).toEqual({ visible: false, activeSessions: 0 });
     expect(states).toContainEqual({ visible: true, activeSessions: 1 });
     expect(states.at(-1)).toEqual({ visible: false, activeSessions: 0 });
+  });
+
+  it("records a session and reports the saved file", async () => {
+    const recording = { assetId: "asset-1", name: "Agent playtest.mp4", duration: 4, bytes: 100 };
+    const recorder = { start: vi.fn(async () => ({ outcome: Promise.resolve(recording) })), stop: vi.fn() };
+    const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected a session");
+    const sessionId = opened.snapshot.sessionId;
+    await expect(driver.request({ operation: "recordStop", sessionId })).rejects.toThrow("not recording");
+    await expect(driver.request({ operation: "recordStart", sessionId })).resolves.toEqual({ operation: "recordStart", sessionId, maxSeconds: 60 });
+    expect(recorder.start).toHaveBeenCalledWith(`agent:${sessionId}`, electron.windows[0]!.webContents, { title: "Agent playtest", maxSeconds: 60 });
+    await expect(driver.request({ operation: "recordStart", sessionId })).rejects.toThrow("already recorded");
+    await expect(driver.request({ operation: "recordStop", sessionId })).resolves.toEqual({ operation: "recordStop", sessionId, recording });
+    expect(recorder.stop).toHaveBeenCalledWith(`agent:${sessionId}`);
+    driver.close();
+  });
+
+  it("finishes a recording when its session closes", async () => {
+    const recorder = { start: vi.fn(async () => ({ outcome: new Promise<never>(() => {}) })), stop: vi.fn() };
+    const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected a session");
+    await driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId });
+    await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
+    expect(recorder.stop).toHaveBeenCalledWith(`agent:${opened.snapshot.sessionId}`);
+  });
+
+  it("can't record without a recorder", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected a session");
+    await expect(driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId })).rejects.toThrow("not available");
+    driver.close();
   });
 
   it("closes sessions the agent leaves idle", async () => {

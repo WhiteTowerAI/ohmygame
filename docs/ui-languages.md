@@ -9,7 +9,7 @@ languages use the same `{{placeholders}}`.
 ## How it works
 
 `src/renderer/i18n.ts` wraps [i18next](https://www.i18next.com/). It resolves
-the language once, when the page loads: the choice in **Settings → Appearance
+the language once, when the page loads: the choice in **Settings → General
 → Language**, or the first system language (any `zh*` locale uses Simplified
 Chinese). Changing the setting reloads the window, so module-level labels can
 call `t` directly. The module also sets `<html lang>` and exports `language`
@@ -29,8 +29,13 @@ for `Intl` and `toLocale*` formatting.
   `label`.
 - Daemon and provider error details. The renderer shows them as received,
   under a translated title when there is one.
-- The Electron menus and main-process dialogs, the published game player,
-  and the web game host page.
+- Main-process dialogs, the published game player, and the web game host page.
+  Two things in the main process are the exception, because the renderer sends
+  it their wording: system notifications (see
+  [agent notifications](runtime.md#agent-notifications)) and the application
+  menu: the macOS menu bar and the native menu in a Linux development run. It
+  takes `windowMenu` when the main window loads
+  (`src/desktop/application-menu.ts`) and is in English until then.
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 

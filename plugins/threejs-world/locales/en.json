@@ -1,0 +1,8 @@
+{
+  "displayName": "Three.js World",
+  "description": "Design and build richly detailed, explorable Three.js worlds.",
+  "longDescription": "Turn a short description of a place into a written world design, realize it as a walkable Three.js scene with a themed presentation layer, and inspect the rendered result until it matches the design.",
+  "example.1": "Build an explorable 3D world from this scene idea.",
+  "example.2": "Add a new region to the current Three.js world.",
+  "example.3": "Review the current world against its design and fix what looks weak."
+}

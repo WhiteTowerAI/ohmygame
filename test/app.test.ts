@@ -1,4 +1,4 @@
-import { mp3Fixture, wavFixture } from "./audio-fixtures.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +12,6 @@ import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
-const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 async function saveProjectAsset(app: Awaited<ReturnType<typeof createApp>>, projectId: string, filePath: string) {
@@ -44,6 +43,7 @@ describe("daemon", () => {
     const base = await app.listen({ host: "127.0.0.1", port: 0 });
     const stream = await fetch(`${base}/projects/activity/events`, { signal: streaming.signal });
     const streamed: unknown[] = [];
+    let names: { id: string; name: string }[] = [];
     void (async () => {
       const decoder = new TextDecoder();
       let buffer = "";
@@ -51,10 +51,19 @@ describe("daemon", () => {
         buffer += decoder.decode(chunk, { stream: true });
         const blocks = buffer.split("\n\n");
         buffer = blocks.pop()!;
-        for (const block of blocks) if (block.startsWith("event: activity")) streamed.push(JSON.parse(block.split("data: ")[1]!).activity);
+        for (const block of blocks) {
+          if (!block.startsWith("event: activity")) continue;
+          // A snapshot also carries project names, so a new project can repeat the activity.
+          const { activity: current, names: latestNames } = JSON.parse(block.split("data: ")[1]!);
+          names = latestNames;
+          if (JSON.stringify(streamed.at(-1)) !== JSON.stringify(current)) streamed.push(current);
+        }
       }
     })().catch(() => {});
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await vi.waitFor(() => expect(names.map((entry) => entry.id)).toEqual([project.id]));
+    await app.inject({ method: "PATCH", url: `/projects/${project.id}`, payload: { name: "Renamed" } });
+    await vi.waitFor(() => expect(names[0]?.name).toBe("Renamed"));
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     try {
       const response = await app.inject({
@@ -65,10 +74,20 @@ describe("daemon", () => {
       expect(response.statusCode).toBe(202);
       await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
       expect(await activity()).toEqual([{ projectId: project.id, status: "running" }]);
+      // A running conversation stays in the list; an idle one leaves it.
+      const conversations = `/projects/${project.id}/conversations`;
+      expect((await app.inject({ method: "POST", url: `${conversations}/${conversation.id}/archive` })).statusCode).toBe(409);
+      const idle = (await app.inject({ method: "POST", url: conversations })).json();
+      expect((await app.inject({ method: "POST", url: `${conversations}/${idle.id}/archive` })).statusCode).toBe(204);
+      expect((await app.inject({ method: "GET", url: conversations })).json()).toEqual([expect.objectContaining({ id: conversation.id })]);
+      expect((await app.inject({ method: "GET", url: `${conversations}/archived` })).json()).toEqual([]);
+      expect((await app.inject({ method: "POST", url: `${conversations}/missing/archive` })).statusCode).toBe(404);
+      expect((await app.inject({ method: "POST", url: `${conversations}/missing/unarchive` })).statusCode).toBe(404);
+      expect((await app.inject({ method: "DELETE", url: `${conversations}/archived/missing` })).statusCode).toBe(404);
       expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
       await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
       expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);
-      // A cancel starting publishes no event; the stream's in-memory check reports it.
+      // Cancellation is visible even before the pending prompt settles.
       await vi.waitFor(() => expect(streamed.at(-1)).toEqual([{ projectId: project.id, status: "cancelling" }]), { timeout: 3_000 });
     } finally {
       finish();
@@ -358,7 +377,8 @@ describe("daemon", () => {
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
     await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
     if (webPreviewEnabled) {
-      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
+      // Starting a Node server can take several seconds on a busy CI machine.
+      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 15_000 });
       const url = (await readProject()).preview.url;
       expect(await (await fetch(url)).text()).toBe("General ready");
       const disabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: false } });
@@ -394,7 +414,11 @@ describe("daemon", () => {
     const unknown = await app.inject({ method: "POST", url: "/projects", payload: { type: "unknown" } });
 
     expect(godot.statusCode).toBe(201);
-    expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
+    // The app's Godot kind starts as the Godot plugin's type, with its template and the plugin on.
+    expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" } });
+    const file = JSON.parse(await readFile(path.join(godot.json().workspacePath, "ohmygame.json"), "utf8"));
+    expect(file).toMatchObject({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": expect.any(String) } });
+    expect(await readdir(godot.json().workspacePath)).toContain("project.godot");
     expect(general.statusCode).toBe(201);
     expect(general.json()).toMatchObject({ type: "general", webPreviewEnabled: true, preview: { status: "waiting" } });
     expect(await readdir(general.json().workspacePath)).toEqual([]);
@@ -433,6 +457,44 @@ describe("daemon", () => {
     expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
+  });
+
+  it("removes a project and keeps its files, moving OhMyGame's own copy aside under its name", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const managed = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Moon/Garden" } })).json();
+    await writeFile(path.join(managed.workspacePath, "index.html"), "<h1>Moon</h1>");
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-external-"));
+    await writeFile(path.join(folder, "README.md"), "Mine\n");
+    const external = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Mine", workspacePath: folder } })).json();
+
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${managed.id}?keep=1` });
+    expect(removed.statusCode).toBe(200);
+    const movedTo = removed.json().movedTo as string;
+    expect(movedTo).toBe(path.join(dataDirectory, "removed-projects", managed.id, "Moon-Garden"));
+    expect(await readFile(path.join(movedTo, "index.html"), "utf8")).toBe("<h1>Moon</h1>");
+    expect((await app.inject({ method: "GET", url: `/projects/${managed.id}` })).statusCode).toBe(404);
+
+    const unregistered = await app.inject({ method: "DELETE", url: `/projects/${external.id}?keep=1` });
+    expect(unregistered.json()).toEqual({});
+    expect(await readFile(path.join(folder, "README.md"), "utf8")).toBe("Mine\n");
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    await rm(folder, { recursive: true, force: true });
+  });
+
+  it("removes a project whose own workspace is already gone from disk", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-missing-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const managed = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Gone" } })).json();
+    await rm(managed.workspacePath, { recursive: true });
+
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${managed.id}?keep=1` });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json()).toEqual({});
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    await expect(readdir(path.join(dataDirectory, "removed-projects"))).resolves.toEqual([]);
   });
 
   it("exposes workspace code and media with project provenance", async () => {
@@ -834,17 +896,17 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "godot-game" } })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
+    const mention = { name: "game-studio", displayName: "Game Studio", marketplaceId: "ohmygame" };
 
     const accepted = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Use @Godot", mentions: [mention] },
+      payload: { prompt: "Use @Game Studio", mentions: [mention] },
     });
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@ohmygame)"));
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Game Studio](plugin://game-studio@ohmygame)"));
     const incompatible = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const otherConversation = (await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations` })).json();
-    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Godot", mentions: [mention] } });
+    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Game Studio", mentions: [mention] } });
     expect(mismatch.statusCode).toBe(409);
     expect(prompt).toHaveBeenCalledTimes(1);
     const rejected = await app.inject({
@@ -1312,10 +1374,11 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
   });
 
-  it("exposes health and rejects empty prompts", async () => {
+  it("exposes health and agent notices and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({ status: "ok" });
+    expect((await app.inject({ method: "GET", url: "/agent-notices?after=0" })).json()).toEqual({ epoch: expect.any(String), latestSeq: 0, notices: [], waiting: [] });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     const response = await app.inject({
@@ -1963,7 +2026,7 @@ describe("daemon", () => {
         ],
       }],
       cursor: 0,
-      pendingPrompts: [],
+      pendingPrompts: [], scheduledMessages: [],
     });
   });
 
@@ -2154,6 +2217,104 @@ function fakeModelRuntime(models: Array<{ provider: string; id: string; name: st
   } as unknown as ModelRuntime;
 }
 
+describe("web build export", () => {
+  async function createBuildApp() {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-web-build-")) });
+    apps.push(app);
+    return app;
+  }
+  async function createGame(app: Awaited<ReturnType<typeof createBuildApp>>, build: string) {
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Built", type: "web-game" } })).json();
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { build: "node build.mjs" } }));
+    await writeFile(path.join(project.workspacePath, "build.mjs"), build);
+    return project;
+  }
+
+  it("downloads only the static output a publish would upload", async () => {
+    const app = await createBuildApp();
+    const project = await createGame(app, `
+      import { mkdir, writeFile } from "node:fs/promises";
+      await mkdir("dist/assets", { recursive: true });
+      await writeFile("dist/index.html", "built");
+      await writeFile("dist/assets/game.js", "window.built = true");
+    `);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+
+    expect(built.statusCode, built.body).toBe(200);
+    expect(built.headers["content-type"]).toBe("application/zip");
+    // Entry names are stored as plain text in the archive.
+    expect(built.rawPayload.includes("assets/game.js")).toBe(true);
+    expect(built.rawPayload.includes("build.mjs")).toBe(false);
+  }, 20_000);
+
+  it("builds a nested game with its workspace manager and root dependencies", async () => {
+    const app = await createBuildApp();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Workspace", type: "web-game" } })).json();
+    const game = path.join(project.workspacePath, "game");
+    const helper = path.join(project.workspacePath, "helper");
+    await mkdir(game);
+    await mkdir(helper);
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({
+      private: true, packageManager: "bun@1.4.2", workspaces: ["game", "helper"],
+      dependencies: { "build-helper": "workspace:*" },
+    }));
+    await writeFile(path.join(helper, "package.json"), JSON.stringify({ name: "build-helper", version: "1.0.0", main: "index.cjs" }));
+    await writeFile(path.join(helper, "index.cjs"), 'module.exports = "built"');
+    await writeFile(path.join(game, "package.json"), JSON.stringify({ name: "game", scripts: { build: "node build.cjs" } }));
+    await writeFile(path.join(game, "build.cjs"), `
+      const fs = require("node:fs");
+      fs.mkdirSync("dist");
+      fs.writeFileSync("dist/index.html", require("build-helper") + " " + process.env.npm_config_user_agent);
+    `);
+    const settings = await app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: {
+      startupDirectory: "game", startupScript: "dev", previewPath: "/", previewViewport: "fit",
+    } });
+    expect(settings.statusCode, settings.body).toBe(200);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    expect(built.statusCode, built.body).toBe(200);
+    expect(await readFile(path.join(game, "dist/index.html"), "utf8")).toMatch(/^built bun\//);
+  }, 20_000);
+
+  it("builds only games that publish", async () => {
+    const app = await createBuildApp();
+    const canvas = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Board", type: "asset-canvas" } })).json();
+
+    const refused = await app.inject({ method: "POST", url: `/projects/${canvas.id}/build` });
+
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("Build requires a Web Game, General Game or Interactive Story project");
+  });
+
+  it("refuses a publish or a second build while a web build is exported", async () => {
+    const app = await createBuildApp();
+    // The build waits for the test to release it, so the export stays in progress.
+    const project = await createGame(app, `
+      import { existsSync } from "node:fs";
+      import { mkdir, writeFile } from "node:fs/promises";
+      await writeFile("started", "");
+      while (!existsSync("release")) await new Promise((resolve) => setTimeout(resolve, 20));
+      await mkdir("dist", { recursive: true });
+      await writeFile("dist/index.html", "built");
+    `);
+    const first = app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    while (!await stat(path.join(project.workspacePath, "started")).catch(() => undefined))
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Refused before the publish service is contacted, so none is needed here.
+    const published = await app.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: "token", title: "Built" } });
+    const second = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    await writeFile(path.join(project.workspacePath, "release"), "");
+
+    expect(published.statusCode).toBe(409);
+    expect(published.json()).toEqual({ error: "Wait for the web build to finish before publishing" });
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toEqual({ error: "The web build is already being exported" });
+    expect((await first).statusCode).toBe(200);
+  }, 20_000);
+});
+
 describe("Playable Nodes projects", () => {
   async function createPlayableApp(prefix: string, options: Parameters<typeof createApp>[0] = {}) {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)), ...options });
@@ -2191,7 +2352,7 @@ describe("Playable Nodes projects", () => {
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
-    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
 
@@ -2515,6 +2676,16 @@ describe("Asset Canvas projects", () => {
     expect((await getCanvas(app, project.id)).board.nodes).toEqual([
       expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
     ]);
+
+    // Saving the board unchanged, or only moving the view, is not editing the project.
+    const edited = (await app.inject(`/projects/${project.id}`)).json().updatedAt;
+    expect(edited).toEqual(expect.any(String));
+    const reordered = Object.fromEntries(Object.entries((await getCanvas(app, project.id)).board).reverse());
+    expect((await saveCanvas(app, project.id, reordered as { id: string })).statusCode).toBe(200);
+    const panned = (await getCanvas(app, project.id)).board;
+    panned.editorLayout.viewport = { x: 300, y: 200, zoom: 2 };
+    expect((await saveCanvas(app, project.id, panned)).statusCode).toBe(200);
+    expect((await app.inject(`/projects/${project.id}`)).json().updatedAt).toBe(edited);
   });
 
   it("rejects canvas documents with unknown node types", async () => {

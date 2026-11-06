@@ -146,8 +146,28 @@ function shouldShowWaiting(items: ThreadItem[], now: number): boolean {
     !items.some((item) => item.type === "reasoning" && item.status === "inProgress");
 }
 
+const STALLED_TEXT_MS = 1_000;
+
 function hasStalledAssistantText(items: ThreadItem[], now: number): boolean {
   const latest = items.at(-1);
   return latest?.type === "agentMessage" && latest.status === "inProgress" && Boolean(latest.text.trim()) &&
-    latest.timestamp !== undefined && now - latest.timestamp >= 1_000;
+    latest.timestamp !== undefined && now - latest.timestamp >= STALLED_TEXT_MS;
+}
+
+/**
+ * The display compares the time only with an item's timestamp plus a second,
+ * so every time between two of those thresholds builds the same display.
+ * `time` is the last threshold passed and `next` the one to wait for, which
+ * lets an active turn rebuild its display only when it can change.
+ */
+export function turnDisplayClock(turn: Turn, now: number): { time: number; next?: number } {
+  let time = 0;
+  let next: number | undefined;
+  for (const item of turn.items) {
+    if (item.timestamp === undefined) continue;
+    const threshold = item.timestamp + STALLED_TEXT_MS;
+    if (threshold <= now) time = Math.max(time, threshold);
+    else next = Math.min(next ?? threshold, threshold);
+  }
+  return { time, next };
 }

@@ -28,8 +28,12 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
     if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(value)) throw new CanvasError("Invalid document ID");
     return value;
   };
-  app.get<{ Params: { projectId: string } }>(`${base}/workspace`, async (request, reply) => {
-    try { return await store.workspace(request.params.projectId); } catch (cause) { return failure(cause, reply); }
+  app.get<{ Params: { projectId: string }; Querystring: { knownRevision?: string } }>(`${base}/workspace`, async (request, reply) => {
+    try {
+      const detail = await store.workspace(request.params.projectId);
+      if (detail.revision && request.query.knownRevision === detail.revision) return reply.code(204).send();
+      return detail;
+    } catch (cause) { return failure(cause, reply); }
   });
   app.post<{ Params: { projectId: string; assetId: string } }>(`${base}/assets/:assetId/library`, async (request, reply) => {
     try { return await store.exportAsset(request.params.projectId, request.params.assetId); } catch (cause) { return failure(cause, reply); }
@@ -77,8 +81,12 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
     try { return reply.code(201).send(await store.changeBoards(request.params.projectId, { type: "create", name: request.body.name })); } catch (cause) { return failure(cause, reply); }
   });
   const boardRoute = `${base}/boards/:boardId`;
-  app.get<{ Params: { projectId: string; boardId: string } }>(boardRoute, async (request, reply) => {
-    try { return await store.board(request.params.projectId, request.params.boardId); } catch (cause) { return failure(cause, reply); }
+  app.get<{ Params: { projectId: string; boardId: string }; Querystring: { knownRevision?: string } }>(boardRoute, async (request, reply) => {
+    try {
+      const detail = await store.board(request.params.projectId, request.params.boardId);
+      if (detail.revision && request.query.knownRevision === detail.revision) return reply.code(204).send();
+      return detail;
+    } catch (cause) { return failure(cause, reply); }
   });
   app.put<{ Params: { projectId: string; boardId: string }; Body: { board: CanvasBoard; revision: string } }>(boardRoute, { bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
     if (!isCanvasBoard(request.body?.board) || request.body.board.id !== request.params.boardId || typeof request.body.revision !== "string") return reply.code(400).send({ error: "Invalid canvas board update" });

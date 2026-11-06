@@ -44,9 +44,15 @@ and per-layer position, scale, opacity, visibility, and stacking order. The daem
 clips layers to the output bounds and writes a transparent PNG as a new canvas
 asset. Layer composition is not offered in the image-node toolbar.
 
-Video tools use the platform FFmpeg binary installed with the project. Set
-`OHMYGAME_FFMPEG_PATH` to use a different binary; if the platform package is
-unavailable, the daemon falls back to `ffmpeg` on `PATH`. Batch operations are
+Video tools use the FFmpeg binary from `ffmpeg-static`, which downloads it for
+the installing platform and ships unpacked from the desktop app's ASAR. Set
+`OHMYGAME_FFMPEG_PATH` to use a different binary; if `ffmpeg-static` has no
+binary for the platform, the daemon falls back to `ffmpeg` on `PATH`. The
+binary is a GPL build (MP4 output uses libx264), distributed as a separate
+program with its license file beside it (`ffmpeg.LICENSE`, or
+`ffmpeg.exe.LICENSE` on Windows); the packaging check
+fails if either is missing. Interactive Story publishing does not use it and
+still looks for FFmpeg on `PATH`. Batch operations are
 limited to 100 frames, a 64 million pixel processing budget for image inputs
 and extracted frames, and 128 MiB of encoded output. FFmpeg temporary files are checked during processing against a 128 MiB
 budget; extracted videos are limited to 300 seconds.

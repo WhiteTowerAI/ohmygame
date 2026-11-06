@@ -1,0 +1,258 @@
+/* Home: the prompt that starts a project, recent projects and examples. */
+
+.home-page {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+/* Long pages show their scrollbar only while the pointer is over them. */
+.home-page:hover {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.home-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--space-6) clamp(16px, 4vw, 40px) 80px;
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: clamp(24px, 8vh, 88px) 0 var(--space-4);
+}
+
+.home-hero h1 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 28px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.home-hero .prompt-box-home {
+  width: min(680px, 100%);
+  min-height: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-hairline);
+  backdrop-filter: none;
+}
+
+.home-hero .prompt-box-home .prompt-editor {
+  color: var(--color-text);
+}
+
+.home-hero .prompt-box-home .prompt-editor-placeholder {
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
+
+/* Choices inside a composer read as quiet buttons, not as fields. */
+.home-project-type .ui-select {
+  max-width: 220px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-secondary);
+}
+
+.home-project-type .ui-select:hover,
+.home-project-type .ui-select[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.home-hero .home-notice {
+  width: min(680px, 100%);
+  margin: 0;
+}
+
+.home-starts {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: calc(var(--space-2) * -1);
+}
+
+/* Recent projects and examples share one grid, whose column count the
+   page reads back (use-project-shelf-layout) to fill whole rows. */
+.home-section {
+  container: project-shelf / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.home-section-head {
+  --project-shelf-columns: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+
+.home-section-head h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.home-grid,
+.home-explore .home-whats-new-grid {
+  --project-shelf-columns: 4;
+  display: grid;
+  grid-template-columns: repeat(var(--project-shelf-columns), minmax(0, 1fr));
+  gap: var(--space-6) var(--space-4);
+  padding: 0;
+}
+
+@container project-shelf (max-width: 760px) {
+  .home-section-head,
+  .home-grid,
+  .home-explore .home-whats-new-grid {
+    --project-shelf-columns: 3;
+  }
+}
+
+@container project-shelf (max-width: 520px) {
+  .home-section-head,
+  .home-grid,
+  .home-explore .home-whats-new-grid {
+    --project-shelf-columns: 2;
+  }
+}
+
+.home-project-skeleton {
+  aspect-ratio: 16 / 13;
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+  animation: home-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.home-project-state {
+  margin: 0;
+  padding: var(--space-6) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Examples as cover cards: no box, the cover is the card. */
+.home-explore .home-whats-new-item {
+  height: auto;
+  gap: 10px;
+  overflow: visible;
+  border-radius: var(--radius-lg);
+  background: none;
+}
+
+.home-explore .home-whats-new-item:hover,
+.home-explore .home-whats-new-item:focus-visible {
+  background: none;
+}
+
+.home-explore .home-whats-new-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.home-explore .home-whats-new-icon {
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+  transition: filter var(--duration-fast);
+}
+
+.home-explore .home-whats-new-item:hover .home-whats-new-icon {
+  filter: brightness(1.08);
+}
+
+.home-explore .home-whats-new-copy {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.home-explore .home-whats-new-copy strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-explore .home-whats-new-copy small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Creation templates reuse the example cover cards; a template opens a density choice. */
+.home-templates .home-template-card {
+  cursor: pointer;
+}
+
+.home-templates .home-template-card:disabled {
+  cursor: progress;
+  opacity: 0.68;
+}
+
+.home-templates .home-template-card:disabled[aria-busy="true"] {
+  opacity: 1;
+}
+
+.home-templates .home-effect-template-card .home-explore-cover {
+  background:
+    radial-gradient(circle at 50% 44%, rgb(126 92 255 / 28%), transparent 58%),
+    linear-gradient(135deg, #28205f 0%, #171747 52%, #101336 100%);
+  box-shadow: inset 0 0 0 1px rgb(151 126 255 / 24%), inset 0 -18px 34px rgb(7 6 28 / 24%);
+}
+
+.home-templates .home-effect-template-card .home-explore-cover::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(135deg, rgb(105 77 229 / 24%), transparent 42%, rgb(7 5 29 / 28%)),
+    radial-gradient(circle at 50% 115%, rgb(183 132 255 / 18%), transparent 58%);
+}
+
+.home-templates .home-effect-template-card .home-explore-cover img {
+  filter: saturate(1.14) contrast(1.05) brightness(0.96);
+}
+
+.home-templates .home-whats-new-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+}
+
+.home-template-loading {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 68%);
+  color: #fff;
+}

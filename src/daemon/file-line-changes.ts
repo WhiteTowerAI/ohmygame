@@ -63,7 +63,7 @@ export function fileChangeMetadata(
         after = Number(header[2]);
         valid = true;
         hunk = [];
-      } else if (hunk && /^[ +\-]/.test(row)) {
+      } else if (hunk && /^[ +-]/.test(row)) {
         const kind =
           row[0] === "+" ? "added" : row[0] === "-" ? "removed" : "same";
         append({
@@ -78,7 +78,7 @@ export function fileChangeMetadata(
         hunk = undefined;
         continue;
       }
-      const match = /^([ +\-])\s*(\d+) (.*)$/.exec(row);
+      const match = /^([ +-])\s*(\d+) (.*)$/.exec(row);
       if (!match) continue;
       valid = true;
       const kind =

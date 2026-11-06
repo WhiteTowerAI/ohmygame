@@ -1,3 +1,5 @@
+import type { GameTuningScalar } from "../shared/game-tuning.js";
+import type { PreviewPick } from "../shared/contracts.js";
 import {
   PREVIEW_CLIENT_QUERY,
   PREVIEW_SOURCE_QUERY,
@@ -28,6 +30,10 @@ export interface PreviewProxy {
   url: string;
   close(): Promise<void>;
   reload(): void;
+  /** Turns a page's next click into a pick, or stops picking there. */
+  setPicking(client: string, active: boolean): void;
+  /** The values the person's pages of the game should use; AI tests keep what is saved. */
+  setTuning(values: Record<string, GameTuningScalar>): void;
 }
 
 /** A separate loopback origin preserves asset paths and HMR without changing project files. */
@@ -45,6 +51,10 @@ export async function createPreviewProxy(
       source: PreviewPageSource,
       path: string,
     ) => void;
+    /** Whether any of the person's pages of the game listens for tuned values. */
+    onTuningConnected?: (connected: boolean) => void;
+    /** A page reported a pick, or that picking was cancelled. */
+    onPick?: (client: string, pick?: PreviewPick) => void;
     /**
      * Serves a web story's editor tools: every page gets the story editor
      * bridge, and Scene HTML the page fetches gets source locations for
@@ -63,14 +73,29 @@ export async function createPreviewProxy(
   let origin = "";
   const documents = new Map<
     number,
-    { client: string; source: PreviewPageSource; path: string }
+    {
+      client: string;
+      source: PreviewPageSource;
+      path: string;
+      /** Fixed when the page opens: a page can report a new `source` itself. */
+      playtest: boolean;
+    }
   >();
   const clients = new Map<string, number>();
   const resources = new Map<string, number>();
   const reloadStreams = new Map<number, ServerResponse>();
+  /** Clients whose page is picking. */
+  const picking = new Set<string>();
+  let tuning: Record<string, GameTuningScalar> = {};
+  /** Documents whose game listens for tuned values. */
+  const tuningDocuments = new Set<number>();
+  const tuningDocumentGone = (document: number) => {
+    if (tuningDocuments.delete(document) && !tuningDocuments.size) options.onTuningConnected?.(false);
+  };
   const closeReloadStream = (document: number) => {
     reloadStreams.get(document)?.end();
     reloadStreams.delete(document);
+    tuningDocumentGone(document);
   };
   const upstreamHeaders = (incoming: IncomingMessage) => {
     const headers = { ...incoming.headers, host: target.host };
@@ -175,12 +200,14 @@ export async function createPreviewProxy(
             connection: "keep-alive",
           });
           outgoing.write(
-            `data: ${JSON.stringify({ reload: reloadRevision })}\n\n`,
+            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.playtest ? {} : { tuning }) })}\n\n`,
           );
           reloadStreams.set(document, outgoing);
           outgoing.once("close", () => {
-            if (reloadStreams.get(document) === outgoing)
+            if (reloadStreams.get(document) === outgoing) {
               reloadStreams.delete(document);
+              tuningDocumentGone(document);
+            }
           });
           return;
         }
@@ -213,6 +240,13 @@ export async function createPreviewProxy(
                     if (diagnostic.client === context.client) diagnostic.source = message.source;
                   }
                   publish();
+                }
+                // Only a pick the editor asked for: a page can't put text in the next message by itself.
+                if (message.type === "pick" && picking.delete(context.client))
+                  options.onPick?.(context.client, message.pick ?? undefined);
+                if (message.type === "tuning" && !context.playtest && reloadStreams.has(document) && !tuningDocuments.has(document)) {
+                  tuningDocuments.add(document);
+                  if (tuningDocuments.size === 1) options.onTuningConnected?.(true);
                 }
                 if (message.type === "diagnostic") {
                   if (message.diagnostic === null) clearDiagnostics(document);
@@ -362,6 +396,7 @@ export async function createPreviewProxy(
             client,
             source,
             path: previewPagePath(incoming.url ?? "/"),
+            playtest: querySource === "playtest" || (previous?.client === client && previous.playtest),
           });
           clients.set(client, document);
           options.onActivity?.(String(document), true);
@@ -493,6 +528,20 @@ export async function createPreviewProxy(
   origin = `http://127.0.0.1:${address.port}`;
   return {
     url: origin,
+    setPicking: (client, active) => {
+      if (active) picking.add(client);
+      else picking.delete(client);
+      const document = clients.get(client);
+      const stream = document === undefined ? undefined : reloadStreams.get(document);
+      stream?.write(`data: ${JSON.stringify({ reload: reloadRevision, pick: active })}\n\n`);
+    },
+    setTuning: (values) => {
+      if (JSON.stringify(values) === JSON.stringify(tuning)) return;
+      tuning = values;
+      for (const [document, stream] of reloadStreams)
+        if (!documents.get(document)?.playtest)
+          stream.write(`data: ${JSON.stringify({ reload: reloadRevision, tuning })}\n\n`);
+    },
     reload: () => {
       reloadRevision += 1;
       for (const stream of reloadStreams.values())
@@ -584,10 +633,11 @@ function compilationMessage(body: string, pathname: string): string {
 }
 
 type BridgeMessage = {
-  type: "heartbeat" | "resume" | "navigation" | "close" | "diagnostic" | "source";
+  type: "heartbeat" | "resume" | "navigation" | "close" | "diagnostic" | "source" | "pick" | "tuning";
   source?: "editor" | "player";
   path?: string;
   diagnostic?: PreviewDiagnostic | null;
+  pick?: PreviewPick | null;
 };
 async function receiveBridgeMessage(
   incoming: IncomingMessage,
@@ -603,11 +653,13 @@ async function receiveBridgeMessage(
   const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (
     !value ||
-    !["heartbeat", "resume", "navigation", "close", "diagnostic", "source"].includes(
+    !["heartbeat", "resume", "navigation", "close", "diagnostic", "source", "pick", "tuning"].includes(
       value.type,
     )
   )
     throw new Error("Invalid preview message");
+  const pick = value.type === "pick" ? previewPick(value.pick, value.path) : undefined;
+  if (value.type === "pick" && pick === undefined) throw new Error("Invalid preview pick");
   if (value.type === "source" && value.source !== "editor" && value.source !== "player") throw new Error("Invalid preview source");
   const diagnostic =
     value.diagnostic === null ? null : previewDiagnostic(value.diagnostic);
@@ -619,6 +671,27 @@ async function receiveBridgeMessage(
     path:
       typeof value.path === "string" ? value.path.slice(0, 2_000) : undefined,
     diagnostic,
+    ...(pick !== undefined ? { pick } : {}),
+  };
+}
+
+/** A pick as the bridge sent it, bounded; null when picking was cancelled. */
+function previewPick(value: unknown, path: unknown): PreviewPick | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const box = item.box as Record<string, unknown> | undefined;
+  const number = (field: unknown) => typeof field === "number" && Number.isFinite(field) ? Math.round(field) : undefined;
+  const x = number(box?.x), y = number(box?.y), width = number(box?.width), height = number(box?.height);
+  if (typeof item.tag !== "string" || !/^[a-z][a-z0-9-]{0,40}$/.test(item.tag) || typeof item.selector !== "string" || !item.selector
+    || x === undefined || y === undefined || width === undefined || height === undefined) return undefined;
+  const text = typeof item.text === "string" ? item.text.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  return {
+    tag: item.tag,
+    ...(text ? { text } : {}),
+    selector: item.selector.slice(0, 500),
+    box: { x, y, width, height },
+    path: typeof path === "string" ? previewPagePath(path.slice(0, 2_000)) : "/",
   };
 }
 
@@ -635,7 +708,7 @@ function incomingUrlClient(
   return client && /^[a-zA-Z0-9-]{1,100}$/.test(client) ? client : undefined;
 }
 
-function previewBridgeScript(
+export function previewBridgeScript(
   documentId: number,
   context?: { client: string; source: PreviewPageSource },
 ): string {
@@ -693,14 +766,106 @@ window.addEventListener('pageshow', () => { void send({ type: 'resume' }).then(c
 window.addEventListener('pagehide', () => navigator.sendBeacon(endpoint, JSON.stringify({ type: 'close' })));
 setInterval(() => send({ type: 'heartbeat' }), 20_000);
 send({ type: 'heartbeat' });
+// Picking: the next click names an element for the agent instead of reaching the game.
+let picking = false;
+let outline;
+const pickTarget = (event) => {
+  const target = event.composedPath ? event.composedPath()[0] : event.target;
+  return target instanceof Element && target !== document.documentElement && target !== document.body ? target : undefined;
+};
+const selectorOf = (element) => {
+  const parts = [];
+  for (let node = element; node && node !== document.documentElement && parts.length < 5; node = node.parentElement) {
+    if (node.id) { parts.unshift('#' + CSS.escape(node.id)); break; }
+    let part = node.tagName.toLowerCase();
+    const classes = [...node.classList].slice(0, 2);
+    if (classes.length) part += classes.map((name) => '.' + CSS.escape(name)).join('');
+    const siblings = node.parentElement ? [...node.parentElement.children].filter((child) => child.tagName === node.tagName) : [];
+    if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')';
+    parts.unshift(part);
+  }
+  return parts.join(' > ');
+};
+const describe = (element) => {
+  const bounds = element.getBoundingClientRect();
+  const label = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || element.textContent || '';
+  return { tag: element.tagName.toLowerCase(), text: label.replace(/\\s+/g, ' ').trim().slice(0, 120), selector: selectorOf(element), box: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
+};
+const showOutline = (element) => {
+  if (!outline) {
+    outline = document.createElement('div');
+    outline.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #7c8cff;border-radius:3px;background:rgba(124,140,255,.12);transition:all 60ms ease-out';
+  }
+  if (!element) { outline.remove(); return; }
+  const bounds = element.getBoundingClientRect();
+  Object.assign(outline.style, { left: bounds.x - 2 + 'px', top: bounds.y - 2 + 'px', width: bounds.width + 4 + 'px', height: bounds.height + 4 + 'px' });
+  if (!outline.isConnected) document.documentElement.append(outline);
+};
+const swallow = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
+const onPickOver = (event) => showOutline(pickTarget(event));
+const onPickClick = (event) => {
+  swallow(event);
+  const target = pickTarget(event);
+  setPicking(false);
+  send({ type: 'pick', pick: target ? describe(target) : null });
+};
+const onPickKey = (event) => {
+  if (event.key !== 'Escape') return;
+  swallow(event);
+  setPicking(false);
+  send({ type: 'pick', pick: null });
+};
+const blocked = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'contextmenu'];
+const setPicking = (active) => {
+  if (active === picking) return;
+  picking = active;
+  const method = active ? 'addEventListener' : 'removeEventListener';
+  window[method]('pointermove', onPickOver, true);
+  window[method]('click', onPickClick, true);
+  window[method]('keydown', onPickKey, true);
+  for (const type of blocked) window[method](type, swallow, true);
+  document.documentElement.style.cursor = active ? 'crosshair' : '';
+  if (!active) showOutline(undefined);
+};
+// The game's own setter, which may appear long after the page loads or be
+// replaced when the game restarts itself. Only ids and values reach it.
+const tuningWanted = new Map();
+let tuningApplied = new Map();
+let tuningGame;
+let tuningSetter;
+let tuningReported = false;
+let tuningTimer;
+const applyTuning = () => {
+  const game = window.__OHMYGAME_TUNING__;
+  if (!game || typeof game.set !== 'function') return;
+  if (game !== tuningGame || game.set !== tuningSetter) { tuningGame = game; tuningSetter = game.set; tuningApplied = new Map(); }
+  if (!tuningReported) { tuningReported = true; send({ type: 'tuning' }); }
+  for (const [id, value] of tuningWanted) {
+    if (tuningApplied.get(id) === value) continue;
+    tuningApplied.set(id, value);
+    try { game.set(id, value); } catch (error) {
+      send({ type: 'diagnostic', diagnostic: { kind: 'runtime', message: text(error) } });
+    }
+  }
+};
+const wantTuning = (values) => {
+  tuningWanted.clear();
+  for (const [id, value] of Object.entries(values)) tuningWanted.set(id, value);
+  applyTuning();
+  if (!tuningTimer && tuningWanted.size) tuningTimer = setInterval(applyTuning, 500);
+};
 let reloadEvents;
 const connectReload = () => {
   if (reloadEvents && reloadEvents.readyState !== EventSource.CLOSED) return;
   reloadEvents = new EventSource(endpoint + '&events=1');
+  // The daemon forgets who listens when the stream drops, so say it again.
+  reloadEvents.onopen = () => { tuningReported = false; };
   reloadEvents.onmessage = (event) => {
     const state = JSON.parse(event.data);
     if (revision !== undefined && revision !== state.reload) location.reload();
     revision = state.reload;
+    if (typeof state.pick === 'boolean') setPicking(state.pick);
+    if (state.tuning) wantTuning(state.tuning);
   };
 };
 connectReload();

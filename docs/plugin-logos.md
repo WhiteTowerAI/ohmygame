@@ -1,9 +1,9 @@
 # Plugin logos
 
 Product integrations use recognizable brand artwork in their own `assets/`
-directory. Each manifest points to that file with `interface.icon.type: asset`.
+directory. Each manifest points to that file with `icon`.
 Bundled workflow plugins can use their own artwork through the same contract.
-Generic capabilities continue to use Solar presets. The renderer does not map
+The renderer does not map
 engine names to special logo components.
 
 ## Resources and provenance
@@ -22,7 +22,10 @@ the upstream Three.js mark and retains its MIT license.
 
 Image to Three.js is a preinstalled third-party package from `img2threejs/img2threejs`,
 locked in `config/preinstalled-plugins.json`. Its build-only `assets` directory
-(`config/plugin-assets/img2threejs`) is copied into the prepared package's `assets/`.
+(`config/plugin-assets/img2threejs`) is copied into the package's `assets/`
+before `bun run prepare:preinstalled-plugins` makes it a plugin package
+(`packageSkills`). The app installs it as `ohmygame/img2threejs`, and the
+Plugins page shows it like the bundled plugins that only add Skills.
 These files participate in the preparation fingerprint and final archive checksum.
 Change the prepared release ID and checksum when shipping updated assets so existing
 installations receive them through the normal preinstalled-package update path.

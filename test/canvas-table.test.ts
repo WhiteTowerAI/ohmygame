@@ -141,6 +141,24 @@ describe("canvas tables", () => {
     expect(mergeCanvasTable(base, remote, local)).toEqual(merged);
   });
 
+  it("merges different edits in one row and keeps the result independent of both inputs", () => {
+    const base = createCanvasTable();
+    const local = structuredClone(base);
+    const remote = structuredClone(base);
+    const [name, value] = base.columns;
+    local.rows[0]!.cells[name!.id] = "Sword";
+    remote.rows[0]!.cells[value!.id] = "10";
+    local.rows[1]!.cells[name!.id] = "Shield";
+
+    const merged = mergeCanvasTable(base, local, remote)!;
+    expect(merged.rows[0]!.cells).toEqual({
+      [name!.id]: "Sword",
+      [value!.id]: "10",
+    });
+    merged.rows[1]!.cells[name!.id] = "Bow";
+    expect(local.rows[1]!.cells[name!.id]).toBe("Shield");
+  });
+
   it("keeps both concurrent insertions at their intended positions", () => {
     const base = createCanvasTable(),
       local = structuredClone(base),

@@ -4,6 +4,7 @@ import { pixelExampleImageUrl, pixelPresetExampleId } from "./asset-canvas-pixel
 import { pixelArtLevelOptions, pixelAssetTemplatePresetIds, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { t } from "./i18n.js";
+import { TemplateExampleImage } from "./template-example-cache.js";
 
 const LAST_LEVEL_KEY = "ohmygame.pixelTemplateLevel";
 
@@ -80,7 +81,7 @@ export function PixelTemplateDensityDialog({ category, returnFocus, onClose, onC
               return (
                 <label key={option.value} className="pixel-template-density-option">
                   <input type="radio" name="pixel-template-density" value={option.value} checked={level === option.value} onChange={() => setLevel(option.value)} />
-                  <span className="pixel-template-density-preview">{preview ? <img src={preview} alt="" /> : null}</span>
+                  <span className="pixel-template-density-preview">{preview ? <TemplateExampleImage src={preview} alt="" /> : null}</span>
                   <strong>{option.label}</strong>
                   <small>{option.description}</small>
                 </label>

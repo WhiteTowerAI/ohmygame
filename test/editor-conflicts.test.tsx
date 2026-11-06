@@ -8,8 +8,9 @@ import { ReactFlowProvider } from "@xyflow/react";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
 import type { Model3DOptions, ModelRef, ProjectState } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
+import type { CanvasBoardDetail, CanvasSyncScope, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
 import type { CanvasDocumentDetail } from "../src/shared/canvas-document.js";
+import { createCanvasTable, type CanvasTableDetail } from "../src/shared/canvas-table.js";
 import { desktopSave } from "../src/renderer/desktop-save.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID, tripoActions } from "../src/shared/model3d-operations.js";
@@ -25,6 +26,8 @@ type CanvasProps = Parameters<typeof EditorCanvas<FlowNode>>[0];
 const captured = { props: undefined as CanvasProps | undefined };
 let canvasFlush: (() => Promise<void>) | undefined;
 let canvasSync: (() => Promise<void>) | undefined;
+let canvasChanged: (scopes: CanvasSyncScope[]) => void;
+const changed = (scope: CanvasSyncScope) => act(async () => canvasChanged([scope]));
 const canvasStatus = vi.fn();
 const api = {
   model3DCatalog: vi.fn(),
@@ -33,6 +36,7 @@ const api = {
   balance: vi.fn(),
   getBoard: vi.fn<() => Promise<CanvasBoardDetail>>(),
   getWorkspace: vi.fn<() => Promise<CanvasWorkspaceDetail>>(),
+  getTable: vi.fn<(projectId: string, tableId: string) => Promise<CanvasTableDetail>>(),
   saveDocument: vi.fn<(projectId: string, detail: CanvasDocumentDetail, id?: string) => Promise<CanvasDocumentDetail>>(),
   saveBoard:
     vi.fn<
@@ -69,6 +73,7 @@ vi.doMock(
 );
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
+  streamSnapshots: async (_path: string, _signal: AbortSignal, notify: typeof canvasChanged) => { canvasChanged = notify; },
   listImageModelCatalog: async () => ({ models: [], providers: [] }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
   listModel3DCatalog: api.model3DCatalog,
@@ -90,6 +95,7 @@ vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/canvas-api.js")>()),
   getCanvasBoard: api.getBoard,
   getCanvasWorkspace: api.getWorkspace,
+  getCanvasTable: api.getTable,
   saveCanvasDocument: api.saveDocument,
   saveCanvasBoard: api.saveBoard,
   listCanvasJobs: async () => [],
@@ -109,6 +115,9 @@ const { CanvasWorkspace } = await import("../src/renderer/canvas-workspace.js");
 const { useCanvasDocuments } = await import("../src/renderer/use-canvas-documents.js");
 let currentDocs: ReturnType<typeof useCanvasDocuments>;
 function DocumentHarness() { currentDocs = useCanvasDocuments("p"); return null; }
+const { useCanvasTables } = await import("../src/renderer/use-canvas-tables.js");
+let currentTables: ReturnType<typeof useCanvasTables>;
+function TableHarness() { const docs = useCanvasDocuments("p"); currentTables = useCanvasTables("p", docs.workspace); return null; }
 const { PlayableEditorWorkspace } =
   await import("../src/renderer/playable-editor-workspace.js");
 const { ApiError } = await import("../src/renderer/api.js");
@@ -200,7 +209,9 @@ it("pauses Canvas polling while the window is hidden and syncs as soon as it ret
   await advance(400);
   const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
   const reads = api.getBoard.mock.calls.length, workspaces = api.getWorkspace.mock.calls.length;
-  await advance(9000);
+  await changed("board");
+  await changed("workspace");
+  await advance(60_000);
   expect(api.getBoard).toHaveBeenCalledTimes(reads);
   expect(api.getWorkspace).toHaveBeenCalledTimes(workspaces);
   hidden.mockReturnValue(false);
@@ -209,6 +220,130 @@ it("pauses Canvas polling while the window is hidden and syncs as soon as it ret
   expect(api.getBoard.mock.calls.length).toBeGreaterThan(reads);
   expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(workspaces);
   hidden.mockRestore();
+});
+
+it("recovers a draft on a hidden window's first load, then waits until visible", async () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+  try {
+    const original = { id: "rules", title: "Rules", markdown: "Original" };
+    localStorage.setItem("canvas-documents:p", JSON.stringify([{ base: { document: original, revision: "initial" }, local: { ...original, markdown: "Offline draft" } }]));
+    workspaceDisk.documents[0]!.markdown = "External rewrite";
+    await act(async () => root.render(<DocumentHarness />));
+    expect(currentDocs.conflict?.local.markdown).toBe("Offline draft");
+    expect(currentDocs.conflict?.remote.document.markdown).toBe("External rewrite");
+    await changed("workspace");
+    await advance(60_000);
+    expect(api.getWorkspace).toHaveBeenCalledTimes(1);
+  } finally { hidden.mockRestore(); }
+});
+
+it("keeps the same documents state when a poll finds nothing new", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  const loaded = currentDocs.workspace;
+  const reads = api.getWorkspace.mock.calls.length;
+  await advance(59_999);
+  expect(api.getWorkspace).toHaveBeenCalledTimes(reads);
+  await advance(1);
+  expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(reads);
+  expect(currentDocs.workspace).toBe(loaded);
+  workspaceDisk.documents[0]!.markdown = "Changed on disk";
+  await changed("workspace");
+  expect(currentDocs.workspace?.documents[0]?.markdown).toBe("Changed on disk");
+});
+
+it("reads again after a batch arrives during a workspace read without overwriting a local draft", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await act(async () => currentDocs.update("rules", { markdown: "Local draft" }));
+  const before = structuredClone(workspaceDisk);
+  let finish!: (snapshot: CanvasWorkspaceDetail) => void;
+  api.getWorkspace.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await changed("workspace");
+  const reads = api.getWorkspace.mock.calls.length;
+  workspaceDisk.documents[0]!.title = "Final external title";
+  await act(async () => {
+    for (let i = 0; i < 20; i++) canvasChanged(["workspace"]);
+    expect(api.getWorkspace).toHaveBeenCalledTimes(reads);
+    finish(before);
+  });
+  expect(api.getWorkspace).toHaveBeenCalledTimes(reads + 1);
+  expect(currentDocs.workspace?.documents[0]).toMatchObject({ title: "Final external title", markdown: "Local draft" });
+});
+
+it("keeps the draft while later writes update the remote choice in an open conflict", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await act(async () => currentDocs.update("rules", { markdown: "Local draft" }));
+  for (const revision of ["first", "latest"]) {
+    Object.assign(workspaceDisk.documents[0]!, { markdown: revision, revision });
+    await changed("workspace");
+    expect(currentDocs.conflict?.remote.document.markdown).toBe(revision);
+    expect(currentDocs.conflict?.local.markdown).toBe("Local draft");
+  }
+  await act(async () => currentDocs.resolve("remote"));
+  expect(currentDocs.workspace?.documents[0]?.markdown).toBe("latest");
+  expect(api.saveDocument).not.toHaveBeenCalled();
+});
+
+it("applies a disk notification after a pending save and merges subsequent typing", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await act(async () => currentDocs.update("rules", { markdown: "Submitted" }));
+  let finish!: (saved: CanvasDocumentDetail) => void;
+  api.saveDocument.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await advance(600);
+  const reads = api.getWorkspace.mock.calls.length;
+  await changed("workspace");
+  expect(api.getWorkspace).toHaveBeenCalledTimes(reads);
+  Object.assign(workspaceDisk.documents[0]!, { markdown: "Submitted", title: "External title", revision: "external" });
+  // The save response describes the instant before the external rename.
+  await act(async () => finish({ document: { id: "rules", title: "Rules", markdown: "Submitted" }, revision: "saved" }));
+  await act(async () => currentDocs.update("rules", { markdown: "More typing" }));
+  expect(currentDocs.workspace?.documents[0]).toMatchObject({ title: "External title", markdown: "More typing" });
+});
+
+it("retries a failed document save even when later polls find nothing new", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  api.saveDocument.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await act(async () => currentDocs.update("rules", { markdown: "Edited" }));
+  await advance(600);
+  expect(currentDocs.error).toBe("Failed to fetch");
+  await advance(3000);
+  expect(currentDocs.error).toBeUndefined();
+  expect(api.saveDocument).toHaveBeenLastCalledWith("p", expect.objectContaining({ document: expect.objectContaining({ markdown: "Edited" }) }), "rules", expect.anything());
+});
+
+it("waits for a slow retried save before retrying again, and stops after unmount", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  api.saveDocument.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await act(async () => currentDocs.update("rules", { markdown: "Edited" }));
+  await advance(600);
+  let settle!: (cause: Error) => void;
+  api.saveDocument.mockImplementationOnce(() => new Promise((_resolve, reject) => { settle = reject; }));
+  await advance(3000);
+  const pending = api.saveDocument.mock.calls.length;
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await act(async () => settle(new TypeError("Failed to fetch")));
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+});
+
+it("retries a table whose re-read failed even when later polls find nothing new", async () => {
+  const table = createCanvasTable("Items", "items");
+  workspaceDisk.tables = [{ ...table, revision: "a", source: "canvas/tables/items.json" }];
+  await act(async () => root.render(<TableHarness />));
+  await advance(0);
+  workspaceDisk.tables = [{ ...table, title: "External edit", revision: "b", source: "canvas/tables/items.json" }];
+  api.getTable.mockRejectedValueOnce(new Error("Offline"));
+  await changed("workspace");
+  expect(currentTables.sessions.get("items")?.issue).toBe("Offline");
+  api.getTable.mockResolvedValue({ table: { ...table, title: "External edit" }, revision: "b" });
+  await advance(6000);
+  expect(currentTables.sessions.get("items")?.issue).toBeUndefined();
+  expect(currentTables.sessions.get("items")?.local.title).toBe("External edit");
 });
 
 it("does not claim a successful flush when a document draft has lost its workspace file", async () => {
@@ -225,7 +360,7 @@ it("shows failed sync retries once and lets Dismiss remove them", async () => {
   await act(async () => root.render(<CanvasWorkspace project={{ id: "p", type: "asset-canvas" } as ProjectState} />));
   await advance(400);
   api.getBoard.mockRejectedValue(new TypeError("Failed to fetch"));
-  await advance(2500);
+  await changed("board");
   expect(container.textContent).toContain("Sync paused");
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Retry canvas sync"]')!.click());
   expect(container.querySelectorAll(".design-notice")).toHaveLength(1);
@@ -443,11 +578,9 @@ async function openStory(workspaceRevision = 0) {
     root.render(
       <PlayableEditorWorkspace
         project={{ id: "p", type: "interactive-story" } as ProjectState}
-        agentBusy={false}
         publishing={false}
         workspaceRevision={workspaceRevision}
         onPublish={async () => false}
-        onOpenPublish={() => {}}
         onClosePublish={() => {}}
       />,
     ),
@@ -501,7 +634,7 @@ it.each(["web-game", "asset-canvas"] as const)(
     await advance(400);
     boardDisk.board.nodes[0]!.title = "Agent title";
     boardDisk.revision = "agent-edit";
-    await advance(2100);
+    await changed("board");
     expect(captured.props!.nodes[0]!.title).toBe("Agent title");
     await advance(400);
     await undo();
@@ -524,7 +657,7 @@ it("can flush an already saved canvas after a failed background sync without sho
   await advance(400);
   const writes = api.saveBoard.mock.calls.length;
   api.getBoard.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-  await advance(2100);
+  await changed("board");
   expect(canvasStatus).toHaveBeenLastCalledWith("sync-error");
   expect(container.querySelector(".story-save-notice")).toBeNull();
   await act(async () => canvasFlush!());
@@ -547,7 +680,7 @@ it("retries a failed save and keeps the save status after dismissing its notice"
   expect(canvasStatus).toHaveBeenLastCalledWith("error");
   expect(container.textContent).toContain("Could not save canvas");
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss notice"]')!.click());
-  await advance(2100);
+  await changed("board");
   expect(container.querySelector(".story-save-notice")).toBeNull();
   expect(canvasStatus).toHaveBeenLastCalledWith("error");
   await act(async () => canvasFlush!());

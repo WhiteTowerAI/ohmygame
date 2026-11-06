@@ -2,20 +2,12 @@ import { BrowserWindow, nativeTheme, screen, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
+import { pluginFrameNavigationAllowed } from "../shared/plugin-ui-protocol.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
 const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
-
-export function windowsTitleBarOverlay(isDark: boolean) {
-  return {
-    // Let the renderer's title bar (including modal backdrops) show through.
-    color: "#00000000",
-    symbolColor: isDark ? "#ffffff" : "#202020",
-    height: 32,
-  };
-}
 
 interface CreateWindowOptions {
   runtime: DaemonRuntime;
@@ -24,8 +16,8 @@ interface CreateWindowOptions {
   rendererFile?: string;
   rendererHash?: string;
   sidebarVibrancy?: boolean;
-  /** Hosts the application menu in a single custom Windows title bar. */
-  integratedMenuBar?: boolean;
+  /** Draws the window's controls in the app on Windows, in place of a native title bar. */
+  integratedWindowControls?: boolean;
   contentSize?: { width: number; height: number };
   aspectRatio?: number;
   /** Keeps window controls and dragging outside the game surface. */
@@ -88,11 +80,8 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
           visualEffectState: "active" as const,
         } : {}),
       }
-    : process.platform === "win32" && options.integratedMenuBar
-      ? {
-          titleBarStyle: "hidden" as const,
-          titleBarOverlay: windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors),
-        }
+    : process.platform === "win32" && options.integratedWindowControls
+      ? { titleBarStyle: "hidden" as const }
     : {};
   const window = new BrowserWindow({
     icon: path.resolve(repositoryRoot, "build/icon.ico"),
@@ -133,6 +122,13 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
+  // A plugin page's frame stays within its own plugin's files.
+  const pluginUiUrl = options.runtime.pluginUiUrl;
+  if (pluginUiUrl)
+    window.webContents.on("will-frame-navigate", (event) => {
+      if (event.isMainFrame || !event.frame) return;
+      if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
+    });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);

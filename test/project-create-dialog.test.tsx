@@ -1,26 +1,454 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { ProjectCreateDialog } from "../src/renderer/project-create-dialog.js";
-import { GAME_PROJECT_TYPES } from "../src/renderer/project-types.js";
+// @vitest-environment happy-dom
+import path from "node:path";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  ConversationCapabilities,
+  ProjectState,
+} from "../src/shared/contracts.js";
 
-describe("project create dialog", () => {
-  it("creates blank Interactive Story projects without asking for a canvas format", () => {
-    const html = renderToStaticMarkup(<ProjectCreateDialog fixedType="interactive-story" onClose={() => undefined} onCreated={() => undefined} />);
-    // Examples are played and remixed from Explore, not chosen here.
-    expect(html).not.toContain("Sample project");
-    expect(html).not.toContain("Start from");
-    // New stories are 16:9; the format is changed in the project's settings.
-    expect(html).not.toContain("Canvas format");
-    expect(html).not.toContain("Portrait");
+const created: ProjectState = {
+  id: "maze",
+  name: "Untitled project",
+  type: "godot-game",
+  updatedAt: "2026-10-29T00:00:00Z",
+  workspacePath: "/tmp/maze",
+  preview: { status: "waiting" },
+};
+let capabilities: ConversationCapabilities = { plugins: [], skills: [] };
+const createProject = vi.fn(async () => created);
+const createConversation = vi.fn(async () => ({ id: "first" }));
+const getHomeComposerCapabilities = vi.fn(async () => capabilities);
+// Godot's type is the app's own, so only the other plugin type is added to the menu.
+const listProjectTypes = vi.fn(async () => [
+  { id: "general", title: "General" },
+  { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
+  { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
+]);
+const tilesAsking = [{ id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" }, asks: ["processes:tiled"] }];
+const consentToPlugin = vi.fn(async () => {});
+const setProjectPlugin = vi.fn(async () => {});
+const getProjectLocation = vi.fn(async (): Promise<{ location?: string; storage?: string }> => ({ storage: "/data/projects" }));
+vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
+  ...(await original<typeof import("../src/renderer/api.js")>()),
+  getHomeComposerCapabilities,
+  listProjectTypes,
+  waitForRuntime: async () => undefined,
+  consentToPlugin,
+  setProjectPlugin,
+  createProject,
+  createConversation,
+  getProjectLocation,
+}));
+const { ProjectCreateDialog } =
+  await import("../src/renderer/project-create-dialog.js");
+
+const godot = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
+const godotPlugin = {
+  id: "ohmygame/godot",
+  ...godot,
+  description: "",
+  marketplaceDisplayName: "OhMyGame",
+  projectTypes: ["general", "godot-game"] as const,
+  appliesTo: ["general", "ohmygame/godot:godot-game"],
+};
+const godotMessage = {
+  prompt: "@Godot Make a maze",
+  mentions: [godot],
+  attachments: [],
+  mode: "normal" as const,
+};
+let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  capabilities = { plugins: [], skills: [] };
+  createProject.mockClear();
+  createConversation.mockClear();
+  consentToPlugin.mockClear();
+  setProjectPlugin.mockClear();
+  getHomeComposerCapabilities.mockClear();
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});
+
+const typeSelect = () =>
+  document.querySelector<HTMLButtonElement>(
+    '[role="dialog"] [aria-label="Type"]',
+  )!;
+async function typeOptions(): Promise<string[]> {
+  await act(async () => typeSelect().click());
+  // Each option's name, without the line on what the type is for.
+  const options = [...document.querySelectorAll('[role="option"] .ui-option-text > span')].map(
+    (option) => option.textContent ?? "",
+  );
+  await act(async () => typeSelect().click());
+  return options;
+}
+function button(text: string): HTMLButtonElement {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+  ].find((element) => element.textContent === text)!;
+}
+
+describe("new project dialog", () => {
+  it("offers every project type, Asset Canvas included, and asks only for name, type and folder", async () => {
+    await act(async () =>
+      root.render(
+        <ProjectCreateDialog onClose={() => {}} onCreated={() => {}} />,
+      ),
+    );
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(await typeOptions()).toEqual([
+      "Web Game",
+      "Interactive Story",
+      "Asset Canvas",
+      "Godot",
+      "General Game",
+      "Tile Map",
+      "More types…",
+    ]);
+    const dialog = document.querySelector('[role="dialog"]')!.textContent;
+    // Examples are played and remixed from Explore, and a story's format is set in its settings.
+    expect(dialog).not.toContain("Start from");
+    expect(dialog).not.toContain("Canvas format");
+    expect(dialog).not.toContain("First message");
+    expect(button("Create")).toBeDefined();
   });
 
-  it("does not show Interactive Story templates for other project types", () => {
-    const html = renderToStaticMarkup(<ProjectCreateDialog fixedType="web-game" onClose={() => undefined} onCreated={() => undefined} />);
-    expect(html).not.toContain("Last Train Home");
+  it("starts the project with the prompt as its first message, in a type its plugin supports", async () => {
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    const onCreated = vi.fn();
+    await act(async () =>
+      root.render(
+        <ProjectCreateDialog
+          firstMessage={{
+            prompt: "@Godot Make a maze",
+            mentions: [godot],
+            attachments: [],
+            mode: "planning",
+          }}
+          onClose={() => {}}
+          onCreated={onCreated}
+        />,
+      ),
+    );
+    expect(
+      document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!
+        .value,
+    ).toBe("@Godot Make a maze");
+    // The name comes from the first message unless one is typed.
+    expect(
+      document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+        .placeholder,
+    ).toBe("Named from the first message");
+    expect(typeSelect().textContent).toBe("Godot");
+    // Only the types it works in; a plugin's type is a General project, so it works there too.
+    expect(await typeOptions()).toEqual(["Godot", "General Game", "Tile Map", "More types…"]);
+
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+    expect(createConversation).toHaveBeenCalledWith("maze");
+    expect(onCreated).toHaveBeenCalledWith(created, {
+      conversationId: "first",
+      prompt: "@Godot Make a maze",
+      mentions: [godot],
+      mode: "planning",
+      attachments: [],
+    });
   });
 
-  it("can omit Asset Canvas from the home dialog", () => {
-    const html = renderToStaticMarkup(<ProjectCreateDialog projectTypes={GAME_PROJECT_TYPES} onClose={() => undefined} onCreated={() => undefined} />);
-    expect(html).not.toContain("Asset Canvas");
+  it("creates the type chosen on Home, a plugin's included, and turns on the plugins mentioned that are off", async () => {
+    const onCreated = vi.fn();
+    const plugin = (name: string, more: object) => ({ id: `acme/${name}`, name, displayName: name, marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", off: true as const, ...more });
+    const tools = plugin("tools", { asks: ["network:tools.example.com"] });
+    const notes = plugin("notes", {});
+    // One for General projects also works in a plugin's type, which is a General project.
+    const general = plugin("general", { appliesTo: ["general"] });
+    capabilities = { plugins: [tools, notes, general], skills: [] };
+    const mentions = [tools, notes, general].map(({ name, displayName, marketplaceId }) => ({ name, displayName, marketplaceId }));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@tools @notes @general Make a map", mentions, attachments: [], mode: "normal", type: "acme/tiles:map", turnOn: [tools] }}
+        onClose={() => {}} onCreated={onCreated} />,
+    ));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    // What the person allowed on Home is granted now; the type's own plugin is on already.
+    expect(consentToPlugin.mock.calls).toEqual([["acme/tools", ["network:tools.example.com"]]]);
+    expect(setProjectPlugin.mock.calls).toEqual([["maze", "acme/tools", true], ["maze", "acme/notes", true], ["maze", "acme/general", true]]);
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("turns on what the prompt and type are when creating, asking here for what Home didn't", async () => {
+    // A prompt from history mentions a Web game plugin while Home is on General.
+    const web = { id: "acme/web", name: "web", displayName: "Web Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", appliesTo: ["web-game"], off: true as const, asks: ["network:web.example.com"] };
+    capabilities = { plugins: [web], skills: [] };
+    const mention = { name: "web", displayName: "Web Tools", marketplaceId: "acme" };
+    await act(async () => root.render(
+      <ProjectCreateDialog direct firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "general" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // The type follows the plugin, so the dialog shows what creating allows.
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("network:web.example.com");
+    expect(createProject).not.toHaveBeenCalled();
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/web", ["network:web.example.com"]);
+    expect(setProjectPlugin).toHaveBeenCalledWith("maze", "acme/web", true);
+
+    // Taking the mention out of the prompt leaves the plugin off.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    consentToPlugin.mockClear();
+    setProjectPlugin.mockClear();
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [web] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    const textarea = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Make a maze");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalled();
+    expect(setProjectPlugin).not.toHaveBeenCalled();
+    expect(consentToPlugin).not.toHaveBeenCalled();
+  });
+
+  it("asks again for what a plugin wants beyond what Home allowed", async () => {
+    // Home allowed one thing; the plugin, updated since, asks for more.
+    const tools = { id: "acme/tools", name: "tools", displayName: "Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", off: true as const, asks: ["native", "processes:python"] };
+    capabilities = { plugins: [tools], skills: [] };
+    const mention = { name: "tools", displayName: "Tools", marketplaceId: "acme" };
+    await act(async () => root.render(
+      <ProjectCreateDialog direct firstMessage={{ prompt: "@Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [{ ...tools, asks: ["native"] }] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:python");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
+  it("creates a plugin's type that the only plugins mentioned work in", async () => {
+    const helper = { id: "acme/maps", name: "maps", displayName: "Maps", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", appliesTo: ["acme/tiles:map"] };
+    capabilities = { plugins: [helper], skills: [] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@Maps Make a map", mentions: [{ name: "maps", displayName: "Maps", marketplaceId: "acme" }], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
+    let types!: (value: Awaited<ReturnType<typeof listProjectTypes>>) => void;
+    listProjectTypes.mockImplementationOnce(() => new Promise((resolve) => { types = resolve; }));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Home's plugin type is not in the menu yet, so creating would make another type.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => types(tilesAsking));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["processes:tiled"]);
+    expect(consentToPlugin.mock.invocationCallOrder[0]!).toBeLessThan(createProject.mock.invocationCallOrder[0]!);
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("creates at once when asked to, and shows itself only for what the person must allow", async () => {
+    const onCreated = vi.fn();
+    const message = { prompt: "Make a map", mentions: [], attachments: [], mode: "normal" as const, type: "acme/tiles:map" };
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={onCreated} />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    expect(onCreated).toHaveBeenCalled();
+
+    // A type's plugin that asks for access waits for the person.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    createProject.mockClear();
+    listProjectTypes.mockResolvedValueOnce(tilesAsking);
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    expect(createProject).not.toHaveBeenCalled();
+
+    // A type that is gone is not swapped for another without asking.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    listProjectTypes.mockResolvedValueOnce([]);
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(createProject).not.toHaveBeenCalled();
+
+    // Leaving while it is created does not pull the person back to it.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    const left = vi.fn();
+    let made!: (project: ProjectState) => void;
+    createProject.mockImplementationOnce(() => new Promise((resolve) => { made = resolve; }));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, type: "web-game" }} onClose={() => {}} onCreated={left} />));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => made(created));
+    expect(left).not.toHaveBeenCalled();
+    createProject.mockClear();
+
+    // Nor does it wait unseen when the types fail to load, even when a mention leaves plugins' types out.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, prompt: "@Godot Make a map", mentions: [godot] }} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Retry");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
+  it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Creating would make another type than Home's.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Retry").click());
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).not.toHaveBeenCalled();
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("waits for what a type's plugin asks for, with a retry when that fails to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(tilesAsking);
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Retry").click());
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    expect(button("Create and start").disabled).toBe(false);
+  });
+
+  it("creates an app type chosen here even when plugins' types failed to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => typeSelect().click());
+    const web = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.startsWith("Web Game"))!;
+    await act(async () => web.click());
+    expect(button("Create and start").disabled).toBe(false);
+    // Plugins' types stay one retry away while an app type is chosen.
+    expect(button("Retry")).toBeDefined();
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
+  });
+
+  it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes], off: true }], skills: [] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@Godot Make a maze", mentions: [godot], attachments: [], mode: "normal", type: "godot-game" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+    expect(setProjectPlugin).toHaveBeenCalledWith("maze", "ohmygame/godot", true);
+  });
+
+  it("leaves for the plugins that add project types from More types…", async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<ProjectCreateDialog onClose={onClose} onCreated={() => {}} />));
+    await act(async () => typeSelect().click());
+    const more = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("More types…"))!;
+    await act(async () => more.click());
+    expect(onClose).toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/plugins?adds=projectType");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
+  it("waits for the plugins before creating, so the type follows the starting plugin", async () => {
+    let answer!: (value: ConversationCapabilities) => void;
+    getHomeComposerCapabilities.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    await act(async () =>
+      root.render(<ProjectCreateDialog firstMessage={godotMessage} onClose={() => {}} onCreated={() => {}} />),
+    );
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Create and start").click());
+    expect(createProject).not.toHaveBeenCalled();
+    await act(async () => answer({ plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] }));
+    expect(button("Create and start").disabled).toBe(false);
+    // A second click while the first is still creating does nothing.
+    await act(async () => {
+      button("Create and start").click();
+      button("Create and start").click();
+    });
+    expect(createProject).toHaveBeenCalledTimes(1);
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+  });
+
+  it("offers a retry when the plugins fail to load", async () => {
+    getHomeComposerCapabilities.mockRejectedValueOnce(new Error("offline"));
+    await act(async () =>
+      root.render(<ProjectCreateDialog firstMessage={godotMessage} onClose={() => {}} onCreated={() => {}} />),
+    );
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain("Couldn't load plugins");
+    expect(button("Create and start").disabled).toBe(true);
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    await act(async () => button("Retry").click());
+    expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+    expect(typeSelect().textContent).toBe("Godot");
+    expect(button("Create and start").disabled).toBe(false);
+  });
+
+  it("shows where the project's folder goes as text: the default location by name, or the folder set or chosen", async () => {
+    const location = () => document.querySelector('[role="dialog"] output');
+    const hint = () => document.querySelector('[role="dialog"] .new-project-location')?.closest(".ui-field")?.textContent;
+    const render = () => act(async () => root.render(<ProjectCreateDialog key={crypto.randomUUID()} onClose={() => {}} onCreated={() => {}} />));
+    await render();
+    expect(location()?.textContent).toBe("Default location");
+    expect(location()?.getAttribute("title")).toBe("/data/projects");
+    expect(hint()).not.toContain("A new folder named after the project is made here.");
+    expect(document.querySelector('[role="dialog"] input[readonly]')).toBeNull();
+    getProjectLocation.mockResolvedValueOnce({ location: "/Users/me/Games", storage: "/data/projects" });
+    await render();
+    expect(location()?.textContent).toBe("/Users/me/Games");
+    expect(hint()).toContain("A new folder named after the project is made here.");
+  });
+
+  it("opens a blank project without a conversation", async () => {
+    const onCreated = vi.fn();
+    await act(async () =>
+      root.render(
+        <ProjectCreateDialog
+          initialType="interactive-story"
+          initialWorkspacePath="/Users/me/Games/story"
+          onClose={() => {}}
+          onCreated={onCreated}
+        />,
+      ),
+    );
+    expect(document.querySelector('[role="dialog"] output')?.textContent).toBe("/Users/me/Games/story");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("The project uses this folder as it is.");
+    await act(async () => button("Create").click());
+    expect(createProject).toHaveBeenCalledWith({
+      type: "interactive-story",
+      workspacePath: "/Users/me/Games/story",
+    });
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalledWith(created);
   });
 });

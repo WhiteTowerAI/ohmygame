@@ -2,24 +2,36 @@
 
 Design and Asset Canvas share a project directory the agent edits with its ordinary file tools.
 The canvas renders those files and autosaves user edits into the same sources.
+A workspace or board GET accepts an optional `knownRevision` from its previous
+response. When disk contents match, the daemon returns HTTP 204. A changed
+resource returns its current contents and revision, including external edits.
+
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-New Asset Canvas boards have three pixel-density groups. Home's Creative
-templates picker groups character, creature, animation, scene, terrain, object,
-and skin presets. Choosing a template first asks for one pixel density (the last
-choice is remembered), then creates a new canvas that keeps only that density's
-group, filled with the category's generators or workflow. Character outfits &
+New Asset Canvas boards start empty. Home's Asset templates section, below
+Explore, groups character, creature, animation, scene, terrain, object, and skin
+presets.
+Choosing a template first asks for one pixel density (the last choice is
+remembered), then creates a new canvas with one group for that density, filled
+with the category's generators or workflow. Character outfits &
 skins adds two image inputs and a linked output directly to the group, without a
 nested frame. Each new category template also adds an introduction above the group.
 It explains the intended game use of every output, including the distinction
 between static animation sheets that need frame splitting and storyboard panels.
 These text nodes use `pixel-asset-template:<category>` to render localized guidance;
 their saved text also preserves the introduction for file-based readers.
-The bottom-toolbar picker adds one generator outside those groups, with the
-density in its title; outfits & skins adds one standalone workflow frame.
+The bottom-toolbar picker adds one generator outside any density group, with
+the density in its title; outfits & skins adds one standalone workflow frame.
+
+Template example images are served from
+`https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled; covers
+stay in the app. The editor keeps a copy of each example it shows or uses on the
+device, so templates still open and generate from examples they have used before
+without a connection. An example never loaded before reports that it could not
+be loaded.
 
 Pixel density sets the prompt's logical design size and palette budget, then
 requires uniform nearest-neighbor enlargement. Coarse pixels use oversized
@@ -225,6 +237,14 @@ An unused registration for a missing file does not block the editor. Remove
 such a registration only after checking other boards and document links.
 `canvas_check` still reports missing files as diagnostics.
 
+While a canvas is open, the daemon watches `canvas/` and `assets/` and batches
+file notifications for 75 ms. Connected editors re-read the affected workspace,
+board or generation history. Reconnecting and returning to a visible window
+both reconcile current versions. A visible editor also checks every 60 seconds
+to catch missed notifications and changes to referenced files outside these
+directories. Each refresh uses the same draft and conflict handling as a manual
+sync.
+
 Loading, background synchronization and saving have separate recovery actions.
 An initial load failure can reload the canvas. A failed background read keeps
 the last valid board interactive and retries synchronization. A failed save
@@ -250,14 +270,18 @@ Three tools supplement ordinary file editing:
   preserving existing content. It is unavailable in planning mode.
 - `canvas_check` validates schemas, document/table references, asset paths and media
   types. It is read-only and available in planning mode.
-- `generate_canvas_media(boardId, nodeId)` executes the saved node settings
-  when generation is requested, including necessary media for a game-creation
-  request unless the user limits its scope. It shares canvas jobs, cancellation and
+- `generate_canvas_media(boardId, nodeIds)` executes the saved settings of up
+  to eight nodes when generation is requested, including necessary media for a
+  game-creation request unless the user limits its scope. Listed nodes generate
+  at once, except that a node using another listed node's output starts after
+  that output is saved; it is skipped if that node fails. It shares canvas jobs, cancellation and
   history, materializes output in the project, and writes the output ID back
   to the node. Changing a file does not start generation. When the node is
   already generating, for example after the user pressed Generate, the call
-  waits for that job instead of failing; stopping the agent then ends only its
-  wait and leaves that job running. When the node's current output came
+  waits for that job instead of failing. Stopping the agent ends only its wait:
+  a run already started finishes on the canvas, since the provider may already
+  be charging for it, and a listed node still waiting for another's output
+  does not start. When the node's current output came
   from identical resolved settings, it returns that output without another paid
   run; `regenerate: true` asks for a new variation. The canvas Generate button
   always starts a new run.
@@ -323,3 +347,39 @@ all connections, including connections within a copied selection. The originals
 stay in place. Releasing at the starting position cancels the copies; a completed
 drag is one board undo step. If the copies would exceed the 2,000-node limit,
 the editor rejects the drag and keeps the originals in place.
+
+## Connecting And Editing Nodes
+
+Canvas ports appear beside a node while it is hovered or is the only selected
+node, and when a port has keyboard focus. Each port keeps the same on-screen size
+at any zoom and has a larger pointer area than its icon. Connections end at the
+node's left and right edges, independently of the outside port icons. Drag from
+either an input or an output to connect compatible nodes. Click a port, or focus
+it and press Enter or Space, to add a compatible context or continuation node.
+Creating that node also establishes its reference as one undo step; it does not
+start model generation.
+
+Choose **Pick from canvas** in a node's instruction editor, or in its input port
+menu, to select sources on the current board. Compatible nodes stay readable and
+show an outline on hover, linked references have a solid ink outline, the target
+has a dashed outline, and incompatible nodes fade. Clicking an existing
+reference removes it. The selection bar shows how many references are linked.
+**Return to node** brings the target back into view; **Done** or Escape ends
+selection and restores its panel. Connection type, duplicate and model-capacity
+checks also apply here.
+
+![Canvas reference selection with linked and pickable sources outlined](assets/canvas-reference-selection.png)
+
+Hover over a connection to highlight it; after a short pause, a scissors button
+appears. Clicking it removes the underlying reference. A selected connection
+also exposes this button, and Delete/Backspace and board undo/redo remain
+available. Running target nodes keep their inputs protected until generation
+finishes.
+
+Text instructions and media prompts have a wider editor centered below the node.
+Its corner holds **Pick from canvas** and **Expand prompt editor**, so neither
+adds a row above the prompt. The expanded editor retains references, model
+settings and generation controls. Escape returns to the canvas and restores
+focus. Prompt keyboard shortcuts and input-method composition behave the same in
+both views; video reference suggestions handle Enter and Escape before the
+editor does.

@@ -7,7 +7,7 @@ provider-neutral text and output settings.
 
 ## Providers and connection settings
 
-**Settings → Providers & Models** lists **Doubao Speech** and **Doubao Seed Audio**
+**Settings → Providers** lists **Doubao Speech** and **Doubao Seed Audio**
 as separate providers. Each has its own API key, enable state, preview, model
 list and deletion action. Speech also has a default voice setting. Saving or
 removing one service does not change the other.

@@ -42,6 +42,7 @@ Read only the specialist skills needed for the request:
 - 2D sprite generation and normalization: `../sprite-pipeline/SKILL.md`
 - GLB or glTF preparation and optimization: `../web-3d-asset-pipeline/SKILL.md`
 - Browser smoke tests, gameplay regression checks, or visual QA: `../game-playtest/SKILL.md`
+- Sliders that change the game's feel while it runs: `../game-tuning/SKILL.md`
 
 When the request already has one clear domain, use that specialist directly. For mixed work, keep one plan and one definition of done across all specialists.
 

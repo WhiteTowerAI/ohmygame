@@ -9,8 +9,8 @@ describe("PlanApprovalCard", () => {
     );
 
     expect(html).toContain("Implement this plan?");
-    expect(html).toContain("Yes, implement this plan");
-    expect(html).toContain("No, and tell OhMyGame what to do differently");
-    expect(html).toContain("Skip");
+    expect(html).toContain("Approve and run");
+    expect(html).toContain("Revise plan");
+    expect(html).toContain("Cancel plan");
   });
 });

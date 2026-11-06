@@ -1,22 +1,26 @@
 {
-  "name": "douyin-minigame",
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/douyin-minigame",
   "version": "0.1.0",
-  "enabledByDefault": false,
-  "description": "Adapt game projects for Douyin Mini Games and verify developer-tool and device previews.",
-  "skills": "./skills/",
-  "interface": {
-    "beta": true,
-    "displayName": "Douyin Mini Games",
-    "shortDescription": "Adapt, preview, and check Douyin mini-game builds.",
-    "longDescription": "Package games through the engine's Douyin route, check platform configuration, and verify developer-tool and device previews. Requires Douyin's game developer tool and an authorized game account for remote operations. Uploads happen only on request.",
-    "icon": {
-      "type": "asset",
-      "path": "./assets/icon.png"
-    },
-    "defaultPrompt": [
-      "Check this project's Douyin Mini Game integration and local prerequisites.",
-      "Build this game for Douyin and prepare a device preview without uploading a test version."
-    ],
-    "projectTypes": ["general"]
+  "engines": {
+    "ohmygame-api": "^2.0.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": [
+    "%example.1%",
+    "%example.2%"
+  ],
+  "beta": true,
+  "icon": "./assets/icon.png",
+  "categories": [
+    "publishing"
+  ],
+  "appliesTo": [
+    "general"
+  ],
+  "contributes": {
+    "skills": "./skills/"
   }
 }

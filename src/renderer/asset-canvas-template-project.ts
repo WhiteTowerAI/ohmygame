@@ -15,6 +15,7 @@ import {
 import { pixelPresetGifExampleId, pixelTemplateReferenceExampleId } from "./asset-canvas-pixel-examples.js";
 import { createProject, deleteProject, listImageModels } from "./api.js";
 import { getCanvasBoard, getCanvasWorkspace, saveCanvasBoard } from "./canvas-api.js";
+import { createPixelLevelGroup } from "../shared/canvas-workspace.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { t } from "./i18n.js";
 
@@ -28,7 +29,7 @@ const GUIDE_ROW_HEIGHT = 50;
 const STEP_HEIGHT = 200;
 const STEP_GAP = 48;
 
-/** Builds one pixel-density group for the category; the new board's other density groups are removed. */
+/** Builds the category's workflow in one group for the chosen pixel density on the new project's board. */
 export async function createPixelAssetTemplateProject(category: PixelAssetTemplateCategory, level: PixelArtLevel): Promise<{ projectId: string; nodeId: string }> {
   const project = await createProject({ name: pixelAssetCategoryTemplateLabel(category, level), type: "asset-canvas" });
 
@@ -37,9 +38,9 @@ export async function createPixelAssetTemplateProject(category: PixelAssetTempla
     const entry = workspace.boards[0];
     if (!entry) throw new Error(t("assetCanvas.pixelPresets.templateCanvasUnavailable"));
     const detail = await getCanvasBoard(project.id, entry.id);
-    const group = detail.board.nodes.find((node) => node.type === "group" && node.data.pixelStyle === level);
-    if (!group) throw new Error(t("assetCanvas.pixelPresets.templateCanvasUnavailable"));
-    const kept = detail.board.nodes.filter((node) => node.type !== "group" || !node.data.pixelStyle || node.id === group.id);
+    // The project is new, so its board holds only this template: one group for the chosen density.
+    const group = createPixelLevelGroup(level);
+    const kept = [group];
 
     const workflow = createCategoryWorkflow(category, level, imageModels, group.id);
     const nodeId = workflow.outputNodeId;

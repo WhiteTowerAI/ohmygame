@@ -6,11 +6,10 @@ import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, Imag
 import type { Node } from "@xyflow/react";
 import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import type { AssetCanvasTemplate } from "./asset-canvas-templates.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
-import type { AudioAssetData, AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
 import { resolveModel3DConnection, resolveModel3D, DEFAULT_MODEL_3D_CONFIG, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -27,7 +26,6 @@ export const MEDIA_NODE_MAX_HEIGHT = 360;
 export const MEDIA_NODE_MIN_HEIGHT = 200;
 
 export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> & {
-  audioAsset?: AudioAssetData;
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
   panelOpen?: boolean;
@@ -149,7 +147,6 @@ export interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
 export type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating" | "error" | "onChange" | "onGenerate" | "onCancel">;
 
 export interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
-  template?: AssetCanvasTemplate;
   models: ImageModel[];
   providers: MediaProviderStatus[];
   onUploadSourceImage: (file: File) => void;
@@ -161,7 +158,6 @@ export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
 }
 
 export interface AudioNodeRuntime extends MediaNodeRuntime {
-  audio?: AudioAssetData;
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
 }
@@ -178,6 +174,8 @@ export interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
 
 export interface MediaReferenceView {
   assetId?: string;
+  /** Example image a connected template slot shows until it has an asset; generating uploads it. */
+  exampleUrl?: string;
   key: string;
   name: string;
   label: string;

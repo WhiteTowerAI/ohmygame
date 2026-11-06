@@ -7,46 +7,102 @@ on:
       - dev
       - main
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
+  ubuntu-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.19.0
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run changelog:check
       - run: bun run prepare:preinstalled-plugins
       - run: bun run typecheck
+      - run: bun run lint
+      # The page components' contract: up to date, and on a pull request no
+      # breaking change to a stable major since the branch it targets.
+      - name: Check the page components' contract
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            bun run plugin-ui:contract --check --base FETCH_HEAD
+          else
+            bun run plugin-ui:contract --check
+          fi
       - run: bun run test:ablation --dry-run
-      - run: bun run test
       - run: bun run build:renderer
       - run: bun run test:node-runtime
 
-  platforms:
+  platform-tests:
+    name: platform-tests (${{ matrix.os }}, ${{ matrix.shard }}/2)
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
+        shard: [1, 2]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-platform
+      - run: bun run test -- --shard=${{ matrix.shard }}/2 ${{ runner.os == 'Windows' && '--config=vitest.windows.config.ts' || '' }}
+
+  platform-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-platform
         with:
-          node-version: 22.19.0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: bun install --frozen-lockfile
-      - run: bun run prepare:preinstalled-plugins
+          seed-windows-dependencies: ${{ github.event_name == 'push' }}
       - run: bun run typecheck
-      - run: bun run test
       - run: bun run test:node-runtime
+      # test:node-runtime already built the host used by the recording check.
+      - run: bun run build:renderer
+      - run: node scripts/test-game-recording.mjs
+      # Loads plugins' panels in Electron, on this branch's page components and,
+      # on a pull request, the target branch's, for what is newly wrong.
+      - name: Load plugins' panels on the page components
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            bun run plugin-ui:regression --base FETCH_HEAD --out plugin-ui-regression
+          else
+            bun run plugin-ui:regression --out plugin-ui-regression
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: plugin-ui-regression-${{ matrix.os }}
+          path: plugin-ui-regression
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Keep the existing check status red if a build or test shard fails or skips.
+  check:
+    needs: [ubuntu-build, platform-tests, platform-build]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          SUCCESS: ${{ needs.ubuntu-build.result == 'success' && needs.platform-tests.result == 'success' && needs.platform-build.result == 'success' }}
+        run: test "$SUCCESS" = true

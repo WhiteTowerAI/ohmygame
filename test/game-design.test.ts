@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,9 +7,10 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
-import { createAgentTools } from "../src/daemon/agent-tools.js";
+import { CANCEL_GENERATION, createAgentTools } from "../src/daemon/agent-tools.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createCanvasDocument, canvasDocumentPath, mergeCanvasDocumentContent } from "../src/shared/canvas-document.js";
@@ -44,6 +45,29 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("notifies both windows and follows atomic writes after replacing the canvas directory", async () => {
+    const workspace = await temp(), folder = path.join(workspace, "canvas");
+    const watch = createCanvasWatches(), first = vi.fn(), second = vi.fn();
+    const closeFirst = watch(workspace, first), closeSecond = watch(workspace, second);
+    try {
+      expect(first).toHaveBeenCalledWith(["workspace", "board", "jobs"]);
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(1);
+      closeFirst();
+      const received = first.mock.calls.length;
+      await rename(folder, path.join(workspace, "previous"));
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(2);
+      second.mockClear();
+      await mkdir(path.join(folder, "boards"));
+      await writeFile(path.join(folder, "board.tmp"), "{}");
+      await rename(path.join(folder, "board.tmp"), path.join(folder, "boards", "current.json"));
+      await writeFile(path.join(folder, "jobs.json"), "[]");
+      await expect.poll(() => second.mock.calls.flat(2)).toEqual(expect.arrayContaining(["jobs", "board"]));
+      expect(first).toHaveBeenCalledTimes(received);
+    } finally { closeFirst(); closeSecond(); }
+  });
+
   it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
     const failure = new ImageGenerationError("Provider is disabled", 400);
     const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
@@ -108,6 +132,8 @@ describe("Markdown design workspace", () => {
     const app = createApp({ dataDirectory: await temp() }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject(`${base}/workspace`)).json();
+    const poll = `${base}/workspace?knownRevision=${workspace.revision}`;
+    expect((await app.inject(poll)).statusCode).toBe(204);
     const created = await app.inject({ method: "POST", url: `${base}/tables`, payload: { title: "Balance" } });
     expect(created.statusCode).toBe(201);
     const detail = created.json(), url = `${base}/tables/${detail.table.id}`;
@@ -117,7 +143,14 @@ describe("Markdown design workspace", () => {
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(200);
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(409);
     expect((await app.inject({ method: "PUT", url: `${base}/tables/other`, payload: detail })).statusCode).toBe(400);
+    const changed = await app.inject(poll);
+    expect(changed.statusCode).toBe(200);
+    const afterTable = changed.json().revision;
+    const tablePath = path.join(project.workspacePath, "canvas", "tables", detail.table.id + ".json");
+    await writeFile(tablePath, JSON.stringify({ ...detail.table, title: "External edit" }));
+    expect((await app.inject(`${base}/workspace?knownRevision=${afterTable}`)).json().tables[0].title).toBe("External edit");
     const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
+    expect((await app.inject(`${base}/boards/${board.board.id}?knownRevision=${board.revision}`)).statusCode).toBe(204);
     board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });
@@ -253,14 +286,15 @@ describe("Markdown design workspace", () => {
     await writeFile(file, "# Updated production brief");
     expect((await store.read(project.id, doc.document.id))!.document.markdown).toBe("# Updated production brief");
     await expect(store.save(project.id, inserted.document, inserted.revision, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
-    const second = await store.changeBoards(project.id, { type: "create", name: "Second" });
-    expect(second.boards).toHaveLength(2);
-    await store.changeBoards(project.id, { type: "delete", boardId: second.boards[1]!.id });
+    // Its one board can be renamed, as templates do, but not added to, removed or moved.
+    expect((await store.changeBoards(project.id, { type: "rename", boardId, name: "Effects" })).boards).toEqual([expect.objectContaining({ id: boardId, name: "Effects" })]);
+    await expect(store.changeBoards(project.id, { type: "create", name: "Second" })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.changeBoards(project.id, { type: "delete", boardId })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(store.changeBoards(project.id, { type: "move", boardId, direction: 1 })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.setMainDocument(project.id, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
   });
-  it("expands image presets and resolves character references across boards", async () => {
+  it("expands image presets and sends a linked character reference", async () => {
     const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const { store, project, boardId, library } = await runtime({ generate }, "asset-canvas");
     const original = await store.board(project.id, boardId);
@@ -275,18 +309,16 @@ describe("Markdown design workspace", () => {
     expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
 
     const reference = await library.add("character.png", Buffer.from("image"));
-    const next = await store.changeBoards(project.id, { type: "create", name: "Action set" });
-    const actionBoardId = next.boards.at(-1)!.id;
-    const actionBoard = await store.board(project.id, actionBoardId);
+    const actionBoard = await store.board(project.id, boardId);
     const source: AssetCanvasNode = { id: "character-source", type: "asset", position: { x: 0, y: 0 }, data: { assetId: reference.id, mediaType: "image" } };
     const action = createAssetGenerationNode("image", { x: 500, y: 0 });
     if (action.type !== "image") throw new Error("Expected image node");
     action.data.prompt = "Walking sprite sheet";
     action.data.images = [{ type: "node", nodeId: source.id }];
-    actionBoard.board.nodes = [source, action];
-    actionBoard.board.editorLayout.nodes = { [source.id]: source.position, [action.id]: action.position };
+    actionBoard.board.nodes = [...actionBoard.board.nodes, source, action];
+    actionBoard.board.editorLayout.nodes = { ...actionBoard.board.editorLayout.nodes, [source.id]: source.position, [action.id]: action.position };
     await store.saveBoard(project.id, actionBoard.board, actionBoard.revision);
-    await store.generateNode(project.id, actionBoardId, action.id);
+    await store.generateNode(project.id, boardId, action.id);
     await waitForJob(store, project.id);
     expect(generate.mock.calls[1]?.[0].images).toEqual([{ mediaType: "image/png", data: Buffer.from("image").toString("base64") }]);
     expect((await readCanvasAssets(project.workspacePath)).assets[reference.id]).toBeDefined();
@@ -402,8 +434,8 @@ describe("Markdown design workspace", () => {
     const registered = createAgentTools(project, tools, projects, undefined, undefined, undefined, undefined, store);
     const check = await registered.find((tool) => tool.name === "canvas_check")!.execute("check", {}, undefined, undefined, {} as never);
     expect(check.details).toMatchObject({ canvasCheck: { ok: true } });
-    const result = await registered.find((tool) => tool.name === "generate_canvas_media")!.execute("generate", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
-    expect(result.details).toMatchObject({ canvasGeneration: { status: "succeeded", context: { boardId, nodeId: node.id } } });
+    const result = await registered.find((tool) => tool.name === "generate_canvas_media")!.execute("generate", { boardId, nodeIds: [node.id] }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ canvasGenerations: [{ status: "succeeded", context: { boardId, nodeId: node.id } }] });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0]![0]).toMatchObject({ prompt: expect.stringContaining("A bright garden"), images: [{ mediaType: "image/png", data: Buffer.from("local reference").toString("base64") }] });
     expect(generate.mock.calls[0]![0].prompt).toContain("Pixel art");
@@ -426,38 +458,130 @@ describe("Markdown design workspace", () => {
     await expect(store.generateNode(project.id, boardId, node.id)).rejects.toThrow("This node is already generating");
     // Stopping an agent that followed the user's run ends only its wait.
     const stopped = new AbortController();
-    const abandoned = tool.execute("stopped", { boardId, nodeId: node.id }, stopped.signal, undefined, {} as never);
+    const abandoned = tool.execute("stopped", { boardId, nodeIds: [node.id] }, stopped.signal, undefined, {} as never);
     await expect.poll(() => generate.mock.calls.length).toBe(1);
     stopped.abort();
     await expect(abandoned).rejects.toThrow();
     expect((await store.jobs(project.id)).find((job) => job.id === manual.id)).toMatchObject({ status: "running" });
-    const followed = tool.execute("follow", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
-    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    // The manual run may finish only once this call has joined it: finishing saves its output to the node.
+    const join = vi.spyOn(store, "generateNode");
+    const followed = tool.execute("follow", { boardId, nodeIds: [node.id] }, undefined, undefined, {} as never);
+    await expect.poll(() => join.mock.calls.length).toBe(1);
+    expect(await join.mock.results[0]!.value).toMatchObject({ id: manual.id, reused: "running" });
+    join.mockRestore();
     release();
     const first = await followed;
     expect(first.content[0]).toMatchObject({ text: expect.stringContaining("was already generating") });
-    expect(first.details).toMatchObject({ canvasGeneration: { id: manual.id, status: "succeeded" } });
-    const reused = await tool.execute("reuse", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
+    expect(first.details).toMatchObject({ canvasGenerations: [{ id: manual.id, status: "succeeded" }] });
+    const reused = await tool.execute("reuse", { boardId, nodeIds: [node.id] }, undefined, undefined, {} as never);
     expect(reused.content[0]).toMatchObject({ text: expect.stringContaining("nothing new was generated") });
     expect(generate).toHaveBeenCalledTimes(1);
     const detail = await store.board(project.id, boardId), image = detail.board.nodes.find((candidate) => candidate.id === node.id)!;
     if (image.type !== "image") throw new Error("Expected image node");
     image.data.prompt = "A tired gardener";
     await store.saveBoard(project.id, detail.board, detail.revision);
-    await tool.execute("changed", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
+    await tool.execute("changed", { boardId, nodeIds: [node.id] }, undefined, undefined, {} as never);
     expect(generate).toHaveBeenCalledTimes(2);
-    await tool.execute("variation", { boardId, nodeId: node.id, regenerate: true }, undefined, undefined, {} as never);
+    await tool.execute("variation", { boardId, nodeIds: [node.id], regenerate: true }, undefined, undefined, {} as never);
     expect(generate).toHaveBeenCalledTimes(3);
     expect((await store.jobs(project.id))[0]).not.toHaveProperty("inputRevision");
-    // A run the agent started itself is still cancelled when the agent stops.
+    // Stopping the agent ends its wait too: a run it started may already be paid for, so it finishes on the canvas,
+    // while a listed node waiting for that output never starts.
     gate = new Promise<void>((resolve) => { release = resolve; });
+    const waiting = await store.board(project.id, boardId), after = createAssetGenerationNode("image", { x: 0, y: 0 });
+    if (after.type !== "image") throw new Error("Expected image node");
+    Object.assign(after, { id: "after" }); after.data.prompt = "Later"; after.data.images = [{ type: "node", nodeId: node.id }];
+    waiting.board.nodes.push(after); waiting.board.editorLayout.nodes.after = after.position;
+    await store.saveBoard(project.id, waiting.board, waiting.revision);
     const owned = new AbortController();
-    const ownRun = tool.execute("owned", { boardId, nodeId: node.id, regenerate: true }, owned.signal, undefined, {} as never);
+    const ownRun = tool.execute("owned", { boardId, nodeIds: [node.id, "after"], regenerate: true }, owned.signal, undefined, {} as never);
     await expect.poll(() => generate.mock.calls.length).toBe(4);
     owned.abort();
     await expect(ownRun).rejects.toThrow();
-    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.status === "running" || job.status === "cancelled")?.status).toBe("cancelled");
+    const started = (await store.jobs(project.id)).find((job) => job.status === "running")!;
+    expect(started.context).toMatchObject({ nodeId: node.id });
     release();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === started.id)?.status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledTimes(4);
+    // Cancelling the call itself, as an external agent's cancel_job does, cancels the run it started.
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    const cancelled = new AbortController();
+    const cancelledRun = tool.execute("cancelled", { boardId, nodeIds: [node.id], regenerate: true }, cancelled.signal, undefined, {} as never);
+    await expect.poll(() => generate.mock.calls.length).toBe(5);
+    const running = (await store.jobs(project.id)).find((job) => job.status === "running")!;
+    cancelled.abort(CANCEL_GENERATION);
+    await expect(cancelledRun).rejects.toBeDefined();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === running.id)?.status).toBe("cancelled");
+    release();
+  });
+  it("lets the agent generate several nodes at once, starting a node that uses another's output after it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const generate = vi.fn(async (input: { prompt: string }) => {
+      if (input.prompt.includes("cracked")) throw new Error("Provider refused");
+      await gate;
+      return { bytes: Buffer.from("image"), mediaType: "image/png" as const };
+    });
+    const { store, project, boardId, node, tools, projects } = await runtime({ generate } as never, "asset-canvas");
+    const detail = await store.board(project.id, boardId);
+    const added = (id: string, prompt: string, images: { type: "node"; nodeId: string }[] = []) => {
+      const created = createAssetGenerationNode("image", { x: 0, y: 0 });
+      if (created.type !== "image") throw new Error("Expected image node");
+      Object.assign(created, { id }); created.data.prompt = prompt; created.data.images = images;
+      detail.board.nodes.push(created); detail.board.editorLayout.nodes[id] = created.position;
+    };
+    added("seed", "A seed");
+    added("holding", "The gardener holding it", [{ type: "node", nodeId: node.id }]);
+    added("cracked", "A cracked pot");
+    added("planted", "Planted in the pot", [{ type: "node", nodeId: "cracked" }]);
+    await store.saveBoard(project.id, detail.board, detail.revision);
+    const tool = createAgentTools(project, tools, projects, undefined, undefined, undefined, undefined, store).find((tool) => tool.name === "generate_canvas_media")!;
+    const batch = tool.execute("batch", { boardId, nodeIds: ["holding", node.id, "seed"] }, undefined, undefined, {} as never);
+    // The two independent nodes run together; the one using the gardener's output waits for it.
+    await expect.poll(() => generate.mock.calls.length).toBe(2);
+    expect(generate.mock.calls.map(([input]) => input.prompt).sort()).toEqual(["A gardener", "A seed"]);
+    release();
+    const result = await batch;
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(generate.mock.calls[2]![0]).toMatchObject({ prompt: "The gardener holding it", images: [{ mediaType: "image/png" }] });
+    expect(result.content[0]).toMatchObject({ text: expect.stringMatching(/node holding[\s\S]*node [\w-]+\.[\s\S]*node seed/) });
+    expect((result.details as { canvasGenerations: unknown[] }).canvasGenerations).toHaveLength(3);
+    // A failure is reported beside the nodes that worked, and skips the node using its output.
+    const partial = await tool.execute("partial", { boardId, nodeIds: ["seed", "cracked", "planted"] }, undefined, undefined, {} as never);
+    expect(partial.content[0]).toMatchObject({ text: expect.stringContaining("Node cracked failed: Provider refused") });
+    expect(partial.content[0]).toMatchObject({ text: expect.stringContaining("Node planted failed: Not generated, because node cracked, whose output it uses, failed") });
+    await expect(tool.execute("failed", { boardId, nodeIds: ["cracked"] }, undefined, undefined, {} as never)).rejects.toThrow("Provider refused");
+    // Only the inputs a generation uses order it: a prompt's text node and a name a video keeps for a removed reference don't.
+    const kept = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 0, y: 0 });
+    if (video.type !== "video") throw new Error("Expected video node");
+    Object.assign(video, { id: "clip" }); video.data.prompt = "Walk"; video.data.referenceMentions = { Image1: { type: "node", nodeId: "cracked" } };
+    kept.board.nodes.push(video, { id: "note", type: "text", position: { x: 0, y: 0 }, data: { text: "Warm light", instruction: "" } });
+    kept.board.editorLayout.nodes.clip = video.position; kept.board.editorLayout.nodes.note = { x: 0, y: 0 };
+    const seedNode = kept.board.nodes.find((candidate) => candidate.id === "seed")!;
+    if (seedNode.type !== "image") throw new Error("Expected image node");
+    seedNode.data.promptSource = { type: "node", nodeId: "note" };
+    await store.saveBoard(project.id, kept.board, kept.revision);
+    const unordered = await tool.execute("unordered", { boardId, nodeIds: ["note", "cracked", "seed", "clip"], regenerate: true }, undefined, undefined, {} as never);
+    expect(unordered.content[0]).toMatchObject({ text: expect.stringContaining("Generated media for node seed.") });
+    expect(unordered.content[0]).not.toMatchObject({ text: expect.stringContaining("Not generated, because") });
+    // Audio generation reads no other node's output, whatever references its node keeps.
+    const voices = await store.board(project.id, boardId);
+    for (const [id, other] of [["voice-a", "voice-b"], ["voice-b", "voice-a"]] as const) {
+      voices.board.nodes.push({ id, type: "speech", position: { x: 0, y: 0 }, data: { text: "Hello", audioReferences: [{ id: "Audio1", type: "audio", source: { type: "node", nodeId: other } }] } });
+      voices.board.editorLayout.nodes[id] = { x: 0, y: 0 };
+    }
+    await store.saveBoard(project.id, voices.board, voices.revision);
+    const spoken = await tool.execute("voices", { boardId, nodeIds: ["voice-a", "voice-b"] }, undefined, undefined, {} as never).catch((error: Error) => error);
+    expect(spoken instanceof Error ? spoken.message : "").not.toContain("use each other's output");
+    // Nodes that use each other's output cannot be ordered.
+    const looped = await store.board(project.id, boardId), seed = looped.board.nodes.find((candidate) => candidate.id === "seed")!;
+    if (seed.type !== "image") throw new Error("Expected image node");
+    seed.data.images = [{ type: "node", nodeId: "holding" }];
+    const holding = looped.board.nodes.find((candidate) => candidate.id === "holding")!;
+    if (holding.type !== "image") throw new Error("Expected image node");
+    holding.data.images = [{ type: "node", nodeId: "seed" }];
+    await store.saveBoard(project.id, looped.board, looped.revision);
+    await expect(tool.execute("loop", { boardId, nodeIds: ["seed", "holding"] }, undefined, undefined, {} as never)).rejects.toThrow("use each other's output");
   });
   it("exports current file contents and retries video inputs using project asset IDs", async () => {
     const { store, project, boardId, tools, library } = await runtime();

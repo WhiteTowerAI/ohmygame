@@ -72,18 +72,20 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
+        event.stopPropagation();
         close();
         trigger.current?.focus();
       }
     };
     // The menu is fixed to the viewport, so panning or zooming the canvas would leave it behind.
     document.addEventListener("pointerdown", closeOutside, true);
-    window.addEventListener("keydown", closeOnEscape);
+    // Captured first, like ui/ overlays, so a dialog this opens over keeps its Escape.
+    document.addEventListener("keydown", closeOnEscape, true);
     window.addEventListener("wheel", closeOnCanvasWheel, { capture: true, passive: true });
     window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("pointerdown", closeOutside, true);
-      window.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("keydown", closeOnEscape, true);
       window.removeEventListener("wheel", closeOnCanvasWheel, true);
       window.removeEventListener("resize", close);
     };
@@ -136,6 +138,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       <div
         ref={menu}
         className="canvas-chip-menu nodrag nowheel"
+        data-native-preview-overlay
         style={position ?? { top: 0, left: 0, visibility: "hidden" }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {

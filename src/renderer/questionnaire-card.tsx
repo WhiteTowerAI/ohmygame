@@ -67,7 +67,10 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
   return (
     <section className="questionnaire-card" aria-label={t("questionnaire.label")}>
       <header>
-        <strong>{question.prompt}</strong>
+        <div className="questionnaire-title">
+          <span className="chat-card-kind">{t("questionnaire.kind")}</span>
+          <strong>{question.prompt}</strong>
+        </div>
         <div className="questionnaire-navigation">
           <button type="button" onClick={() => move(index - 1)} disabled={submitting || index === 0} aria-label={t("questionnaire.previous")}><ArrowLeft size={14} /></button>
           <span>{t("questionnaire.position", { current: index + 1, total: request.questions.length })}</span>

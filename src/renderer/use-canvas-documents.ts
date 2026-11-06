@@ -1,3 +1,4 @@
+import { followCanvasChanges } from "./canvas-sync.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
@@ -36,7 +37,12 @@ export interface DocumentGenerationState {
 const documentContent = ({ id, title, markdown }: CanvasMarkdownDocument): CanvasMarkdownDocument => ({ id, title, markdown });
 const equal = (a: CanvasMarkdownDocument, b: CanvasMarkdownDocument) =>
   a.id === b.id && a.title === b.title && a.markdown === b.markdown;
-export function useCanvasDocuments(projectId: string) {
+/**
+ * A project's canvas documents, kept in sync with disk. Loading creates the
+ * project's canvas, so a workspace that shares one between its panels keeps it
+ * `enabled` only once one of them has opened.
+ */
+export function useCanvasDocuments(projectId: string, enabled = true) {
   const closing = useDesktopClosing();
   const [workspace, setWorkspace] = useState<CanvasWorkspaceDetail>();
   const current = useRef<CanvasWorkspaceDetail | undefined>(undefined);
@@ -55,7 +61,6 @@ export function useCanvasDocuments(projectId: string) {
   const [saving, setSaving] = useState(false);
   const chain = useRef(Promise.resolve());
   const mounted = useRef(true);
-  const refreshCounter = useRef(0);
   const [version] = useState(() => workspaceVersion(projectId));
   const recoveryKey = `canvas-documents:${projectId}${version === "0" ? "" : `:${version}`}`;
   const generationKey = `canvas-document-generations:${projectId}`;
@@ -83,8 +88,10 @@ export function useCanvasDocuments(projectId: string) {
   );
   const publish = useCallback(
     (value: CanvasWorkspaceDetail) => {
+      // Identical snapshots keep the workspace from re-rendering.
+      const unchanged = current.current !== undefined && JSON.stringify(current.current) === JSON.stringify(value);
       current.current = value;
-      if (mounted.current) setWorkspace(value);
+      if (mounted.current && !unchanged) setWorkspace(value);
       const drafts = value.documents.flatMap((document) => {
         const base = bases.current.get(document.id);
         const local = documentContent(document);
@@ -100,17 +107,20 @@ export function useCanvasDocuments(projectId: string) {
     },
     [recoveryKey],
   );
-  const refresh = useCallback(async () => {
-    const requestId = ++refreshCounter.current;
-    const started = new Map(bases.current);
-    let next: CanvasWorkspaceDetail;
-    try { next = await getCanvasWorkspace(projectId); }
+  const readWorkspace = useCallback(async (conditional: boolean) => {
+    if (!mounted.current) return;
+    let next: CanvasWorkspaceDetail | undefined;
+    try {
+      const revision = conditional && current.current?.revision;
+      next = revision ? await getCanvasWorkspace(projectId, revision) : await getCanvasWorkspace(projectId);
+    }
     catch (cause) {
-      if (mounted.current && requestId === refreshCounter.current && !isDesktopClosing()) setLoadError(message(cause));
+      if (mounted.current && !isDesktopClosing()) setLoadError(message(cause));
       throw cause;
     }
-    if (!mounted.current || requestId !== refreshCounter.current) return;
+    if (!mounted.current) return;
     setLoadError(undefined);
+    if (!next) return;
     let recovered: Array<{
       base: CanvasDocumentDetail;
       local: CanvasMarkdownDocument;
@@ -136,12 +146,15 @@ export function useCanvasDocuments(projectId: string) {
       };
       const old = bases.current.get(remote.id),
         local = current.current?.documents.find((doc) => doc.id === remote.id);
-      if (old && old !== started.get(remote.id)) return local ?? remote;
       const recovery = recovered.find((draft) => draft.local?.id === remote.id);
       const before = old ?? recovery?.base;
       const ours = local ? documentContent(local) : recovery?.local;
-      if (conflictRef.current?.local.id === remote.id)
-        return local ?? { ...remote, ...conflictRef.current.local };
+      const existingConflict = conflictRef.current;
+      if (existingConflict?.local.id === remote.id) {
+        if (existingConflict.remote.revision !== remote.revision)
+          reportConflict({ ...existingConflict, remote: remoteDetail });
+        return local ?? { ...remote, ...existingConflict.local };
+      }
       const merged =
         before && ours
           ? mergeCanvasDocumentContent(before.document, ours, remote)
@@ -176,24 +189,21 @@ export function useCanvasDocuments(projectId: string) {
     }
     publish(next);
   }, [projectId, publish, recoveryKey, reportConflict]);
+  // Reads and saves both advance the merge base. Apply them in order even when
+  // an external change arrives halfway through saving a batch of documents.
+  const refresh = useCallback((conditional = false) => {
+    const operation = chain.current.catch(() => {}).then(() => readWorkspace(conditional));
+    chain.current = operation;
+    return operation;
+  }, [readWorkspace]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
-    if (closing) return;
-    void refresh().catch(() => {});
-    // A hidden window shows nobody the external changes, so it refreshes again on return instead.
-    const run = () => {
-      if (!isDesktopClosing() && !window.document.hidden) void refresh().catch(() => {});
-    };
-    const timer = window.setInterval(run, 3000);
-    window.document.addEventListener("visibilitychange", run);
-    return () => {
-      window.clearInterval(timer);
-      window.document.removeEventListener("visibilitychange", run);
-    };
-  }, [refresh, closing]);
+    if (closing || !enabled) return;
+    return followCanvasChanges(projectId, "workspace", () => refresh(true));
+  }, [projectId, refresh, closing, enabled]);
   const update = useCallback(
     (
       id: string,
@@ -322,6 +332,23 @@ export function useCanvasDocuments(projectId: string) {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [workspace, flush, conflict, closing]);
+  // Failed saves retry independently of disk notifications, one at a time.
+  useEffect(() => {
+    if (!error || !workspace || conflict || closing || !enabled) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (isDesktopClosing() || window.document.hidden) return schedule();
+        void flush().catch(() => {}).finally(() => { if (!stopped) schedule(); });
+      }, 3000);
+    };
+    schedule();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [error, workspace, flush, conflict, closing, enabled]);
   const create = useCallback(async () => {
     await flush();
     const detail = await createCanvasDocument(projectId, t("canvasDocs.untitled"), version);
@@ -459,6 +486,7 @@ export function useCanvasDocuments(projectId: string) {
     applyGeneration,
   };
 }
+export type CanvasDocumentsState = ReturnType<typeof useCanvasDocuments>;
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause);
 }

@@ -5,6 +5,7 @@ import { syncCloudSession } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { isLocalDebugEnabled, isLoopbackHostname, LOCAL_DEBUG_ACCESS_TOKEN, LOCAL_DEBUG_USER } from "../shared/local-debug.js";
 import { t } from "./i18n.js";
+import { setAnalyticsAccount } from "./analytics.js";
 
 export type AuthState =
   | { status: "loading" }
@@ -63,6 +64,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await syncCloudSession(session ? { accessToken: session.access_token, userId: session.user.id } : null);
     }).catch(() => { /* Login remains available if the local daemon is restarting. */ });
   }
+
+  useEffect(() => {
+    if (state.status !== "loading") setAnalyticsAccount(state.status === "signed-in" ? state.user.id : null);
+  }, [state]);
 
   useEffect(() => {
     if (!supabase) { synchronizeCloud(null); return; }
