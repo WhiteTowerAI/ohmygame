@@ -4,6 +4,79 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.5] - 2026-11-06
+
+### Added
+
+- Open the plugin market, read from its published index, and offer only
+  updates the market allows.
+  ([#710](https://github.com/WhiteTowerAI/ohmygame/pull/710) by @dogxii)
+- Let plugins do much more: run, capture and play the game and extend its
+  preview; react to hooks such as a finished turn or an image about to be
+  generated; publish projects and add themes; add canvas nodes, presets and
+  chains; and bring their own model providers and agents.
+  ([#688](https://github.com/WhiteTowerAI/ohmygame/pull/688) by @dogxii,
+  [#701](https://github.com/WhiteTowerAI/ohmygame/pull/701) by @dogxii,
+  [#702](https://github.com/WhiteTowerAI/ohmygame/pull/702) by @dogxii,
+  [#703](https://github.com/WhiteTowerAI/ohmygame/pull/703) by @dogxii,
+  [#704](https://github.com/WhiteTowerAI/ohmygame/pull/704) by @dogxii)
+- Add tools for plugin authors: the `ohmygame-plugin` CLI, a
+  `create-ohmygame-plugin` template, a development mode and export.
+  ([#707](https://github.com/WhiteTowerAI/ohmygame/pull/707) by @dogxii)
+- Let a project hold panels of its own in `.ohmygame/panels/`, which its agent
+  can write, shown beside the chat once you allow what each asks for.
+  ([#722](https://github.com/WhiteTowerAI/ohmygame/pull/722) by @dogxii)
+- Rename, reorder and repoint coding agent accounts from a menu on each
+  account.
+  ([#709](https://github.com/WhiteTowerAI/ohmygame/pull/709) by @dogxii)
+
+### Changed
+
+- Run the Plugin Builder as a project with the full project chat, let it make
+  every kind of plugin, and split the Plugins page by what you want to do.
+  ([#713](https://github.com/WhiteTowerAI/ohmygame/pull/713) by @dogxii,
+  [#725](https://github.com/WhiteTowerAI/ohmygame/pull/725) by @dogxii)
+- Make plugin uninstalls, updates, errors and safe mode clearer and safer, and
+  describe what a plugin asks for in plain, grouped lines.
+  ([#695](https://github.com/WhiteTowerAI/ohmygame/pull/695) by @dogxii,
+  [#714](https://github.com/WhiteTowerAI/ohmygame/pull/714) by @dogxii)
+- Keep everything OhMyGame stores for a project in its folder's `.ohmygame/`,
+  so the folder is the whole project. Existing projects move over when opened.
+  ([#721](https://github.com/WhiteTowerAI/ohmygame/pull/721) by @dogxii)
+- Show generated images as thumbnails in the tool details instead of a large
+  gallery after the reply.
+  ([#699](https://github.com/WhiteTowerAI/ohmygame/pull/699) by @dogxii)
+- Keep 3D previews still until you press Play, and load large 3D files and
+  canvas media only when needed.
+  ([#684](https://github.com/WhiteTowerAI/ohmygame/pull/684) by @82228,
+  [#712](https://github.com/WhiteTowerAI/ohmygame/pull/712) by @dogxii)
+- Report OhMyGame as Claude Code's client, with a switch to turn it off.
+  ([#708](https://github.com/WhiteTowerAI/ohmygame/pull/708) by @dogxii)
+
+### Fixed
+
+- Make streaming chat replies much lighter on the app, and stop game stills
+  from stalling tab switches.
+  ([#711](https://github.com/WhiteTowerAI/ohmygame/pull/711) by @dogxii,
+  [#712](https://github.com/WhiteTowerAI/ohmygame/pull/712) by @dogxii,
+  [#718](https://github.com/WhiteTowerAI/ohmygame/pull/718) by @dogxii)
+- Load the Code file tree one folder at a time, so large projects open fast,
+  and add a Refresh files button.
+  ([#698](https://github.com/WhiteTowerAI/ohmygame/pull/698) by @82228)
+- Continue the same Codex conversation after a stop or a failed request.
+  ([#700](https://github.com/WhiteTowerAI/ohmygame/pull/700) by @dogxii)
+- Restore drag-to-select on an empty canvas.
+  ([#697](https://github.com/WhiteTowerAI/ohmygame/pull/697) by @dogxii)
+- Keep the Windows Back and Forward buttons visible and clickable.
+  ([#694](https://github.com/WhiteTowerAI/ohmygame/pull/694) by @idontcarethishahaha)
+- Find Godot on Windows by its release file names, WinGet, Scoop and every
+  Steam library.
+  ([#705](https://github.com/WhiteTowerAI/ohmygame/pull/705) by @xinyang6879)
+- Use the plain refresh icon for Restart to update.
+  ([#696](https://github.com/WhiteTowerAI/ohmygame/pull/696) by @xinyang6879)
+- Leave stored data that can't be read as it is instead of overwriting it.
+  ([#719](https://github.com/WhiteTowerAI/ohmygame/pull/719) by @dogxii)
+
 ## [0.0.0-beta.5.4] - 2026-11-04
 
 ### Changed
