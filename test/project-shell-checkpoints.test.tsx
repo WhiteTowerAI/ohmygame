@@ -4,7 +4,7 @@ import { act, useEffect, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
-import { promptText } from "./prompt-field.js";
+import { promptText, typePrompt } from "./prompt-field.js";
 import type {
   CheckpointChangeItem,
   ConversationDetail,
@@ -258,6 +258,25 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
+  it("follows the model a conversation with none starts on when it sends", async () => {
+    const model = { provider: "codex-cli", providerName: "Codex", id: "gpt-6.1-sol", name: "GPT-6.1-Sol", reasoningLevels: [], nativeReasoningLevels: ["low"] };
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
+      if (new URL(route, "http://fixture").pathname.endsWith("/conversation/turns") && init.method === "POST") {
+        // The daemon stores the picker's model on the conversation as it sends.
+        daemon.conversation = { ...daemon.conversation, settings: { model: { provider: model.provider, id: model.id } } };
+        return Response.json({ turnId: "new-turn" }, { status: 202 });
+      }
+      return undefined;
+    });
+    const profiles = () => daemon.requests.filter((request) => request.route === "/agent-runtimes/codex-cli/profiles");
+    expect(profiles()).toHaveLength(0);
+    await typePrompt("Make a game", container);
+    await click("Send prompt");
+    // Its Codex account controls load once the conversation's own model is known.
+    await vi.waitFor(() => expect(profiles()).toHaveLength(1));
+  });
+
   it("does not reformat historical responses while the current response streams, and keeps branching available", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const timestamp = Date.UTC(2026, 7, 23, 8, 5);

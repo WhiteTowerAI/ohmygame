@@ -3501,6 +3501,36 @@ export function createApp(options: AppOptions = {}) {
     catch (cause) { if (cause instanceof Error && "statusCode" in cause) return reply.code(Number(cause.statusCode)).send({ error: cause.message }); throw cause; }
   });
 
+  // The model a conversation with none of its own uses, in the picker's order:
+  // the saved default, Pi's preferred model, then the first coding agent's.
+  async function defaultPiModel(): Promise<RuntimeModel | undefined> {
+    const runtime = await getModelRuntime();
+    return preferredAgentModel(
+      resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
+      undefined,
+      configuredDefaultModel(dataDirectory, piAgentDirectory),
+    );
+  }
+  async function firstAgentModel(): Promise<AgentModelRef | undefined> {
+    const first = (await agentRuntimes.models()).models[0];
+    return first && { provider: first.provider, id: first.id };
+  }
+  /** Gives a conversation with no model the one a new conversation would start with, with its effort and account. */
+  async function startConversationOnDefault(project: ProjectState, conversation: StoredConversation): Promise<AgentModelRef | undefined> {
+    const defaults = agentRuntimes.settings.defaultModel();
+    const native = defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
+    const pi = native ? undefined : await defaultPiModel();
+    const model = native ? defaults!.model : pi ? { provider: pi.provider, id: pi.id } : await firstAgentModel();
+    if (!model) return undefined;
+    conversations.setModel(project, conversation, model);
+    if (pi) conversations.setReasoningLevel(project, conversation, effectiveReasoningLevel(pi, undefined, defaultReasoningLevel(dataDirectory, piAgentDirectory)));
+    if (isAccountRuntimeId(model.provider)) conversations.setAccountProfile(project, conversation, model.provider, agentRuntimes.settings.get(model.provider).defaultProfileId ?? "system");
+    if (native && defaults?.nativeReasoningLevel && native.nativeReasoningLevels?.includes(defaults.nativeReasoningLevel)) {
+      conversations.setNativeReasoningLevel(project, conversation, model, defaults.nativeReasoningLevel);
+    }
+    return model;
+  }
+
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
     async (request, reply) => {
@@ -3512,7 +3542,10 @@ export function createApp(options: AppOptions = {}) {
       }
       const defaults = agentRuntimes.settings.defaultModel();
       const defaultModel = !request.body?.model && defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
-      const requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      let requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      const piModel = requestedModel ? undefined : await defaultPiModel();
+      // With no Pi model the picker shows the first coding agent's, so start with that one too.
+      if (!requestedModel && !piModel) requestedModel = await firstAgentModel();
       if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {
         const agentModel = await agentRuntimes.model(requestedModel.provider, requestedModel.id);
         if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
@@ -3532,12 +3565,7 @@ export function createApp(options: AppOptions = {}) {
       if (requestedModel) {
         selectedModel = await availableModel(requestedModel.provider, requestedModel.id);
       } else {
-        const runtime = await getModelRuntime();
-        selectedModel = preferredAgentModel(
-          resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
-          undefined,
-          configuredDefaultModel(dataDirectory, piAgentDirectory),
-        );
+        selectedModel = piModel;
       }
       if (requestedModel && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
@@ -3988,9 +4016,11 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const selectedModel = await conversations.model(project, conversation);
+      let selectedModel = await conversations.model(project, conversation);
       if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
+      // A conversation started before any model was available runs on the one its picker shows now.
+      if (!selectedModel && !agents.sessionRuntime(project.id, conversation.summary.id)) selectedModel = await startConversationOnDefault(project, conversation);
       let mentions;
       try {
         mentions = await validateMentions(request.body.mentions ?? []);
