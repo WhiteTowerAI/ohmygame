@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import i18next from "i18next";
 import type { ImageModel } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, effectLibraryPrompt, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import { canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { ASSET_CANVAS_TEMPLATES, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
@@ -81,17 +80,6 @@ describe("pixel asset workflows", () => {
     expect(crescent).toContain("razor-sharp white-blue core line");
   });
 
-  it("keeps legacy guide markers readable without creating new template boards", () => {
-    expect(ASSET_CANVAS_TEMPLATES).toEqual(["pixel-art", "character-sheet", "quick-reskin", "free-sequence", "action-set"]);
-    expect(templateImagePresets("pixel-art")).toHaveLength(12);
-    expect(templateImagePresets("free-sequence")).toEqual(["continuous-sequence", "consistent-sequence"]);
-    expect(templateImagePresets("action-set")).toEqual([]);
-    expect(templateGuideInfo("asset-canvas-template:pixel-art")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image:pixel")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image:general")).toEqual({ template: "character-sheet" });
-    expect(templateGuideInfo("asset-canvas-template:free-sequence")).toEqual({ template: "free-sequence" });
-  });
 
   it("organizes the pixel catalog by function and provides translated card details", () => {
     const catalog = pixelAssetPresetCatalog();
@@ -187,7 +175,7 @@ describe("pixel asset workflows", () => {
     expect(tileset).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
     expect(tileset).toContain("Default logical size per tile: 32×32 pixels");
     expect(tileset).toContain("With 4 columns and 4 rows, the complete sheet is 128×128 logical pixels");
-    for (const preset of templateImagePresets("pixel-art")) {
+    for (const preset of CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset))) {
       const prompt = canvasImagePresetPrompt(preset, description);
       const requestIndex = prompt.indexOf(`${preset === "character-sheet" ? "CHARACTER DESCRIPTION" : "USER REQUEST"}: ${description}`);
       const densityIndex = prompt.indexOf("**PIXEL DENSITY: CLASSIC PIXELS**");
