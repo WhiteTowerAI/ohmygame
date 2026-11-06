@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
+import { ASSET_METADATA_FILE as ASSET_METADATA_PATH, ASSET_PREVIEWS_DIRECTORY } from "../shared/project-layout.js";
 
-const ASSET_METADATA_FILE = path.join(".data", "assets.json");
+const ASSET_METADATA_FILE = path.join(...ASSET_METADATA_PATH.split("/"));
 
 interface AssetMetadata {
   version: 1;
@@ -70,6 +71,52 @@ export async function deleteAssetMetadata(workspacePath: string, assetPath: stri
   return previews;
 }
 
+// compat: since beta.5.5, remove from beta.7 and 2026-12-06. Projects kept their asset records in `.data/`.
+const LEGACY_ASSET_METADATA_FILE = path.join(".data", "assets.json");
+const LEGACY_PREVIEWS = ".data/asset-previews/";
+
+/**
+ * Moves the records an older OhMyGame kept in `.data/assets.json` into
+ * `.ohmygame/assets.json`. A record already there for the same asset is kept,
+ * like the previews already there. A file that cannot be read is left where it
+ * is.
+ */
+export async function migrateLegacyAssetMetadata(workspacePath: string): Promise<void> {
+  const legacyPath = path.join(workspacePath, LEGACY_ASSET_METADATA_FILE);
+  let legacy: AssetMetadata | undefined;
+  try {
+    const parsed = JSON.parse(await readFile(legacyPath, "utf8")) as { previews?: unknown };
+    if (parsed && typeof parsed === "object" && parsed.previews && typeof parsed.previews === "object") {
+      parsed.previews = Object.fromEntries(Object.entries(parsed.previews).map(([assetPath, preview]) => [
+        assetPath,
+        typeof preview === "string" && preview.startsWith(LEGACY_PREVIEWS) ? `${ASSET_PREVIEWS_DIRECTORY}/${preview.slice(LEGACY_PREVIEWS.length)}` : preview,
+      ]));
+    }
+    legacy = parseAssetMetadata(parsed);
+  } catch {
+    return;
+  }
+  if (!legacy) return;
+  let current: AssetMetadata;
+  try {
+    const parsed = parseAssetMetadata(JSON.parse(await readFile(path.join(workspacePath, ASSET_METADATA_FILE), "utf8")));
+    if (!parsed) return;
+    current = parsed;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
+    current = emptyMetadata();
+  }
+  await writeMetadata(workspacePath, {
+    version: 1,
+    prompts: { ...legacy.prompts, ...current.prompts },
+    previews: { ...legacy.previews, ...current.previews },
+    libraryAssets: { ...legacy.libraryAssets, ...current.libraryAssets },
+    origins: { ...legacy.origins, ...current.origins },
+    purposes: { ...legacy.purposes, ...current.purposes },
+  });
+  await rm(legacyPath, { force: true });
+}
+
 async function writeMetadata(workspacePath: string, metadata: AssetMetadata): Promise<void> {
   const destination = path.join(workspacePath, ASSET_METADATA_FILE);
   const directory = path.dirname(destination);
@@ -105,7 +152,7 @@ function parseAssetMetadata(value: unknown): AssetMetadata | undefined {
     Boolean(assetPath) && typeof prompt === "string" && Boolean(prompt.trim())
   ))) return undefined;
   if (previews !== undefined && (previews === null || typeof previews !== "object" || !Object.entries(previews).every(([assetPath, previewPath]) => (
-      Boolean(assetPath) && typeof previewPath === "string" && /^\.data\/asset-previews\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg)$/.test(previewPath)
+      Boolean(assetPath) && typeof previewPath === "string" && /^\.ohmygame\/asset-previews\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg)$/.test(previewPath)
   )))) return undefined;
   if (libraryAssets === null || typeof libraryAssets !== "object" || !Object.entries(libraryAssets).every(([assetPath, assetId]) => (
     Boolean(assetPath) && typeof assetId === "string" && Boolean(assetId)

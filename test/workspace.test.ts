@@ -21,7 +21,7 @@ describe("workspace inspection", () => {
       { path: "src/empty", size: 0, directory: true },
       { path: "src/hero.png", size: 5, mediaType: "image" },
     ]);
-    for (const directory of ["..", "src/../../outside", "/tmp", "C:/Windows", "C:Windows", "node_modules", ".data", "src//deep"]) {
+    for (const directory of ["..", "src/../../outside", "/tmp", "C:/Windows", "C:Windows", "node_modules", ".ohmygame", "src//deep"]) {
       await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow();
     }
     await expect(listWorkspaceFiles(workspace, "root.ts")).rejects.toThrow("not a directory");
@@ -63,18 +63,18 @@ describe("workspace inspection", () => {
   it("adds stored local Asset metadata", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "assets", "generated"), { recursive: true });
-    await mkdir(path.join(workspace, ".data"));
+    await mkdir(path.join(workspace, ".ohmygame"));
     await writeFile(path.join(workspace, "assets", "generated", "image.webp"), "image");
-    await writeFile(path.join(workspace, ".data", "assets.json"), JSON.stringify({
+    await writeFile(path.join(workspace, ".ohmygame", "assets.json"), JSON.stringify({
       version: 1,
       prompts: { "assets/generated/image.webp": "A forest shrine" },
-      previews: { "assets/generated/image.webp": ".data/asset-previews/image.jpg" },
+      previews: { "assets/generated/image.webp": ".ohmygame/asset-previews/image.jpg" },
       libraryAssets: {},
     }));
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       {
-        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".data/asset-previews/image.jpg",
+        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg",
       },
     ]);
   });

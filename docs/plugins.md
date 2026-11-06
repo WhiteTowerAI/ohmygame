@@ -147,7 +147,7 @@ and it can't stop or change what happened. It may return
 id (at most 300 characters, five in ten seconds); `tone` is `default` or
 `danger`. A hook that fails or takes over 30 seconds goes in the plugin's
 [log](#when-a-plugin-misbehaves) and nothing else happens; so does an
-`image.beforeGenerate` answer the app can't use. `.git`, `node_modules`, `.data` and `.ohmygame` aren't
+`image.beforeGenerate` answer the app can't use. `.git`, `node_modules` and `.ohmygame` aren't
 watched, and a project's files are watched only while it is open and one
 of its plugins hears `files.changed` or has a page with `project.files`.
 

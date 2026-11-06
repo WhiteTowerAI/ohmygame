@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -116,7 +116,8 @@ describe("project cover selection", () => {
 
   it.each(["{", "null", '"auto"', '{"mode":"unknown"}'])("recovers from an invalid state file: %s", async (state) => {
     const { manager, project } = await fixture();
-    const statePath = path.join(project.storagePath!, "cover-state.json");
+    const statePath = path.join(project.workspacePath, ".ohmygame", "cover-state.json");
+    await mkdir(path.dirname(statePath));
     await writeFile(statePath, state);
     expect(await manager.coverState(project.id)).toEqual({ mode: "auto" });
     await manager.setCover(project.id, Buffer.from("automatic"), "auto");
@@ -132,14 +133,20 @@ describe("project cover selection", () => {
     expect(await manager.cover(project.id)).toEqual(Buffer.from("automatic"));
   });
 
-  it("protects legacy covers until automatic mode is explicitly restored", async () => {
-    const { manager, project } = await fixture();
+  it("moves an older project's covers into its folder and protects them until automatic mode is explicitly restored", async () => {
+    const { directory, project } = await fixture();
     await writeFile(path.join(project.storagePath!, "cover.webp"), "legacy cover");
+    await writeFile(path.join(project.storagePath!, "cover-auto.webp"), "legacy capture");
+    const manager = new ProjectManager(directory);
+    await manager.load();
+    expect(await readdir(project.storagePath!)).not.toContain("cover.webp");
+    expect((await readdir(path.join(project.workspacePath, ".ohmygame"))).sort()).toEqual([".gitignore", "cover.webp", "local", "settings.json"]);
+    expect(await readdir(path.join(project.workspacePath, ".ohmygame", "local"))).toEqual(["cover-auto.webp"]);
     expect(await manager.coverState(project.id)).toEqual({ mode: "custom" });
     await manager.setCover(project.id, Buffer.from("capture"), "auto");
     expect(await manager.cover(project.id)).toEqual(Buffer.from("legacy cover"));
     await manager.setCoverMode(project.id, "auto");
-    expect(await manager.cover(project.id)).toBeUndefined();
+    expect(await manager.cover(project.id)).toEqual(Buffer.from("legacy capture"));
     await manager.setCover(project.id, Buffer.from("capture"), "auto");
     expect(await manager.cover(project.id)).toEqual(Buffer.from("capture"));
     await manager.setCoverMode(project.id, "custom");

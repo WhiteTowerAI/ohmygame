@@ -147,7 +147,7 @@ export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetI
   return next;
 }
 
-/** Node ID to the thumbnail cached for it in `.ohmygame/thumbnails/`. */
+/** Node ID to the thumbnail cached for it in `.ohmygame/local/thumbnails/`. */
 export type PlayableThumbnailManifest = Record<string, { hash: string; capturedAt: string }>;
 
 /**
