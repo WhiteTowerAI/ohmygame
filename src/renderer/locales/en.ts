@@ -2482,6 +2482,7 @@ const en = {
     columnLower: "column {{number}}",
   },
   assetCanvas: {
+    exampleUnavailable: "Could not load the example image. Check your network connection and try again.",
     imagePresets: {
       label: "Material preset",
       free: "Free",

@@ -2414,6 +2414,7 @@ const zhCN: typeof en = {
     columnLower: "列 {{number}}",
   },
   assetCanvas: {
+    exampleUnavailable: "无法加载示例图片，请检查网络连接后重试。",
     imagePresets: {
       label: "素材预设",
       free: "自由创作",
