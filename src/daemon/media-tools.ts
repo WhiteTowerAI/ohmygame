@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { chmodSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -61,7 +62,11 @@ function ffmpegExecutable(): string {
     // ffmpeg-static exports null when it has no binary for this platform.
     const binary = require("ffmpeg-static") as string | null;
     if (!binary) return "ffmpeg";
-    return binary.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+    const resolved = binary.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+    // Bun can unpack the static binary without its executable mode bit. Repair
+    // that packaging issue once at runtime so GIF/video tools work on macOS.
+    try { chmodSync(resolved, 0o755); } catch { /* fall back to the normal spawn error */ }
+    return resolved;
   } catch {
     return "ffmpeg";
   }
