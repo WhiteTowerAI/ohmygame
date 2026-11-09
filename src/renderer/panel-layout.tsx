@@ -174,13 +174,15 @@ export function visiblePanels(layout: Layout, known: ReadonlySet<string>): strin
   });
 }
 
-export function PanelLayout({ layout, panels, onChange, onActivate, overlay, empty, locked = false }: {
+export function PanelLayout({ layout, panels, onChange, onActivate, onReset, overlay, empty, locked = false }: {
   layout: Layout;
   /** Every panel that can be shown; ids in the layout without one are skipped. */
   panels: readonly PanelDef[];
   onChange: (layout: Layout) => void;
   /** A panel was brought forward or clicked into. */
   onActivate?: (id: string) => void;
+  /** Goes back to the default layout, from a tab's right-click menu. */
+  onReset?: () => void;
   /** Floats over the center area, such as the command bar. */
   overlay?: ReactNode;
   /** What the center shows with no panels in it. */
@@ -323,7 +325,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                     </div>
                 );
                 return locked ? tab : (
-                  <ContextMenu key={id} items={[...moves, "separator", { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
+                  <ContextMenu key={id} items={[...moves, "separator", ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []), { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
                 );
               })}
               {closed.length ? (

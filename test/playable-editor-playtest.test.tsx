@@ -238,7 +238,8 @@ it("puts Play in the project's top bar, as a game does, and keeps the story tool
   expect(button?.textContent).toBe("Play");
   expect(play.querySelector('button[aria-label="Playtest actions"]')).not.toBeNull();
   expect(nodes.story.toolbar.querySelector('button[aria-label="Playtest"]')).toBeNull();
-  expect(nodes.story.toolbar.querySelector('button[aria-label="Project settings"]')).not.toBeNull();
+  // The project's settings are in the top bar, so the Story panel has nothing of its own there.
+  expect(nodes.story.toolbar.querySelector('button[aria-label="Project settings"]')).toBeNull();
 });
 
 it("offers Playtest from the open Scene in the top bar's menu, not in the Workbench", async () => {

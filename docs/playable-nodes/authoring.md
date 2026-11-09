@@ -46,10 +46,10 @@ An Interactive Story opens in the project frame with two panels:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Top bar: project name ▾   Layout and panels · Play · Publish │
+│ Top bar: project name ▾                      Play · Publish  │
 ├───────────────┬──────────────────────────────────────────────┤
 │ Chat          │ Story        Story · Design · Code · Assets  │
-│               │                                   Settings   │
+│               │                                              │
 │  Chat with    │   Story (the flow canvas)                    │
 │  the Agent    │     or                                       │
 │               │   Scene Workbench (opened from a Scene)      │
@@ -59,13 +59,13 @@ An Interactive Story opens in the project frame with two panels:
 
 - **Chat**, **Story**, **Design**, **Canvas**, **Code** and **Assets** are
   panels, as in a web game: they drag to another side or beside each other,
-  close from their tab, and come back from **Layout and panels** in the top
-  bar. The arrangement is shared with every project; see
+  close from their tab, and come back from an area's **+** menu. The arrangement is shared with every project; see
   [workspace panels](../runtime.md#workspace-panels).
 - The Story panel shows either the **Story** view, the flow canvas, or the
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
   return. The view is named for the whole story it shows, not for one Scene.
-  Its toolbar holds the story's settings: **Screen size**. **Play** in the
+  **Screen size** is in the **Screen** tab of the project settings, in the
+  project menu. **Play** in the
   top bar opens Playtest, the real Runtime, from every view, where a web
   game's Play sits; its menu replays or forgets seen Scenes. Design is the game design
   document and Canvas the asset canvas, the same documents as a web game's.

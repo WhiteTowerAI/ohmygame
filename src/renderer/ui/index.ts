@@ -33,6 +33,7 @@ export {
   Tooltip,
   useAnchoredPosition,
   useToast,
+  useModal,
 } from "./overlay.js";
 export type { Command, MenuEntry, MenuItem } from "./overlay.js";
 export {

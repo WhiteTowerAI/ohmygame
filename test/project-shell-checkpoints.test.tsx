@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import path from "node:path";
 import { act, useEffect, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -382,7 +383,9 @@ describe("project shell layout", () => {
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
-    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    // While the project's settings are open, the workspace shows its tab in them.
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: ({ settingsSlot }: { settingsSlot?: { node: HTMLElement } }) =>
+      settingsSlot ? createPortal(<span className="workspace-settings" />, settingsSlot.node) : null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
@@ -422,10 +425,26 @@ describe("project shell layout", () => {
         .layout.left.panels,
     ).toEqual([]);
 
-    await click("Layout and panels");
-    await act(async () => menuItem("Chat").click());
+    // The + menu offers only the closed panels; a tab's right-click menu restores the layout.
+    await click("Add panel");
+    expect(menuItem("Chat")).toBeDefined();
+    expect(menuItem("Default")).toBeUndefined();
+    await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => container.querySelector(".dock-area-center .dock-tab")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    await act(async () => menuItem("Restore default layout").click());
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
+    // The project menu leads with the project's settings and plugins; the top bar has neither.
+    expect(button("Layout and panels")).toBeUndefined();
+    expect(button("Project settings")).toBeUndefined();
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings…", "Plugins…"]);
+    await act(async () => menuItem("Project settings…").click());
+    expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview"]);
+    expect(document.querySelector(".project-settings .workspace-settings")).not.toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!.click());
+    expect(document.querySelector(".project-settings")).toBeNull();
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
   });
