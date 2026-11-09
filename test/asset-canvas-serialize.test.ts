@@ -138,7 +138,7 @@ describe("Asset Canvas node serialization", () => {
     board.editorLayout.nodes = { [type]: { x: 10, y: 20 } };
     expect(isAssetCanvasDocument(board)).toBe(true);
   });
-  it.each(["speech", "sound-effect", "music"] as const)("connects text and document nodes to a %s node as its prompt source", async (type) => {
+  it.each(["speech", "sound-effect", "music"] as const)("connects text and transcription nodes to a %s node as its prompt source", async (type) => {
     const { connectionRelation } = await import("../src/renderer/asset-canvas-workspace.js");
     const text = { id: "script", type: "text", position: { x: 0, y: 0 }, data: { text: "Welcome", instruction: "" } } as Parameters<typeof connectionRelation>[0];
     const target = { id: "audio", type, position: { x: 200, y: 0 }, data: type === "speech" ? { text: "" } : type === "music" ? { prompt: "", instrumental: true } : { prompt: "" } } as Parameters<typeof connectionRelation>[1];
@@ -147,6 +147,8 @@ describe("Asset Canvas node serialization", () => {
     expect(connectionRelation(text, target, undefined, [], [], [])).toBeUndefined();
     const image = { id: "art", type: "image", position: { x: 0, y: 100 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [] } } as Parameters<typeof connectionRelation>[0];
     expect(connectionRelation(image, target, undefined, [], [], [])).toBeUndefined();
+    const transcription = { id: "transcript", type: "transcription", position: { x: 0, y: 200 }, data: { text: "Welcome" } } as Parameters<typeof connectionRelation>[0];
+    expect(connectionRelation(transcription, { ...target, data: { ...target.data, promptSource: undefined } }, undefined, [], [], [])).toBe("prompt");
   });
 });
 

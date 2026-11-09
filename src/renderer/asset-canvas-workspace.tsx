@@ -93,7 +93,7 @@ import { effectLibraryPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_
 import { allActionsPrompt, continuousActionsPrompt } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { audioCanvasSettings, audioNodeHasSettings, audioSettings, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
-import { getProjectPluginCanvas, getProjectPluginCanvasPreset, createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
+import { getProjectPluginCanvas, getProjectPluginCanvasPreset, createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder, transcribeElevenLabsAudio } from "./api.js";
 import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels } from "./model-selector.js";
@@ -137,7 +137,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
 import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
 import { canvasChainHasCycle, canvasChainRuns, canvasChainTextStep, canvasDownstream, canvasNodeRuns, canvasNodeSourceIds, staleCanvasNodes } from "../shared/canvas-chains.js";
-import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
+import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, TranscriptionNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
 const ASSET_EDGE_PREFIX = "asset:";
@@ -175,6 +175,8 @@ const BASE_CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: t("assetCanvas.node.text"), description: t("assetCanvas.node.textHint"), icon: FileText, action: { kind: "node", type: "text" } },
       { label: t("assetCanvas.node.image"), description: t("assetCanvas.node.imageHint"), icon: ImageIcon, action: { kind: "node", type: "image" } },
       { label: t("assetCanvas.node.video"), description: t("assetCanvas.node.videoHint"), icon: Film, action: { kind: "node", type: "video" } },
+      { label: t("assetCanvas.node.speech"), description: t("assetCanvas.node.speechHint"), icon: Volume2, action: { kind: "node", type: "speech" } },
+      { label: t("assetCanvas.node.transcription"), description: t("assetCanvas.node.transcriptionHint"), icon: FileText, action: { kind: "node", type: "transcription" } },
       { label: t("assetCanvas.node.soundEffect"), description: t("assetCanvas.node.soundEffectHint"), icon: Volume2, action: { kind: "node", type: "sound-effect" } },
       { label: t("assetCanvas.node.music"), description: t("assetCanvas.node.musicHint"), icon: Music2, action: { kind: "node", type: "music" } },
       { label: t("assetCanvas.node.model3d"), description: t("assetCanvas.node.model3dHint"), icon: Box, action: { kind: "node", type: "model-3d" } },
@@ -218,6 +220,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   image: ImageNode,
   video: VideoNode,
   speech: SpeechNode,
+  transcription: TranscriptionNode,
   "sound-effect": SoundEffectNode,
   music: MusicNode,
   "audio-scene": AudioSceneNode,
@@ -2193,6 +2196,16 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         },
       };
     }
+    if (node.type === "transcription") {
+      const busy = startingCanvasNodes.has(node.id);
+      return { ...node, data: { ...node.data, transcriptionRuntime: {
+        busy,
+        ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+        audioAssets: libraryAssets.filter((asset) => asset.mediaType === "audio").map((asset) => ({ id: asset.id, name: asset.name })),
+        onChange: (data: AssetCanvasFlowData) => setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate)),
+        onGenerate: () => { const assetId = node.data.audioAssetId as string | undefined; if (!assetId || busy) return; startingCanvasNodesRef.current.add(node.id); setStartingCanvasNodes((current) => new Set(current).add(node.id)); setGenerationError(undefined); void transcribeElevenLabsAudio(assetId, node.data.language as string | undefined).then(({ text }) => setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data: { ...candidate.data, text } } : candidate))).catch((cause) => setGenerationError({ nodeId: node.id, message: errorMessage(cause) })).finally(() => { startingCanvasNodesRef.current.delete(node.id); setStartingCanvasNodes((current) => { const next = new Set(current); next.delete(node.id); return next; }); }); },
+      } } };
+    }
     if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
       const nodeJob = canvasJobs[node.id];
       const linkedPrompt = resolveLinkedPrompt(node, nodes, documents);
@@ -3285,6 +3298,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "transcription") return { id: node.id, type: "transcription", position: node.position, deletable: true, data: { text: node.data.text ?? "", ...(node.data.audioAssetId ? { audioAssetId: node.data.audioAssetId } : {}), ...(node.data.language ? { language: node.data.language } : {}) } };
   if (node.type === "sound-effect") return {
     id: node.id,
     type: "sound-effect",
@@ -3388,6 +3402,7 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
   if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
   if (type === "audio-scene") return { id: crypto.randomUUID(), type, position, data: { prompt: "" } };
   if (type === "speech") return { id: crypto.randomUUID(), type, position, data: { text: "" } };
+  if (type === "transcription") return { id: crypto.randomUUID(), type, position, data: { text: "" } };
   if (type === "sound-effect") return { id: crypto.randomUUID(), type, position, data: { prompt: "" } };
   if (type === "music") return { id: crypto.randomUUID(), type, position, data: { prompt: "", instrumental: true } };
   if (type === "animate-3d") {
@@ -3605,6 +3620,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "transcription") return { id: node.id, type: "transcription", position: node.position, data: { text: node.data.text ?? "", ...(node.data.audioAssetId ? { audioAssetId: node.data.audioAssetId } : {}), ...(node.data.language ? { language: node.data.language } : {}) } };
   if (node.type === "sound-effect") return {
     id: node.id,
     type: "sound-effect",
@@ -3867,7 +3883,7 @@ export function connectionRelation(
     const current = target.data.images?.[0];
     return isModelSource(source, libraryAssets) && !(current?.type === "node" && current.nodeId === source.id) ? "model-reference" : undefined;
   }
-  if ((source.type === "text" || source.type === "document") && (target.type === "image" || target.type === "video" || target.type === "speech" || target.type === "sound-effect" || target.type === "music" || target.type === "audio-scene" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
+  if ((source.type === "text" || source.type === "document" || source.type === "transcription") && (target.type === "image" || target.type === "video" || target.type === "speech" || target.type === "sound-effect" || target.type === "music" || target.type === "audio-scene" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
     return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
   if (target.type === "video") {
@@ -3878,7 +3894,7 @@ export function connectionRelation(
 
 /** What a node gives a plugin node's input, as the daemon reads it. */
 function pluginSourceMedia(node: AssetCanvasFlowNode, libraryAssets: LibraryAsset[], pluginNodes: readonly ProjectCanvasNode[]): ProjectCanvasNode["output"] | undefined {
-  if (node.type === "text" || node.type === "document") return "text";
+  if (node.type === "text" || node.type === "document" || node.type === "transcription") return "text";
   if (node.type === "image" || node.type === "video") return node.type;
   if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") return "audio";
   if (node.type === "model-3d" || node.type === "animate-3d") return "model";
@@ -3985,7 +4001,7 @@ export function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedId
 function resolveLinkedPrompt(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], documents: CanvasDocuments): string | undefined {
   if (!node.data.promptSource) return undefined;
   const source = nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
-  return source?.type === "document" ? documents.documents.find((doc) => doc.id === source.data.documentId)?.markdown : source?.type === "text" ? source.data.text ?? "" : undefined;
+  return source?.type === "document" ? documents.documents.find((doc) => doc.id === source.data.documentId)?.markdown : source?.type === "text" || source?.type === "transcription" ? source.data.text ?? "" : undefined;
 }
 
 async function promptImage(blob: Blob): Promise<CreateLibraryImageRequest["image"]> {
