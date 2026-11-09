@@ -39,12 +39,12 @@ describe("canvas character image tools", () => {
     expect(sheet).toContain("The selected density controls logical dimensions, palette, shading depth");
     expect(coarseSheet).toContain("selected logical pixel grid");
     expect(coarseSheet).toContain("same coarse pixel construction and color palette");
-    expect(coarseSheet).toContain("32×32 logical sprite budget");
+    expect(coarseSheet).toContain("24×24 logical sprite budget");
     expect(coarseSheet).toContain("each eye as one solid dark mark");
-    expect(detailedSheet).toContain("128×128 logical sprite budget");
+    expect(detailedSheet).toContain("256×256 logical sprite budget");
     expect(detailedSheet).toContain("small armor divisions");
     expect(detailedSheet).toContain("selected hair locks");
-    expect(detailedSheet).toContain("4–6 hard-edged tones per major material");
+    expect(detailedSheet).toContain("5–8 hard-edged tones per major material");
     expect(sheet).toContain("Close-ups must not reintroduce engraving");
     expect(sheet).toContain("visibly omit secondary detail");
     expect(detailedSheet).toContain("Translate reference details into the selected pixel density");
@@ -255,7 +255,7 @@ describe("canvas character image tools", () => {
       expect(node.data.prompt).toContain(expected);
       expect(node.data).toMatchObject({ pixelStyle: "detailed", promptExpanded: true });
       expect(node.data.prompt.match(/\*\*PIXEL DENSITY:/g)).toHaveLength(1);
-      expect(node.data.prompt).toContain("4–6 hard-edged tones per major material");
+      expect(node.data.prompt).toContain("5–8 hard-edged tones per major material");
       expect(node.data).not.toHaveProperty("generationMode");
     },
   );

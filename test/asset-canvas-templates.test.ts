@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import i18next from "i18next";
 import type { ImageModel } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, effectLibraryPrompt, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import { canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { ASSET_CANVAS_TEMPLATES, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
 import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
@@ -53,14 +52,14 @@ describe("pixel asset workflows", () => {
     const classic = effectLibraryPrompt(base, "original", "sample", "", "classic");
     const detailed = effectLibraryPrompt(base, "original", "sample", "", "detailed");
     expect(coarse).toContain("PIXEL DENSITY: COARSE PIXELS");
-    expect(coarse).toContain("32×32 pixels");
+    expect(coarse).toContain("24×24 pixels");
     expect(coarse).toContain("Use no more than 8 colors");
     expect(classic).toContain("PIXEL DENSITY: CLASSIC PIXELS");
     expect(classic).toContain("64×64 pixels");
     expect(classic).not.toContain("Use no more than 8 colors");
     expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("128×128 pixels");
-    expect(detailed).toContain("Use no more than 48 colors");
+    expect(detailed).toContain("256×256 pixels");
+    expect(detailed).toContain("Use no more than 64 colors");
     expect(detailed).toContain("Never reuse coarse or classic block sizes for detailed output");
     expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
     expect(detailed).toContain("6–8 discrete hard-edged tones");
@@ -77,20 +76,8 @@ describe("pixel asset workflows", () => {
       expect(prompt).toContain("clear transparent margin");
     }
     expect(fire).toContain("separately articulated narrow yellow and gold inner flame tongues");
-    expect(trail).toContain("hairline white-cyan lightning core");
-    expect(crescent).toContain("razor-sharp white-blue core line");
-  });
-
-  it("keeps legacy guide markers readable without creating new template boards", () => {
-    expect(ASSET_CANVAS_TEMPLATES).toEqual(["pixel-art", "character-sheet", "quick-reskin", "free-sequence", "action-set"]);
-    expect(templateImagePresets("pixel-art")).toHaveLength(12);
-    expect(templateImagePresets("free-sequence")).toEqual(["continuous-sequence", "consistent-sequence"]);
-    expect(templateImagePresets("action-set")).toEqual([]);
-    expect(templateGuideInfo("asset-canvas-template:pixel-art")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image:pixel")).toEqual({ template: "pixel-art" });
-    expect(templateGuideInfo("asset-canvas-template:free-image:general")).toEqual({ template: "character-sheet" });
-    expect(templateGuideInfo("asset-canvas-template:free-sequence")).toEqual({ template: "free-sequence" });
+    expect(trail).toContain("bright horizontal dash trail");
+    expect(crescent).toContain("blue-white crescent energy slash");
   });
 
   it("organizes the pixel catalog by function and provides translated card details", () => {
@@ -187,7 +174,7 @@ describe("pixel asset workflows", () => {
     expect(tileset).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
     expect(tileset).toContain("Default logical size per tile: 32×32 pixels");
     expect(tileset).toContain("With 4 columns and 4 rows, the complete sheet is 128×128 logical pixels");
-    for (const preset of templateImagePresets("pixel-art")) {
+    for (const preset of CANVAS_IMAGE_PRESETS.filter((candidate) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(candidate))) {
       const prompt = canvasImagePresetPrompt(preset, description);
       const requestIndex = prompt.indexOf(`${preset === "character-sheet" ? "CHARACTER DESCRIPTION" : "USER REQUEST"}: ${description}`);
       const densityIndex = prompt.indexOf("**PIXEL DENSITY: CLASSIC PIXELS**");
@@ -222,7 +209,7 @@ describe("pixel asset workflows", () => {
 
   it("keeps distinct size, palette, and shading budgets without output-width examples", () => {
     const settings = [
-      ["coarse", 32, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 128, 48, "4–6"],
+      ["coarse", 24, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 256, 64, "5–8"],
     ] as const;
     for (const [level, size, colors, tones] of settings) {
       const prompt = withPixelArtLevel("USER REQUEST: wizard", level);
@@ -237,7 +224,7 @@ describe("pixel asset workflows", () => {
 
   it("separates whole reference-sheet dimensions from full-body sprite budgets", () => {
     for (const [level, size, width, height] of [
-      ["coarse", 32, 128, 72], ["classic", 64, 256, 144], ["detailed", 128, 512, 288],
+      ["coarse", 24, 96, 54], ["classic", 64, 256, 144], ["detailed", 256, 1024, 576],
     ] as const) {
       const prompt = canvasImagePresetPrompt("character-sheet", "blue-haired wizard", "pixel", 1, level);
       expect(prompt).toContain(`entire 16:9 reference sheet on a ${width}×${height} logical pixel canvas`);
@@ -249,15 +236,15 @@ describe("pixel asset workflows", () => {
     const coarse = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "coarse");
     expect(coarse).toContain("each eye as one solid dark mark");
     const detailed = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "detailed");
-    expect(detailed).toContain("4–6 hard-edged tones per major material");
+    expect(detailed).toContain("5–8 hard-edged tones per major material");
     expect(detailed).toContain("small armor divisions");
     expect(detailed).not.toContain("1–2 hard-edged tones");
     expect(detailed).not.toContain("2–3 hard-edged tones");
   });
 
   it.each(["coarse", "classic", "detailed"] as const)("applies only the selected %s density across all catalog workflows", (level) => {
-    const colors = { coarse: 8, classic: 16, detailed: 48 };
-    const tones = { coarse: "1–2", classic: "2–3", detailed: "4–6" };
+    const colors = { coarse: 8, classic: 16, detailed: 64 };
+    const tones = { coarse: "1–2", classic: "2–3", detailed: "5–8" };
     for (const category of pixelAssetPresetCatalog()) {
       for (const preset of category.presets) {
         const workflow = createPixelAssetWorkflowNodes(preset.id, level, [reference], "workflow");
@@ -301,7 +288,7 @@ describe("pixel asset workflows", () => {
   });
 
   it.each([
-    ["coarse", 32, 96, 16], ["classic", 64, 160, 32], ["detailed", 128, 320, 96],
+    ["coarse", 24, 72, 12], ["classic", 64, 160, 32], ["detailed", 256, 640, 160],
   ] as const)("computes per-cell and complete-sheet dimensions for %s layouts", (level, sprite, scene, tile) => {
     const actions = actionSheetPrompt("walk", "", level);
     expect(actions).toContain(`per frame: ${sprite}×${sprite} pixels`);
