@@ -54,9 +54,10 @@ import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
-import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { AssetThumbnail, WorkspaceAssetDialog, assetSortDetail, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { sortAssets, type AssetSort } from "./asset-sort.js";
 import { useNearViewport } from "./asset-gallery.js";
-import { ProjectAssetFilterRow } from "./library-filters.js";
+import { AssetSortSelect, ProjectAssetFilterRow, useAssetSort } from "./library-filters.js";
 import "./library.css";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
@@ -1861,13 +1862,14 @@ export function AssetsView({
   const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
+  const [sort, setSort] = useAssetSort("ohmygame:project-assets-sort");
   const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);
-  const visibleAssets = useMemo(() => mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), [narrowed, mediaFilter]);
+  const visibleAssets = useMemo(() => sortAssets(mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), sort), [narrowed, mediaFilter, sort]);
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
-  const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
+  const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all" || (filters.period ?? "all") !== "all";
   const resetFilters = () => { setQuery(""); setFilters({}); };
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
@@ -1884,9 +1886,10 @@ export function AssetsView({
         <span className="library-filter-spacer" />
         <ProjectAssetFilterRow assets={assets} filters={filters} onChange={setFilters} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
+        <AssetSortSelect value={sort} onChange={setSort} />
       </div>
       {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
-        <ProjectAssetTile key={asset.path} asset={asset} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
+        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
       ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
@@ -1900,11 +1903,12 @@ export function AssetsView({
 const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
 
 /** A project asset as a Library tile: its kind and where it came from below the preview. */
-function ProjectAssetTile({ asset, selected, onOpen }: { asset: BrowsableAsset; selected: boolean; onOpen: () => void }) {
+function ProjectAssetTile({ asset, sort, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; selected: boolean; onOpen: () => void }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
   const extension = fileExtension(asset.path).slice(1).toUpperCase();
+  const detail = assetSortDetail(asset, sort);
   return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
-    meta={`${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
+    meta={`${detail ? `${detail} · ` : ""}${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
     preview={asset.mediaType === "audio"
       ? <span className="library-file-mark"><CategoryMark category="audio" size={22} />{extension ? <small>{extension}</small> : null}</span>
       : <AssetThumbnail asset={asset} visible={visible} />} />;

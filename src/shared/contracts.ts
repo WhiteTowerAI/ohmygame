@@ -1101,6 +1101,8 @@ export interface WorkspaceFile {
   size: number;
   directory?: true;
   mediaType?: "image" | "video" | "audio" | "model";
+  /** When a media file last changed; set in the complete listing, not a single directory's. */
+  modifiedAt?: string;
   prompt?: string;
   previewPath?: string;
   libraryAssetId?: string;

@@ -537,7 +537,7 @@ describe("daemon", () => {
     });
 
     expect(files.json()).toEqual([
-      { path: "cover.png", size: 3, mediaType: "image", origin: "workspace", purpose: "asset" },
+      { path: "cover.png", size: 3, mediaType: "image", modifiedAt: expect.any(String), origin: "workspace", purpose: "asset" },
       { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
       { path: "ohmygame.json", size: expect.any(Number) },
