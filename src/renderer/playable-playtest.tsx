@@ -4,6 +4,7 @@ import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 
 const RECENT_LIMIT = 8;
 
@@ -60,11 +61,13 @@ export function usePlaytestRequests(projectId: string, onRequest: (request: Play
 }
 
 /** Editor controls live outside the game, including when a Scene Workbench is open. */
-export function PlaytestControls({ disabled = false, busy = false, label, title, onOpen, onAction }: {
+export function PlaytestControls({ disabled = false, busy = false, label, title, text, onOpen, onAction }: {
   disabled?: boolean;
   busy?: boolean;
   label?: string;
   title?: string;
+  /** Shown beside the icon, like the game's Play in the project's top bar. */
+  text?: string;
   onOpen: () => void;
   onAction?: (action: PlaytestAction) => void;
 }) {
@@ -107,9 +110,13 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   };
 
   return <div className="playable-playtest-controls" ref={root}>
-    <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
+    {text ? <Button
+      size="sm" variant="ghost" className="preview-play-button"
+      icon={busy ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+      data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}
+    >{text}</Button> : <button className="icon-button pane-header-action" type="button" data-tooltip={busy ? t("storyEditor.openingPlaytest") : title ?? t("storyEditor.playtestWindow")} aria-label={label ?? t("storyEditor.playtest")} disabled={unavailable} onClick={onOpen}>
       {busy ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
-    </button>
+    </button>}
     {onAction ? <button
       ref={trigger} className="icon-button pane-header-action playable-playtest-menu-trigger" type="button"
       title={t("playtest.actions")} aria-label={t("playtest.actions")} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}

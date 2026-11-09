@@ -93,6 +93,8 @@ export interface StoryPanels {
   visible: ReadonlySet<StoryView>;
   /** Brings a view forward, opening its panel if it was closed. */
   onShow: (view: StoryView) => void;
+  /** The project's top bar slot where Play stays from every view, as it does for a game. */
+  play?: HTMLElement | null;
 }
 
 const HISTORY_LIMIT = 50;
@@ -1144,13 +1146,14 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, thumbnailFailures, builtDefinition]);
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
+  const playtestControls = <PlaytestControls disabled={phase !== "ready"} busy={playtesting} {...(panels?.play ? { text: t("workspace.play") } : {})} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />;
   const views: Record<StoryView, { toolbar?: ReactNode; body: ReactNode }> = {
     story: {
       toolbar: <>
         <button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
           <Settings size={14} />
         </button>
-        <PlaytestControls disabled={phase !== "ready"} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
+        {panels?.play ? null : playtestControls}
       </>,
       body: <>
         <div className="interactive-story-body">
@@ -1333,6 +1336,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   return (
     <>
       {placed}
+      {panels?.play ? createPortal(playtestControls, panels.play) : null}
       {projectSettingsOpen && codebase ? <PlayableProjectSettingsDialog
         project={project}
         graph={codebase.graph}
