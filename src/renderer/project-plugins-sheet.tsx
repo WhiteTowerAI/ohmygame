@@ -4,12 +4,13 @@ import { consentToPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
-import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
+import { PluginChanges } from "./project-plugin-contributions.js";
+import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch, Tabs } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
-// differs from that.
-export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged, onOpenPlugins }: {
+// differs from that. A second tab lists what the plugins changed, to undo.
+export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged, onUndone, onOpenPlugins }: {
   projectId: string;
   open: boolean;
   /** An agent is working in the project; its plugins wait until it is done. */
@@ -17,8 +18,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   onClose: () => void;
   /** A plugin was turned on or off here, so the skills and commands the chat offers may have changed. */
   onChanged?: () => void;
+  /** A plugin's change to the project's files was undone. */
+  onUndone?: () => void;
   onOpenPlugins?: () => void;
 }) {
+  const [tab, setTab] = useState<"plugins" | "changes">("plugins");
   const [view, setView] = useState<ProjectPluginsView>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
@@ -28,6 +32,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
   const load = () => getProjectPlugins(projectId).then((next) => { setView(next); setError(undefined); });
   useEffect(() => {
     if (!open) return;
+    setTab("plugins");
     setView(undefined);
     void load().catch((cause: unknown) => setError(message(cause)));
   }, [open, projectId]);
@@ -57,6 +62,11 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}
       footer={onOpenPlugins ? <Button onClick={() => { onClose(); onOpenPlugins(); }}>{t("projectPlugins.manageAll")}</Button> : undefined}>
       <div className="project-plugins">
+        <Tabs label={t("projectPlugins.title")} value={tab} onChange={setTab} tabs={[
+          { value: "plugins", label: t("projectPlugins.tab") },
+          { value: "changes", label: t("pluginChanges.tab") },
+        ]} />
+        {tab === "changes" ? <PluginChanges projectId={projectId} busy={busy} onUndone={onUndone} /> : <>
         <p className="project-plugins-intro">{t("projectPlugins.intro")}</p>
         {error ? <Alert tone="danger" title={error} /> : null}
         {busy ? <Alert title={t("projectPlugins.busy")} /> : null}
@@ -101,6 +111,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
             </div>
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}
+        </>}
       </div>
       {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.capabilities}
         onCancel={() => setConsent(undefined)}

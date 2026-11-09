@@ -4,7 +4,6 @@ import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type Agent
 import {
   Play,
   Plug,
-  History,
   Palette,
   ArrowLeft,
   Download,
@@ -19,7 +18,7 @@ import {
   Gamepad2,
   Layers3,
   LayoutGrid,
-  Pencil,
+  Settings,
   RefreshCw,
   Globe2,
   Share2,
@@ -148,9 +147,9 @@ import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -158,8 +157,7 @@ import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -204,8 +202,6 @@ export interface ProjectWorkspaceView {
   /** Puts a prompt in the chat's box. */
   ask: (text: string) => void;
   openFile: (path: string) => void;
-  /** The project's layouts and panels, for the top bar. */
-  layoutMenu: MenuEntry[];
   top: HTMLElement;
   panel: PanelNodes;
 }
@@ -337,7 +333,8 @@ export function ProjectShell({
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [playSlot, setPlaySlot] = useState<HTMLSpanElement | null>(null);
-  const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
+  // Each time the project menu asks for the project settings, the workspace opens them.
+  const [settingsRequest, setSettingsRequest] = useState(0);
   /** A plugin command's link, shown with its host before it opens. */
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
@@ -1169,10 +1166,8 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     });
   }
-  const requestHome = () => leave(onHome);
   useLeaveGuard(leave);
 
-  const [renaming, setRenaming] = useState(false);
   const [exporting, setExporting] = useState<"project" | "web">();
   const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
   // The project file from the project menu, or the web build from Publish.
@@ -1199,7 +1194,6 @@ export function ProjectShell({
     }
   }
   async function renameTo(input: string): Promise<void> {
-    setRenaming(false);
     const name = input.trim();
     if (!project || !name || name === project.name) return;
     try {
@@ -1385,18 +1379,18 @@ export function ProjectShell({
       for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
   }
+  // Games and stories keep their settings in their workspace, which opens them on request.
+  const hasSettings = !!project && (story || (coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type)));
   const projectMenu: MenuEntry[] = [
-    { label: t("projectShell.renameProject"), icon: <Pencil size={14} />, disabled: !project, onSelect: () => setRenaming(true) },
+    ...(hasSettings ? [{ label: t("projectShell.settings"), icon: <Settings size={14} />, onSelect: () => setSettingsRequest((value) => value + 1) }] : []),
+    { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
-    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
-    { label: t("pluginChanges.menu"), icon: <History size={14} />, disabled: !project, onSelect: () => setPluginChangesOpen(true) },
-    ...pluginCommandEntries("project.menu"),
-    { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
     "separator",
-    { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
+    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    ...pluginCommandEntries("project.menu"),
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
   const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
@@ -1441,17 +1435,10 @@ export function ProjectShell({
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
 
-  const toggleMenu: MenuEntry[] = offered.length ? [
-    { heading: t("panels.layout") },
-    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered, homes)) })),
-    "separator",
-    { heading: t("panels.list") },
-    ...offered.map((id) => {
-      const { title, icon: Icon } = panelInfo(id);
-      const open = !!layout && !!areaOf(layout, id);
-      return { label: title, icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id, homes))) };
-    }),
-  ] : [];
+  // The layout presets, at the foot of each area's + menu.
+  const layoutPresets: MenuEntry[] = presetsFor(offered).map((preset) => ({
+    label: t(`panels.preset.${preset}`), icon: <LayoutGrid size={14} />, onSelect: () => changeLayout(presetLayout(preset, offered, homes)),
+  }));
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
     ...offered.map((id): Command => {
@@ -1573,8 +1560,6 @@ export function ProjectShell({
   return (
     <>
     {chatInput}
-    {project ? <PluginChangesSheet projectId={project.id} open={pluginChangesOpen} busy={agentBusy} onClose={() => setPluginChangesOpen(false)}
-      onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
       <Button variant="primary" onClick={() => { openExternalLink(pluginLink.url.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
@@ -1594,9 +1579,9 @@ export function ProjectShell({
     {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
       onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
       onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
-    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
-    {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
-    {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
+      onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
+    {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} onRename={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
       rail={workspace?.rail ?? <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
         items: conversations,
@@ -1605,9 +1590,6 @@ export function ProjectShell({
         onNew: () => void newConversation(),
       }} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
-        {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
-          <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
-        )} /> : null}
         {/* Play stays in place from every view. A Web preview or a story fills
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />
@@ -1635,7 +1617,7 @@ export function ProjectShell({
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
-    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout} layouts={project ? layoutPresets : []}
       panels={(project ? offered : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
         const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
@@ -1758,6 +1740,7 @@ export function ProjectShell({
           pickingClient={pickingClient}
           onPickingChange={setPickingClient}
           previewDevices={plugins.previewDevices}
+          settingsRequest={settingsRequest}
           previewFilters={plugins.previewFilters}
           inputMaps={plugins.inputMaps}
           panels={{
@@ -1786,6 +1769,7 @@ export function ProjectShell({
         referencedDocument={referencedDocument}
         onReferenceDocument={referenceDocument}
         onQuoteDocument={quoteDocument}
+        settingsRequest={settingsRequest}
         panels={{
           nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
           visible: storyVisible,
@@ -1806,7 +1790,7 @@ export function ProjectShell({
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       {project && workspace && workspaceTop ? workspace.render({
-        busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, layoutMenu: toggleMenu, top: workspaceTop, panel: nodes.plugin,
+        busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, top: workspaceTop, panel: nodes.plugin,
       }) : null}
       {project && codeBeside && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
         <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>

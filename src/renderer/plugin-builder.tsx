@@ -234,9 +234,6 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
   return <>
     {createPortal(<ProjectTop name={summary ? workspaceTitle(summary.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined}
       menu={menu} status={status}>
-      <DropdownMenu placement="bottom-end" items={view.layoutMenu} trigger={props => (
-        <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
-      )} />
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
         icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
         onClick={() => void action("installing", async () => {

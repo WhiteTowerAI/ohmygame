@@ -46,7 +46,7 @@ An Interactive Story opens in the project frame with two panels:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Top bar: project name ▾   Layout and panels · Play · Publish │
+│ Top bar: project name ▾                      Play · Publish  │
 ├───────────────┬──────────────────────────────────────────────┤
 │ Chat          │ Story        Story · Design · Code · Assets  │
 │               │                                   Settings   │
@@ -59,8 +59,8 @@ An Interactive Story opens in the project frame with two panels:
 
 - **Chat**, **Story**, **Design**, **Canvas**, **Code** and **Assets** are
   panels, as in a web game: they drag to another side or beside each other,
-  close from their tab, and come back from **Layout and panels** in the top
-  bar. The arrangement is shared with every project; see
+  close from their tab, and come back from an area's **+** menu, which also
+  applies a layout preset. The arrangement is shared with every project; see
   [workspace panels](../runtime.md#workspace-panels).
 - The Story panel shows either the **Story** view, the flow canvas, or the
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to

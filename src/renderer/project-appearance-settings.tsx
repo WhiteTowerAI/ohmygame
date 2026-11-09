@@ -14,7 +14,7 @@ import { refreshRecentProject } from "./app-sidebar.js";
 import { ChevronDown, LoaderCircle, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
-import { Button, Dialog, SegmentedControl } from "./ui/index.js";
+import { Button, Dialog, Field, Input, SegmentedControl } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 type CoverChoice = ProjectCoverMode | "template";
@@ -226,10 +226,42 @@ function objectUrl(load: (() => Promise<Blob | undefined>) | undefined, set: (ur
   };
 }
 
-/** The appearance on its own, from the project menu, for every project type. */
-export function ProjectAppearanceDialog({ project, open, onClose }: { project: ProjectState; open: boolean; onClose: () => void }) {
+/**
+ * The project's name and appearance, from the project menu, for every project
+ * type. The appearance applies as it changes, so the name does too: it is
+ * saved when the dialog closes, however it closes.
+ */
+export function ProjectAppearanceDialog({ project, open, onClose, onRename }: {
+  project: ProjectState;
+  open: boolean;
+  onClose: () => void;
+  /** Saves a new name; called only when it changed. */
+  onRename: (name: string) => void;
+}) {
+  const [name, setName] = useState(project.name);
+  // Only a name edited here is saved, so one the project got meanwhile, such as its first title, stays.
+  const [opened] = useState(project.name);
+  const composing = useRef(false);
+  const close = () => {
+    const next = name.trim();
+    if (next && next !== opened.trim() && next !== project.name) onRename(next);
+    onClose();
+  };
   return (
-    <Dialog open={open} onClose={onClose} title={t("projectAppearance.title")} footer={<Button onClick={onClose}>{t("common.done")}</Button>}>
+    <Dialog open={open} onClose={close} title={t("projectAppearance.titleWithName")} footer={<Button onClick={close}>{t("common.done")}</Button>}>
+      <form className="project-appearance-name" onSubmit={(event) => {
+        event.preventDefault();
+        if (!composing.current) close();
+      }}>
+        <Field label={t("common.name")}>{(props) => (
+          <Input {...props} value={name} autoFocus onChange={(event) => setName(event.target.value)}
+            onCompositionStart={() => { composing.current = true; }}
+            onCompositionEnd={() => { composing.current = false; }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (composing.current || event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
+            }} />
+        )}</Field>
+      </form>
       <ProjectAppearanceSettings key={project.id} project={project} standalone />
     </Dialog>
   );

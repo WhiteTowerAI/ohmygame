@@ -403,10 +403,20 @@ describe("project shell layout", () => {
         .layout.left.panels,
     ).toEqual([]);
 
-    await click("Layout and panels");
-    await act(async () => menuItem("Chat").click());
+    // The + menu offers the closed panels, then the layouts, which put the chat back on the left.
+    await click("Add panel");
+    expect(menuItem("Chat")).toBeDefined();
+    await act(async () => menuItem("Default").click());
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
+    // The top bar has no layout button now; the project menu leads with the project's settings.
+    expect(button("Layout and panels")).toBeUndefined();
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    const projectMenu = [...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim());
+    expect(projectMenu.slice(0, 2)).toEqual(["Project settings…", "Name and appearance…"]);
+    expect(projectMenu).toContain("Plugins…");
+    expect(projectMenu).not.toContain("Plugin changes…");
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
   });

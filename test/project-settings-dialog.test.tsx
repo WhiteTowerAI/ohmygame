@@ -21,6 +21,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 }));
 const { ProjectSettingsDialog } =
   await import("../src/renderer/project-settings-dialog.js");
+const { ProjectAppearanceDialog } =
+  await import("../src/renderer/project-appearance-settings.js");
 
 describe("ProjectSettingsDialog", () => {
   it.each([false, true])(
@@ -257,5 +259,59 @@ describe("preview settings drafts", () => {
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Template")!.click());
     expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket", cover: "template" });
     expect(updateProjectRunSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("ProjectAppearanceDialog", () => {
+  const project = { id: "named", name: "Old name", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/named" } as ProjectState;
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+  // Each opening is a fresh dialog, as the project shell mounts it.
+  let opening = 0;
+  const open = async (onRename: (name: string) => void, onClose = vi.fn(), shown = project) => {
+    await act(async () => root.render(createElement(ProjectAppearanceDialog, { key: ++opening, project: shown, open: true, onClose, onRename })));
+    return onClose;
+  };
+  const type = (value: string) => act(async () => {
+    const input = document.querySelector<HTMLInputElement>(".project-appearance-name input")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const done = () => act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Done")!.click());
+
+  it("edits the name beside the appearance and saves it as it closes", async () => {
+    const onRename = vi.fn();
+    const onClose = await open(onRename);
+    expect(document.querySelector(".ui-dialog")?.textContent).toContain("Name and appearance");
+    expect(document.querySelector<HTMLInputElement>(".project-appearance-name input")!.value).toBe("Old name");
+    await type("  New name ");
+    await done();
+    expect(onRename).toHaveBeenCalledWith("New name");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves an unchanged or empty name alone", async () => {
+    const onRename = vi.fn();
+    await open(onRename);
+    await type("   ");
+    await done();
+    await open(onRename);
+    await done();
+    // A name the project got while the dialog was open isn't put back.
+    await open(onRename);
+    await act(async () => root.render(createElement(ProjectAppearanceDialog, { key: opening, project: { ...project, name: "Space gardener" }, open: true, onClose: () => {}, onRename })));
+    await done();
+    expect(onRename).not.toHaveBeenCalled();
   });
 });

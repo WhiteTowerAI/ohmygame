@@ -526,6 +526,8 @@ describe("pane and preview boundaries", () => {
     await act(async () => (container.querySelector('.project-settings [aria-label="Close"]') as HTMLButtonElement).click());
     // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
     await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    // The game's More menu also opens the preview's logs.
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toEqual(["Open in browser", "Restart preview", "Preview logs", "Project settings"]);
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
     const page = new URL(String(open.mock.calls[1][0]));
     expect(page.searchParams.get("__ohmygame_view")).toBe("external");
@@ -553,8 +555,11 @@ describe("pane and preview boundaries", () => {
     panel.append(nodes.code.toolbar, nodes.code.body);
     document.body.append(panel);
     const panels = { nodes, visible: new Set(["code"] as const), onShow: () => {} };
-    await act(async () => root.render(createElement(CodingWorkspace, { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels })));
-    await act(async () => (document.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
+    const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels };
+    await act(async () => root.render(createElement(CodingWorkspace, props)));
+    // The project menu asks for the project settings.
+    expect(document.querySelector(".project-settings")).toBeNull();
+    await act(async () => root.render(createElement(CodingWorkspace, { ...props, settingsRequest: 1 })));
     const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
     await act(async () => logs.click());
     expect(document.querySelector(".coding-workspace")?.getAttribute("data-active-tab")).toBe("code");

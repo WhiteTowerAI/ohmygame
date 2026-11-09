@@ -27,7 +27,7 @@ vi.mock("../src/renderer/project-shell.js", async () => {
         {props.workspace.rail}
         <header className="project-top"><span ref={setTop} /></header>
         <div className="workspace-panel" ref={node => { if (node && !node.contains(panel.body)) node.append(panel.toolbar, panel.body); }} />
-        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), layoutMenu: [], top, panel }) : null}
+        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), top, panel }) : null}
       </div>;
     },
   };

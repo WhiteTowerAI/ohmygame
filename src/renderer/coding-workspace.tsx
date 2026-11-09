@@ -35,6 +35,7 @@ import {
   Palette,
   Smartphone,
   Tablet,
+  Terminal,
   Trash2,
   Wrench,
   X,
@@ -49,7 +50,7 @@ import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
@@ -123,6 +124,8 @@ interface CodingWorkspaceProps {
   previewFilters?: readonly ProjectPreviewFilter[];
   /** The gamepad maps the project's plugins add. */
   inputMaps?: readonly ProjectInputMap[];
+  /** Opens the project settings each time it changes, as the project menu asks. */
+  settingsRequest?: number;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -169,6 +172,7 @@ export function CodingWorkspace({
   previewDevices = NO_DEVICES,
   previewFilters = NO_FILTERS,
   inputMaps = NO_INPUT_MAPS,
+  settingsRequest,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -217,6 +221,13 @@ export function CodingWorkspace({
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  // The project menu's Project settings; the first value is no request.
+  const settingsRequested = useRef(settingsRequest);
+  useEffect(() => {
+    if (settingsRequest === settingsRequested.current) return;
+    settingsRequested.current = settingsRequest;
+    setProjectSettingsOpen(true);
+  }, [settingsRequest]);
   const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
   ));
@@ -390,13 +401,6 @@ export function CodingWorkspace({
     onClick={playGame}
   >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
   const recordButton = supportsPreview && project ? <GameRecordButton projectId={project.id} gameRunning={player.open || preview?.status === "ready"} /> : null;
-  const settingsButton = project && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
-    className="icon-button pane-header-action"
-    type="button"
-    aria-label={t("projectSettings.title")}
-    data-tooltip={t("projectSettings.title")}
-    onClick={() => setProjectSettingsOpen(true)}
-  ><Wrench size={14} /></button> : null;
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setCodeFileRequest({ path, id: ++codeRequestId.current });
@@ -428,6 +432,7 @@ export function CodingWorkspace({
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
           onOpenSettings={() => setProjectSettingsOpen(true)}
+          onLogs={() => setLogsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
           onRestart={() => onRestart()}
@@ -470,7 +475,7 @@ export function CodingWorkspace({
       /></Suspense>,
     } : undefined,
     code: {
-      toolbar: <><div className="code-toolbar" ref={setCodeToolbar} />{settingsButton}</>,
+      toolbar: <div className="code-toolbar" ref={setCodeToolbar} />,
       body: project ? <WorkspaceCodeView
         key={project.id}
         toolbarTarget={codeToolbar}
@@ -482,7 +487,6 @@ export function CodingWorkspace({
       /> : null,
     },
     assets: {
-      toolbar: settingsButton,
       body: <AssetsView
         key={project?.id}
         projectId={project?.id}
@@ -565,6 +569,7 @@ function PreviewControls({
   tuningOpen,
   onToggleTuning,
   onOpenSettings,
+  onLogs,
   onNavigate,
   onRefresh,
   onRestart,
@@ -594,6 +599,7 @@ function PreviewControls({
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
   onOpenSettings: () => void;
+  onLogs: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
   onRestart: () => void;
@@ -620,6 +626,7 @@ function PreviewControls({
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
         "separator",
         { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings },
       ]} />

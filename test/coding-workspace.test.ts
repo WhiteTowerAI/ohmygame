@@ -223,7 +223,8 @@ describe("coding workspace", () => {
     };
     const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
     const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
-    expect(blank).toContain('aria-label="Project settings"');
+    // Its settings, where the web preview turns on, are in the project menu.
+    expect(blank).not.toContain('aria-label="Project settings"');
     expect(blank).toContain('data-active-tab="code"');
     expect(blank).not.toContain("<iframe");
 

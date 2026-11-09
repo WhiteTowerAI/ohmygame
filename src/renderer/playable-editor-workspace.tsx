@@ -122,7 +122,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, panels }: {
+export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsRequest, panels }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   publishing: boolean;
@@ -148,6 +148,8 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
   /** Quotes text picked in the design document into the next message. */
   onQuoteDocument?: (text: string) => void;
+  /** Opens the project settings each time it changes, as the project menu asks. */
+  settingsRequest?: number;
   /**
    * The panels the views render into. Without them (in tests), the story
    * renders in place.
@@ -236,6 +238,13 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   const thumbnailFailuresRef = useRef(thumbnailFailures);
   thumbnailFailuresRef.current = thumbnailFailures;
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  // The project menu's Project settings; the first value is no request.
+  const settingsRequested = useRef(settingsRequest);
+  useEffect(() => {
+    if (settingsRequest === settingsRequested.current) return;
+    settingsRequested.current = settingsRequest;
+    setProjectSettingsOpen(true);
+  }, [settingsRequest]);
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
