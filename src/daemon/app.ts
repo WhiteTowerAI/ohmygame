@@ -3505,7 +3505,6 @@ export function createApp(options: AppOptions = {}) {
   });
   app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
     await elevenLabsSettings.clear();
-    await providerModelSettings.setEnabled("elevenlabs", false);
     catalogRefresh.invalidate("elevenlabs");
     return reply.code(204).send();
   });

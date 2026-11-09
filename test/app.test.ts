@@ -1826,6 +1826,13 @@ describe("daemon", () => {
         expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } })).json())
+      .toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/elevenlabs/credential" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } })).json())
+      .toEqual({ configured: true });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json().providers)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ provider: "elevenlabs", configured: true, state: "ready" })]));
   });
 
   it("stores the Doubao Seed Audio key independently and exposes compatible models", async () => {
