@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { cachedScrollTop, keepScrollTop } from "./community-cache.js";
 import { t } from "./i18n.js";
 import { ChevronLeft } from "./icons.js";
 import { PageFrame } from "./page-frame.js";
@@ -11,23 +12,36 @@ import "./community.css";
  * A Community page in the frame: one scrolling column with a title row. Pages
  * under the list (a game, a creator) lead the row with a way back to it. It
  * takes the frame's page layout, so its width and margins match the other pages.
+ * Each `scrollKey` keeps its own scroll position, so going back to the list
+ * returns to where it was and another game starts at the top.
  */
 export function CommunityPage({
   title,
   actions,
   onBack,
+  scrollKey,
   children,
   onNavigate,
 }: {
   title?: ReactNode;
   actions?: ReactNode;
   onBack?: () => void;
+  scrollKey?: string;
   children: ReactNode;
   onNavigate: (page: AppNavigationTarget) => void;
 }) {
+  const scroller = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node || !scrollKey) return;
+    node.scrollTop = cachedScrollTop(scrollKey);
+    const save = () => keepScrollTop(scrollKey, node.scrollTop);
+    node.addEventListener("scroll", save, { passive: true });
+    return () => node.removeEventListener("scroll", save);
+  }, [scrollKey]);
   return (
     <PageFrame active="community" onNavigate={onNavigate}>
-      <main className="sidebar-page community-page">
+      <main ref={scroller} className="sidebar-page community-page">
         <WindowDragRegion />
         <div className="sidebar-page-inner community-page-body">
           <header className="sidebar-page-header community-page-head">

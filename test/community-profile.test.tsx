@@ -52,6 +52,7 @@ const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-fram
 const { CommunityProfilePage } =
   await import("../src/renderer/community-profile.js");
 const { GamesPage, GamePlayer, COMMUNITY_REFRESH_AFTER_MS } = await import("../src/renderer/games.js");
+const { resetCommunityCache } = await import("../src/renderer/community-cache.js");
 
 const profile: CommunityProfile = {
   author: { id: "creator", displayName: "Creator" },
@@ -76,6 +77,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("IntersectionObserver", undefined);
   vi.clearAllMocks();
+  resetCommunityCache();
   mocks.auth.state = { status: "signed-in", user: { id: "creator" } };
   mocks.own.mockResolvedValue(structuredClone(profile));
   mocks.public.mockResolvedValue({
@@ -89,7 +91,10 @@ beforeEach(() => {
   mocks.unpublish.mockResolvedValue(undefined);
   mocks.update.mockImplementation(async (_id, _token, metadata) => metadata);
   mocks.like.mockResolvedValue({ viewCount: 3, likeCount: 2, liked: true });
-  mocks.games.mockResolvedValue(profile.games);
+  // Games opened from the list start playing its playUrl at once.
+  mocks.games.mockResolvedValue(
+    profile.games.map((game) => ({ ...game, playUrl: "about:blank" })),
+  );
   mocks.detail.mockResolvedValue({
     ...profile.games[0],
     playUrl: "about:blank",
@@ -668,5 +673,104 @@ describe("Community card interactions", () => {
     expect(
       toolbar.querySelector('[aria-label="Unlike Public game"]')?.textContent,
     ).toBe("2");
+  });
+});
+
+describe("Community loading", () => {
+  async function renderGames() {
+    await act(async () =>
+      root.render(
+        <GamesPage onNavigate={() => undefined} onOhMyGame={() => undefined} />,
+      ),
+    );
+  }
+  const pending = () => new Promise<never>(() => {});
+
+  it("shows card shapes while the first list loads", async () => {
+    mocks.games.mockReturnValueOnce(pending());
+    await renderGames();
+    const skeleton = container.querySelector('[aria-busy="true"][aria-label="Loading games"]');
+    expect(skeleton?.querySelectorAll(".community-card-skeleton").length).toBeGreaterThan(0);
+    expect(container.querySelector(".community-state")).toBeNull();
+  });
+
+  it("shows the list seen before at once, with its filters, and refreshes it behind", async () => {
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    await renderGames();
+    await click("Like Public game");
+    await sortByLikes();
+    await act(async () => root.render(<></>));
+    mocks.games.mockReturnValueOnce(pending());
+    await renderGames();
+    expect(container.querySelector(".community-card-skeleton")).toBeNull();
+    expect(displayedGames()).toEqual(["Public game", "Hidden game"]);
+    expect(container.querySelector('[aria-label="Unlike Public game"]')).not.toBeNull();
+    expect(mocks.games).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens a game from the list with its details and player before its own read returns", async () => {
+    await renderGames();
+    mocks.detail.mockReturnValueOnce(pending());
+    mocks.games.mockReturnValueOnce(pending());
+    await renderPlayer();
+    expect(container.querySelector("h1")?.textContent).toBe("Public game");
+    expect(container.querySelector(".community-game-byline")?.textContent).toContain("Creator");
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBe("about:blank");
+    expect(container.querySelector('[aria-label="More game actions"]')).not.toBeNull();
+    expect(displayedGames()).toEqual(["Hidden game"]);
+  });
+
+  it("keeps the loading screen over the player until the game's page loads", async () => {
+    let resolve!: (game: CommunityProfile["games"][number]) => void;
+    mocks.detail.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    await renderPlayer();
+    const player = container.querySelector(".community-player")!;
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(player.getAttribute("aria-busy")).toBe("true");
+    expect(player.querySelector(".community-loader")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Loading game"]')).not.toBeNull();
+    await act(async () => resolve({ ...profile.games[0], playUrl: "about:blank" }));
+    expect(container.querySelector("h1")?.textContent).toBe("Public game");
+    await act(async () => container.querySelector("iframe")!.dispatchEvent(new Event("load")));
+    expect(player.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("keeps a kept profile's total in step with a like made on the game page", async () => {
+    mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
+    await render();
+    mocks.detail.mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank", stats: { viewCount: 3, likeCount: 5 } });
+    await renderPlayer();
+    mocks.like.mockResolvedValueOnce({ viewCount: 3, likeCount: 6, liked: true });
+    await click("Like Public game");
+    await act(async () => root.render(<></>));
+    mocks.public.mockReturnValueOnce(pending());
+    await render();
+    expect(container.querySelector(".community-profile-summary")?.textContent).toContain("6 likes");
+  });
+
+  it("returns to as many cards as were shown, so the scroll position can come back", async () => {
+    mocks.games.mockResolvedValue(Array.from({ length: 60 }, (_, index) => ({
+      ...profile.games[0], id: `game-${index}`, title: `Game ${index}`, playUrl: "about:blank",
+    })));
+    await renderGames();
+    expect(displayedGames()).toHaveLength(48);
+    const more = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show more")!;
+    await act(async () => more.click());
+    expect(displayedGames()).toHaveLength(60);
+    await act(async () => root.render(<></>));
+    mocks.games.mockReturnValueOnce(pending());
+    await renderGames();
+    expect(displayedGames()).toHaveLength(60);
+  });
+
+  it("keeps an owner's hidden works out of a signed-out window", async () => {
+    await render();
+    expect(displayedGames()).toContain("Hidden game");
+    await act(async () => root.render(<></>));
+    mocks.auth.state = { status: "signed-out", user: { id: "creator" } };
+    mocks.public.mockReturnValueOnce(pending());
+    await render();
+    expect(container.textContent).not.toContain("Hidden game");
+    expect(container.querySelector('[aria-label="Loading profile"]')).not.toBeNull();
   });
 });

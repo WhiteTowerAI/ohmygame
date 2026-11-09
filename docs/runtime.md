@@ -975,10 +975,25 @@ description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
 likes stay independently clickable. Covers are requested only when cards approach
-the visible area. Creator profiles and related games use the same cards, with
+the visible area; hosted covers are lazy images the browser keeps cached.
+Creator profiles and related games use the same cards, with
 colors following the app's light or dark theme. See the
 [dark](assets/community-gallery-dark.webp) and
 [light](assets/community-gallery-light.webp) examples (sample games).
+
+While a page's first read is in flight, the grid and profile show placeholder
+card shapes instead of a message. `src/renderer/community-cache.ts` keeps what
+the Community pages have read in the window: going back to the list or a
+profile shows it at once, with its filters and scroll position, and reloads it
+in the background, keeping it if that fails. A game opened from a card shows
+its title, creator, actions and related games, and starts its player, before
+its own read returns; a game opened by link shows placeholder details until
+then. The player is black with the controller's halftone loading animation
+(the website's player loader) until the game's page loads, and stays at least
+long enough not to flash. Likes and edits made on one page update the kept
+copies. A different account, or signing out, clears them, so likes and an
+owner's hidden works never carry over; a game that is no longer found leaves
+them too.
 
 Author links open their public profile with listed works. **My games**, next to
 the search and in the account menu, opens your own profile; it requires sign-in
