@@ -333,8 +333,8 @@ export function ProjectShell({
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [playSlot, setPlaySlot] = useState<HTMLSpanElement | null>(null);
-  // Each time the project menu asks for the project settings, the workspace opens them.
-  const [settingsRequest, setSettingsRequest] = useState(0);
+  // The game's or story's project settings, which its workspace shows and the project menu opens too.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** A plugin command's link, shown with its host before it opens. */
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
@@ -1382,7 +1382,7 @@ export function ProjectShell({
   // Games and stories keep their settings in their workspace, which opens them on request.
   const hasSettings = !!project && (story || (coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type)));
   const projectMenu: MenuEntry[] = [
-    ...(hasSettings ? [{ label: t("projectShell.settings"), icon: <Settings size={14} />, onSelect: () => setSettingsRequest((value) => value + 1) }] : []),
+    ...(hasSettings ? [{ label: t("projectShell.settings"), icon: <Settings size={14} />, onSelect: () => setSettingsOpen(true) }] : []),
     { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
@@ -1740,7 +1740,8 @@ export function ProjectShell({
           pickingClient={pickingClient}
           onPickingChange={setPickingClient}
           previewDevices={plugins.previewDevices}
-          settingsRequest={settingsRequest}
+          settingsOpen={settingsOpen}
+          onSettingsOpenChange={setSettingsOpen}
           previewFilters={plugins.previewFilters}
           inputMaps={plugins.inputMaps}
           panels={{
@@ -1769,7 +1770,8 @@ export function ProjectShell({
         referencedDocument={referencedDocument}
         onReferenceDocument={referenceDocument}
         onQuoteDocument={quoteDocument}
-        settingsRequest={settingsRequest}
+        settingsOpen={settingsOpen}
+        onSettingsOpenChange={setSettingsOpen}
         panels={{
           nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
           visible: storyVisible,

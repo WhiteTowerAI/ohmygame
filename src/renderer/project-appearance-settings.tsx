@@ -235,7 +235,7 @@ export function ProjectAppearanceDialog({ project, open, onClose, onRename }: {
   project: ProjectState;
   open: boolean;
   onClose: () => void;
-  /** Saves a new name; called only when it changed. */
+  /** Saves a name edited here; it may match the project's current name. */
   onRename: (name: string) => void;
 }) {
   const [name, setName] = useState(project.name);
@@ -244,7 +244,7 @@ export function ProjectAppearanceDialog({ project, open, onClose, onRename }: {
   const composing = useRef(false);
   const close = () => {
     const next = name.trim();
-    if (next && next !== opened.trim() && next !== project.name) onRename(next);
+    if (next && next !== opened.trim()) onRename(next);
     onClose();
   };
   return (

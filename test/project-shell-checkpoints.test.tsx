@@ -363,7 +363,9 @@ describe("project shell layout", () => {
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
-    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    // The project shell decides when the workspace shows its settings.
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: ({ settingsOpen, onSettingsOpenChange }: { settingsOpen?: boolean; onSettingsOpenChange?: (open: boolean) => void }) =>
+      settingsOpen ? <button type="button" className="project-settings" onClick={() => onSettingsOpenChange?.(false)}>Settings</button> : null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
@@ -416,7 +418,10 @@ describe("project shell layout", () => {
     expect(projectMenu.slice(0, 2)).toEqual(["Project settings…", "Name and appearance…"]);
     expect(projectMenu).toContain("Plugins…");
     expect(projectMenu).not.toContain("Plugin changes…");
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => menuItem("Project settings…").click());
+    expect(document.querySelector(".project-settings")).not.toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>(".project-settings")!.click());
+    expect(document.querySelector(".project-settings")).toBeNull();
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
   });

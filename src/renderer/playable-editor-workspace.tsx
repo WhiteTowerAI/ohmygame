@@ -98,6 +98,7 @@ export interface StoryPanels {
 }
 
 const HISTORY_LIMIT = 50;
+const noop = () => {};
 const SAVE_ATTEMPTS = 3;
 /** Loading again while a workspace checkpoint or restore runs longer than the daemon waits for it. */
 const WORKSPACE_BUSY_RETRIES = 5;
@@ -122,7 +123,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsRequest, panels }: {
+export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsOpen: projectSettingsOpen = false, onSettingsOpenChange: setProjectSettingsOpen = noop, panels }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   publishing: boolean;
@@ -148,8 +149,9 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
   /** Quotes text picked in the design document into the next message. */
   onQuoteDocument?: (text: string) => void;
-  /** Opens the project settings each time it changes, as the project menu asks. */
-  settingsRequest?: number;
+  /** Whether the project settings are open; the project shell owns it, so its menu opens them too. */
+  settingsOpen?: boolean;
+  onSettingsOpenChange?: (open: boolean) => void;
   /**
    * The panels the views render into. Without them (in tests), the story
    * renders in place.
@@ -237,14 +239,6 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   const [thumbnailFailures, setThumbnailFailures] = useState<Record<string, { hash: string; error: string }>>({});
   const thumbnailFailuresRef = useRef(thumbnailFailures);
   thumbnailFailuresRef.current = thumbnailFailures;
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
-  // The project menu's Project settings; the first value is no request.
-  const settingsRequested = useRef(settingsRequest);
-  useEffect(() => {
-    if (settingsRequest === settingsRequested.current) return;
-    settingsRequested.current = settingsRequest;
-    setProjectSettingsOpen(true);
-  }, [settingsRequest]);
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);

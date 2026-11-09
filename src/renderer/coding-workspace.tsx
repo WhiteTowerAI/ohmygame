@@ -124,8 +124,9 @@ interface CodingWorkspaceProps {
   previewFilters?: readonly ProjectPreviewFilter[];
   /** The gamepad maps the project's plugins add. */
   inputMaps?: readonly ProjectInputMap[];
-  /** Opens the project settings each time it changes, as the project menu asks. */
-  settingsRequest?: number;
+  /** Whether the project settings are open; the project shell owns it, so its menu opens them too. */
+  settingsOpen?: boolean;
+  onSettingsOpenChange?: (open: boolean) => void;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -172,7 +173,8 @@ export function CodingWorkspace({
   previewDevices = NO_DEVICES,
   previewFilters = NO_FILTERS,
   inputMaps = NO_INPUT_MAPS,
-  settingsRequest,
+  settingsOpen: projectSettingsOpen = false,
+  onSettingsOpenChange: setProjectSettingsOpen = noop,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -220,14 +222,6 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
-  // The project menu's Project settings; the first value is no request.
-  const settingsRequested = useRef(settingsRequest);
-  useEffect(() => {
-    if (settingsRequest === settingsRequested.current) return;
-    settingsRequested.current = settingsRequest;
-    setProjectSettingsOpen(true);
-  }, [settingsRequest]);
   const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
   ));
@@ -900,6 +894,7 @@ function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPrevi
 }
 
 const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
+const noop = () => {};
 const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
 const NO_INPUT_MAPS: readonly ProjectInputMap[] = [];
 const inputMapKey = (projectId: string) => `ohmygame:input-map:${projectId}`;

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, useEffect } from "react";
+import { act, createElement, useEffect, useState, type FunctionComponent } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -7,6 +7,13 @@ import type { ProjectState, RuntimeEvent } from "../src/shared/contracts.js";
 import { promptField, promptText, typePrompt } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
+/** A workspace whose project settings open and close as the project shell keeps them. */
+function withSettings<P extends { settingsOpen?: boolean; onSettingsOpenChange?: (open: boolean) => void }>(Workspace: FunctionComponent<P>) {
+  return function Shell(props: P) {
+    const [open, setOpen] = useState(props.settingsOpen ?? false);
+    return createElement(Workspace, { ...props, settingsOpen: open, onSettingsOpenChange: setOpen });
+  };
+}
 let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
@@ -504,11 +511,12 @@ describe("pane and preview boundaries", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
     const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
-    await act(async () => root.render(createElement(CodingWorkspace, props)));
+    const Shell = withSettings(CodingWorkspace);
+    await act(async () => root.render(createElement(Shell, props)));
     const frame = container.querySelector("iframe")!;
     const client = new URL(frame.src).searchParams.get("__ohmygame_client")!;
     const moved = { ...project, preview: { ...project.preview, pages: [{ client, source: "editor" as const, path: "/scene-2?level=2#boss" }] } };
-    await act(async () => root.render(createElement(CodingWorkspace, { ...props, project: moved })));
+    await act(async () => root.render(createElement(Shell, { ...props, project: moved })));
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
@@ -556,10 +564,8 @@ describe("pane and preview boundaries", () => {
     document.body.append(panel);
     const panels = { nodes, visible: new Set(["code"] as const), onShow: () => {} };
     const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels };
-    await act(async () => root.render(createElement(CodingWorkspace, props)));
-    // The project menu asks for the project settings.
-    expect(document.querySelector(".project-settings")).toBeNull();
-    await act(async () => root.render(createElement(CodingWorkspace, { ...props, settingsRequest: 1 })));
+    // The project menu opened the project settings.
+    await act(async () => root.render(createElement(withSettings(CodingWorkspace), { ...props, settingsOpen: true })));
     const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
     await act(async () => logs.click());
     expect(document.querySelector(".coding-workspace")?.getAttribute("data-active-tab")).toBe("code");
