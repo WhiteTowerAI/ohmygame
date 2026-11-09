@@ -49,8 +49,8 @@ The canvas creation menu offers **Text to speech**, **Speech to text**,
 and Document content and saves generated audio in the Library. Speech to text
 selects an audio Library asset and writes its editable transcript to the node;
 the transcript can then feed other text-capable nodes.
-The home-page audio shortcut opens a Music node. Text and Document nodes can
-still supply prompt content.
+The home-page audio shortcut opens a Music node. Text, Document, and Speech to
+text nodes can supply prompt content.
 
 **Audio settings** exposes model-supported controls: Speaker ID, style,
 language, speech rate, pitch, volume, output format and sample rate. Existing

@@ -50,7 +50,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - Group nodes have data.name and a required width/height in editor layout. A node may have parentId pointing at a group; its position is relative to that group. Parents must exist and cannot form cycles. Removing a group in the editor removes its descendants; ungrouping preserves them.
 - assets.json maps asset IDs to names, workspace-relative paths, optional descriptions and generation prompts. Use the same ID for the same asset across boards. References with type "library" resolve through this manifest. libraryAssetId records provenance; local files remain usable without the Library.
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
-- promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
+- promptSource references a text, document, or transcription node. Text, document, and transcription nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
 - Speech, sound-effect, music, and audio-scene nodes use the shared audio model contract. Audio references use stable AudioN/ImageN IDs with a node or Library source; mention audio as @AudioN. Use up to three short audio clips, one image, or a Speaker ID as separate modes. Subtitles and generation metadata are saved beside the audio. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
@@ -551,6 +551,11 @@ export class CanvasStore {
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(source.contentType)) throw new CanvasError("Reference images must be PNG, JPEG, WebP or GIF");
       return { mediaType: source.contentType as PromptImage["mediaType"], data: (await readFile(source.absolutePath)).toString("base64") };
     };
+    const promptSourceText = async (nodeId?: string): Promise<string | undefined> => {
+      const linked = board.nodes.find((candidate) => candidate.id === nodeId);
+      if (linked?.type === "text" || linked?.type === "transcription") return linked.data.text;
+      return linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
+    };
     if (node.type === "animate-3d") {
       if (!node.data.source || !node.data.actionIds.length) throw new CanvasError("Choose a source model and animation actions first");
       return this.start(id, boardId, nodeId, "animate-3d", { model: node.data.model, options: node.data.options, assetId: assetId(node.data.source), actionIds: node.data.actionIds, heightMeters: node.data.heightMeters }, revision, undefined, reuse);
@@ -558,8 +563,7 @@ export class CanvasStore {
     if (node.type === "model-3d") {
       const operation = node.data.operation ?? "image";
       if (operation === "image" && !node.data.images.length) throw new CanvasError("Add a reference image before generating");
-      const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
-      const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
+      const text = await promptSourceText(node.data.promptSource?.nodeId);
       const prompt = combineAssetCanvasPrompt(text, node.data.prompt ?? "");
       const images = await Promise.all(node.data.images.map(async (reference) => {
         const source = await image(reference);
@@ -576,15 +580,13 @@ export class CanvasStore {
     // Music and Audio creation offer no audio settings, so saved ones are not sent.
     const audio = node.type === "speech" || node.type === "sound-effect" ? audioSettings(node.data) : {};
     if (node.type === "speech") {
-      const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
-      const linkedText = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
+      const linkedText = await promptSourceText(node.data.promptSource?.nodeId);
       const text = combineAssetCanvasPrompt(linkedText, node.data.text);
       if (!text) throw new CanvasError("Add text to synthesize before generating");
       return this.start(id, boardId, nodeId, "generate-speech", { ...audio, text, ...(node.data.model ? { model: node.data.model } : {}), ...(node.data.voiceId ? { voiceId: node.data.voiceId } : {}), ...(node.data.speed !== undefined ? { speed: node.data.speed } : {}) }, revision, undefined, reuse);
     }
     if (node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
-      const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
-      const linkedText = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
+      const linkedText = await promptSourceText(node.data.promptSource?.nodeId);
       const prompt = combineAssetCanvasPrompt(linkedText, node.data.prompt);
       if (!prompt) throw new CanvasError(`Add a prompt before generating ${node.type === "music" ? "music" : "a sound effect"}`);
       if (node.type === "sound-effect") return this.start(id, boardId, nodeId, "generate-sound-effect", {
@@ -605,8 +607,7 @@ export class CanvasStore {
       }, revision, undefined, reuse);
     }
     if (node.type !== "image" && node.type !== "video") throw new CanvasError("Unsupported generation node");
-    const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
-    const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
+    const text = await promptSourceText(node.data.promptSource?.nodeId);
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") {

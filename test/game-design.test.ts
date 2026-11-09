@@ -818,7 +818,7 @@ describe("Markdown design workspace", () => {
     await store.start(project.id, boardId, node.id, toolId, {} as RunToolRequest);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded"); expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)!.data).toHaveProperty("assetId", output.id);
   });
-  it("generates speech from the saved node and linked text, then stores its audio output", async () => {
+  it("generates speech from the saved node and linked transcript, then stores its audio output", async () => {
     const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
     const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("audio"), mediaType: "audio/mpeg" as const, model });
     const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas", undefined, {
@@ -827,9 +827,9 @@ describe("Markdown design workspace", () => {
     });
     const detail = await store.board(project.id, boardId);
     detail.board.nodes.push(
-      { id: "script", type: "text", position: { x: 0, y: 0 }, data: { text: "欢迎来到雾港。", instruction: "" } },
+      { id: "script", type: "transcription", position: { x: 0, y: 0 }, data: { text: "欢迎来到雾港。" } },
       { id: "narration", type: "speech", position: { x: 320, y: 0 }, data: {
-        text: "请留意潮汐。", promptSource: { type: "node", nodeId: "script" }, model,
+        text: "", promptSource: { type: "node", nodeId: "script" }, model,
         voiceId: "zh_female_vv_uranus_bigtts", speed: 25,
       } },
     );
@@ -841,7 +841,7 @@ describe("Markdown design workspace", () => {
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(generate).toHaveBeenCalledWith({
       operation: "speech",
-      text: "欢迎来到雾港。\n\n请留意潮汐。",
+      text: "欢迎来到雾港。",
       model,
       voiceId: "zh_female_vv_uranus_bigtts",
       speed: 25,
