@@ -1009,7 +1009,6 @@ const en = {
     projectsShown: "Projects to show",
     projectCount: "{{count}} projects",
     projectCountAll: "All projects",
-    openProjectsPage: "Open Projects page",
     reorderHint: "Drag a project to reorder it",
     collapse: "Collapse sidebar",
     expand: "Expand sidebar",

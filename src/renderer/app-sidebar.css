@@ -34,6 +34,7 @@
 
 /* sidebar */
 .sidebar {
+  user-select: none;
   grid-area: rail;
   display: flex;
   flex-direction: column;
@@ -167,6 +168,11 @@
   scrollbar-width: none;
 }
 
+/* Rows keep their height, so a long list scrolls instead of squeezing together. */
+.sidebar-project-list > * {
+  flex: none;
+}
+
 .sidebar-project-list [data-dragged] {
   opacity: 0.4;
 }
@@ -241,6 +247,8 @@
 .sidebar-app-cover {
   display: block;
   overflow: hidden;
+  /* A press lands on the row, so dragging reorders it rather than the image. */
+  pointer-events: none;
 }
 
 .sidebar-cover {

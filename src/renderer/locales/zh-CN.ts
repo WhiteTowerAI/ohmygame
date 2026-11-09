@@ -994,7 +994,6 @@ const zhCN: typeof en = {
     projectsShown: "显示数量",
     projectCount: "{{count}} 个项目",
     projectCountAll: "全部项目",
-    openProjectsPage: "打开项目页",
     reorderHint: "拖动项目可调整顺序",
     collapse: "收起侧栏",
     expand: "展开侧栏",

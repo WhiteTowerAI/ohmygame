@@ -193,16 +193,13 @@ describe("the project list's order and count", () => {
     expect(quickAccess()).toHaveLength(8);
     const menu = () => button("Project list options")!;
     await act(async () => menu().click());
-    expect(menuLabels()).toEqual(["5 projects", "8 projects", "12 projects", "All projects", "Open Projects page"]);
+    expect(menuLabels()).toEqual(["5 projects", "8 projects", "12 projects", "All projects"]);
     await act(async () => button("5 projects")!.click());
     expect(quickAccess()).toHaveLength(5);
     expect(JSON.parse(localStorage.getItem("ohmygame-sidebar-projects")!)).toMatchObject({ version: 1, visible: 5 });
     await act(async () => menu().click());
     await act(async () => button("All projects")!.click());
     expect(quickAccess()).toHaveLength(14);
-    await act(async () => menu().click());
-    await act(async () => button("Open Projects page")!.click());
-    expect(onNavigate).toHaveBeenCalledWith("projects");
   });
 
   it("reorders by dragging, marking where a project will land", async () => {
@@ -444,14 +441,6 @@ describe("in a project", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(document.querySelector(".rail-popover")).toBeNull();
     expect(document.activeElement).toBe(button("Search"));
-  });
-
-  it("opens the Projects page from the list's options after saving", async () => {
-    await act(async () => button("Project list options")!.click());
-    onLeave.mockClear();
-    await act(async () => button("Open Projects page")!.click());
-    expect(onLeave).toHaveBeenCalledOnce();
-    expect(onNavigate).toHaveBeenCalledWith("projects");
   });
 
   it("leaves an open project past the count in its place when another project moves", async () => {

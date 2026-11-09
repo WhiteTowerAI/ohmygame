@@ -201,18 +201,15 @@ function useProjectReorder(shown: readonly ProjectState[]) {
 
 type ProjectItemProps = ReturnType<ReturnType<typeof useProjectReorder>["itemProps"]>;
 
-/** How many projects the list shows, and the way to all of them. */
-function ProjectListMenu({ visible, placement, onAllProjects }: {
+/** How many projects the list shows. */
+function ProjectListMenu({ visible, placement }: {
   visible: VisibleProjects;
   placement: "bottom-end" | "right-start";
-  onAllProjects: () => void;
 }) {
   const items: MenuEntry[] = [
     { heading: t("sidebar.projectsShown") },
     ...PROJECT_COUNTS.map((count): MenuEntry => ({ label: t("sidebar.projectCount", { count }), checked: visible === count, onSelect: () => setVisibleProjects(count) })),
     { label: t("sidebar.projectCountAll"), checked: visible === "all", onSelect: () => setVisibleProjects("all") },
-    "separator",
-    { label: t("sidebar.openProjectsPage"), onSelect: onAllProjects },
     "separator",
     { heading: t("sidebar.reorderHint") },
   ];
@@ -442,7 +439,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 <button type="button" className="sidebar-label sidebar-label-fold" aria-expanded={quickAccessOpen} onClick={foldQuickAccess}>
                   {t("sidebar.quickAccess")}<ChevronRight size={12} className="sidebar-label-caret" />
                 </button>
-                <ProjectListMenu visible={visible} placement="bottom-end" onAllProjects={() => onNavigate("projects")} />
+                <ProjectListMenu visible={visible} placement="bottom-end" />
               </div>
             )}
             {quickAccessOpen ? (
@@ -463,7 +460,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 {reorder.line}
               </div>
             ) : null}
-            {collapsed && quickAccessOpen ? <ProjectListMenu visible={visible} placement="right-start" onAllProjects={() => onNavigate("projects")} /> : null}
+            {collapsed && quickAccessOpen ? <ProjectListMenu visible={visible} placement="right-start" /> : null}
           </div>
         ) : null}
         <span className="sidebar-spacer" />
@@ -664,7 +661,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
         ))}
         {reorder.line}
       </div>
-      {projects.length ? <ProjectListMenu visible={visible} placement="right-start" onAllProjects={() => onLeave(() => onNavigate("projects"))} /> : null}
+      {projects.length ? <ProjectListMenu visible={visible} placement="right-start" /> : null}
       <Tooltip content={t("sidebar.newProject")} placement="right-start">
         <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
           <CirclePlus size={16} />
