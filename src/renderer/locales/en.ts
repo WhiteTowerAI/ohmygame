@@ -1269,6 +1269,7 @@ const en = {
     secrets: "Keep keys and sign-ins",
   },
   projectPlugins: {
+    menu: "Plugins…",
     allowHere: "Allow",
     useVersion: "Use {{version}}",
     versionOf: "Version of {{name}} in this project",
@@ -1631,7 +1632,7 @@ const en = {
   },
   projectSettings: {
     title: "Project settings",
-    tab: { general: "General", preview: "Preview", screen: "Screen", plugins: "Plugins" },
+    tab: { general: "General", preview: "Preview", screen: "Screen" },
     argumentsInvalid: "Arguments must be a JSON array of strings.",
     previewAccess: "Preview access",
     webPreview: "Web preview",
@@ -1792,6 +1793,7 @@ const en = {
     moreSharing: "More sharing options",
   },
   projectShell: {
+    settings: "Project settings…",
     promptReturned: "Your first message hasn't been sent yet, so it's back in the message box.",
     promptReturnedBecause: "Your first message hasn't been sent yet, so it's back in the message box. {{reason}}",
     folderMissing: "The selected workspace folder is no longer available.",

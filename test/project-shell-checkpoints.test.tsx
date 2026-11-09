@@ -367,7 +367,7 @@ describe("project shell layout", () => {
     // While the project's settings are open, the workspace shows its tab in them.
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: ({ settingsSlot }: { settingsSlot?: { node: HTMLElement } }) =>
       settingsSlot ? createPortal(<span className="workspace-settings" />, settingsSlot.node) : null }));
-    const daemon = await openProject((route) => route.startsWith("/projects/project/plugins") ? Response.json({ plugins: [] }) : undefined, detail("live-turn"), {
+    const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
     const tabs = (area: string) =>
@@ -416,15 +416,13 @@ describe("project shell layout", () => {
     await act(async () => menuItem("Restore default layout").click());
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
-    // The settings live in the top bar: General and Plugins for every project, and the workspace's own tab.
+    // The project menu leads with the project's settings and plugins; the top bar has neither.
     expect(button("Layout and panels")).toBeUndefined();
+    expect(button("Project settings")).toBeUndefined();
     await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
-    const projectMenu = [...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim());
-    expect(projectMenu).toContain("Export project");
-    expect(projectMenu.some((item) => /settings|appearance|Plugins/.test(item ?? ""))).toBe(false);
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    await click("Project settings");
-    expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview", "Plugins"]);
+    expect([...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim()).slice(0, 2)).toEqual(["Project settings…", "Plugins…"]);
+    await act(async () => menuItem("Project settings…").click());
+    expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview"]);
     expect(document.querySelector(".project-settings .workspace-settings")).not.toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!.click());
     expect(document.querySelector(".project-settings")).toBeNull();

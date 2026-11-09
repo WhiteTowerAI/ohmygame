@@ -6,16 +6,17 @@ import { ArrowLeft, History } from "./icons.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginChanges } from "./project-plugin-contributions.js";
-import { Alert, Badge, Button, Select, Skeleton, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, Select, Sheet, Skeleton, Switch } from "./ui/index.js";
 
 // A project's plugins: every one that suits it, each on or off here. Those on
 // in every project start on; the project's `ohmygame.json` keeps only what
-// differs from that. The Plugins tab of the project's settings; its Change
-// history lists what the plugins changed, to undo.
-export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, onOpenPlugins }: {
+// differs from that. Its Change history lists what the plugins changed, to undo.
+export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged, onUndone, onOpenPlugins }: {
   projectId: string;
+  open: boolean;
   /** An agent is working in the project; its plugins wait until it is done. */
   busy: boolean;
+  onClose: () => void;
   /** A plugin was turned on or off here, so the skills and commands the chat offers may have changed. */
   onChanged?: () => void;
   /** A plugin's change to the project's files was undone. */
@@ -31,9 +32,11 @@ export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, o
 
   const load = () => getProjectPlugins(projectId).then((next) => { setView(next); setError(undefined); });
   useEffect(() => {
+    if (!open) return;
+    setHistory(false);
     setView(undefined);
     void load().catch((cause: unknown) => setError(message(cause)));
-  }, [projectId]);
+  }, [open, projectId]);
 
   async function change(plugin: ProjectPluginItem, on: boolean, consented = plugin.consented, version = on ? keptVersion(plugin) : undefined): Promise<void> {
     if (on && !consented) {
@@ -56,21 +59,19 @@ export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, o
   }
 
   const on = view?.plugins.filter((plugin) => plugin.used !== undefined).length ?? 0;
-  if (history) return <div className="project-plugins">
-    <div><Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => setHistory(false)}>{t("common.back")}</Button></div>
-    <PluginChanges projectId={projectId} busy={busy} onUndone={onUndone} />
-  </div>;
+  const openPlugins = onOpenPlugins ? () => { onClose(); onOpenPlugins(); } : undefined;
   return (
-    <>
-      <div className="project-plugins">
+    <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}
+      footer={openPlugins ? <Button onClick={openPlugins}>{t("projectPlugins.manageAll")}</Button> : undefined}>
+      {history ? <div className="project-plugins">
+        <div><Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => setHistory(false)}>{t("common.back")}</Button></div>
+        <PluginChanges projectId={projectId} busy={busy} onUndone={onUndone} />
+      </div> : <div className="project-plugins">
         <p className="project-plugins-intro">{t("projectPlugins.intro")}</p>
         {error ? <Alert tone="danger" title={error} /> : null}
         {busy ? <Alert title={t("projectPlugins.busy")} /> : null}
         {!view && !error ? <Skeleton height={120} /> : null}
-        <div className="project-plugins-links">
-          <Button size="sm" variant="ghost" icon={<History size={14} />} onClick={() => setHistory(true)}>{t("pluginChanges.history")}</Button>
-          {onOpenPlugins ? <Button size="sm" variant="ghost" onClick={onOpenPlugins}>{t("projectPlugins.manageAll")}</Button> : null}
-        </div>
+        <div><Button size="sm" variant="ghost" icon={<History size={14} />} onClick={() => setHistory(true)}>{t("pluginChanges.history")}</Button></div>
         {view ? <section className="project-plugins-section" aria-label={t("projectPlugins.title")}>
           <div className="project-plugins-count">{t("projectPlugins.onCount", { count: on })}</div>
           {view.plugins.length ? view.plugins.map((plugin) => (
@@ -102,7 +103,7 @@ export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, o
               ) : null}
               {/* The plugin itself was uninstalled: it is added again from Plugins, or taken out of the project. */}
               {plugin.used && plugin.status === "not-installed" ? <>
-                {onOpenPlugins ? <Button size="sm" variant="ghost" onClick={onOpenPlugins}>{t("projectPlugins.reinstall")}</Button> : null}
+                {openPlugins ? <Button size="sm" variant="ghost" onClick={openPlugins}>{t("projectPlugins.reinstall")}</Button> : null}
                 {!plugin.providesType ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, false)}>{t("projectPlugins.removeHere")}</Button> : null}
               </> : null}
               {plugin.status !== "not-installed" ? <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
@@ -111,7 +112,7 @@ export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, o
             </div>
           )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
         </section> : null}
-      </div>
+      </div>}
       {consent ? <PluginConsentDialog name={consent.plugin.displayName} capabilities={consent.plugin.capabilities}
         onCancel={() => setConsent(undefined)}
         onAllow={() => {
@@ -119,7 +120,7 @@ export function ProjectPluginsSettings({ projectId, busy, onChanged, onUndone, o
           setConsent(undefined);
           void change(plugin, true, true, version);
         }} /> : null}
-    </>
+    </Sheet>
   );
 }
 

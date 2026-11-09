@@ -307,31 +307,30 @@ describe("the project's settings", () => {
 
   describe("dialog", () => {
     const open = (props: { workspaceTab?: string; initialTab?: "general" | "workspace"; busy?: boolean; onClose?: () => void }) => act(async () => root.render(createElement(ProjectSettings, {
-      project, initialTab: "general", workspaceRef: () => {}, busy: false, plugins: createElement("p", { className: "plugins-tab" }), onRename: () => {}, onClose: () => {}, ...props,
+      project, initialTab: "general", workspaceRef: () => {}, busy: false, onRename: () => {}, onClose: () => {}, ...props,
     })));
     const tabs = () => [...document.querySelectorAll<HTMLButtonElement>('.project-settings [role="tab"]')];
     const panels = () => [...document.querySelectorAll<HTMLElement>(".project-settings-tab")];
 
-    it("offers General and Plugins for every project, and a workspace's own tab between them", async () => {
+    it("shows tabs only for a workspace with its own", async () => {
       await open({});
-      expect(tabs().map((tab) => tab.textContent)).toEqual(["General", "Plugins"]);
+      expect(tabs()).toHaveLength(0);
       await open({ workspaceTab: "Preview" });
-      expect(tabs().map((tab) => tab.textContent)).toEqual(["General", "Preview", "Plugins"]);
+      expect(tabs().map((tab) => tab.textContent)).toEqual(["General", "Preview"]);
     });
 
-    it("keeps every tab mounted, hiding the ones not showing", async () => {
+    it("keeps both tabs mounted, hiding the one not showing", async () => {
       await open({ workspaceTab: "Preview" });
-      expect(panels().map((panel) => panel.hidden)).toEqual([false, true, true]);
-      await act(async () => tabs()[2]!.click());
-      expect(panels().map((panel) => panel.hidden)).toEqual([true, true, false]);
-      expect(document.querySelector(".plugins-tab")).not.toBeNull();
+      expect(panels().map((panel) => panel.hidden)).toEqual([false, true]);
+      await act(async () => tabs()[1]!.click());
+      expect(panels().map((panel) => panel.hidden)).toEqual([true, false]);
     });
 
     it("falls back to General when the workspace's tab goes away", async () => {
       await open({ workspaceTab: "Preview", initialTab: "workspace" });
-      expect(panels().map((panel) => panel.hidden)).toEqual([true, false, true]);
+      expect(panels().map((panel) => panel.hidden)).toEqual([true, false]);
       await open({ workspaceTab: undefined, initialTab: "workspace" });
-      expect(panels().map((panel) => panel.hidden)).toEqual([false, true]);
+      expect(panels().map((panel) => panel.hidden)).toEqual([false]);
     });
 
     it("stays open while a tab saves", async () => {

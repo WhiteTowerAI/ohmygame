@@ -120,7 +120,7 @@ import {
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
-import { ProjectPluginsSettings } from "./project-plugins-settings.js";
+import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { AgentTimeline } from "./agent-timeline.js";
@@ -156,7 +156,7 @@ import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -330,6 +330,7 @@ export function ProjectShell({
   const [pickingClient, setPickingClient] = useState<string>();
   const pickingRef = useRef(pickingClient);
   pickingRef.current = pickingClient;
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [playSlot, setPlaySlot] = useState<HTMLSpanElement | null>(null);
   // The project's settings, on this tab while they are open. A game or story shows its own tab through the slot.
   const [settingsTab, setSettingsTab] = useState<ProjectSettingsTab>();
@@ -1384,6 +1385,9 @@ export function ProjectShell({
   const workspaceSettingsTab = story ? t("projectSettings.tab.screen")
     : project && coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? t("projectSettings.tab.preview") : undefined;
   const projectMenu: MenuEntry[] = [
+    { label: t("projectShell.settings"), icon: <Settings size={14} />, disabled: !project, onSelect: () => setSettingsTab("general") },
+    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    "separator",
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
@@ -1574,9 +1578,9 @@ export function ProjectShell({
       onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
       onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
     {project && settingsTab ? <ProjectSettings project={project} initialTab={settingsTab} workspaceTab={workspaceSettingsTab} workspaceRef={setSettingsNode} busy={settingsBusy}
-      onRename={(name) => void renameTo(name)} onClose={closeSettings}
-      plugins={<ProjectPluginsSettings projectId={project.id} busy={agentBusy} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
-        onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => { closeSettings(); onNavigate("plugins"); }} />} /> : null}
+      onRename={(name) => void renameTo(name)} onClose={closeSettings} /> : null}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
+      onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     <ProjectFrame
       rail={workspace?.rail ?? <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
         items: conversations,
@@ -1585,7 +1589,6 @@ export function ProjectShell({
         onNew: () => void newConversation(),
       }} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
-        {project ? <IconButton size="sm" label={t("projectSettings.title")} onClick={() => setSettingsTab("general")}><Settings size={16} /></IconButton> : null}
         {/* Play stays in place from every view. A Web preview or a story fills
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />

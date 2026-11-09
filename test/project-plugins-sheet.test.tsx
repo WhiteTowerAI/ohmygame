@@ -22,7 +22,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { ProjectPluginsSettings } = await import("../src/renderer/project-plugins-settings.js");
+const { ProjectPluginsSheet } = await import("../src/renderer/project-plugins-sheet.js");
 const { PluginChanges } = await import("../src/renderer/project-plugin-contributions.js");
 
 let host: HTMLDivElement;
@@ -51,7 +51,7 @@ const toggle = (name: string) => document.querySelector<HTMLButtonElement>(`butt
 
 it("switches each plugin here, locks the type's plugin, and asks before turning one on", async () => {
   const onChanged = vi.fn();
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} onChanged={onChanged} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onChanged={onChanged} />));
   expect(toggle("Godot").disabled).toBe(true);
   // One on in every project is on here, says so, and can be turned off here.
   expect(toggle("Game Studio").getAttribute("aria-checked")).toBe("true");
@@ -80,7 +80,7 @@ it("switches each plugin here, locks the type's plugin, and asks before turning 
 
 it("keeps the older version a project uses when allowing it", async () => {
   view.plugins[2] = { ...view.plugins[2]!, used: "2.0.0", status: "needs-approval", consented: true };
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "acme/tiles", true, "2.0.0");
@@ -90,7 +90,7 @@ it("moves a project off an uninstalled version, and finds or removes an uninstal
   view.plugins[1] = { ...view.plugins[1]!, used: "1.0.0", status: "version-not-installed" };
   view.plugins[2] = { ...view.plugins[2]!, version: "2.0.0", used: "2.0.0", status: "not-installed", consented: true };
   const onOpenPlugins = vi.fn();
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} onOpenPlugins={onOpenPlugins} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onOpenPlugins={onOpenPlugins} />));
   const find = (text: string) => [...document.querySelectorAll("button")].find((button) => button.textContent === text)!;
   await act(async () => find("Use 1.2.0").click());
   expect(api.setProjectPlugin).toHaveBeenCalledWith("p1", "ohmygame/game-studio", true, "1.2.0");
@@ -104,7 +104,7 @@ it("moves a project off an uninstalled version, and finds or removes an uninstal
 
 it("keeps a project on its version when a newer one is installed, and moves it either way", async () => {
   view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: true, versions: ["2.1.0", "2.0.0", "1.0.0"] };
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   const select = document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!;
   expect(select.textContent).toContain("2.0.0");
   await act(async () => select.click());
@@ -116,7 +116,7 @@ it("keeps a project on its version when a newer one is installed, and moves it e
 
 it("turns on the version chosen once what it asks for is allowed", async () => {
   view.plugins[2] = { ...view.plugins[2]!, version: "2.1.0", used: "2.0.0", status: "active", consented: false, versions: ["2.1.0", "2.0.0"] };
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Version of Tiles in this project"]')!.click());
   await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === "2.1.0 (newest)")!.click());
   expect(api.setProjectPlugin).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ it("turns on the version chosen once what it asks for is allowed", async () => {
 
 it("allows the type's plugin in a copied project without turning it off", async () => {
   view.plugins[0] = { ...view.plugins[0]!, status: "needs-approval", capabilities: ["processes:godot"] };
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
   expect(document.body.textContent).toContain("Not yet allowed in this project");
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow")!;
   await act(async () => allow.click());
@@ -135,18 +135,18 @@ it("allows the type's plugin in a copied project without turning it off", async 
 });
 
 it("waits for the agent before changing plugins", async () => {
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy onClose={() => {}} />));
   expect(document.body.textContent).toContain("Plugins change after the agent finishes.");
   expect(toggle("Tiles").disabled).toBe(true);
 });
 
-it("lists what plugins changed outside a turn, behind the Plugins tab's Change history, and undoes one change", async () => {
+it("lists what plugins changed outside a turn, behind the Plugins sheet's Change history, and undoes one change", async () => {
   changes = [
     { id: "c2", plugin: "acme/maker", action: "command:upload", title: "Upload build", changed: ["build/index.html", "build/game.js"], at: "2026-10-31T10:00:00.000Z" },
     { id: "c1", plugin: "acme/maker", action: "command:setup", title: "Set up", changed: ["maker.json"], at: "2026-10-30T10:00:00.000Z", undone: true },
   ];
   const onUndone = vi.fn();
-  await act(async () => root.render(<ProjectPluginsSettings projectId="p1" busy={false} onUndone={onUndone} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={onUndone} />));
   expect(api.listProjectPluginChanges).not.toHaveBeenCalled();
   const history = [...document.querySelectorAll("button")].find((button) => button.textContent === "Change history")!;
   await act(async () => history.click());

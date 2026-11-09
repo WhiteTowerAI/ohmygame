@@ -1251,6 +1251,7 @@ const zhCN: typeof en = {
     secrets: "保存密钥和登录信息",
   },
   projectPlugins: {
+    menu: "插件…",
     allowHere: "允许",
     useVersion: "使用 {{version}}",
     versionOf: "{{name}} 在此项目中的版本",
@@ -1612,7 +1613,7 @@ const zhCN: typeof en = {
   },
   projectSettings: {
     title: "项目设置",
-    tab: { general: "通用", preview: "预览", screen: "画面", plugins: "插件" },
+    tab: { general: "通用", preview: "预览", screen: "画面" },
     argumentsInvalid: "参数必须是字符串组成的 JSON 数组。",
     previewAccess: "预览访问",
     webPreview: "网页预览",
@@ -1772,6 +1773,7 @@ const zhCN: typeof en = {
     moreSharing: "更多分享方式",
   },
   projectShell: {
+    settings: "项目设置…",
     promptReturned: "第一条消息还没发出，已放回输入框。",
     promptReturnedBecause: "第一条消息还没发出，已放回输入框。{{reason}}",
     folderMissing: "所选的工作区文件夹已不可用。",

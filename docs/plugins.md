@@ -35,7 +35,7 @@ the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
   plugins they made (`personal/<name>`) or added from this computer, then the AI
   workspaces.
 
-The **Plugins** tab of a project's settings, in the top bar, lists every plugin that
+A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
 many are on, as described in [Routes](#routes). One on in every project is
 on here and says so; switching it off is saved in the project. The type's own
@@ -835,7 +835,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   blur, on disconnect and when the map changes. A game that reads the gamepad
   itself stops the map, so the same input doesn't arrive twice. The events
   aren't trusted ones, so a game that checks `isTrusted` ignores them.
-- **Change history**, in the **Plugins** tab of the project's settings, lists `GET
+- **Change history**, in the project's **Plugins…** sheet, lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It

@@ -14064,12 +14064,6 @@ summary.work-summary:hover {
   gap: var(--space-4);
 }
 
-.project-plugins-links {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
 .project-plugins-section {
   display: flex;
   flex-direction: column;

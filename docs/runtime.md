@@ -600,9 +600,9 @@ Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
 a game or the application shows its error page. Back and Forward lead the
 sidebar and the project rail.
-The top bar holds the project's name as its menu (**Open in folder** in the
-desktop app, **Export project** and the plugins' own commands), **Project
-settings**, the record button only while the game runs, **Play** while the Game
+The top bar holds the project's name as its menu (**Project settings…**,
+**Plugins…**, **Open in folder** in the desktop app, **Export project** and the
+plugins' own commands), the record button only while the game runs, **Play** while the Game
 panel isn't on screen, which shows it, and the **Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
@@ -612,11 +612,10 @@ the project's menu, and either export, saves the open design first.
 Actions for the whole project stay in the top bar and its menu; a panel's
 toolbar holds only what acts on that panel, and no action repeats across panels.
 
-**Project settings** (`src/renderer/project-settings.tsx`) has a tab for every
-project's name and appearance, **General**, and one for its plugins,
-**Plugins**. Web games and General projects add **Preview** between them, and
-interactive stories add **Screen**: the workspace renders that tab into a slot
-in the dialog. The tabs stay mounted, so an unsaved Preview form survives moving
+**Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
+for every project's name and appearance. Web games and General projects add
+**Preview**, and interactive stories add **Screen**: the workspace renders that
+tab into a slot in the dialog. The tabs stay mounted, so an unsaved Preview form survives moving
 between them, and the dialog stays open while a tab saves. The Plugin Builder
 has its own top bar and no project settings.
 
