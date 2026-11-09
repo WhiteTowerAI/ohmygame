@@ -11,6 +11,7 @@ import { imageModelsForProvider } from "../src/daemon/image-models.js";
 const position = { x: 0, y: 0 };
 const ref = (nodeId: string) => ({ type: "node" as const, nodeId });
 const source: AssetCanvasNode = { id: "brief", type: "text", position, data: { text: "A forest adventure", instruction: "" } };
+const transcription: AssetCanvasNode = { id: "transcript", type: "transcription", position, data: { audioAssetId: "voice-over", text: "Welcome to the forest." } };
 const document: AssetCanvasNode = { id: "document", type: "document", position, data: { documentId: "rules", references: [ref(source.id)] } };
 const image: AssetCanvasNode = { id: "image", type: "image", position, data: { prompt: "forest", resolution: "1K", aspectRatio: "1:1", images: [] } };
 const text: AssetCanvasNode = { id: "text", type: "text", position, data: { text: "", instruction: "Summarize", references: [ref(source.id), ref(document.id), ref(image.id)] } };
@@ -33,7 +34,7 @@ describe("Text and Document node references", () => {
 
   it.each(["text", "document"] as const)("connects valid sources to %s with duplicate, self and capacity checks", (type) => {
     const target = type === "text" ? { ...text, data: { ...text.data, references: [] } } : { ...document, data: { ...document.data, references: [] } };
-    for (const candidate of [source, image, { ...document, id: "other-doc", data: { documentId: "other" } }]) {
+    for (const candidate of [source, transcription, image, { ...document, id: "other-doc", data: { documentId: "other" } }]) {
       expect(connectionRelation(candidate, target, "out", [], [], [])).toBe("text-reference");
     }
     expect(connectionRelation(target, target, "out", [], [], [])).toBeUndefined();

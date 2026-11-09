@@ -20,7 +20,7 @@ import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
@@ -109,8 +109,10 @@ import { ProviderVideos } from "./provider-videos.js";
 import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
+import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
+import { ElevenLabsTtsProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-tts-provider.js";
 import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
@@ -674,6 +676,7 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
+  const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
@@ -793,7 +796,10 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
+  const elevenLabsTtsProvider = new ElevenLabsTtsProvider(
+    () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
+  );
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, elevenLabsTtsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -1360,7 +1366,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -3369,6 +3375,16 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
+    }, {
+      id: "elevenlabs",
+      name: ELEVENLABS_PROVIDER_NAME,
+      configured: Boolean(elevenLabsSettings.key()),
+      enabled: providerEnabled("elevenlabs"),
+      custom: false,
+      status: elevenLabsSettings.key() ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
+      credentialType: "api_key" as const,
+      capabilities: ["audio"] as const,
     }];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
@@ -3478,6 +3494,45 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  app.get("/settings/models/providers/elevenlabs", async () => elevenLabsSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/elevenlabs", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, properties: {
+      apiKey: { type: "string", minLength: 1, maxLength: 10_000 },
+    } } },
+  }, async (request, reply) => {
+    try { return await elevenLabsSettings.update(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
+    await elevenLabsSettings.clear();
+    await providerModelSettings.setEnabled("elevenlabs", false);
+    catalogRefresh.invalidate("elevenlabs");
+    return reply.code(204).send();
+  });
+  app.get<{ Querystring: { search?: string } }>("/settings/models/providers/elevenlabs/voices", async (request, reply) => {
+    const key = elevenLabsSettings.key();
+    if (!key) return reply.code(503).send({ error: "ElevenLabs is not connected" });
+    const query = new URLSearchParams({ page_size: "100", ...(request.query.search?.trim() ? { search: request.query.search.trim() } : {}) });
+    const response = await (options.audioFetch ?? fetch)(`https://api.elevenlabs.io/v2/voices?${query}`, { headers: { "xi-api-key": key } });
+    if (!response.ok) return reply.code(response.status === 429 ? 429 : 502).send({ error: "Could not load ElevenLabs voices" });
+    const body = await response.json() as { voices?: Array<{ voice_id?: string; name?: string; preview_url?: string; labels?: Record<string, string> }> };
+    return { voices: (body.voices ?? []).flatMap((voice) => voice.voice_id && voice.name ? [{ id: voice.voice_id, name: voice.name, previewUrl: voice.preview_url, labels: voice.labels ?? {} }] : []) };
+  });
+  app.post<{ Body: { assetId: string; language?: string } }>("/elevenlabs/transcribe", { schema: { body: { type: "object", additionalProperties: false, required: ["assetId"], properties: { assetId: { type: "string", minLength: 1 }, language: { type: "string", minLength: 2, maxLength: 12 } } } } }, async (request, reply) => {
+    if (!providerEnabled("elevenlabs")) return reply.code(503).send({ error: "ElevenLabs is disabled" });
+    const key = elevenLabsSettings.key();
+    if (!key) return reply.code(503).send({ error: "ElevenLabs is not connected" });
+    const content = await library.content(request.body.assetId).catch(() => undefined);
+    if (!content || content.asset.mediaType !== "audio") return reply.code(400).send({ error: "Choose an audio asset to transcribe" });
+    const form = new FormData();
+    form.set("model_id", "scribe_v2"); form.set("file", new Blob([await readFile(content.absolutePath)], { type: content.asset.contentType }), content.asset.name);
+    if (request.body.language) form.set("language_code", request.body.language);
+    const response = await (options.audioFetch ?? fetch)("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": key }, body: form });
+    if (!response.ok) return reply.code(response.status === 429 ? 429 : 502).send({ error: "ElevenLabs transcription failed" });
+    const body = await response.json() as { text?: unknown };
+    if (typeof body.text !== "string") return reply.code(502).send({ error: "ElevenLabs returned no transcript" });
+    return { text: body.text };
+  });
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {

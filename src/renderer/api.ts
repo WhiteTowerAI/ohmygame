@@ -598,6 +598,18 @@ export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ confi
   notifyAgentModelsChanged();
   return result;
 }
+export async function updateElevenLabsSettings(apiKey: string): Promise<{ configured: boolean }> {
+  const result = await request<{ configured: boolean }>("/settings/models/providers/elevenlabs", { method: "PUT", body: JSON.stringify({ apiKey }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+export async function removeElevenLabsSettings(): Promise<void> {
+  await request("/settings/models/providers/elevenlabs/credential", { method: "DELETE" });
+  notifyAgentModelsChanged();
+}
+export interface ElevenLabsVoice { id: string; name: string; previewUrl?: string; labels: Record<string, string> }
+export async function listElevenLabsVoices(search?: string): Promise<{ voices: ElevenLabsVoice[] }> { return request(`/settings/models/providers/elevenlabs/voices${search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : ""}`); }
+export async function transcribeElevenLabsAudio(assetId: string, language?: string): Promise<{ text: string }> { return request("/elevenlabs/transcribe", { method: "POST", body: JSON.stringify({ assetId, ...(language ? { language } : {}) }) }); }
 
 export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
   const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {

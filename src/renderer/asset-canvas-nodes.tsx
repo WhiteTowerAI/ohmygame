@@ -300,6 +300,30 @@ function videoAspectRatios(model: VideoModel | undefined, referenceCount: number
 }
 
 export function SpeechNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="speech" />; }
+export function TranscriptionNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  const runtime = data.transcriptionRuntime;
+  return <div className={`story-node story-media-node story-generation-media-node story-transcription-node${selected ? " is-selected" : ""}`} style={{ "--story-media-width": "520px" } as CSSProperties}>
+    <CanvasNodeLabel icon={Music2} label={t("assetCanvas.node.transcription")} details={data.nodeDetails} className="is-audio" />
+    <div data-alignment-frame className="transcription-card">
+      <label className="transcription-source nodrag nowheel">
+        <span>{t("assetCanvas.node.transcriptionSource")}</span>
+        <select value={(data.audioAssetId as string | undefined) ?? ""} disabled={runtime?.busy || !selected} onChange={(event) => runtime?.onChange({ ...data, audioAssetId: event.target.value || undefined, text: "" })}>
+          <option value="">{t("assetCanvas.selectAudio")}</option>
+          {runtime?.audioAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+        </select>
+      </label>
+      <CanvasTextarea className={selected ? "nodrag nowheel" : "nodrag"} aria-label={t("assetCanvas.node.transcription")} rows={5} value={(data.text as string | undefined) ?? ""} disabled={runtime?.busy} readOnly={!selected} placeholder={t("assetCanvas.transcriptionPlaceholder")} onChange={(text) => runtime?.onChange({ ...data, text })} />
+      {runtime?.error ? <p className="transcription-error" role="alert">{runtime.error}</p> : null}
+      <footer className="transcription-footer nodrag nowheel">
+        <span>{data.text ? t("assetCanvas.transcriptionReady") : t("assetCanvas.node.transcriptionHint")}</span>
+        <button type="button" className="transcription-generate" disabled={!selected || !data.audioAssetId || runtime?.busy} onClick={runtime?.onGenerate}>
+          {runtime?.busy ? <LoaderCircle className="spin" size={14} /> : <WandSparkles size={14} />}{t("assetCanvas.transcribe")}
+        </button>
+      </footer>
+    </div>
+    <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
+  </div>;
+}
 export function AudioSceneNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="audio-scene" />; }
 
 function audioProviderNotes(providers: readonly AudioProviderCatalogStatus[] | undefined): CanvasChipNote[] {
@@ -341,7 +365,8 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, operation === "speech" ? data.text ?? "" : data.prompt ?? "");
   const settings = audioNodeHasSettings(operation);
-  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (settings ? audioSettingsIssue(data, selectedModel) : undefined) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
+  const needsVoice = selectedModel?.protocol === "elevenlabs-tts-v1" || (selectedModel?.protocol === "volcengine-tts-v3" && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId);
+  const issue = (needsVoice && !data.voiceId ? t("audioStudio.needVoice") : undefined) ?? (settings ? audioSettingsIssue(data, selectedModel) : undefined) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
   const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 

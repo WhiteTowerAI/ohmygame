@@ -7,10 +7,15 @@ provider-neutral text and output settings.
 
 ## Providers and connection settings
 
-**Settings → Providers** lists **Doubao Speech** and **Doubao Seed Audio**
-as separate providers. Each has its own API key, enable state, preview, model
-list and deletion action. Speech also has a default voice setting. Saving or
-removing one service does not change the other.
+**Settings → Providers** lists **Doubao Speech**, **Doubao Seed Audio**, and
+**ElevenLabs**. ElevenLabs uses the account's API key for text-to-speech and
+speech-to-text. Its voice list is loaded from the account in a Text to speech
+node. The key is kept by the daemon and is never written to canvas files.
+
+Doubao Speech and Doubao Seed Audio remain separate providers. Each has its
+own API key, enable state, preview, model list and deletion action. Speech
+also has a default voice setting. Saving or removing one service does not
+change the other.
 
 Existing `doubao-voice.json` credentials and migrations from earlier settings
 files remain readable, including shared keys previously saved by the unified
@@ -39,11 +44,13 @@ prompts, or precise lyric singing. Unsupported controls fail before generation.
 
 ## Asset Canvas
 
-The canvas creation menu offers **Sound effect** and **Music**. The home-page
-audio shortcut opens a Music node. Speech and Audio creation are no longer
-creation-menu entries; existing nodes remain readable and playable. Their
-text-only generation paths and Agent tools remain available for compatibility.
-Text and Document nodes can still supply prompt content.
+The canvas creation menu offers **Text to speech**, **Speech to text**,
+**Sound effect**, and **Music**. Text to speech accepts typed or linked Text
+and Document content and saves generated audio in the Library. Speech to text
+selects an audio Library asset and writes its editable transcript to the node;
+the transcript can then feed other text-capable nodes.
+The home-page audio shortcut opens a Music node. Text and Document nodes can
+still supply prompt content.
 
 **Audio settings** exposes model-supported controls: Speaker ID, style,
 language, speech rate, pitch, volume, output format and sample rate. Existing

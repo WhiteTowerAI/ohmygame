@@ -58,6 +58,7 @@ export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id:
   if (node.type === "file") return node.data.path.split("/").at(-1) || "File";
   if (node.type === "text") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Text";
   if (node.type === "speech") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Speech";
+  if (node.type === "transcription") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Speech to text";
   if (node.type === "sound-effect") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Sound effect";
   if (node.type === "audio-scene") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Audio creation";
   if (node.type === "music") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Music";

@@ -79,6 +79,7 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   referenceMode?: "frame" | "reference";
   referenceMentions?: Record<string, AssetCanvasReference>;
   assetId?: string;
+  audioAssetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
   model3DConfig?: Model3DGenerationConfig;
   heightMeters?: number;
@@ -104,6 +105,7 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   model3DRuntime?: Model3DNodeRuntime;
   animateRuntime?: Animate3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
+  transcriptionRuntime?: { busy: boolean; error?: string; audioAssets: Array<{ id: string; name: string }>; onGenerate: () => void; onChange: (data: AssetCanvasFlowData) => void };
   /** A plugin node's `publisher/name:node`, its settings, and what feeds each input. */
   node?: string;
   params?: Record<string, string | number | boolean>;

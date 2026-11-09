@@ -8,6 +8,7 @@ import cloudflare from "@lobehub/icons-static-svg/icons/cloudflare-color.svg";
 import codex from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import claudeCode from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import deepSeek from "@lobehub/icons-static-svg/icons/deepseek-color.svg";
+import elevenLabs from "@lobehub/icons-static-svg/icons/elevenlabs.svg";
 import fireworks from "@lobehub/icons-static-svg/icons/fireworks-color.svg";
 import githubCopilot from "@lobehub/icons-static-svg/icons/githubcopilot.svg";
 import gemini from "@lobehub/icons-static-svg/icons/gemini-color.svg";
@@ -56,6 +57,7 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "cloudflare-ai-gateway": color(cloudflare),
   "cloudflare-workers-ai": color(cloudflare),
   deepseek: color(deepSeek),
+  elevenlabs: monochrome(elevenLabs),
   fireworks: color(fireworks),
   "github-copilot": monochrome(githubCopilot),
   google: color(google),

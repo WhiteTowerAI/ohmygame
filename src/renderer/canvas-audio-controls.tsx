@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type AudioCanvasSettings,
   type AudioModel,
@@ -10,9 +10,33 @@ import {
 } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { language as uiLanguage, t } from "./i18n.js";
+import { Play, Square } from "./icons.js";
 import { Disclosure } from "./ui/index.js";
+import { listElevenLabsVoices, MODELS_CHANGED_EVENT } from "./api.js";
 
 const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
+
+type ElevenLabsVoice = { id: string; name: string; previewUrl?: string };
+
+/** Plays ElevenLabs' hosted voice sample; it does not spend synthesis quota. */
+function ElevenLabsVoiceSample({ voice }: { voice?: ElevenLabsVoice }) {
+  const audio = useRef<HTMLAudioElement>(undefined);
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => () => {
+    audio.current?.pause();
+    audio.current = undefined;
+    setPlaying(false);
+  }, [voice?.previewUrl]);
+  if (!voice?.previewUrl) return null;
+  const label = t(playing ? "audioStudio.stopSample" : "audioStudio.playSample");
+  return <button type="button" className="audio-icon-button" aria-label={label} title={label} onClick={() => {
+    if (playing) { audio.current?.pause(); setPlaying(false); return; }
+    audio.current ??= new Audio(voice.previewUrl);
+    audio.current.currentTime = 0;
+    audio.current.onended = () => setPlaying(false);
+    void audio.current.play().then(() => setPlaying(true), () => setPlaying(false));
+  }}>{playing ? <Square size={13} /> : <Play size={13} />}</button>;
+}
 
 /** Saved options the model cannot send; they stay on the node until cleared. */
 function hasUnsupportedOptions(
@@ -85,6 +109,15 @@ export function CanvasAudioControls({
   onChange(value: Partial<AudioCanvasSettings>): void;
 }) {
   const [customVoice, setCustomVoice] = useState(false);
+  const [elevenVoices, setElevenVoices] = useState<ElevenLabsVoice[]>([]);
+  useEffect(() => {
+    if (model?.provider !== "elevenlabs") { setElevenVoices([]); return; }
+    let active = true;
+    const refresh = () => { void listElevenLabsVoices().then((result) => { if (active) setElevenVoices(result.voices); }).catch(() => { if (active) setElevenVoices([]); }); };
+    refresh();
+    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+    return () => { active = false; window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+  }, [model?.provider]);
   const caps = model?.capabilities,
     tts = Boolean(caps?.supportsSpeechOptions);
   const preset = findVolcengineTtsVoice(value.voiceId);
@@ -133,7 +166,7 @@ export function CanvasAudioControls({
             {t("audioStudio.clearUnsupported")}
           </button>
         ) : null}
-        {caps?.supportsSpeaker ? (
+        {model?.provider === "elevenlabs" ? <label className="audio-control-wide audio-voice-picker">{t("assetCanvas.voice.label")}<span><select value={value.voiceId ?? ""} onChange={(event) => onChange({ voiceId: event.target.value || undefined })}><option value="">{t("assetCanvas.voice.choose")}</option>{elevenVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select><ElevenLabsVoiceSample voice={elevenVoices.find((voice) => voice.id === value.voiceId)} /></span></label> : caps?.supportsSpeaker ? (
           <>
             <label className="audio-control-wide audio-voice-picker">
               {t("assetCanvas.voice.label")}
