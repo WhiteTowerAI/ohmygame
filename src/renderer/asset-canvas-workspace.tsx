@@ -2055,7 +2055,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const isReferenceTarget = original.id === referenceTargetId;
     const linked = linkedSources.has(original.id);
     const eligible = referenceTarget && !isReferenceTarget && !linked && connectionRelation(original, referenceTarget, OUTPUT_HANDLE, nodes, libraryAssets, imageModels, model3DModels, audioModels, pluginNodes);
-    const node = { ...original, ...(referenceTarget ? {
+    const node = { ...original, ...(original.type === "transcription" ? { dragHandle: ".story-transcription-drag-handle" } : {}), ...(referenceTarget ? {
       className: isReferenceTarget ? "canvas-reference-target" : linked ? "canvas-reference-selected" : eligible ? "canvas-reference-candidate" : "canvas-reference-unavailable",
       ariaLabel: isReferenceTarget ? nodeLabel : t(linked ? "canvasInteraction.removeReference" : eligible ? "canvasInteraction.selectReference" : "canvasInteraction.unavailableReference", { name: nodeLabel }),
     } : {}), measured: original.measured ?? {}, ...(isTemplateGuide ? { height: undefined } : {}), ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: isTemplateGuide ? "auto" : original.height ?? size.height } } : {}), data: { ...original.data,

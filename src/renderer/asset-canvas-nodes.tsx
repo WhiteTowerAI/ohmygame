@@ -303,7 +303,7 @@ export function SpeechNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | 
 export function TranscriptionNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.transcriptionRuntime;
   return <div className={`story-node story-media-node story-generation-media-node story-transcription-node${selected ? " is-selected" : ""}`} style={{ "--story-media-width": "520px" } as CSSProperties}>
-    <CanvasNodeLabel icon={Music2} label={t("assetCanvas.node.transcription")} details={data.nodeDetails} className="is-audio" />
+    <CanvasNodeLabel icon={Music2} label={t("assetCanvas.node.transcription")} details={data.nodeDetails} className="is-audio story-transcription-drag-handle" />
     <div data-alignment-frame className="transcription-card">
       <label className="transcription-source nodrag nowheel">
         <span>{t("assetCanvas.node.transcriptionSource")}</span>
