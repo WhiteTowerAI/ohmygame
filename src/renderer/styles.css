@@ -2909,7 +2909,7 @@ select.settings-search-input {
 }
 
 .project-settings-tabs {
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-4) var(--space-2);
 }
 
 .project-settings-tab {
@@ -3130,7 +3130,7 @@ select.settings-search-input {
   line-height: 1.5;
 }
 
-.project-settings :is(input, select) {
+.project-settings-form :is(input, select) {
   width: 100%;
   min-width: 0;
   height: 32px;
@@ -3145,26 +3145,26 @@ select.settings-search-input {
   font-size: var(--text-sm);
 }
 
-.project-settings select {
+.project-settings-form select {
   font-family: inherit;
   cursor: pointer;
 }
 
-.project-settings :is(input, select):hover:not(:disabled) {
+.project-settings-form :is(input, select):hover:not(:disabled) {
   border-color: var(--color-border-strong);
 }
 
-.project-settings :is(input, select):focus-visible {
+.project-settings-form :is(input, select):focus-visible {
   border-color: var(--color-focus);
   box-shadow: 0 0 0 1px var(--color-focus);
 }
 
-.project-settings :is(input, select)::placeholder {
+.project-settings-form :is(input, select)::placeholder {
   color: var(--color-text-secondary);
 }
 
-.project-settings fieldset:disabled :is(input, select),
-.project-settings fieldset:disabled label {
+.project-settings-form fieldset:disabled :is(input, select),
+.project-settings-form fieldset:disabled label {
   cursor: default;
   opacity: 0.55;
 }

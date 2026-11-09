@@ -47,7 +47,7 @@ export function ProjectSettings({ project, initialTab, workspaceTab, workspaceRe
           <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={close}><X size={16} /></IconButton>
         </div>
         <div className="project-settings-tabs">
-          <Tabs<ProjectSettingsTab> label={t("projectSettings.title")} value={tab} onChange={setTab} tabs={[
+          <Tabs<ProjectSettingsTab> variant="pills" label={t("projectSettings.title")} value={tab} onChange={setTab} tabs={[
             { value: "general", label: t("projectSettings.tab.general") },
             ...(workspaceTab ? [{ value: "workspace" as const, label: workspaceTab }] : []),
             { value: "plugins", label: t("projectSettings.tab.plugins") },
