@@ -1608,9 +1608,10 @@ export function ProjectShell({
         {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
-        {/* Play stays in place from every view. A Web preview fills the slot
-            with Play in its own window; an external preview can only be shown. */}
-        {project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
+        {/* Play stays in place from every view. A Web preview or a story fills
+            the slot with Play in its own window; an external preview can only be shown. */}
+        {project && story ? <span className="project-top-play" ref={setPlaySlot} />
+          : project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
           : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
@@ -1789,6 +1790,7 @@ export function ProjectShell({
           nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
           visible: storyVisible,
           onShow: revealPanel,
+          play: playSlot,
         }}
       /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}

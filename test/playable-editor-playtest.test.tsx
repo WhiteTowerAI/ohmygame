@@ -228,6 +228,19 @@ it("closes the Scene workbench and brings the story forward when Playtest asks f
   expect(onStoryMapShown).toHaveBeenCalledOnce();
 });
 
+it("puts Play in the project's top bar, as a game does, and keeps the story toolbar for its settings", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  const nodes = storyNodes();
+  const play = document.createElement("span");
+  await renderEditor({ panels: { nodes, visible: new Set<StoryView>(["story"]), onShow: vi.fn(), play } });
+  const button = play.querySelector<HTMLButtonElement>('button[aria-label="Playtest"]');
+  expect(button?.textContent).toBe("Play");
+  expect(play.querySelector('button[aria-label="Playtest actions"]')).not.toBeNull();
+  expect(nodes.story.toolbar.querySelector('button[aria-label="Playtest"]')).toBeNull();
+  expect(nodes.story.toolbar.querySelector('button[aria-label="Project settings"]')).not.toBeNull();
+});
+
 it("keeps the view a story saved while its panels decide what shows", async () => {
   await act(async () => root.unmount());
   container.remove();
