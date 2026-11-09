@@ -37,12 +37,12 @@ type PixelArtGrid = {
 
 const PIXEL_ART_LEVEL_SETTINGS = {
   coarse: {
-    sprite: 24,
-    scene: 72,
-    tile: 12,
+    sprite: 32,
+    scene: 96,
+    tile: 16,
     colors: 8,
     style:
-      "Use deliberately oversized square pixels that are visibly chunkier than classic 16-bit pixels. Build broad color masses and only essential structural shapes on a very low-resolution grid. Use 1–2 hard-edged tones per major material, with bold silhouettes and almost no interior texture. Omit secondary ornament, fine seams, and surface texture, including when the reference already uses fine pixels.",
+      "Use oversized square pixels, broad color masses, and only essential structural shapes. Use 1–2 hard-edged tones per major material. Omit secondary ornament and surface texture, including when the reference already uses fine pixels.",
   },
   classic: {
     sprite: 64,
@@ -53,12 +53,12 @@ const PIXEL_ART_LEVEL_SETTINGS = {
       "Use a classic 16-bit game grid with medium square pixels and compact clusters. Use 2–3 hard-edged tones per major material. Actively remove secondary detail, even from an already pixelated reference. Merge repeated patterns into a few readable marks. Do not reproduce a fine-pixel design with merely larger pixel blocks.",
   },
   detailed: {
-    sprite: 256,
-    scene: 640,
-    tile: 160,
-    colors: 64,
+    sprite: 192,
+    scene: 480,
+    tile: 128,
+    colors: 48,
     style:
-      "Use a substantially finer 32-bit pixel-art grid with visibly small square pixels and dense deliberate clusters. Treat the logical canvas as a real production grid, not a vague style reference: every contour, diagonal, highlight, shadow break, material seam, and particle must be constructed from multiple adjacent logical pixels. Use 5–8 hard-edged tones per major material within the shared palette, with distinct dark occlusion, saturated midtone, lit plane, reflected light, and focal highlight levels. Make material identity obvious through authored structure: faceted planes and cold glints for metal or ice, layered translucent depth and sharp reflections for water or glass, granular clustered texture and hot-to-cool falloff for fire, and nested emissive cores with stepped radiating bands for magic. Retain controlled secondary shapes and readable micro-structure throughout the subject; do not simplify large areas into a few oversized blocks, smooth curves, vector-like silhouettes, or isolated decorative dots. Detailed output must visibly contain at least three times the internal structure of coarse output and at least twice that of classic output while keeping the same crisp pixel scale.",
+      "Use a finer low-resolution grid with small but clearly square pixels. Use 4–6 hard-edged tones per major material within the shared palette. Retain controlled secondary shapes and readable material accents. Add detail inside forms without smoothing contours or scattering isolated pixels. Do not simplify this density to coarse shapes.",
   },
 } satisfies Record<
   PixelArtLevel,
@@ -80,7 +80,7 @@ const EFFECT_DETAILS: Record<PixelArtLevel, string> = {
   classic:
     "Use compact clusters for the core, outer edge, and a few motion-defining particles. Keep trails, arcs, droplets, and fragments readable without adding fine texture.",
   detailed:
-    "Use a 256×256 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. At a standard 1024-pixel sheet, preserve clearly visible multi-pixel blocks. The effect must occupy roughly 75–85% of its cell while retaining a clear transparent safety margin; do not shrink the subject to a small icon. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Use multiple connected pixel clusters for every secondary feature; never replace detail with one-pixel noise or a few oversized blobs. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
+    "Use a 192×192 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
 };
 
 const ASSET_DETAILS: Record<
@@ -144,9 +144,7 @@ export function withPixelArtLevel(
     typeof options?.assetType === "string"
       ? [options.assetType]
       : (options?.assetType ?? []);
-  const size = kind === "sprite" && level === "detailed" && assetTypes.includes("effect")
-    ? 256
-    : settings[kind];
+  const size = settings[kind];
   const grid = options?.grid;
   const dimensions = options?.referenceSheet
     ? `Design the entire 16:9 reference sheet on a ${size * 4}×${(size * 9) / 4} logical pixel canvas. Full-body views each fit within a ${size}×${size} logical sprite budget; the main portrait can occupy more logical area, using the same pixel scale and detail budget.`
@@ -179,15 +177,7 @@ export function withPixelArtLevel(
   const globalStyle = prompt.includes(GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS)
     ? ""
     : `${GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS}\n\n`;
-  const physicalPixelMapping = level === "coarse"
-    ? "For a 1024-pixel output, target roughly 8×8 output pixels per logical pixel."
-    : level === "classic"
-      ? "For a 1024-pixel output, target roughly 4×4 output pixels per logical pixel."
-      : "For a 2048-pixel output, preserve the full 256×256 logical design with small crisp pixel clusters; for 1024 output, preserve the same detailed structure and do not collapse it into a coarse 64×64 construction.";
-  const detailedHardConstraints = level === "detailed"
-    ? "\n\n**DETAILED OUTPUT HARD CONSTRAINTS**\n- Use the full detailed logical budget; do not draw a coarse 32×32 or classic 64×64 design and enlarge it.\n- Every major form must contain internal pixel clusters: at least three value areas per material and multiple connected pixels for highlights, seams, edges, and particles.\n- Keep visible detail distributed across the subject, not concentrated only in the focal center.\n- Curves and diagonals must use intentional stair-steps with varied runs; never use smooth anti-aliased arcs.\n- Preserve small but readable secondary structures at the requested frame size; do not delete them merely to simplify the render.\n- The result must read as a finely authored game sprite when enlarged with nearest-neighbor, not as a low-detail icon."
-    : "";
-  const instruction = `${globalStyle}**PIXEL DENSITY: ${title}**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} ${physicalPixelMapping} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Fine detail must also remain visibly pixel-built. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.${detailedHardConstraints}\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;
+  const instruction = `${globalStyle}**PIXEL DENSITY: ${title}**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Fine detail must also remain visibly pixel-built. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;
   const firstSection = prompt.indexOf("\n\n");
   return firstSection < 0
     ? `${instruction}\n\n${prompt}`

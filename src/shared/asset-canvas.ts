@@ -11,9 +11,8 @@ import {
   DEFAULT_MODEL_3D_CONFIG,
   DEFAULT_VIDEO_NODE_CONFIG,
 } from "./generation-config.js";
-import { Check } from "typebox/value";
+import { boardContentValidator, layoutValidator, positionValidator } from "./canvas-validators.js";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
-import { ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, ASSET_CANVAS_SCHEMA } from "./asset-canvas-schema.js";
 import { withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
@@ -178,8 +177,8 @@ export function isAssetCanvasDocument(value: unknown): value is AssetCanvasDocum
   try {
     const { editorLayout, ...rest } = document;
     const persisted = { ...rest, nodes: rest.nodes.map(canvasNodeContent) };
-    if (!Check(ASSET_CANVAS_SCHEMA, persisted) || !Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, editorLayout)) return false;
-    if (!document.nodes.every((node) => Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties, canvasNodeLayout(node)))) return false;
+    if (!boardContentValidator.Check(persisted) || !layoutValidator.Check(editorLayout)) return false;
+    if (!document.nodes.every((node) => positionValidator.Check(canvasNodeLayout(node)))) return false;
     validateAssetCanvasDocument(document);
     return true;
   } catch {
@@ -222,15 +221,12 @@ export function combineAssetCanvasPrompt(linkedText: string | undefined, localPr
 }
 
 /** Safety constraint for generated sprite sheets so grid splitting cannot clip a frame. */
-export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Treat every cell as an independent square canvas. Keep every frame fully inside its own cell with a clear transparent margin on all four sides, including the ground contact or baseline. Coarse and classic effects stay within about 60% of the cell; detailed effects may occupy about 75–85% while preserving the margin. No visual element, baseline, particle, glow, or shadow may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
+export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Treat every cell as an independent square canvas. Keep every frame fully inside its own cell with a full 15% transparent margin on all four sides, including the ground contact or baseline. Keep the main effect within about 60% of the cell width and height; never let it fill the entire cell. No visual element, baseline, particle, glow, or shadow may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
 
 /** Default editor template for image nodes created inside the Effect Library. */
 export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
 
-const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Render at premium 32-bit pixel-art illustration fidelity using the full 256×256 logical pixel budget per frame, never enlarged classic-pixel shapes. At 2048 output, preserve clearly visible 2×2 or larger pixel clusters; at 1024 output, preserve the full detailed design rather than simplifying it to classic density. The effect should occupy roughly 75–85% of each cell while retaining a clear transparent margin; do not shrink it into a small icon. Preserve secondary contour breaks, layered highlights, compact particle clusters, internal material structure, and controlled texture in every phase. Make the bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, reflected light, subsurface/translucent bands, and transient fragments visibly distinct with 6–8 hard-edged palette steps. Build material-specific volume: faceted internal refraction and cold glints for ice, layered translucent depth and sharp surface reflections for water, granular ember texture and hot-to-cool falloff for fire, and nested emissive cores with stepped radiating bands for magic or electricity. Retain thin readable arcs, tendrils, droplets, sparks, shards, and smoke fragments where they clarify motion; build each from connected multi-pixel clusters with varied sizes rather than isolated dots. Do not replace material structure with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette, palette, scale, light direction, and frame-to-frame motion coherent.";
-
-const EFFECT_SMOKE_MATERIAL_PROMPT = "SMOKE MATERIAL DIRECTION: Build smoke as thick, curling, layered vapor ribbons and overlapping lobes, not flat circles or soft clouds. Use a cool gray-blue palette with near-white lit ridges, slate midtones, and deep blue-gray occlusion pockets. Give each curl a readable rolled edge, hollow opening, tapered tail, and internal fold; vary lobe size and direction while keeping the main mass coherent. Animate a clear progression from a compact seed, through a dense twisting billow, to separated wisps and tiny fragments. Keep the volume fully hard-edged and pixel-clustered: no blur, airbrush, smooth gradient, random noise, or one-pixel confetti.";
-const EFFECT_DETAILED_QUALITY_BAR = "DETAILED EFFECT QUALITY BAR: Match the fidelity of a professionally authored high-detail game VFX sprite sheet. Every substantial effect form must be built from many connected pixel clusters with nested contours, internal folds or facets, contact occlusion, reflected light, and small secondary fragments; never represent the form as a few oversized blobs. Distribute the detail across the entire silhouette and every animation phase, including buildup, peak, breakup, and fade. Preserve a clear material identity through stepped value grouping and controlled texture: rolled layered volume for smoke or clouds, faceted planes for ice or stone, translucent bands and sharp reflections for water, granular clustered breakup for fire or dust, and nested emissive bands for magic or electricity. Keep edges crisp and intentionally stair-stepped, with no blur, anti-aliasing, airbrush shading, smooth gradients, random noise, or flat vector-like fills. The result should remain richly readable when each cell is viewed alone at preview size and when enlarged with nearest-neighbor.";
+const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Render at premium 32-bit pixel-art illustration fidelity using the full per-frame logical pixel budget, never enlarged classic-pixel shapes. Preserve secondary contour breaks, layered highlights, compact particle clusters, internal material structure, and controlled texture in every phase. Make the bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, and transient fragments visibly distinct with 6–8 hard-edged palette steps. Build believable material volume with directional lighting and compact specular highlights: faceted internal refraction and cold glints for ice, layered translucent depth and sharp reflections for water, and nested hot emissive cores with stepped radiating falloff for fire or magic. Retain thin readable arcs, tendrils, droplets, sparks, shards, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette, palette, scale, light direction, and frame-to-frame motion coherent.";
 
 /** Builds the complete, portable prompt behind an Effect Library image node. */
 export function effectLibraryPrompt(
@@ -260,8 +256,7 @@ export function effectLibraryPrompt(
     assetType: "effect",
     grid: { columns, rows, unit: "frame" },
   });
-  const smokePrompt = /smoke|烟雾|烟团/i.test(basePrompt) ? EFFECT_SMOKE_MATERIAL_PROMPT : "";
-  return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? `${EFFECT_DETAILED_PIXEL_RULES}\n\n${EFFECT_DETAILED_QUALITY_BAR}` : "", smokePrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
+  return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? EFFECT_DETAILED_PIXEL_RULES : "", EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
     .map((part) => part.trim())
     .filter(Boolean)
     .join("\n\n");

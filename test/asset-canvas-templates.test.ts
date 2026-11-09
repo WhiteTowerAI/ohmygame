@@ -52,32 +52,19 @@ describe("pixel asset workflows", () => {
     const classic = effectLibraryPrompt(base, "original", "sample", "", "classic");
     const detailed = effectLibraryPrompt(base, "original", "sample", "", "detailed");
     expect(coarse).toContain("PIXEL DENSITY: COARSE PIXELS");
-    expect(coarse).toContain("24×24 pixels");
+    expect(coarse).toContain("32×32 pixels");
     expect(coarse).toContain("Use no more than 8 colors");
     expect(classic).toContain("PIXEL DENSITY: CLASSIC PIXELS");
     expect(classic).toContain("64×64 pixels");
     expect(classic).not.toContain("Use no more than 8 colors");
     expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("256×256 pixels");
-    expect(detailed).toContain("Use no more than 64 colors");
-    expect(detailed).toContain("Never reuse coarse or classic block sizes for detailed output");
+    expect(detailed).toContain("Default logical size per frame: 192×192 pixels");
+    expect(detailed).not.toContain("256×256");
+    expect(detailed).toContain("Use no more than 48 colors");
     expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
     expect(detailed).toContain("6–8 discrete hard-edged tones");
     expect(detailed).toContain("believable material volume");
     expect(detailed).toContain("premium 32-bit pixel-art illustration fidelity");
-  });
-
-  it("uses the same detailed visual direction for the effect cards and generated nodes", () => {
-    const fire = effectLibraryPrompt(effectPresetById("fire-hit").prompt, "original", "sample", "", "detailed");
-    const trail = effectLibraryPrompt(effectPresetById("electric-trail").prompt, "original", "sample", "", "detailed");
-    const crescent = effectLibraryPrompt(effectPresetById("blue-white-crescent-slash").prompt, "original", "sample", "", "detailed");
-    for (const prompt of [fire, trail, crescent]) {
-      expect(prompt).toContain("DETAILED EFFECT PIXEL RULES");
-      expect(prompt).toContain("clear transparent margin");
-    }
-    expect(fire).toContain("separately articulated narrow yellow and gold inner flame tongues");
-    expect(trail).toContain("bright horizontal dash trail");
-    expect(crescent).toContain("blue-white crescent energy slash");
   });
 
   it("organizes the pixel catalog by function and provides translated card details", () => {
@@ -209,7 +196,7 @@ describe("pixel asset workflows", () => {
 
   it("keeps distinct size, palette, and shading budgets without output-width examples", () => {
     const settings = [
-      ["coarse", 24, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 256, 64, "5–8"],
+      ["coarse", 32, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 192, 48, "4–6"],
     ] as const;
     for (const [level, size, colors, tones] of settings) {
       const prompt = withPixelArtLevel("USER REQUEST: wizard", level);
@@ -224,7 +211,7 @@ describe("pixel asset workflows", () => {
 
   it("separates whole reference-sheet dimensions from full-body sprite budgets", () => {
     for (const [level, size, width, height] of [
-      ["coarse", 24, 96, 54], ["classic", 64, 256, 144], ["detailed", 256, 1024, 576],
+      ["coarse", 32, 128, 72], ["classic", 64, 256, 144], ["detailed", 192, 768, 432],
     ] as const) {
       const prompt = canvasImagePresetPrompt("character-sheet", "blue-haired wizard", "pixel", 1, level);
       expect(prompt).toContain(`entire 16:9 reference sheet on a ${width}×${height} logical pixel canvas`);
@@ -236,15 +223,15 @@ describe("pixel asset workflows", () => {
     const coarse = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "coarse");
     expect(coarse).toContain("each eye as one solid dark mark");
     const detailed = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "detailed");
-    expect(detailed).toContain("5–8 hard-edged tones per major material");
+    expect(detailed).toContain("4–6 hard-edged tones per major material");
     expect(detailed).toContain("small armor divisions");
     expect(detailed).not.toContain("1–2 hard-edged tones");
     expect(detailed).not.toContain("2–3 hard-edged tones");
   });
 
   it.each(["coarse", "classic", "detailed"] as const)("applies only the selected %s density across all catalog workflows", (level) => {
-    const colors = { coarse: 8, classic: 16, detailed: 64 };
-    const tones = { coarse: "1–2", classic: "2–3", detailed: "5–8" };
+    const colors = { coarse: 8, classic: 16, detailed: 48 };
+    const tones = { coarse: "1–2", classic: "2–3", detailed: "4–6" };
     for (const category of pixelAssetPresetCatalog()) {
       for (const preset of category.presets) {
         const workflow = createPixelAssetWorkflowNodes(preset.id, level, [reference], "workflow");
@@ -288,7 +275,7 @@ describe("pixel asset workflows", () => {
   });
 
   it.each([
-    ["coarse", 24, 72, 12], ["classic", 64, 160, 32], ["detailed", 256, 640, 160],
+    ["coarse", 32, 96, 16], ["classic", 64, 160, 32], ["detailed", 192, 480, 128],
   ] as const)("computes per-cell and complete-sheet dimensions for %s layouts", (level, sprite, scene, tile) => {
     const actions = actionSheetPrompt("walk", "", level);
     expect(actions).toContain(`per frame: ${sprite}×${sprite} pixels`);

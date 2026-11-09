@@ -9,43 +9,39 @@ export async function fixPixelArtBytes(bytes: Buffer): Promise<{ bytes: Buffer; 
   if (width < 32 || height < 32) return { bytes, mediaType: "image/png" };
   const scale = Math.min(1, 256 / Math.max(width, height));
   const probe = await source.clone().resize({ width: Math.max(32, Math.round(width * scale)), height: Math.max(32, Math.round(height * scale)), fit: "fill" }).raw().toBuffer({ resolveWithObject: true });
-  // Pixel Art Fixer works even when the source has no obvious grid. In that
-  // case use a conservative logical canvas instead of returning the input
-  // unchanged (which made the toolbar appear to do nothing).
-  const step = detectStep(probe.data, probe.info.width, probe.info.height) ?? fallbackStep(probe.info.width, probe.info.height);
+  // Never invent a grid. Applying an arbitrary fallback turns illustrations
+  // into large colour blocks when the source is not already pixel art.
+  const step = detectStep(probe.data, probe.info.width, probe.info.height);
+  if (!step) return { bytes, mediaType: "image/png" };
   const { data } = await source.raw().toBuffer({ resolveWithObject: true });
   const snapped = Buffer.from(data);
   const cellW = Math.max(1, Math.round(step / scale));
   const cellH = cellW;
   for (let top = 0; top < height; top += cellH) for (let left = 0; left < width; left += cellW) {
     const right = Math.min(width, left + cellW), bottom = Math.min(height, top + cellH);
-    const colors = new Map<string, { count: number; sum: number[] }>();
+    const colors = new Map<number, { count: number; red: number; green: number; blue: number; alpha: number }>();
     for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
       const o = (y * width + x) * 4;
       // Bucket colours before choosing the cell representative. Generated
       // images rarely contain identical neighbouring RGB values, while pixel
       // art relies on a small, stable palette.
       const alpha = data[o + 3]!;
-      const key = `${Math.round(data[o]! / 16)}:${Math.round(data[o + 1]! / 16)}:${Math.round(data[o + 2]! / 16)}:${Math.round(alpha / 16)}`;
-      const entry = colors.get(key) ?? { count: 0, sum: [0, 0, 0, 0] };
-      entry.count += alpha === 0 ? 0.25 : 1;
-      for (let c = 0; c < 4; c++) entry.sum[c]! += data[o + c]!;
+      const key = (data[o]! >> 4) | ((data[o + 1]! >> 4) << 4) | ((data[o + 2]! >> 4) << 8) | ((alpha >> 4) << 12);
+      const entry = colors.get(key) ?? { count: 0, red: 0, green: 0, blue: 0, alpha: 0 };
+      entry.count++;
+      entry.red += data[o]!;
+      entry.green += data[o + 1]!;
+      entry.blue += data[o + 2]!;
+      entry.alpha += alpha;
       colors.set(key, entry);
     }
-    const winner = [...colors.values()].sort((a, b) => b.count - a.count)[0];
+    let winner: { count: number; red: number; green: number; blue: number; alpha: number } | undefined;
+    for (const candidate of colors.values()) if (!winner || candidate.count > winner.count) winner = candidate;
     if (!winner) continue;
-    const color = winner.sum.map((value) => Math.round(value / winner.count));
+    const color = [winner.red, winner.green, winner.blue, winner.alpha].map((value) => Math.round(value / winner.count));
     for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) { const o = (y * width + x) * 4; for (let c = 0; c < 4; c++) snapped[o + c] = color[c]!; }
   }
   return { bytes: await sharp(snapped, { raw: { width, height, channels: 4 } }).png().toBuffer(), mediaType: "image/png" };
-}
-
-function fallbackStep(width: number, height: number): number {
-  const longest = Math.max(width, height);
-  if (longest >= 1024) return 8;
-  if (longest >= 512) return 4;
-  if (longest >= 64) return 2;
-  return 1;
 }
 
 function detectStep(data: Buffer, width: number, height: number): number | undefined {
