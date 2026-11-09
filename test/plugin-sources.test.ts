@@ -189,7 +189,7 @@ describe("PluginSources", () => {
     const { services, sources, close } = await setup(routes, files);
     const preview = await sources.inspect(npm, "en");
     expect(preview).toMatchObject({
-      id: "acme/maker", version: "1.0.0", displayName: "Maker", appWide: false, asks: ["network:api.example.com"], skills: 1, mcpServers: ["API"], installedVersions: [],
+      id: "acme/maker", version: "1.0.0", displayName: "Maker", appWide: false, asks: ["network:api.example.com"], adds: { mcpServers: ["API"], skills: 1 }, installedVersions: [],
       source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.0.0" },
       origin: { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" },
     });
