@@ -1760,17 +1760,20 @@ describe("daemon", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("stores the Doubao Speech key and default voice without exposing them", async () => {
+  it("stores speech provider settings without exposing their keys", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
     apps.push(app);
 
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/elevenlabs" })).json())
       .toEqual({ configured: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", configured: false, state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", configured: false, state: "not_configured" }),
       ],
     });
     expect((await app.inject({
@@ -1803,6 +1806,7 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
 
@@ -1819,6 +1823,7 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
   });
