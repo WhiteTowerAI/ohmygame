@@ -119,7 +119,7 @@ trimming, the shared preview controls, encoding, and the Library record.
 [agent](playable-nodes/agent.md) describes agent context and tools.
 [vision](playable-nodes/vision.md) preserves the rationale for the redesign.
 
-[Multiplayer game integration](multiplayer.md) covers the agent setup tool, local Colyseus playtests, the browser SDK, server rules adapters, and publication checks. [Cloud saves and leaderboards](cloud-saves.md) covers `game.storage`, `game.leaderboard`, the `game_sdk_setup` tool, and the service's data store.
+[Multiplayer game integration](multiplayer.md) covers the agent setup tool, local Colyseus playtests, the browser SDK, server rules adapters, and publication checks. [Cloud saves and leaderboards](cloud-saves.md) covers `game.storage`, `game.leaderboard`, the `game_sdk_setup` tool, and the service's data store. [The SDK's agent guide](../packages/sdk/AGENT_GUIDE.md) summarizes the browser SDK for agents writing games.
 
 ## Contribution and repository policies
 

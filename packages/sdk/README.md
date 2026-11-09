@@ -62,7 +62,8 @@ while messages may change.
 See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md),
 and [game sign-in](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/game-sign-in.md)
-guides for details.
+guides for details. Coding agents should read [AGENT_GUIDE.md](AGENT_GUIDE.md):
+the rules, modes, limits and checklist for writing a game with this SDK.
 
 ## License
 
