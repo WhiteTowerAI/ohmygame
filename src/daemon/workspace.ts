@@ -102,10 +102,11 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
   const regular = entries.filter((entry) => entry.isFile());
   const details = await mapConcurrent(regular, 8, async (entry) => {
     const media = workspaceMediaInfo(entry.name);
+    const entryStat = await stat(path.join(directory, entry.name));
     return {
       path: relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name,
-      size: (await stat(path.join(directory, entry.name))).size,
-      ...(media ? { mediaType: media.mediaType } : {}),
+      size: entryStat.size,
+      ...(media ? { mediaType: media.mediaType, modifiedAt: entryStat.mtime.toISOString() } : {}),
     };
   });
   for (const detail of details) files.push(detail);
