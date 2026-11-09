@@ -155,7 +155,8 @@ import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, typ
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
-import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
+import { ProjectRail } from "./app-sidebar.js";
+import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -1205,7 +1206,7 @@ export function ProjectShell({
     try {
       const updated = await renameProject(project.id, name);
       dispatch({ type: "project-updated", project: updated });
-      refreshRecentProject(updated);
+      refreshSidebarProject(updated);
     } catch (cause) {
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
