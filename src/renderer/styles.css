@@ -5225,6 +5225,8 @@ button {
 .story-transcription-node { overflow: visible; border: 0; background: transparent; }
 .story-transcription-node:hover,
 .story-transcription-node.is-selected { border-color: transparent; box-shadow: none; }
+.story-transcription-drag-handle { cursor: grab; }
+.story-transcription-drag-handle:active { cursor: grabbing; }
 .transcription-card {
   display: flex;
   overflow: hidden;
