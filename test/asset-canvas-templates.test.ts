@@ -174,7 +174,7 @@ describe("pixel asset workflows", () => {
     expect(tileset).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
     expect(tileset).toContain("Default logical size per tile: 32×32 pixels");
     expect(tileset).toContain("With 4 columns and 4 rows, the complete sheet is 128×128 logical pixels");
-    for (const preset of CANVAS_IMAGE_PRESETS.filter((candidate) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(candidate))) {
+    for (const preset of CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset))) {
       const prompt = canvasImagePresetPrompt(preset, description);
       const requestIndex = prompt.indexOf(`${preset === "character-sheet" ? "CHARACTER DESCRIPTION" : "USER REQUEST"}: ${description}`);
       const densityIndex = prompt.indexOf("**PIXEL DENSITY: CLASSIC PIXELS**");
