@@ -108,7 +108,6 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
-    // Project settings moved into the More menu, beside picking an element.
     expect(html).toContain('aria-label="More"');
     expect(html).toContain('aria-label="Pick an element in the game"');
     expect(html).not.toContain('aria-label="View publication"');
@@ -223,7 +222,7 @@ describe("coding workspace", () => {
     };
     const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
     const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
-    // Its settings, where the web preview turns on, are in the project menu.
+    // Its settings, where the web preview turns on, are in the top bar.
     expect(blank).not.toContain('aria-label="Project settings"');
     expect(blank).toContain('data-active-tab="code"');
     expect(blank).not.toContain("<iframe");

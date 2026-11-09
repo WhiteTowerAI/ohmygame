@@ -19,17 +19,18 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   setProjectCoverMode: vi.fn(),
   setProjectLogo: vi.fn(),
 }));
-const { ProjectSettingsDialog } =
-  await import("../src/renderer/project-settings-dialog.js");
-const { ProjectAppearanceDialog } =
+const { ProjectPreviewSettings } =
+  await import("../src/renderer/project-preview-settings.js");
+const { ProjectGeneralSettings } =
   await import("../src/renderer/project-appearance-settings.js");
+const { ProjectSettings } = await import("../src/renderer/project-settings.js");
 
-describe("ProjectSettingsDialog", () => {
+describe("ProjectPreviewSettings", () => {
   it.each([false, true])(
     "shows the saved General Web preview switch: %s",
     (webPreviewEnabled) => {
       const html = renderToStaticMarkup(
-        createElement(ProjectSettingsDialog, {
+        createElement(ProjectPreviewSettings, {
           project: {
             id: "general",
             name: "General",
@@ -52,9 +53,9 @@ describe("ProjectSettingsDialog", () => {
     },
   );
 
-  it("keeps the project identity in the form and restores the browser-preview action", () => {
+  it("keeps the saved startup and playtest settings in the form", () => {
     const html = renderToStaticMarkup(
-      createElement(ProjectSettingsDialog, {
+      createElement(ProjectPreviewSettings, {
         project: {
           id: "project-1",
           name: "Nested game",
@@ -73,14 +74,11 @@ describe("ProjectSettingsDialog", () => {
       }),
     );
 
-    expect(html).toContain("Project settings");
-    expect(html).toContain("Nested game");
     expect(html).toContain('value="apps/game"');
     expect(html).toContain('value="start"');
     expect(html).toContain("Package manager");
     expect(html).toContain("Default route");
     expect(html).toContain("Device");
-    expect(html).toContain("Open preview in browser");
     expect(html).not.toContain("Relative to the project root");
     expect(html).not.toContain("The selected folder must contain");
   });
@@ -117,7 +115,7 @@ describe("preview settings drafts", () => {
     root = createRoot(container);
     await act(async () =>
       root.render(
-        <ProjectSettingsDialog
+        <ProjectPreviewSettings
           project={project}
           onClose={() => {}}
           onSaved={() => {}}
@@ -246,28 +244,15 @@ describe("preview settings drafts", () => {
       }),
     );
   });
-
-  it("saves a chosen icon and the template cover at once, without saving the form", async () => {
-    vi.mocked(setProjectAppearance).mockImplementation(async (_id, appearance) => ({ ...project, appearance }));
-    const radio = (name: string) => container.querySelector<HTMLButtonElement>(`[role="radio"][aria-label="${name}"]`)!;
-    // The default icons stay folded until asked for.
-    expect(radio("Rocket")).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>(".project-appearance-library-toggle")!.click());
-    await act(async () => radio("Rocket").click());
-    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket" });
-    expect(radio("Rocket").getAttribute("aria-checked")).toBe("true");
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Template")!.click());
-    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket", cover: "template" });
-    expect(updateProjectRunSettings).not.toHaveBeenCalled();
-  });
 });
 
-describe("ProjectAppearanceDialog", () => {
+describe("the project's settings", () => {
   const project = { id: "named", name: "Old name", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/named" } as ProjectState;
   let host: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.clearAllMocks();
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -277,41 +262,88 @@ describe("ProjectAppearanceDialog", () => {
     host.remove();
     vi.unstubAllGlobals();
   });
-  // Each opening is a fresh dialog, as the project shell mounts it.
-  let opening = 0;
-  const open = async (onRename: (name: string) => void, onClose = vi.fn(), shown = project) => {
-    await act(async () => root.render(createElement(ProjectAppearanceDialog, { key: ++opening, project: shown, open: true, onClose, onRename })));
-    return onClose;
-  };
   const type = (value: string) => act(async () => {
-    const input = document.querySelector<HTMLInputElement>(".project-appearance-name input")!;
+    const input = host.querySelector<HTMLInputElement>("input:not([type=file])")!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  const done = () => act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Done")!.click());
+  const general = (onRename: (name: string) => void, shown = project) => act(async () => root.render(createElement(ProjectGeneralSettings, { project: shown, onRename })));
+  const closeTab = () => act(async () => root.render(null));
 
-  it("edits the name beside the appearance and saves it as it closes", async () => {
+  it("saves an edited name as the settings close", async () => {
     const onRename = vi.fn();
-    const onClose = await open(onRename);
-    expect(document.querySelector(".ui-dialog")?.textContent).toContain("Name and appearance");
-    expect(document.querySelector<HTMLInputElement>(".project-appearance-name input")!.value).toBe("Old name");
+    await general(onRename);
     await type("  New name ");
-    await done();
+    expect(onRename).not.toHaveBeenCalled();
+    await closeTab();
     expect(onRename).toHaveBeenCalledWith("New name");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onRename).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves an unchanged or empty name alone", async () => {
+  it("leaves an empty or unedited name alone, and a name the project got meanwhile", async () => {
     const onRename = vi.fn();
-    await open(onRename);
+    await general(onRename);
     await type("   ");
-    await done();
-    await open(onRename);
-    await done();
-    // A name the project got while the dialog was open isn't put back.
-    await open(onRename);
-    await act(async () => root.render(createElement(ProjectAppearanceDialog, { key: opening, project: { ...project, name: "Space gardener" }, open: true, onClose: () => {}, onRename })));
-    await done();
+    await closeTab();
+    await general(onRename);
+    await general(onRename, { ...project, name: "Space gardener" });
+    await closeTab();
     expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it("saves a chosen icon and the template cover at once", async () => {
+    vi.mocked(setProjectAppearance).mockImplementation(async (_id, appearance) => ({ ...project, appearance }));
+    await general(() => {});
+    const radio = (name: string) => host.querySelector<HTMLButtonElement>(`[role="radio"][aria-label="${name}"]`)!;
+    // The default icons stay folded until asked for.
+    expect(radio("Rocket")).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>(".project-appearance-library-toggle")!.click());
+    await act(async () => radio("Rocket").click());
+    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket" });
+    expect(radio("Rocket").getAttribute("aria-checked")).toBe("true");
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Template")!.click());
+    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket", cover: "template" });
+  });
+
+  describe("dialog", () => {
+    const open = (props: { workspaceTab?: string; initialTab?: "general" | "workspace"; busy?: boolean; onClose?: () => void }) => act(async () => root.render(createElement(ProjectSettings, {
+      project, initialTab: "general", workspaceRef: () => {}, busy: false, plugins: createElement("p", { className: "plugins-tab" }), onRename: () => {}, onClose: () => {}, ...props,
+    })));
+    const tabs = () => [...document.querySelectorAll<HTMLButtonElement>('.project-settings [role="tab"]')];
+    const panels = () => [...document.querySelectorAll<HTMLElement>(".project-settings-tab")];
+
+    it("offers General and Plugins for every project, and a workspace's own tab between them", async () => {
+      await open({});
+      expect(tabs().map((tab) => tab.textContent)).toEqual(["General", "Plugins"]);
+      await open({ workspaceTab: "Preview" });
+      expect(tabs().map((tab) => tab.textContent)).toEqual(["General", "Preview", "Plugins"]);
+    });
+
+    it("keeps every tab mounted, hiding the ones not showing", async () => {
+      await open({ workspaceTab: "Preview" });
+      expect(panels().map((panel) => panel.hidden)).toEqual([false, true, true]);
+      await act(async () => tabs()[2]!.click());
+      expect(panels().map((panel) => panel.hidden)).toEqual([true, true, false]);
+      expect(document.querySelector(".plugins-tab")).not.toBeNull();
+    });
+
+    it("falls back to General when the workspace's tab goes away", async () => {
+      await open({ workspaceTab: "Preview", initialTab: "workspace" });
+      expect(panels().map((panel) => panel.hidden)).toEqual([true, false, true]);
+      await open({ workspaceTab: undefined, initialTab: "workspace" });
+      expect(panels().map((panel) => panel.hidden)).toEqual([false, true]);
+    });
+
+    it("stays open while a tab saves", async () => {
+      const onClose = vi.fn();
+      await open({ busy: true, onClose });
+      const close = document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!;
+      expect(close.disabled).toBe(true);
+      await act(async () => document.querySelector(".project-settings")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      expect(onClose).not.toHaveBeenCalled();
+      await open({ busy: false, onClose });
+      await act(async () => close.click());
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });

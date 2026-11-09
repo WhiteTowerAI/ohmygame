@@ -5,7 +5,6 @@ import {
   Gamepad2,
   MoreHorizontal,
   MousePointer2,
-  RotateCcw,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -34,10 +33,10 @@ import {
   SlidersHorizontal,
   Palette,
   Smartphone,
+  Server,
   Tablet,
   Terminal,
   Trash2,
-  Wrench,
   X,
   type IconComponent,
 } from "./icons.js";
@@ -63,7 +62,8 @@ import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
-import { ProjectSettingsDialog } from "./project-settings-dialog.js";
+import { ProjectPreviewSettings } from "./project-preview-settings.js";
+import type { ProjectSettingsSlot } from "./project-settings.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useWorkspaceFiles } from "./use-workspace-files.js";
@@ -124,9 +124,10 @@ interface CodingWorkspaceProps {
   previewFilters?: readonly ProjectPreviewFilter[];
   /** The gamepad maps the project's plugins add. */
   inputMaps?: readonly ProjectInputMap[];
-  /** Whether the project settings are open; the project shell owns it, so its menu opens them too. */
-  settingsOpen?: boolean;
-  onSettingsOpenChange?: (open: boolean) => void;
+  /** Present while the project's settings show this workspace's tab. */
+  settingsSlot?: ProjectSettingsSlot;
+  /** Opens the project's settings on this workspace's tab. */
+  onOpenSettings?: () => void;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -173,8 +174,8 @@ export function CodingWorkspace({
   previewDevices = NO_DEVICES,
   previewFilters = NO_FILTERS,
   inputMaps = NO_INPUT_MAPS,
-  settingsOpen: projectSettingsOpen = false,
-  onSettingsOpenChange: setProjectSettingsOpen = noop,
+  settingsSlot,
+  onOpenSettings,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -425,7 +426,6 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
-          onOpenSettings={() => setProjectSettingsOpen(true)}
           onLogs={() => setLogsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
@@ -446,7 +446,7 @@ export function CodingWorkspace({
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
-              onRetry={() => onRestart()} onSettings={() => setProjectSettingsOpen(true)}
+              onRetry={() => onRestart()} onSettings={onOpenSettings}
             />
             </ErrorBoundary>
             {picking ? <span className="preview-pick-hint" role="status">{t("workspace.pickHint")}</span> : null}
@@ -525,18 +525,17 @@ export function CodingWorkspace({
       {placed}
       {topPlay}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
-      {project && projectSettingsOpen ? <ProjectSettingsDialog
+      {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}
-        previewUrl={currentPreviewUrl}
         previewActions={supportsPreview ? {
-          onRestart: (reinstall) => onRestart(undefined, reinstall),
+          onReinstall: () => onRestart(undefined, true),
           onStop: onStop ? () => { void player.close().catch(() => {}).then(onStop); } : undefined,
-          onLogs: () => { setProjectSettingsOpen(false); setLogsOpen(true); },
         } : undefined}
-        onClose={() => setProjectSettingsOpen(false)}
+        onClose={settingsSlot.onClose}
+        onBusyChange={settingsSlot.onBusyChange}
         onSaved={(updated) => onProjectUpdated?.(updated)}
-      /> : null}
+      />, settingsSlot.node) : null}
     </>
   );
 }
@@ -562,7 +561,6 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
-  onOpenSettings,
   onLogs,
   onNavigate,
   onRefresh,
@@ -592,7 +590,6 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
-  onOpenSettings: () => void;
   onLogs: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
@@ -619,10 +616,8 @@ function PreviewControls({
       <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
-        { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
         { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
-        "separator",
-        { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings },
       ]} />
     </div>
   );
@@ -894,7 +889,6 @@ function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPrevi
 }
 
 const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
-const noop = () => {};
 const NO_FILTERS: readonly ProjectPreviewFilter[] = [];
 const NO_INPUT_MAPS: readonly ProjectInputMap[] = [];
 const inputMapKey = (projectId: string) => `ohmygame:input-map:${projectId}`;

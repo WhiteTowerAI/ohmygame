@@ -14,7 +14,7 @@ import { refreshRecentProject } from "./app-sidebar.js";
 import { ChevronDown, LoaderCircle, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
-import { Button, Dialog, Field, Input, SegmentedControl } from "./ui/index.js";
+import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 type CoverChoice = ProjectCoverMode | "template";
@@ -24,13 +24,7 @@ type CoverChoice = ProjectCoverMode | "template";
  * uploaded logo or one from the default library; the cover is captured from the
  * preview, the default template, or an uploaded image.
  */
-export function ProjectAppearanceSettings({ project, disabled = false, standalone = false }: {
-  project: ProjectState;
-  disabled?: boolean;
-  /** In its own dialog, whose title names the section. */
-  standalone?: boolean;
-}) {
-  const headingId = useId();
+function ProjectAppearanceSettings({ project }: { project: ProjectState }) {
   const logoInput = useRef<HTMLInputElement>(null);
   const coverInput = useRef<HTMLInputElement>(null);
   const [current, setCurrent] = useState(project);
@@ -129,9 +123,8 @@ export function ProjectAppearanceSettings({ project, disabled = false, standalon
   }
 
   return (
-    <section className={`project-appearance${standalone ? "" : " project-settings-group"}`} aria-labelledby={standalone ? undefined : headingId} aria-label={standalone ? t("projectAppearance.title") : undefined}>
-      {standalone ? null : <h3 id={headingId}>{t("projectAppearance.title")}</h3>}
-      <fieldset className="project-settings-section" disabled={disabled || busy}>
+    <section className="project-appearance" aria-label={t("projectAppearance.title")}>
+      <fieldset className="project-settings-section" disabled={busy}>
         <div className="project-appearance-row">
           <span className="project-appearance-logo" aria-hidden="true">
             {logoUrl ? <img src={logoUrl} alt="" /> : <ProjectPlaceholder projectId={current.id} appearance={appearance} size={26} />}
@@ -227,42 +220,26 @@ function objectUrl(load: (() => Promise<Blob | undefined>) | undefined, set: (ur
 }
 
 /**
- * The project's name and appearance, from the project menu, for every project
- * type. The appearance applies as it changes, so the name does too: it is
- * saved when the dialog closes, however it closes.
+ * The General tab of the project's settings. The appearance applies as it
+ * changes, and the name when the settings close, however they close. Only a
+ * name edited here is saved, so one the project got meanwhile, such as its
+ * first title, stays.
  */
-export function ProjectAppearanceDialog({ project, open, onClose, onRename }: {
+export function ProjectGeneralSettings({ project, onRename }: {
   project: ProjectState;
-  open: boolean;
-  onClose: () => void;
   /** Saves a name edited here; it may match the project's current name. */
   onRename: (name: string) => void;
 }) {
   const [name, setName] = useState(project.name);
-  // Only a name edited here is saved, so one the project got meanwhile, such as its first title, stays.
   const [opened] = useState(project.name);
-  const composing = useRef(false);
-  const close = () => {
-    const next = name.trim();
-    if (next && next !== opened.trim()) onRename(next);
-    onClose();
-  };
-  return (
-    <Dialog open={open} onClose={close} title={t("projectAppearance.titleWithName")} footer={<Button onClick={close}>{t("common.done")}</Button>}>
-      <form className="project-appearance-name" onSubmit={(event) => {
-        event.preventDefault();
-        if (!composing.current) close();
-      }}>
-        <Field label={t("common.name")}>{(props) => (
-          <Input {...props} value={name} autoFocus onChange={(event) => setName(event.target.value)}
-            onCompositionStart={() => { composing.current = true; }}
-            onCompositionEnd={() => { composing.current = false; }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (composing.current || event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
-            }} />
-        )}</Field>
-      </form>
-      <ProjectAppearanceSettings key={project.id} project={project} standalone />
-    </Dialog>
-  );
+  const latest = useRef({ name, onRename });
+  latest.current = { name, onRename };
+  useEffect(() => () => {
+    const next = latest.current.name.trim();
+    if (next && next !== opened.trim()) latest.current.onRename(next);
+  }, [opened]);
+  return <>
+    <Field label={t("common.name")}>{(props) => <Input {...props} value={name} onChange={(event) => setName(event.target.value)} />}</Field>
+    <ProjectAppearanceSettings key={project.id} project={project} />
+  </>;
 }

@@ -174,15 +174,15 @@ export function visiblePanels(layout: Layout, known: ReadonlySet<string>): strin
   });
 }
 
-export function PanelLayout({ layout, panels, layouts = [], onChange, onActivate, overlay, empty, locked = false }: {
+export function PanelLayout({ layout, panels, onChange, onActivate, onReset, overlay, empty, locked = false }: {
   layout: Layout;
   /** Every panel that can be shown; ids in the layout without one are skipped. */
   panels: readonly PanelDef[];
-  /** The layouts the + menu offers below the closed panels, such as presets. */
-  layouts?: readonly MenuEntry[];
   onChange: (layout: Layout) => void;
   /** A panel was brought forward or clicked into. */
   onActivate?: (id: string) => void;
+  /** Goes back to the default layout, from a tab's right-click menu. */
+  onReset?: () => void;
   /** Floats over the center area, such as the command bar. */
   overlay?: ReactNode;
   /** What the center shows with no panels in it. */
@@ -255,7 +255,7 @@ export function PanelLayout({ layout, panels, layouts = [], onChange, onActivate
     onActivate?.(id);
   };
   const close = (id: string) => onChange(closePanel(layout, id));
-  // The + menu: panels not in the layout, opened in this area, then the layouts.
+  // The + menu: panels not in the layout, opened in this area.
   const closed = panels.filter((panel) => !areaOf(layout, panel.id));
   const addMenu = (area: AreaId): MenuEntry[] => {
     const item = (panel: PanelDef): MenuEntry => ({
@@ -263,11 +263,7 @@ export function PanelLayout({ layout, panels, layouts = [], onChange, onActivate
       onSelect: () => { onChange(movePanel(layout, panel.id, area)); onActivate?.(panel.id); },
     });
     const plugins = closed.filter((panel) => panel.source);
-    return [
-      ...closed.filter((panel) => !panel.source).map(item),
-      ...(plugins.length ? [{ heading: t("panels.fromPlugins") }, ...plugins.map(item)] : []),
-      ...(layouts.length ? [...(closed.length ? ["separator" as const] : []), { heading: t("panels.layout") }, ...layouts] : []),
-    ];
+    return [...closed.filter((panel) => !panel.source).map(item), ...(plugins.length ? [{ heading: t("panels.fromPlugins") }, ...plugins.map(item)] : [])];
   };
 
   function resize(area: (typeof SIDES)[number], event: React.PointerEvent) {
@@ -329,10 +325,10 @@ export function PanelLayout({ layout, panels, layouts = [], onChange, onActivate
                     </div>
                 );
                 return locked ? tab : (
-                  <ContextMenu key={id} items={[...moves, "separator", { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
+                  <ContextMenu key={id} items={[...moves, "separator", ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []), { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
                 );
               })}
-              {closed.length || layouts.length ? (
+              {closed.length ? (
                 <DropdownMenu trigger={(props) => (
                   <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size={14} /></IconButton>
                 )} items={addMenu(area)} />

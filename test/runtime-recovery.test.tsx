@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, useEffect, useState, type FunctionComponent } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -7,13 +7,6 @@ import type { ProjectState, RuntimeEvent } from "../src/shared/contracts.js";
 import { promptField, promptText, typePrompt } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
-/** A workspace whose project settings open and close as the project shell keeps them. */
-function withSettings<P extends { settingsOpen?: boolean; onSettingsOpenChange?: (open: boolean) => void }>(Workspace: FunctionComponent<P>) {
-  return function Shell(props: P) {
-    const [open, setOpen] = useState(props.settingsOpen ?? false);
-    return createElement(Workspace, { ...props, settingsOpen: open, onSettingsOpenChange: setOpen });
-  };
-}
 let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
@@ -511,12 +504,11 @@ describe("pane and preview boundaries", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
     const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
-    const Shell = withSettings(CodingWorkspace);
-    await act(async () => root.render(createElement(Shell, props)));
+    await act(async () => root.render(createElement(CodingWorkspace, props)));
     const frame = container.querySelector("iframe")!;
     const client = new URL(frame.src).searchParams.get("__ohmygame_client")!;
     const moved = { ...project, preview: { ...project.preview, pages: [{ client, source: "editor" as const, path: "/scene-2?level=2#boss" }] } };
-    await act(async () => root.render(createElement(Shell, { ...props, project: moved })));
+    await act(async () => root.render(createElement(CodingWorkspace, { ...props, project: moved })));
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
@@ -524,20 +516,13 @@ describe("pane and preview boundaries", () => {
     const controls = [...container.querySelector(".preview-controls")!.children];
     expect(controls[0]!.className).toBe("preview-location");
     expect(controls.findIndex((child) => child.getAttribute("aria-label") === "Reload preview")).toBe(controls.length - 2);
-    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
-    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Project settings"))!.click());
-    const browser = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Open preview in browser")!;
-    await act(async () => browser.click());
-    const url = new URL(String(open.mock.calls[0][0]));
-    expect(`${url.pathname}?level=${url.searchParams.get("level")}${url.hash}`).toBe("/scene-2?level=2#boss");
-    expect(container.querySelector(".preview-run-menu")).toBeNull();
-    await act(async () => (container.querySelector('.project-settings [aria-label="Close"]') as HTMLButtonElement).click());
     // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
     await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
     // The game's More menu also opens the preview's logs.
-    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toEqual(["Open in browser", "Restart preview", "Preview logs", "Project settings"]);
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toEqual(["Open in browser", "Restart preview service", "Preview logs"]);
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
-    const page = new URL(String(open.mock.calls[1][0]));
+    const page = new URL(String(open.mock.calls[0][0]));
+    expect(`${page.pathname}?level=${page.searchParams.get("level")}${page.hash}`).toBe("/scene-2?level=2#boss");
     expect(page.searchParams.get("__ohmygame_view")).toBe("external");
     expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
     expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
@@ -557,23 +542,19 @@ describe("pane and preview boundaries", () => {
     const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     updateRuntimeConnection(ready(1));
     const project: ProjectState = { id: "logs", name: "Logs", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/logs", preview: { status: "stopped", logs: "Preview was stopped." } };
-    // Only the Code panel is on screen.
     const nodes = { preview: createPanelNodes(), design: createPanelNodes(), canvas: createPanelNodes(), code: createPanelNodes(), assets: createPanelNodes() };
     const panel = document.createElement("div");
-    panel.append(nodes.code.toolbar, nodes.code.body);
+    panel.append(nodes.preview.toolbar, nodes.preview.body, nodes.code.toolbar, nodes.code.body);
     document.body.append(panel);
-    const panels = { nodes, visible: new Set(["code"] as const), onShow: () => {} };
-    const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels };
-    // The project menu opened the project settings.
-    await act(async () => root.render(createElement(withSettings(CodingWorkspace), { ...props, settingsOpen: true })));
-    const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
-    await act(async () => logs.click());
-    expect(document.querySelector(".coding-workspace")?.getAttribute("data-active-tab")).toBe("code");
-    expect(document.querySelector(".project-settings")).toBeNull();
-    expect(document.querySelector(".coding-workspace > .preview-logs")?.textContent).toContain("Preview was stopped.");
+    const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {} };
+    await act(async () => root.render(createElement(CodingWorkspace, { ...props, panels: { nodes, visible: new Set(["preview", "code"] as const), onShow: () => {} } })));
+    await act(async () => (document.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Preview logs"))!.click());
+    // Only the Code panel is on screen now.
+    await act(async () => root.render(createElement(CodingWorkspace, { ...props, panels: { nodes, visible: new Set(["code"] as const), onShow: () => {} } })));
+    expect(nodes.code.body.querySelector(".coding-workspace > .preview-logs")?.textContent).toContain("Preview was stopped.");
     await act(async () => (document.querySelector('[aria-label="Close preview logs"]') as HTMLButtonElement).click());
     expect(document.querySelector(".preview-logs")).toBeNull();
-    expect(document.querySelector(".coding-workspace")?.getAttribute("data-active-tab")).toBe("code");
     panel.remove();
   });
 

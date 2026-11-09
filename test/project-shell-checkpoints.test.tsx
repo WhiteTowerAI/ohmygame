@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import path from "node:path";
 import { act, useEffect, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -363,10 +364,10 @@ describe("project shell layout", () => {
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
-    // The project shell decides when the workspace shows its settings.
-    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: ({ settingsOpen, onSettingsOpenChange }: { settingsOpen?: boolean; onSettingsOpenChange?: (open: boolean) => void }) =>
-      settingsOpen ? <button type="button" className="project-settings" onClick={() => onSettingsOpenChange?.(false)}>Settings</button> : null }));
-    const daemon = await openProject(() => undefined, detail("live-turn"), {
+    // While the project's settings are open, the workspace shows its tab in them.
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: ({ settingsSlot }: { settingsSlot?: { node: HTMLElement } }) =>
+      settingsSlot ? createPortal(<span className="workspace-settings" />, settingsSlot.node) : null }));
+    const daemon = await openProject((route) => route.startsWith("/projects/project/plugins") ? Response.json({ plugins: [] }) : undefined, detail("live-turn"), {
       view: "design",
     });
     const tabs = (area: string) =>
@@ -405,22 +406,27 @@ describe("project shell layout", () => {
         .layout.left.panels,
     ).toEqual([]);
 
-    // The + menu offers the closed panels, then the layouts, which put the chat back on the left.
+    // The + menu offers only the closed panels; a tab's right-click menu restores the layout.
     await click("Add panel");
     expect(menuItem("Chat")).toBeDefined();
-    await act(async () => menuItem("Default").click());
+    expect(menuItem("Default")).toBeUndefined();
+    await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => container.querySelector(".dock-area-center .dock-tab")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    await act(async () => menuItem("Restore default layout").click());
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
-    // The top bar has no layout button now; the project menu leads with the project's settings.
+    // The settings live in the top bar: General and Plugins for every project, and the workspace's own tab.
     expect(button("Layout and panels")).toBeUndefined();
     await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
     const projectMenu = [...document.querySelectorAll(".ui-menu-item")].map((item) => item.textContent?.trim());
-    expect(projectMenu.slice(0, 2)).toEqual(["Project settings…", "Name and appearance…"]);
-    expect(projectMenu).toContain("Plugins…");
-    expect(projectMenu).not.toContain("Plugin changes…");
-    await act(async () => menuItem("Project settings…").click());
-    expect(document.querySelector(".project-settings")).not.toBeNull();
-    await act(async () => document.querySelector<HTMLButtonElement>(".project-settings")!.click());
+    expect(projectMenu).toContain("Export project");
+    expect(projectMenu.some((item) => /settings|appearance|Plugins/.test(item ?? ""))).toBe(false);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await click("Project settings");
+    expect([...document.querySelectorAll('.project-settings [role="tab"]')].map((tab) => tab.textContent)).toEqual(["General", "Preview", "Plugins"]);
+    expect(document.querySelector(".project-settings .workspace-settings")).not.toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('.project-settings [aria-label="Close"]')!.click());
     expect(document.querySelector(".project-settings")).toBeNull();
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);

@@ -1,7 +1,6 @@
 import { workspaceVersion } from "./workspace-version.js";
 import {
   LoaderCircle,
-  Settings,
 } from "./icons.js";
 import {
   Fragment,
@@ -66,7 +65,8 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceAssetsView, WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest } from "./playable-node-workbench.js";
-import { PlayableProjectSettingsDialog } from "./playable-project-settings-dialog.js";
+import { PlayableProjectSettings } from "./playable-project-settings.js";
+import type { ProjectSettingsSlot } from "./project-settings.js";
 import { PlaytestControls, requestPlaytest, type PlaytestRequest } from "./playable-playtest.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
@@ -98,7 +98,6 @@ export interface StoryPanels {
 }
 
 const HISTORY_LIMIT = 50;
-const noop = () => {};
 const SAVE_ATTEMPTS = 3;
 /** Loading again while a workspace checkpoint or restore runs longer than the daemon waits for it. */
 const WORKSPACE_BUSY_RETRIES = 5;
@@ -123,7 +122,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsOpen: projectSettingsOpen = false, onSettingsOpenChange: setProjectSettingsOpen = noop, panels }: {
+export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsSlot, panels }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   publishing: boolean;
@@ -149,9 +148,8 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
   /** Quotes text picked in the design document into the next message. */
   onQuoteDocument?: (text: string) => void;
-  /** Whether the project settings are open; the project shell owns it, so its menu opens them too. */
-  settingsOpen?: boolean;
-  onSettingsOpenChange?: (open: boolean) => void;
+  /** Present while the project's settings show this workspace's tab. */
+  settingsSlot?: ProjectSettingsSlot;
   /**
    * The panels the views render into. Without them (in tests), the story
    * renders in place.
@@ -159,6 +157,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   panels?: StoryPanels;
 }) {
   const projectId = project.id;
+  const projectSettingsOpen = !!settingsSlot;
   const visible = panels?.visible ?? new Set<StoryView>(["story"]);
   const shows = (view: StoryView) => visible.has(view);
   const onShow = useRef(panels?.onShow);
@@ -1152,12 +1151,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   const playtestControls = <PlaytestControls disabled={phase !== "ready"} busy={playtesting} {...(panels?.play ? { text: t("workspace.play") } : {})} {...(openedNode ? { onStartHere: () => void startPlaytest({ action: "start", start: { nodeId: openedNode.id } }) } : {})} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />;
   const views: Record<StoryView, { toolbar?: ReactNode; body: ReactNode }> = {
     story: {
-      toolbar: <>
-        <button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
-          <Settings size={14} />
-        </button>
-        {panels?.play ? null : playtestControls}
-      </>,
+      toolbar: panels?.play ? undefined : playtestControls,
       body: <>
         <div className="interactive-story-body">
           <div className="interactive-story-canvas">
@@ -1337,16 +1331,16 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     <>
       {placed}
       {panels?.play ? createPortal(playtestControls, panels.play) : null}
-      {projectSettingsOpen && codebase ? <PlayableProjectSettingsDialog
-        project={project}
+      {settingsSlot ? createPortal(codebase ? <PlayableProjectSettings
         graph={codebase.graph}
         onSave={async (viewport) => {
           const graph = { ...codebase.graph, viewport };
           await save({ graph, editorLayout: codebase.editorLayout });
           applyGraph(graph);
         }}
-        onClose={() => setProjectSettingsOpen(false)}
-      /> : null}
+        onClose={settingsSlot.onClose}
+        onBusyChange={settingsSlot.onBusyChange}
+      /> : <div className="design-loading"><LoaderCircle className="spin" size={18} /></div>, settingsSlot.node) : null}
       {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </>
   );

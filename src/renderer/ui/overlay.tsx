@@ -468,7 +468,7 @@ export function useModal(open: boolean, onClose: () => void) {
         ...panel.current.querySelectorAll<HTMLElement>(
           "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
         ),
-      ].filter((el) => !el.hasAttribute("disabled"));
+      ].filter((el) => !el.hasAttribute("disabled") && el.getAttribute("tabindex") !== "-1" && !el.closest("[hidden]"));
       const first = focusable[0],
         last = focusable.at(-1);
       // From the panel itself, or after a menu closed and left focus nowhere,

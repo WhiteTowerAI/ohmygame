@@ -2908,11 +2908,19 @@ select.settings-search-input {
   outline: 0;
 }
 
-/* Above the Windows menu bar, as the dialog was before the kit frame. */
-.ui-backdrop.project-settings-backdrop {
-  z-index: 100;
-  padding: var(--space-4);
-  background: rgb(0 0 0 / 45%);
+.project-settings-tabs {
+  padding: 0 var(--space-4);
+}
+
+.project-settings-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-settings-tab[hidden] {
+  display: none;
 }
 
 .project-settings-form {
@@ -2923,27 +2931,6 @@ select.settings-search-input {
 
 .project-settings .ui-dialog-body {
   gap: var(--space-4);
-}
-
-.project-settings-project {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-}
-
-.project-settings-project > span {
-  color: var(--color-text-secondary);
-}
-
-.project-settings-project > strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-settings-switches {
@@ -3193,10 +3180,6 @@ select.settings-search-input {
   margin: 0;
   padding: 2px 0 var(--space-3);
   border: 0;
-}
-
-.project-settings-open {
-  align-self: flex-start;
 }
 
 .project-settings .project-settings-error {
@@ -14079,6 +14062,12 @@ summary.work-summary:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+.project-plugins-links {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .project-plugins-section {
