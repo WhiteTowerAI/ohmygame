@@ -180,17 +180,17 @@ points at, edits, or draws on the preview to say what to change.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Scenes / [Title]                      Replay · Play from here │
-├──────────────────────────────────────────────────────────────┤
+│ Story › [Title]                                              │
+│                                                              │
 │                                                              │
 │               ( Would open Club lobby  [Open] )              │
 │                                                              │
 │                        Live preview                          │
 │                  (real Runtime, real assets)                 │
 │                                                              │
-│  ┌──────────────────────────────────────────┐ ┌──────────┐   │
-│  │ ▶ Play  ⌖ Select  T Text  ✥ Move  ✎ Draw │ │ 2 issues │   │
-│  └──────────────────────────────────────────┘ └──────────┘   │
+│ ┌─────────────────────────────────────────────┐ ┌──────────┐ │
+│ │ ▶ Interact ⌖ Select T Text ✥ Move ✎ Draw  ↺ │ │ 2 issues │ │
+│ └─────────────────────────────────────────────┘ └──────────┘ │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -204,10 +204,10 @@ leaving the Scene, a short message over the preview says where it would go,
 such as "Would open Club lobby", with **Open** to go there; it fades after a
 few seconds. Back, Replay, and Continue show the same way.
 
-The header offers:
-
-- **Replay** to play the Scene again from the start;
-- **Play from here** to open Playtest at this Scene.
+**Replay** at the end of the tool bar plays the Scene again from the start.
+**Playtest from this Scene**, in the menu beside **Play** in the top bar while
+a Scene is open, opens Playtest at this Scene. **Interact**, the first tool,
+lets clicks reach the preview as a player's would.
 
 Both start from a new game, so every Scene must look right without earlier
 progress. To see a Scene as it would be later in the game, play there in
@@ -389,18 +389,17 @@ the wrong way.
 
 Playtest runs the real Runtime from the Start Scene, with the saved game
 available through the game's Continue action, or from a chosen Scene with a
-new game (**Play from here** in a Workbench). A chosen start runs without
+new game (**Playtest from this Scene** in the top bar's Play menu while a
+Workbench is open). A chosen start runs without
 saving, so the saved game is untouched.
 
 The Playtest window shows only the game. The author plays it as a player;
-reading the game's inner state is the Agent's work, not theirs. The editor's
-Playtest arrow menu holds **Replay Playtest**, which restarts the Playtest window
+reading the game's inner state is the Agent's work, not theirs. The arrow menu beside
+**Play** in the top bar holds **Replay Playtest**, which restarts the Playtest window
 from the session's starting Scene with a new game. For a regular Playtest from
 the project's Start Scene, this clears the saved game. A chosen start made with
-**Play from here** leaves the saved game untouched. The same menu sits beside
-**Play from here** in the Workbench and applies to the Playtest window with the
-same save behavior. The Workbench's separate **Replay** button only restarts
-that Scene's local preview. These controls stay outside the game; desktop
+**Playtest from this Scene** leaves the saved game untouched. The Workbench's
+**Replay** tool only restarts that Scene's local preview. These controls stay outside the game; desktop
 window controls and dragging use a native title bar outside the game surface.
 When something breaks, a short note says so and offers **Ask AI to fix**, which
 brings the editor forward on that Scene and fills the chat with where the player was,
@@ -411,7 +410,7 @@ editor says to add a Scene first. When the Playtest window cannot start the
 story, it says why in place of the game and offers the way forward for that
 case: **Open editor**, which brings the editor forward on the Story map
 (**Close window** in a browser, which returns to the editor's tab);
-**Play from the start** when the Scene chosen with **Play from here** was
+**Play from the start** when the Scene chosen with **Playtest from this Scene** was
 deleted; **Ask AI to fix** when the story's files keep it from starting; and
 **Try again** when loading failed or the game stopped while starting. A game
 that stops with an error after it has started says so instead of claiming it

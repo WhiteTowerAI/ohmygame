@@ -4649,20 +4649,13 @@ button {
   flex-direction: column;
   background: var(--canvas);
 }
+/* Where the Workbench is in the story, on the canvas rather than as another toolbar. */
 .story-node-editor-header {
   display: flex;
-  min-height: 50px;
+  min-height: 40px;
   align-items: center;
   gap: 16px;
   padding: 0 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.story-node-editor-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
 }
 .story-node-editor-breadcrumb {
   display: flex;
@@ -4848,7 +4841,7 @@ button {
 /* The Workbench covers the canvas, so its save errors sit above it. */
 .story-save-notice.is-over-workbench {
   z-index: 30;
-  top: 56px;
+  top: 46px;
 }
 
 .story-play-issue {
@@ -13546,10 +13539,8 @@ summary.work-summary:hover {
   width: 18px;
 }
 .playable-playtest-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  z-index: 100;
   display: flex;
   min-width: 200px;
   flex-direction: column;

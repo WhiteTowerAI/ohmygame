@@ -32,7 +32,8 @@ type Placement =
   | "right-start";
 
 /** Fixed-position coordinates for a floating element next to an anchor, flipped when it would leave the window. */
-function useAnchoredPosition(
+/** Fixed-position coordinates that keep `floating` beside `anchor` inside the window. */
+export function useAnchoredPosition(
   open: boolean,
   anchor: RefObject<Element | null>,
   floating: RefObject<HTMLElement | null>,
