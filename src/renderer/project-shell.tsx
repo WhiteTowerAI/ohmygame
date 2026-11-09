@@ -44,7 +44,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -73,7 +73,6 @@ import {
   getProject,
   getUnfinishedChanges,
   getUnfinishedRestore,
-  listModels,
   listConversations,
   publishProject,
   removePendingPrompt,
@@ -594,9 +593,7 @@ export function ProjectShell({
         const requestedConversation = availableConversations.find((item) => item.id === conversationId);
         let selected = requestedConversation ?? availableConversations[0];
         if (!selected) {
-          const model = await initialConversationModel();
-          if (disposed) return;
-          selected = await createConversation(projectId, model);
+          selected = await createConversation(projectId);
         }
         if (disposed) return;
         if (!requestedConversation) {
@@ -693,6 +690,7 @@ export function ProjectShell({
     setSendingInitialPrompt(true);
     notifyPromptSent();
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
+      readStartingSettings(project.id, conversation.id);
       if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
       onInitialPromptHandled?.();
     }, (error) => {
@@ -792,6 +790,14 @@ export function ProjectShell({
   const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
     ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
+  // Sending gives a conversation with no model the one its picker shows; read it back so the controls follow it.
+  function readStartingSettings(projectId: string, conversationId: string): void {
+    if (state.settings.model) return;
+    void getConversation(projectId, conversationId)
+      .then((detail) => dispatch({ type: "conversation-settings", conversationId, settings: detail.settings }))
+      .catch(() => undefined);
+  }
+
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
@@ -807,6 +813,7 @@ export function ProjectShell({
       notifyPromptSent();
       const picks = previewPicks;
       await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
+      readStartingSettings(project.id, conversation.id);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
@@ -839,6 +846,7 @@ export function ProjectShell({
       await saveDesign.current?.();
       notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
+      readStartingSettings(project.id, conversation.id);
       revealPanel("chat");
       return true;
     } catch (error) {
@@ -1913,16 +1921,6 @@ function openExternalLink(url: string): void {
 /** Whether a restore or an undo failed part way and could not take back what it had already changed. */
 function leftUnfinished(error: unknown): boolean {
   return error instanceof ApiError && (error.code === "CHECKPOINT_INCOMPLETE" || error.code === "workspace_recovery");
-}
-
-async function initialConversationModel(): Promise<AgentModelRef | undefined> {
-  try {
-    // OhMyGame's own models come first; with none connected, the first coding agent that is set up.
-    const catalog = await listModels({ agentRuntimes: true });
-    return catalog.defaultModel ?? catalog.models[0];
-  } catch {
-    return undefined;
-  }
 }
 
 /** Two batches of changed files as one, with no more paths than one event carries. */
