@@ -1,5 +1,6 @@
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
@@ -10,6 +11,7 @@ import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
+import { fixPixelArt, PixelArtFixerError } from "./pixel-art-fixer.js";
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -18,7 +20,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;
@@ -215,6 +217,10 @@ async function runCanvasMedia(
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
     output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
+  } else if (request.operation === "fix-pixel-art") {
+    requireMedia(first.contentType, "image");
+    const fixed = await fixPixelArt(await readFile(first.absolutePath));
+    output = { name: "pixel-art-fixed.png", bytes: fixed.bytes, mediaType: fixed.mediaType };
   } else if (request.operation === "crop-image" || request.operation === "extract-gif-frames") {
     requireMedia(first.contentType, "image");
     const imageInput = { inputPath: first.absolutePath, format: input.format === "jpg" ? "jpeg" as const : input.format as "png" | "jpeg" | "webp" | undefined };

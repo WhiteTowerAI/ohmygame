@@ -4,7 +4,7 @@ export const MAX_MEDIA_OUTPUT_BYTES = 128 * 1024 * 1024;
 export const MAX_MEDIA_TOTAL_PIXELS = 64_000_000;
 
 export const MEDIA_TOOL_GROUPS = [
-  { id: "image-processing", operations: ["ai-image-cutout", "crop-image"] },
+  { id: "image-processing", operations: ["ai-image-cutout", "crop-image", "fix-pixel-art"] },
   {
     id: "gif-frames",
     operations: [
@@ -29,6 +29,7 @@ export function isMultiImageOperation(operation: string): boolean {
 // The agent and API retain independent processing functions beyond the toolbar.
 export type CanvasMediaOperation =
   | "crop-image"
+  | "fix-pixel-art"
   | "extract-gif-frames"
   | "compose-gif"
   | "compose-video"
