@@ -60,10 +60,10 @@ describe("workspace inspection", () => {
     await writeFile(path.join(workspace, "dist", "bundle.js"), "ignored");
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
-      { path: "src/cover.PNG", size: 5, mediaType: "image" },
-      { path: "src/logo.svg", size: 6, mediaType: "image" },
+      { path: "src/cover.PNG", size: 5, mediaType: "image", modifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      { path: "src/logo.svg", size: 6, mediaType: "image", modifiedAt: expect.any(String) },
       { path: "src/main.ts", size: 26 },
-      { path: "src/model.glb", size: 5, mediaType: "model" },
+      { path: "src/model.glb", size: 5, mediaType: "model", modifiedAt: expect.any(String) },
     ]);
   });
 
@@ -92,7 +92,7 @@ describe("workspace inspection", () => {
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       {
-        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg",
+        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg", modifiedAt: expect.any(String),
       },
     ]);
   });

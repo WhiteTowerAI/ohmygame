@@ -343,12 +343,12 @@ describe("plugin catalog API", () => {
     expect(off.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/game-studio");
     expect(off.skills.map((skill: { name: string }) => skill.name)).not.toContain("game-studio");
     // A prompt can't mention one that is off in its project; the composer turns it on first.
-    const mention = { name: "threejs-world", marketplaceId: "ohmygame", displayName: "Three.js World" };
+    const mention = { name: "unity", marketplaceId: "ohmygame", displayName: "Unity" };
     const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
     const storyConversation = (await app.inject({ method: "POST", url: `/projects/${story.id}/conversations` })).json();
     const refused = await app.inject({ method: "POST", url: `/projects/${story.id}/conversations/${storyConversation.id}/turns`, payload: { prompt: `${pluginMentionToken(mention)} build`, mentions: [mention] } });
     expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toContain("Turn Three.js World on in this project first");
+    expect(refused.json().error).toContain("Turn Unity on in this project first");
     // In a project, one that is off there is marked so.
     const general = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
     const generalConversation = (await app.inject({ method: "POST", url: `/projects/${general.id}/conversations` })).json();

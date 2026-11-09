@@ -2908,11 +2908,19 @@ select.settings-search-input {
   outline: 0;
 }
 
-/* Above the Windows menu bar, as the dialog was before the kit frame. */
-.ui-backdrop.project-settings-backdrop {
-  z-index: 100;
-  padding: var(--space-4);
-  background: rgb(0 0 0 / 45%);
+.project-settings-tabs {
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.project-settings-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-settings-tab[hidden] {
+  display: none;
 }
 
 .project-settings-form {
@@ -2923,27 +2931,6 @@ select.settings-search-input {
 
 .project-settings .ui-dialog-body {
   gap: var(--space-4);
-}
-
-.project-settings-project {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-}
-
-.project-settings-project > span {
-  color: var(--color-text-secondary);
-}
-
-.project-settings-project > strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-settings-switches {
@@ -3143,7 +3130,7 @@ select.settings-search-input {
   line-height: 1.5;
 }
 
-.project-settings :is(input, select) {
+.project-settings-form :is(input, select) {
   width: 100%;
   min-width: 0;
   height: 32px;
@@ -3158,26 +3145,26 @@ select.settings-search-input {
   font-size: var(--text-sm);
 }
 
-.project-settings select {
+.project-settings-form select {
   font-family: inherit;
   cursor: pointer;
 }
 
-.project-settings :is(input, select):hover:not(:disabled) {
+.project-settings-form :is(input, select):hover:not(:disabled) {
   border-color: var(--color-border-strong);
 }
 
-.project-settings :is(input, select):focus-visible {
+.project-settings-form :is(input, select):focus-visible {
   border-color: var(--color-focus);
   box-shadow: 0 0 0 1px var(--color-focus);
 }
 
-.project-settings :is(input, select)::placeholder {
+.project-settings-form :is(input, select)::placeholder {
   color: var(--color-text-secondary);
 }
 
-.project-settings fieldset:disabled :is(input, select),
-.project-settings fieldset:disabled label {
+.project-settings-form fieldset:disabled :is(input, select),
+.project-settings-form fieldset:disabled label {
   cursor: default;
   opacity: 0.55;
 }
@@ -3193,10 +3180,6 @@ select.settings-search-input {
   margin: 0;
   padding: 2px 0 var(--space-3);
   border: 0;
-}
-
-.project-settings-open {
-  align-self: flex-start;
 }
 
 .project-settings .project-settings-error {
@@ -4649,20 +4632,13 @@ button {
   flex-direction: column;
   background: var(--canvas);
 }
+/* Where the Workbench is in the story, on the canvas rather than as another toolbar. */
 .story-node-editor-header {
   display: flex;
-  min-height: 50px;
+  min-height: 40px;
   align-items: center;
   gap: 16px;
   padding: 0 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.story-node-editor-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
 }
 .story-node-editor-breadcrumb {
   display: flex;
@@ -4848,7 +4824,7 @@ button {
 /* The Workbench covers the canvas, so its save errors sit above it. */
 .story-save-notice.is-over-workbench {
   z-index: 30;
-  top: 56px;
+  top: 46px;
 }
 
 .story-play-issue {
@@ -13546,10 +13522,8 @@ summary.work-summary:hover {
   width: 18px;
 }
 .playable-playtest-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  z-index: 100;
   display: flex;
   min-width: 200px;
   flex-direction: column;

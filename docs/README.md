@@ -162,12 +162,6 @@ For the additional engine, mini-game, and asset-tool Beta packages, use the
   [Three.js](../plugins/web-game-studio/skills/three-webgl-game/SKILL.md),
   [Sprite Pipeline](../plugins/web-game-studio/skills/sprite-pipeline/SKILL.md),
   and [Web 3D Assets](../plugins/web-game-studio/skills/web-3d-asset-pipeline/SKILL.md).
-- [Three.js World](../plugins/threejs-world/skills/threejs-world/SKILL.md) and
-  its references: [world contract](../plugins/threejs-world/skills/threejs-world/references/world-contract.md),
-  [world expansion](../plugins/threejs-world/skills/threejs-world/references/world-expansion.md),
-  [presentation](../plugins/threejs-world/skills/threejs-world/references/presentation.md),
-  [validation](../plugins/threejs-world/skills/threejs-world/references/validation.md),
-  and [expansion example](../plugins/threejs-world/skills/threejs-world/references/expansion-example.txt).
 - Beta engine and platform workflows:
   [Cocos Creator](../plugins/cocos-creator/skills/cocos-creator/SKILL.md),
   [WeChat Mini Games](../plugins/wechat-minigame/skills/wechat-minigame/SKILL.md),

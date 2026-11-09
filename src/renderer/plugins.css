@@ -272,10 +272,6 @@
   font-weight: 600;
 }
 
-.plugin-add-review ul {
-  padding-left: var(--space-4);
-}
-
 .plugin-add-review dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

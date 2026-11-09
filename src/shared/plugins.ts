@@ -88,10 +88,8 @@ export interface PluginAddPreview {
   description: string;
   appWide: boolean;
   asks: string[];
-  skills: number;
-  mcpServers: string[];
-  /** Events the plugin's code hears about, from `contributes.hooks`. */
-  hooks?: string[];
+  /** What it adds, as its plugin page lists it. */
+  adds: StorePlugin["adds"];
   settings: boolean;
   /** Versions already installed, so the dialog can say what adding this does to them. */
   installedVersions: string[];

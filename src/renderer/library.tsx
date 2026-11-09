@@ -1,14 +1,15 @@
 import { useListPage } from "./use-list-page.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
+import { assetSortDetail, fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
+import { assetDateTime, sortAssets, type AssetSort } from "./asset-sort.js";
 import { AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
 import { Copy, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2 } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
-import { LibraryFilterRow, libraryFiltersActive } from "./library-filters.js";
+import { AssetSortSelect, LibraryFilterRow, libraryFiltersActive, useAssetSort } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { Button, CategoryMark, ContextMenu, Dialog, DropdownMenu, Empty, IconButton, Input, MediaTile, SearchInput, Sheet, Skeleton, Tabs, type MenuEntry } from "./ui/index.js";
@@ -43,6 +44,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<LibraryAssetFilters>({});
+  const [sort, setSort] = useAssetSort("ohmygame:library-sort");
   const [selectedId, setSelectedId] = useState<string>();
   const [dialog, setDialog] = useState<LibraryDialog>();
   const [busy, setBusy] = useState(false);
@@ -134,7 +136,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
   // Counts follow every filter except the kind, so each tab says what picking it would show.
   const narrowed = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [assets, query, filters]);
-  const visibleAssets = useMemo(() => mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), [narrowed, mediaFilter]);
+  // Sorted before paging, so the first page is the top of the whole list.
+  const visibleAssets = useMemo(() => sortAssets(mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), sort), [narrowed, mediaFilter, sort]);
   const filtered = Boolean(query.trim()) || libraryFiltersActive(filters);
   const page = useListPage(visibleAssets.length);
   const selected = assets.find((asset) => asset.id === selectedId);
@@ -152,6 +155,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         <span className="library-filter-spacer" />
         <LibraryFilterRow assets={assets} filters={filters} onChange={setFilters} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
+        <AssetSortSelect value={sort} onChange={setSort} />
       </div>
       {actionError && !dialog ? <p className="library-page-error" role="alert">{actionError}</p> : null}
 
@@ -159,7 +163,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         : phase === "loading" && assets.length === 0 ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 12 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
         : visibleAssets.length === 0 ? <Empty title={assets.length ? t("library.noMatch") : t("library.none")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
         : <div className="library-tiles">{visibleAssets.slice(0, page.limit).map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
-            <LibraryTile asset={asset} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
+            <LibraryTile asset={asset} sort={sort} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
               audio={asset.mediaType === "audio" ? { state: audio.playing?.id === asset.id ? audio.playing.state : undefined, toggle: () => audio.toggle(asset.id) } : undefined} />
           </ContextMenu>)}</div>}
 
@@ -213,11 +217,12 @@ function canSave(asset: LibraryAsset): boolean {
   return asset.saved === false || Boolean(asset.referenceOnly);
 }
 
-/** Where the asset is used, then where it came from. */
-function assetMeta(asset: LibraryAsset): string {
+/** The value it is sorted by, where the asset is used, then where it came from. */
+function assetMeta(asset: LibraryAsset, sort: AssetSort): string {
   const projects = asset.projects ?? [];
   const where = projects.length === 1 ? projects[0]!.name : projects.length ? t("library.projectCount", { count: projects.length }) : t("libraryFilters.noProject");
-  return `${where} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`;
+  const detail = assetSortDetail(asset, sort);
+  return `${detail ? `${detail} · ` : ""}${where} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`;
 }
 
 type TileAudioState = "loading" | "playing" | "paused";
@@ -264,9 +269,9 @@ function useTileAudio() {
   return { playing, toggle, stop };
 }
 
-function LibraryTile({ asset, selected, onOpen, audio }: { asset: LibraryAsset; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState; toggle: () => void } }) {
+function LibraryTile({ asset, sort, selected, onOpen, audio }: { asset: LibraryAsset; sort: AssetSort; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState; toggle: () => void } }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
-  const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset)} selected={selected} onClick={onOpen}
+  const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset, sort)} selected={selected} onClick={onOpen}
     preview={<TilePreview asset={asset} visible={visible} />}
     badge={(asset.mediaType === "video" || asset.mediaType === "audio") && asset.duration ? clock(asset.duration) : undefined} />;
   if (!audio) return media;
@@ -316,6 +321,7 @@ function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFr
       {asset.width && asset.height ? <><dt>{t("library.dimensions")}</dt><dd>{asset.width} × {asset.height}</dd></> : null}
       {asset.duration ? <><dt>{t("library.length")}</dt><dd>{clock(asset.duration)}</dd></> : null}
       <dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd>
+      <dt>{t("libraryFilters.added")}</dt><dd>{assetDateTime(asset)}</dd>
       {asset.origin ? <><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></> : null}
       {trimmedFrom ? <><dt>{t("assets.trimmedFrom")}</dt><dd>{trimmedFrom}</dd></> : null}
       {asset.referenceOnly ? <><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></> : null}
