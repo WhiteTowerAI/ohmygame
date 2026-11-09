@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, History, InfoCircle, LoaderCircle, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
 import { t } from "./i18n.js";
-import { Button } from "./ui/index.js";
+import { Button, useAnchoredPosition } from "./ui/index.js";
 
 const RECENT_LIMIT = 8;
 
@@ -61,7 +62,7 @@ export function usePlaytestRequests(projectId: string, onRequest: (request: Play
 }
 
 /** Editor controls live outside the game, including when a Scene Workbench is open. */
-export function PlaytestControls({ disabled = false, busy = false, label, title, text, onOpen, onAction }: {
+export function PlaytestControls({ disabled = false, busy = false, label, title, text, onOpen, onAction, onStartHere }: {
   disabled?: boolean;
   busy?: boolean;
   label?: string;
@@ -70,6 +71,8 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   text?: string;
   onOpen: () => void;
   onAction?: (action: PlaytestAction) => void;
+  /** Offered first in the menu while a Scene is open: Playtest from that Scene. */
+  onStartHere?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -77,13 +80,16 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const unavailable = disabled || busy;
+  // In the body, above every panel, so a menu opened from the top bar is not covered.
+  const position = useAnchoredPosition(open && !unavailable, root, menu, "bottom-end");
 
   useEffect(() => {
     if (unavailable) { setOpen(false); return; }
     if (!open) return;
     menu.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const onPointerDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -125,8 +131,8 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
       }}
     ><ChevronDown size={11} /></button> : null}
-    {open && !unavailable ? <div
-      ref={menu} className="playable-playtest-menu" id={menuId} role="menu" aria-label={t("playtest.actions")}
+    {open && !unavailable ? createPortal(<div
+      ref={menu} className="playable-playtest-menu" id={menuId} role="menu" aria-label={t("playtest.actions")} style={position}
       onKeyDown={(event) => {
         if (event.key === "Tab") { setOpen(false); return; }
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -138,9 +144,10 @@ export function PlaytestControls({ disabled = false, busy = false, label, title,
         items[index]?.focus();
       }}
     >
+      {onStartHere ? <button type="button" role="menuitem" onClick={() => { setOpen(false); trigger.current?.focus(); onStartHere(); }}><Play size={14} /><span>{t("sceneWorkbench.playtestFromHere")}</span></button> : null}
       <button type="button" role="menuitem" title={t("playtest.replayTitle")} onClick={() => run("replay")}><RotateCcw size={14} /><span>{t("playtest.replay")}</span></button>
       <button type="button" role="menuitem" title={t("playtest.forgetTitle")} onClick={() => run("forget-seen")}><History size={14} /><span>{t("playtest.forget")}</span></button>
-    </div> : null}
+    </div>, document.body) : null}
   </div>;
 }
 

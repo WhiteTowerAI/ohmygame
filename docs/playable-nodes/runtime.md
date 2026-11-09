@@ -371,7 +371,7 @@ index.html (the project preview, Playtest, or the published game)
 
 The page reads a few query parameters: `scene`; `ohmygame-policy=report`
 (the Workbench preview); `ohmygame-save=none` (keep this session's games in
-memory, for Play from here); `ohmygame-new-game=1` and
+memory, for Playtest from this Scene); `ohmygame-new-game=1` and
 `ohmygame-forget-seen=1` (Playtest's Replay and its seen reset);
 `ohmygame-silent=1` (thumbnails); and `ohmygamePlaytest=1`, which exposes
 `window.__OHMYGAME_PLAYTEST__` for game_use. Editor tools find the Runtime as

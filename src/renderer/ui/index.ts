@@ -31,6 +31,7 @@ export {
   Sheet,
   ToastProvider,
   Tooltip,
+  useAnchoredPosition,
   useToast,
 } from "./overlay.js";
 export type { Command, MenuEntry, MenuItem } from "./overlay.js";
