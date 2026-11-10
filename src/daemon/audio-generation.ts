@@ -2,6 +2,10 @@ import {
   type AudioGenerationRequest,
   type AudioModel,
   type AudioModelCatalog,
+  type AudioModelOperation,
+  type AudioTranscription,
+  type AudioTranscriptionRequest,
+  type AudioVoicePage,
   type GeneratedAudio,
 } from "../shared/audio.js";
 import type { ModelRef } from "../shared/contracts.js";
@@ -26,6 +30,10 @@ export interface AudioProviderAdapter {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio>;
+  /** Lists voices from the account, for providers without a built-in list. */
+  voices?(query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage>;
+  /** Turns audio into text with a model that lists the `transcription` operation. */
+  transcribe?(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription>;
 }
 
 export interface AudioGenerator {
@@ -34,6 +42,8 @@ export interface AudioGenerator {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio>;
+  voices?(provider: string, query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage>;
+  transcribe?(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription>;
 }
 
 export class ProviderAudio implements AudioGenerator {
@@ -47,6 +57,7 @@ export class ProviderAudio implements AudioGenerator {
         provider: adapter.id,
         name: adapter.name,
         ...(adapter.defaultVoiceId?.() ? { defaultVoiceId: adapter.defaultVoiceId() } : {}),
+        ...(adapter.voices ? { listsVoices: true } : {}),
         configured,
         state: !enabled
           ? ("disabled" as const)
@@ -67,7 +78,7 @@ export class ProviderAudio implements AudioGenerator {
   }
 
   resolveModel(
-    operation: AudioGenerationRequest["operation"],
+    operation: AudioModelOperation,
     requested?: ModelRef,
   ): AudioModel | undefined {
     const catalog = this.catalog().models.filter((model) =>
@@ -106,6 +117,28 @@ export class ProviderAudio implements AudioGenerator {
       { ...input, model: { provider: model.provider, id: model.id } },
       signal,
     );
+  }
+
+  /** One page of a provider's account voices. */
+  async voices(provider: string, query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage> {
+    const adapter = this.adapters.find((candidate) => candidate.id === provider);
+    if (!adapter?.voices) throw new AudioGenerationError("This audio provider has no voice list", 404);
+    if (!adapter.enabled()) throw new AudioGenerationError(`${adapter.name} is disabled`, 503);
+    if (!adapter.configured()) throw new AudioGenerationError(`Connect ${adapter.name} before listing its voices`, 503);
+    return adapter.voices(query, signal);
+  }
+
+  /** Transcribes with the requested model, or the first ready one that can. */
+  async transcribe(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription> {
+    const model = this.resolveModel("transcription", input.model);
+    if (!model) {
+      throw input.model
+        ? new AudioGenerationError("The selected transcription model is unavailable", 400)
+        : new AudioGenerationError("No transcription model is available. Connect an audio provider that transcribes speech first.", 503);
+    }
+    const adapter = this.adapters.find((candidate) => candidate.id === model.provider);
+    if (!adapter?.transcribe) throw new AudioGenerationError("The selected audio provider cannot transcribe", 503);
+    return adapter.transcribe({ ...input, model: { provider: model.provider, id: model.id } }, signal);
   }
 }
 

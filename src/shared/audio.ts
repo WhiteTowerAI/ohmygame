@@ -116,8 +116,11 @@ export type AudioGenerationRequest =
   | MusicAudioRequest
   | SceneAudioRequest;
 
+/** Turning audio into text is not generation, so it is not an {@link AudioOperation}. */
+export type AudioModelOperation = AudioOperation | "transcription";
+
 export interface AudioModelCapabilities {
-  operations: AudioOperation[];
+  operations: AudioModelOperation[];
   executionModes: Array<"synchronous" | "streaming" | "async-task">;
   languages?: string[];
   formats: AudioOutputFormat[];
@@ -141,6 +144,42 @@ export interface AudioModelCapabilities {
   promptInstructionCharacters?: number;
   /** Text-to-speech request options: pronunciation, language detection, dialect, silence, section, bit rate and cloned voice models. */
   supportsSpeechOptions?: boolean;
+  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. */
+  speedRange?: readonly [number, number];
+  /** Speech needs a voice picked from the provider's own list; there is no default. */
+  requiresVoice?: boolean;
+  /** Shortest and longest audio this model makes, in seconds. */
+  minDurationSeconds?: number;
+}
+
+/** A voice a provider offers, listed from its account rather than built in. */
+export interface AudioVoice {
+  id: string;
+  name: string;
+  /** A hosted sample; playing it spends no generation quota. */
+  previewUrl?: string;
+  labels?: Record<string, string>;
+}
+
+export interface AudioVoicePage {
+  voices: AudioVoice[];
+  /** Pass back to read the next page; absent on the last one. */
+  nextPageToken?: string;
+}
+
+export interface AudioTranscriptionRequest {
+  bytes: Uint8Array;
+  mediaType: string;
+  name: string;
+  /** ISO 639-1 or 639-3; the provider detects it when absent. */
+  language?: string;
+  model?: ModelRef;
+}
+
+export interface AudioTranscription {
+  text: string;
+  language?: string;
+  model: ModelRef;
 }
 
 export interface AudioModel extends ModelRef {
@@ -157,6 +196,8 @@ export interface AudioProviderCatalogStatus {
   state: "ready" | "not_configured" | "disabled" | "error";
   message?: string;
   defaultVoiceId?: string;
+  /** Its voices are listed from the account, through `/audio-providers/:provider/voices`. */
+  listsVoices?: boolean;
 }
 
 export interface AudioModelCatalog {

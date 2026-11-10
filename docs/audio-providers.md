@@ -8,9 +8,24 @@ provider-neutral text and output settings.
 ## Providers and connection settings
 
 **Settings → Providers** lists **Doubao Speech**, **Doubao Seed Audio**, and
-**ElevenLabs**. ElevenLabs uses the account's API key for text-to-speech and
-speech-to-text. Its voice list is loaded from the account in a Text to speech
-node. The key is kept by the daemon and is never written to canvas files.
+**ElevenLabs**. ElevenLabs uses one account API key for speech, sound effects,
+music and transcription. Its voices are listed from the account rather than
+built in. The key is kept by the daemon and is never written to canvas files.
+
+Each layer stays separate:
+
+- **Operations** are what a person asks for: `speech`, `sound-effect`,
+  `music` and `audio-scene` produce audio; transcription turns audio into text
+  and is a model operation, not an `AudioOperation`.
+- **Adapters** (`AudioProviderAdapter`) translate one provider's API. They may
+  also list account voices (`voices`) and transcribe audio (`transcribe`).
+- **Models** declare their operations and limits in `capabilities`; the UI and
+  validation read those instead of checking a provider ID. `requiresVoice`
+  means speech needs a voice from the provider's list, `speedRange` narrows
+  the shared speed scale, and `minDurationSeconds`/`maxDurationSeconds` bound
+  generated length.
+- **Canvas nodes and agent tools** map one-to-one to the generation operations.
+  Transcription is a media tool on an audio node, not a node of its own.
 
 Doubao Speech and Doubao Seed Audio remain separate providers. Each has its
 own API key, enable state, preview, model list and deletion action. Speech
@@ -30,12 +45,12 @@ Existing nodes, model references, and service-specific settings endpoints stay
 compatible. A saved key means configured; it does not verify service entitlement
 or quota. Preview actions make a real, potentially billable generation request.
 
-| Tool                    | Operation      | Models                                  |
-| ----------------------- | -------------- | --------------------------------------- |
-| `generate-speech`       | `speech`       | TTS 2.0; Seed Audio 1.0                 |
-| `generate-sound-effect` | `sound-effect` | Seed Audio 1.0                          |
-| `generate-music`        | `music`        | Seed Audio 1.0, instrumental workflow   |
-| `generate-audio`        | `audio-scene`  | Seed Audio 1.0, composite scene prompts |
+| Tool                    | Operation      | Models                                                 |
+| ----------------------- | -------------- | ------------------------------------------------------ |
+| `generate-speech`       | `speech`       | TTS 2.0; Seed Audio 1.0; Eleven v4, Flash v2.5         |
+| `generate-sound-effect` | `sound-effect` | Seed Audio 1.0; Eleven Sound Effects v2                |
+| `generate-music`        | `music`        | Seed Audio 1.0, Eleven Music v1, instrumental workflow |
+| `generate-audio`        | `audio-scene`  | Seed Audio 1.0, composite scene prompts                |
 
 `dialogue` remains a reserved shared operation. Use an audio-scene prompt to
 express multiple speakers; this is not a structured per-speaker synthesis API.
@@ -44,19 +59,25 @@ prompts, or precise lyric singing. Unsupported controls fail before generation.
 
 ## Asset Canvas
 
-The canvas creation menu offers **Text to speech**, **Speech to text**,
-**Sound effect**, and **Music**. Text to speech accepts typed or linked Text
-and Document content and saves generated audio in the Library. Speech to text
-selects an audio Library asset and writes its editable transcript to the node;
-the transcript can then feed other text-capable nodes.
-The home-page audio shortcut opens a Music node. Text, Document, and Speech to
-text nodes can supply prompt content.
+The canvas creation menu groups audio under **Audio**: **Voice-over**,
+**Sound effect** and **Music**. Voice-over accepts typed or linked Text and
+Document content and saves generated audio in the Library. The home-page audio
+shortcut opens a Music node. Text and Document nodes can supply prompt content.
+
+Selecting one audio node that holds an asset shows **Transcribe to text** in
+the media toolbar. It sends the audio to the first ready model with the
+`transcription` operation and adds the editable transcript as a Text node beside
+the source. Transcription uses no media-processing slot, since it waits on the
+provider rather than this machine.
 
 **Audio settings** exposes model-supported controls: Speaker ID, style,
 language, speech rate, pitch, volume, output format and sample rate. Existing
 speech nodes additionally support eligible TTS options such as SSML,
 pronunciation, language detection, dialect, trailing silence and bit rate.
-Preset voices offer official samples without synthesis quota use.
+Preset voices offer official samples without synthesis quota use. When the
+model's provider lists voices (`listsVoices` in the catalog), the voice picker
+loads them from the account instead, with search, paging and hosted samples. A
+saved voice outside the loaded page stays selected by ID.
 
 Music and Audio creation nodes show no **Audio settings**: they keep the
 prompt, model, target duration and the model's instrumental and loop toggles.
@@ -108,6 +129,26 @@ Provider errors are classified by their code and message: concurrency or quota
 limits return 429, missing entitlement or a resource/voice mismatch returns 503,
 other `4xxxxxxx` codes return 400, and the rest return 502.
 
+ElevenLabs follows the official [API reference](https://elevenlabs.io/docs/api-reference).
+Every request sends `xi-api-key`; audio requests ask for `mp3_44100_128`, the
+format every plan can use.
+
+- Speech: `POST /v1/text-to-speech/{voice_id}` with `eleven_v4` (10,000
+  characters) or `eleven_flash_v2_5` (40,000). A voice is required. Language is
+  reduced to its ISO 639 primary subtag as `language_code`; speed maps
+  `1 + speed / 100` onto `voice_settings.speed`, clamped to 0.7…1.2.
+- Sound effects: `POST /v1/sound-generation` with `eleven_text_to_sound_v2`,
+  0.5–30 seconds and an optional `loop`.
+- Music: `POST /v1/music` with `music_v1`, 3–600 seconds as `music_length_ms`
+  and `force_instrumental`. Lyrics are rejected.
+- Voices: `GET /v2/voices` with `page_size=100`, `search` and
+  `next_page_token`. Only `https` preview URLs are passed to the renderer.
+- Transcription: `POST /v1/speech-to-text` as multipart form data with
+  `scribe_v2`; the file stays within the daemon's audio size limit.
+
+Error `detail` text is surfaced. 401 and 403 return 503, 429 stays 429, other
+4xx return 400 and 5xx return 502. Text to Dialogue is not wired yet.
+
 ### Voice catalog
 
 `src/shared/doubao-voices.ts` lists the TTS 2.0 preset voices with their
@@ -157,6 +198,13 @@ ignored and omitted from new companion files.
 - `DELETE /settings/models/providers/<provider-id>` — disconnect one service;
 - `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
 - `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
+- GET/PUT `/settings/models/providers/elevenlabs` (key) and
+  `DELETE /settings/models/providers/elevenlabs/credential`;
+- `GET /audio-providers/<provider-id>/voices?search=&pageToken=` — one page of
+  account voices; 404 when the provider has no voice list, 503 when it is not
+  ready;
+- `POST /projects/<id>/canvas/media` with `operation: "transcribe-audio"` —
+  returns `{ kind: "text", text }`;
 - `POST /tools/<tool-id>/jobs` — enqueue one of the tools above.
 
 The unified `/settings/models/providers/doubao-voice` endpoints and Library audio
@@ -180,7 +228,9 @@ or generated content quality; those still require provider calls.
 ## Adding another provider
 
 Extend `AudioProviderAdapter`, publish precise model capabilities, and translate
-only supported settings. Keep protocol details inside the adapter and normalized
+only supported settings. Implement `voices` when the account owns its voice
+list and `transcribe` when a model declares `transcription`; the canvas picks
+both up from the catalog without provider-specific UI. Keep protocol details inside the adapter and normalized
 metadata storage inside the common pipeline. Extend existing provider,
 job, canvas, settings, and export tests before adding another boundary. Real
 credentials are still needed to validate entitlement, voice consistency,

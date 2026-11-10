@@ -134,7 +134,6 @@ const nodes = [
       assetId: id,
     },
   }),
-  node("transcription", { type: "object", additionalProperties: false, required: ["text"], properties: { audioAssetId: id, text: { type: "string" }, language: { type: "string", minLength: 2, maxLength: 12 } } }),
   node("sound-effect", {
     type: "object",
     additionalProperties: false,

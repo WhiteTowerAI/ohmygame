@@ -12,6 +12,7 @@ import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { createPixelAssetWorkflowNodes } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 import {
   allActionsPrompt,
   characterAssetPrompt,
@@ -491,4 +492,31 @@ it("does not register extracted frames when their actual count exceeds board cap
   expect(response.statusCode).toBe(409);
   expect(response.json().error).toBe("Canvas is full");
   expect(library.list()).toHaveLength(before);
+});
+
+it("transcribes an audio asset to text without registering media", async () => {
+  const transcribe = vi.fn().mockResolvedValue({ text: "Hello there", model: { provider: "elevenlabs", id: "scribe_v2" } });
+  const audioApp = Fastify();
+  const audioStore = registerCanvasRoutes(audioApp, { projects, library, tools: new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library), audio: { catalog: vi.fn(), generate: vi.fn(), transcribe } as never });
+  try {
+    const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+    const response = await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId], options: { language: "en" } } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ kind: "text", text: "Hello there" });
+    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "audio/mpeg", name: expect.stringMatching(/\.mp3$/), language: "en" }));
+
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [assetId] } })).statusCode).toBe(400);
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId], options: { language: "en; rm" } } })).statusCode).toBe(400);
+    transcribe.mockResolvedValueOnce({ text: "", model: { provider: "elevenlabs", id: "scribe_v2" } });
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } })).statusCode).toBe(422);
+  } finally {
+    await audioApp.close();
+    await audioStore.close();
+  }
+});
+
+it("reports transcription as unavailable without an audio provider", async () => {
+  const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } });
+  expect(response.statusCode).toBe(503);
 });

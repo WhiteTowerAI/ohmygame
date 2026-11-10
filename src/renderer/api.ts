@@ -86,7 +86,7 @@ import {
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
 import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
-import type { AudioModelCatalog } from "../shared/audio.js";
+import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -607,9 +607,13 @@ export async function removeElevenLabsSettings(): Promise<void> {
   await request("/settings/models/providers/elevenlabs/credential", { method: "DELETE" });
   notifyAgentModelsChanged();
 }
-export interface ElevenLabsVoice { id: string; name: string; previewUrl?: string; labels: Record<string, string> }
-export async function listElevenLabsVoices(search?: string): Promise<{ voices: ElevenLabsVoice[] }> { return request(`/settings/models/providers/elevenlabs/voices${search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : ""}`); }
-export async function transcribeElevenLabsAudio(assetId: string, language?: string): Promise<{ text: string }> { return request("/elevenlabs/transcribe", { method: "POST", body: JSON.stringify({ assetId, ...(language ? { language } : {}) }) }); }
+/** One page of the voices an audio provider lists from its account. */
+export async function listAudioVoices(provider: string, query: { search?: string; pageToken?: string } = {}): Promise<AudioVoicePage> {
+  const params = new URLSearchParams();
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.pageToken) params.set("pageToken", query.pageToken);
+  return request(`/audio-providers/${encodeURIComponent(provider)}/voices${params.size ? `?${params}` : ""}`);
+}
 
 export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
   const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {

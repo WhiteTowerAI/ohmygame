@@ -518,7 +518,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "transcription" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -634,7 +634,6 @@ export type AssetCanvasNode = (
     speed?: number;
     assetId?: string;
   } }
-  | { id: string; type: "transcription"; position: AssetCanvasPosition; data: { audioAssetId?: string; text: string; language?: string } }
   | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
     prompt: string;
     promptSource?: AssetCanvasTextReference;

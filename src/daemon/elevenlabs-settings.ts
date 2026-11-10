@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-interface Settings { version: 1; apiKey?: string; /** Read only while migrating pre-release settings. */ defaultVoiceId?: string }
+interface Settings { version: 1; apiKey?: string }
 
 /** Credentials for ElevenLabs are local daemon state, never canvas data. */
 export class ElevenLabsSettingsStore {
@@ -11,7 +11,7 @@ export class ElevenLabsSettingsStore {
   async load(): Promise<void> {
     try {
       const value = JSON.parse(await readFile(this.#file, "utf8")) as Settings;
-      if (value.version === 1 && (value.apiKey === undefined || typeof value.apiKey === "string") && (value.defaultVoiceId === undefined || typeof value.defaultVoiceId === "string")) this.#settings = value;
+      if (value.version === 1 && (value.apiKey === undefined || typeof value.apiKey === "string")) this.#settings = value;
       else throw new Error("Invalid ElevenLabs settings");
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }

@@ -20,7 +20,7 @@ import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
@@ -106,13 +106,13 @@ import { modelUsageList } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
-import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
+import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { ElevenLabsTtsProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-tts-provider.js";
+import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
 import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
@@ -796,10 +796,10 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const elevenLabsTtsProvider = new ElevenLabsTtsProvider(
+  const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, elevenLabsTtsProvider]);
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, elevenLabsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -1325,7 +1325,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -3500,37 +3500,28 @@ export function createApp(options: AppOptions = {}) {
       apiKey: { type: "string", minLength: 1, maxLength: 10_000 },
     } } },
   }, async (request, reply) => {
-    try { return await elevenLabsSettings.update(request.body); }
-    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    try {
+      const result = await elevenLabsSettings.update(request.body);
+      catalogRefresh.invalidate("elevenlabs");
+      return result;
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
     await elevenLabsSettings.clear();
     catalogRefresh.invalidate("elevenlabs");
     return reply.code(204).send();
   });
-  app.get<{ Querystring: { search?: string } }>("/settings/models/providers/elevenlabs/voices", async (request, reply) => {
-    const key = elevenLabsSettings.key();
-    if (!key) return reply.code(503).send({ error: "ElevenLabs is not connected" });
-    const query = new URLSearchParams({ page_size: "100", ...(request.query.search?.trim() ? { search: request.query.search.trim() } : {}) });
-    const response = await (options.audioFetch ?? fetch)(`https://api.elevenlabs.io/v2/voices?${query}`, { headers: { "xi-api-key": key } });
-    if (!response.ok) return reply.code(response.status === 429 ? 429 : 502).send({ error: "Could not load ElevenLabs voices" });
-    const body = await response.json() as { voices?: Array<{ voice_id?: string; name?: string; preview_url?: string; labels?: Record<string, string> }> };
-    return { voices: (body.voices ?? []).flatMap((voice) => voice.voice_id && voice.name ? [{ id: voice.voice_id, name: voice.name, previewUrl: voice.preview_url, labels: voice.labels ?? {} }] : []) };
-  });
-  app.post<{ Body: { assetId: string; language?: string } }>("/elevenlabs/transcribe", { schema: { body: { type: "object", additionalProperties: false, required: ["assetId"], properties: { assetId: { type: "string", minLength: 1 }, language: { type: "string", minLength: 2, maxLength: 12 } } } } }, async (request, reply) => {
-    if (!providerEnabled("elevenlabs")) return reply.code(503).send({ error: "ElevenLabs is disabled" });
-    const key = elevenLabsSettings.key();
-    if (!key) return reply.code(503).send({ error: "ElevenLabs is not connected" });
-    const content = await library.content(request.body.assetId).catch(() => undefined);
-    if (!content || content.asset.mediaType !== "audio") return reply.code(400).send({ error: "Choose an audio asset to transcribe" });
-    const form = new FormData();
-    form.set("model_id", "scribe_v2"); form.set("file", new Blob([await readFile(content.absolutePath)], { type: content.asset.contentType }), content.asset.name);
-    if (request.body.language) form.set("language_code", request.body.language);
-    const response = await (options.audioFetch ?? fetch)("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": key }, body: form });
-    if (!response.ok) return reply.code(response.status === 429 ? 429 : 502).send({ error: "ElevenLabs transcription failed" });
-    const body = await response.json() as { text?: unknown };
-    if (typeof body.text !== "string") return reply.code(502).send({ error: "ElevenLabs returned no transcript" });
-    return { text: body.text };
+  app.get<{ Params: { provider: string }; Querystring: { search?: string; pageToken?: string } }>("/audio-providers/:provider/voices", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: {
+      search: { type: "string", maxLength: 200 },
+      pageToken: { type: "string", minLength: 1, maxLength: 2_000 },
+    } } },
+  }, async (request, reply) => {
+    try { return await providerAudio.voices(request.params.provider, request.query); }
+    catch (cause) {
+      if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
   });
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],

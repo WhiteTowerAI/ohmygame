@@ -148,16 +148,16 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if ((node.type === "animate-3d" || node.type === "model-3d") && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "animate-3d", "asset"]);
     if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
-      if (!source || (source.type !== "text" && source.type !== "document" && source.type !== "transcription") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
+      if (!source || (source.type !== "text" && source.type !== "document") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
     }
   }
 }
 
 /** Nodes whose output a plugin node can take. */
-export const PLUGIN_NODE_SOURCES: readonly AssetCanvasNode["type"][] = ["text", "document", "transcription", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "asset", "plugin"];
+export const PLUGIN_NODE_SOURCES: readonly AssetCanvasNode["type"][] = ["text", "document", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "asset", "plugin"];
 
 export function isTextGenerationReferenceNode(node: { type?: AssetCanvasNode["type"]; data: object }): boolean {
-  return node.type === "text" || node.type === "document" || node.type === "transcription" || node.type === "image" || (node.type === "asset" && "mediaType" in node.data && node.data.mediaType === "image");
+  return node.type === "text" || node.type === "document" || node.type === "image" || (node.type === "asset" && "mediaType" in node.data && node.data.mediaType === "image");
 }
 
 /** Applies {@link withoutContentNodeSize} to unsaved or copied canvas data created before sizes were validated. */
