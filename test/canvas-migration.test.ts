@@ -6,9 +6,10 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
-import { CanvasStore } from "../src/daemon/canvas-workspace.js";
+import { CanvasStore, readCanvasBoard } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { migrateLegacyAudioJob, migrateLegacyAudioNodes } from "../src/shared/audio-legacy.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -72,5 +73,60 @@ describe("offline canvas migration", () => {
     expect(await readdir(project.workspacePath)).not.toContain("design");
     expect((await migrate()).stdout).toContain("Already current");
     expect(await readdir(path.join(directory, "canvas-backups"))).toHaveLength(4);
+  });
+});
+
+describe("audio nodes saved before they were merged", () => {
+  it("open as audio nodes, are reported by canvas_check, and stay on disk until saved", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-audio-migration-")); directories.push(directory);
+    const library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
+    await Promise.all([library.load(), projects.load()]);
+    const store = new CanvasStore(projects, library, new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library));
+    const project = await projects.create("Old audio"), boardId = (await store.workspace(project.id)).boards[0]!.id;
+    const board = (await store.board(project.id, boardId)).board;
+    const boardPath = path.join(project.workspacePath, `canvas/boards/${boardId}.json`);
+    const { editorLayout: _layout, ...file } = board;
+    const text = JSON.stringify({ ...file, nodes: [
+      { id: "line", type: "speech", data: { text: "Welcome", voiceId: "narrator", speed: 0.5 } },
+      { id: "rain", type: "sound-effect", data: { prompt: "Rain", negativePrompt: "thunder", durationSeconds: 5, loop: true } },
+      { id: "scene", type: "audio-scene", data: { prompt: "Rain behind a voice", durationSeconds: 0.05 } },
+    ] });
+    await writeFile(boardPath, text);
+    const read = await readCanvasBoard(project.workspacePath, boardId);
+    expect(read?.board.nodes.map(({ id, type, data }) => ({ id, type, data }))).toEqual([
+      { id: "line", type: "audio", data: { prompt: "Welcome", voiceId: "narrator", speed: 0.5 } },
+      { id: "rain", type: "audio", data: { prompt: "Rain", durationSeconds: 5, loop: true } },
+      { id: "scene", type: "audio", data: { prompt: "Rain behind a voice", durationSeconds: 0.1 } },
+    ]);
+    const check = await checkCanvasWorkspace(project.workspacePath);
+    expect(check.issues.filter((issue) => issue.message.includes("now one audio node")).length).toBe(3);
+    expect(await readFile(boardPath, "utf8")).toBe(text);
+  });
+
+  it("fold Seed Audio's old instructions into the prompt so older work sounds the same", () => {
+    const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
+    const { value, migrated } = migrateLegacyAudioNodes({ nodes: [
+      { id: "line", type: "speech", data: { text: "Welcome", model } },
+      { id: "theme", type: "music", data: { prompt: "Harbor", model } },
+      { id: "tts", type: "speech", data: { text: "Welcome", model: { provider: "volcengine-tts", id: "seed-tts-2.0" } } },
+      { id: "scene", type: "audio-scene", data: { prompt: "As written", model } },
+      { id: "note", type: "text", data: { text: "Keep" } },
+    ] });
+    expect(migrated).toEqual(["line", "theme", "tts", "scene"]);
+    expect(value.nodes.map((node) => (node.data as { prompt?: string }).prompt)).toEqual([
+      "Speak the following text exactly. Welcome",
+      "Create instrumental game background music. Do not include vocals, speech, narration, or lyrics. Description: Harbor",
+      "Welcome",
+      "As written",
+      undefined,
+    ]);
+    expect(value.nodes[4]).toEqual({ id: "note", type: "text", data: { text: "Keep" } });
+  });
+
+  it("read per-kind tool jobs and runs as generate-audio with their kind", () => {
+    expect(migrateLegacyAudioJob({ id: "j", toolId: "generate-speech", input: { text: "Hi", voiceId: "v" } })).toEqual({ id: "j", toolId: "generate-audio", input: { prompt: "Hi", voiceId: "v", kind: "speech" } });
+    expect(migrateLegacyAudioJob({ id: "m", toolId: "generate-music", input: { prompt: "Theme", lyrics: "la" } })).toEqual({ id: "m", toolId: "generate-audio", input: { prompt: "Theme", kind: "music" } });
+    const image = { id: "i", toolId: "generate-image", input: { prompt: "Cat" } };
+    expect(migrateLegacyAudioJob(image)).toBe(image);
   });
 });

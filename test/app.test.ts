@@ -1024,9 +1024,6 @@ describe("daemon", () => {
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
-      "generate_speech",
-      "generate_sound_effect",
-      "generate_music",
       "generate_audio",
     ]);
   });
@@ -1751,26 +1748,29 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/doubao-voice" })).statusCode).toBe(404);
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/doubao-voice", payload: { apiKey: "key" } })).statusCode).toBe(404);
     for (const file of ["audio.audio.json", "audio.srt", "audio.vtt"]) expect((await app.inject({ method: "GET", url: `/library/assets/unused/audio/${file}` })).statusCode).toBe(404);
-    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"]) {
-      for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
-        const response = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { text: "hello", prompt: "rain", ...removed } });
-        expect(response.statusCode).toBe(400);
-      }
+    for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
+      const response = await app.inject({ method: "POST", url: "/tools/generate-audio/jobs", payload: { prompt: "rain", ...removed } });
+      expect(response.statusCode).toBe(400);
     }
+    // The per-kind tools merged into generate-audio.
+    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music"]) expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "rain" } })).statusCode).toBe(404);
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("stores the Doubao Speech key and default voice without exposing them", async () => {
+  it("stores speech provider settings without exposing their keys", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
     apps.push(app);
 
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/elevenlabs" })).json())
       .toEqual({ configured: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", configured: false, state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", configured: false, state: "not_configured" }),
       ],
     });
     expect((await app.inject({
@@ -1803,6 +1803,7 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
 
@@ -1819,8 +1820,18 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
+    expect((await app.inject({ method: "GET", url: "/audio-providers/elevenlabs/voices" })).statusCode).toBe(503);
+    expect((await app.inject({ method: "GET", url: "/audio-providers/volcengine-tts/voices" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } })).json())
+      .toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/elevenlabs/credential" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } })).json())
+      .toEqual({ configured: true });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json().providers)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ provider: "elevenlabs", configured: true, state: "ready", listsVoices: true })]));
   });
 
   it("stores the Doubao Seed Audio key independently and exposes compatible models", async () => {
@@ -1847,7 +1858,7 @@ describe("daemon", () => {
       expect.objectContaining({
         provider: "volcengine-seed-audio",
         id: "seed-audio-1.0",
-        capabilities: expect.objectContaining({ operations: ["speech", "sound-effect", "music", "audio-scene"] }),
+        capabilities: expect.objectContaining({ produces: ["speech", "sound-effect", "music"] }),
       }),
     ]);
     expect(catalog.providers).toEqual(expect.arrayContaining([

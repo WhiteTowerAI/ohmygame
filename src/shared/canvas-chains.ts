@@ -72,7 +72,7 @@ export function canvasDownstream(nodes: readonly AssetCanvasNode[], id: string):
 
 /** Nodes the daemon runs in a chain. */
 export function canvasNodeRuns(node: Pick<AssetCanvasNode, "type" | "data">): boolean {
-  return ["video", "model-3d", "animate-3d", "speech", "sound-effect", "music", "audio-scene", "plugin"].includes(node.type) || (node.type === "image" && !(node.data as { sourceInput?: boolean }).sourceInput);
+  return ["video", "model-3d", "animate-3d", "audio", "plugin"].includes(node.type) || (node.type === "image" && !(node.data as { sourceInput?: boolean }).sourceInput);
 }
 
 /** How many generations regenerating from `id` can run: the node, if it makes something, and what runs after it. */

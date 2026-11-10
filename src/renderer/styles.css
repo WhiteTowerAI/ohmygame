@@ -6027,6 +6027,9 @@ button {
   white-space: nowrap;
 }
 
+.canvas-chip-menu-group > button > .canvas-chip-option-text { display: grid; padding: 4px 0; white-space: normal; }
+.canvas-chip-option-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-chip-option-text > small { color: var(--text-muted); font-size: 10px; line-height: 14px; }
 .canvas-chip-menu-row { display: flex; align-items: center; gap: 2px; }
 .canvas-chip-menu-row > [role="menuitemradio"] { flex: 1; min-width: 0; }
 .canvas-chip-menu-row > [role="menuitemradio"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -13937,6 +13940,8 @@ summary.work-summary:hover {
 .audio-target-duration input { width: 62px; min-width: 0; padding: 5px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; }
 .audio-voice-picker > span { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .audio-voice-picker > span > select { flex: 1 1 auto; }
+.audio-provider-voices { display: grid; gap: 6px; }
+.audio-provider-voices > [role="alert"] { margin: 0; color: var(--color-danger); font-size: var(--text-xs); }
 .settings-detail-inline > .settings-voice-sample { width: 40px; min-width: 40px; padding: 0; }
 .story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }

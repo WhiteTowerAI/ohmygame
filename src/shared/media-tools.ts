@@ -30,6 +30,7 @@ export function isMultiImageOperation(operation: string): boolean {
 export type CanvasMediaOperation =
   | "crop-image"
   | "fix-pixel-art"
+  | "transcribe-audio"
   | "extract-gif-frames"
   | "compose-gif"
   | "compose-video"

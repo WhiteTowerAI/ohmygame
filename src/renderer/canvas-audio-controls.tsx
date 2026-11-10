@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   type AudioCanvasSettings,
+  type AudioVoice,
   type AudioModel,
   type AudioModelCapabilities,
   type AudioOutputFormat,
@@ -8,7 +9,8 @@ import {
   DOUBAO_TTS_DIALECTS,
   findVolcengineTtsVoice,
 } from "../shared/audio.js";
-import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
+import { listAudioVoices, MODELS_CHANGED_EVENT } from "./api.js";
+import { DoubaoVoiceOptions, DoubaoVoiceSample, VoiceSample } from "./doubao-voices.js";
 import { language as uiLanguage, t } from "./i18n.js";
 import { Disclosure } from "./ui/index.js";
 
@@ -73,20 +75,112 @@ export function audioSettingsIssue(
   if (option) return t("audioStudio.voiceUnsupported", { option });
 }
 
+/** Voices listed from the provider's account, searched and paged on demand. */
+function ProviderVoicePicker({
+  provider,
+  value,
+  onChange,
+}: {
+  provider: string;
+  value?: string;
+  onChange(voiceId: string | undefined): void;
+}) {
+  const [search, setSearch] = useState("");
+  const [voices, setVoices] = useState<AudioVoice[]>([]);
+  const [next, setNext] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    const changed = () => setRefresh((count) => count + 1);
+    window.addEventListener(MODELS_CHANGED_EVENT, changed);
+    return () => window.removeEventListener(MODELS_CHANGED_EVENT, changed);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      listAudioVoices(provider, { search: search.trim() || undefined }).then(
+        (page) => {
+          if (!active) return;
+          setVoices(page.voices);
+          setNext(page.nextPageToken);
+          setError(undefined);
+        },
+        (cause: unknown) => {
+          if (active) setError(cause instanceof Error ? cause.message : String(cause));
+        },
+      ).finally(() => {
+        if (active) setLoading(false);
+      });
+    }, search ? 300 : 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [provider, search, refresh]);
+  const loadMore = () => {
+    if (!next) return;
+    setLoading(true);
+    listAudioVoices(provider, { search: search.trim() || undefined, pageToken: next }).then(
+      (page) => {
+        setVoices((current) => [...current, ...page.voices.filter((voice) => !current.some((known) => known.id === voice.id))]);
+        setNext(page.nextPageToken);
+      },
+      (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
+    ).finally(() => setLoading(false));
+  };
+  // A saved voice outside the loaded page stays selectable by id.
+  const missing = value && !voices.some((voice) => voice.id === value);
+  return (
+    <div className="audio-control-wide audio-provider-voices">
+      <label className="audio-voice-picker">
+        {t("assetCanvas.voice.label")}
+        <span>
+          <select value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
+            <option value="">{t("assetCanvas.voice.choose")}</option>
+            {missing ? <option value={value}>{value}</option> : null}
+            {voices.map((voice) => (
+              <option key={voice.id} value={voice.id}>{voice.name}</option>
+            ))}
+          </select>
+          <VoiceSample url={voices.find((voice) => voice.id === value)?.previewUrl} className="audio-icon-button" />
+        </span>
+      </label>
+      <input
+        type="search"
+        aria-label={t("assetCanvas.voice.search")}
+        placeholder={t("assetCanvas.voice.search")}
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+      />
+      {next ? (
+        <button type="button" disabled={loading} onClick={loadMore}>{t("assetCanvas.voice.more")}</button>
+      ) : null}
+      {error ? <p role="alert">{t("assetCanvas.voice.loadFailed", { error })}</p> : null}
+    </div>
+  );
+}
+
 export function CanvasAudioControls({
   value,
   model,
+  listsVoices,
   disabled,
   onChange,
 }: {
   value: AudioCanvasSettings;
   model?: AudioModel;
+  /** The model's provider lists voices from its account instead of the built-in presets. */
+  listsVoices?: boolean;
   disabled?: boolean;
   onChange(value: Partial<AudioCanvasSettings>): void;
 }) {
   const [customVoice, setCustomVoice] = useState(false);
   const caps = model?.capabilities,
-    tts = Boolean(caps?.supportsSpeechOptions);
+    tts = Boolean(caps?.supportsSpeechOptions),
+    // Speed and language shape spoken delivery; sound-effect and music-only models ignore them.
+    speaks = !caps || caps.produces.includes("speech");
   const preset = findVolcengineTtsVoice(value.voiceId);
   const usesCustomVoice =
     customVoice ||
@@ -133,7 +227,13 @@ export function CanvasAudioControls({
             {t("audioStudio.clearUnsupported")}
           </button>
         ) : null}
-        {caps?.supportsSpeaker ? (
+        {caps?.supportsSpeaker && listsVoices && model ? (
+          <ProviderVoicePicker
+            provider={model.provider}
+            value={value.voiceId}
+            onChange={(voiceId) => onChange({ voiceId, voiceKind: undefined, voiceModel: undefined })}
+          />
+        ) : caps?.supportsSpeaker ? (
           <>
             <label className="audio-control-wide audio-voice-picker">
               {t("assetCanvas.voice.label")}
@@ -211,7 +311,7 @@ export function CanvasAudioControls({
           </>
         ) : null}
         <div className="audio-control-adjustments">
-          {control("speed", -50, 100, t("audioStudio.speed"))}
+          {speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
           {caps?.supportsPitch
             ? control("pitch", -12, 12, t("audioStudio.pitch"))
             : null}
@@ -231,7 +331,7 @@ export function CanvasAudioControls({
             />
           </label>
         ) : null}
-        <label>
+        {speaks ? <label>
           {t("audioStudio.language")}
           <select
             value={value.language ?? ""}
@@ -246,7 +346,7 @@ export function CanvasAudioControls({
               </option>
             ))}
           </select>
-        </label>
+        </label> : null}
         <label>
           {t("audioStudio.format")}
           <select

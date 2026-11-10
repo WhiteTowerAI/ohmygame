@@ -15,7 +15,7 @@ import { boardContentValidator, layoutValidator, positionValidator } from "./can
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
 import { withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
 
-export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
+export type AssetCanvasStarter = "image" | "video" | "model-3d" | "audio";
 
 export function createAssetCanvasDocument(): AssetCanvasDocument {
   return {
@@ -62,8 +62,7 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
       ...(options.videoReferenceMode ? { referenceMode: options.videoReferenceMode } : {}),
     },
   };
-  if (type === "music") return { id, type, position, data: { prompt: "", instrumental: true } };
-  if (type === "audio-scene") return { id, type, position, data: { prompt: "" } };
+  if (type === "audio") return { id, type, position, data: { prompt: "" } };
   return { id, type, position, data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] } };
 }
 
@@ -124,11 +123,11 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if (node.type === "video") {
       for (const reference of node.data.references) validateReference(node.id, reference, nodes, ["image", "video", "asset"]);
     }
-    if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
+    if (node.type === "audio") {
       const references = node.data.audioReferences ?? [];
       if (new Set(references.map((reference) => reference.id)).size !== references.length) throw new Error(`Node ${node.id} has duplicate audio reference aliases`);
       for (const reference of references) {
-        validateReference(node.id, reference.source, nodes, reference.type === "image" ? ["image", "asset"] : ["speech", "sound-effect", "music", "audio-scene", "asset"]);
+        validateReference(node.id, reference.source, nodes, reference.type === "image" ? ["image", "asset"] : ["audio", "asset"]);
         if (reference.source.type === "node") {
           const source = nodes.get(reference.source.nodeId);
           if (source?.type === "asset" && source.data.mediaType !== reference.type) throw new Error(`Node ${node.id} has a reference with the wrong media type`);
@@ -146,7 +145,7 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
       }
     }
     if ((node.type === "animate-3d" || node.type === "model-3d") && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "animate-3d", "asset"]);
-    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) {
+    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "audio") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
       if (!source || (source.type !== "text" && source.type !== "document") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
     }
@@ -154,7 +153,7 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
 }
 
 /** Nodes whose output a plugin node can take. */
-export const PLUGIN_NODE_SOURCES: readonly AssetCanvasNode["type"][] = ["text", "document", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "asset", "plugin"];
+export const PLUGIN_NODE_SOURCES: readonly AssetCanvasNode["type"][] = ["text", "document", "image", "video", "audio", "model-3d", "animate-3d", "asset", "plugin"];
 
 export function isTextGenerationReferenceNode(node: { type?: AssetCanvasNode["type"]; data: object }): boolean {
   return node.type === "text" || node.type === "document" || node.type === "image" || (node.type === "asset" && "mediaType" in node.data && node.data.mediaType === "image");

@@ -57,10 +57,7 @@ export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id:
   if (node.type === "asset") return assets.find((asset) => asset.id === node.data.assetId)?.name || "Asset";
   if (node.type === "file") return node.data.path.split("/").at(-1) || "File";
   if (node.type === "text") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Text";
-  if (node.type === "speech") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Speech";
-  if (node.type === "sound-effect") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Sound effect";
-  if (node.type === "audio-scene") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Audio creation";
-  if (node.type === "music") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Music";
+  if (node.type === "audio") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Audio";
   if (node.type === "plugin") return node.data.node.slice(node.data.node.lastIndexOf(":") + 1);
   return { image: "Image", video: "Video", "model-3d": "3D model", "animate-3d": "Animation" }[node.type];
 }

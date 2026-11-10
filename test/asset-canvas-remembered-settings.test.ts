@@ -96,28 +96,19 @@ describe("Asset Canvas remembered settings", () => {
     expect(applyRememberedSettings(base, settings, catalogs)).toBe(base);
   });
 
-  it("carries speech voice settings and defaults the model to the catalog entry", () => {
-    const base: FlowNode = { id: "speech-1", type: "speech", position: { x: 0, y: 0 }, data: { text: "" } };
-    const audioModel = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { operations: ["speech"], executionModes: ["streaming"], formats: ["mp3"] } } satisfies AudioModel;
-    const settings = nodeGenerationSettings({ type: "speech", data: { audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 } });
-    expect(settings).toEqual({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 });
-    expect(applyRememberedSettings(base, settings, { ...catalogs, audioModels: [audioModel] }).data).toMatchObject({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 });
-    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels: [audioModel] }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
-    expect(applyRememberedSettings(base, settings, { ...catalogs }).data).toMatchObject({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts" });
-  });
-
-  it.each(["sound-effect", "music"] as const)("remembers %s settings and only selects a model with that capability", (type) => {
-    const speechModel = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { operations: ["speech"], executionModes: ["streaming"], formats: ["mp3"] } } satisfies AudioModel;
-    const model = { provider: "audio-lab", id: type, name: type, providerName: "Audio Lab", protocol: "test", capabilities: { operations: [type], executionModes: ["async-task"], formats: ["mp3"], supportsLoop: true, supportsInstrumental: true } } satisfies AudioModel;
-    const base: FlowNode = { id: type, type, position: { x: 0, y: 0 }, data: type === "music" ? { prompt: "", instrumental: true } : { prompt: "" } };
-    const settings = nodeGenerationSettings({ type, data: { audioModel: model, durationSeconds: 30, loop: true, pitch: -2, output: { format: "mp3" }, ...(type === "music" ? { instrumental: false } : {}) } });
-    expect(applyRememberedSettings(base, settings, { ...catalogs, audioModels: [speechModel, model] }).data).toMatchObject({
-      audioModel: { provider: "audio-lab", id: type }, durationSeconds: 30, loop: true, ...(type === "music" ? { instrumental: false } : {}),
-    });
-    // Music has no audio settings, so it neither remembers nor applies them.
-    if (type === "music") expect(settings).not.toHaveProperty("pitch");
-    else expect(settings).toMatchObject({ pitch: -2, output: { format: "mp3" } });
-    expect(applyRememberedSettings(base, { ...settings, pitch: -2 }, { ...catalogs, audioModels: [speechModel, model] }).data.pitch).toBe(type === "music" ? undefined : -2);
-    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels: [speechModel, model] }).data.audioModel).toEqual({ provider: "audio-lab", id: type });
+  it("carries audio settings and defaults the model to the first one that makes audio", () => {
+    const base: FlowNode = { id: "audio-1", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "" } };
+    const transcriber = { provider: "audio-lab", id: "scribe", name: "Scribe", providerName: "Audio Lab", protocol: "test", capabilities: { produces: [], transcribes: true, executionModes: ["synchronous"], formats: ["mp3"] } } satisfies AudioModel;
+    const tts = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { produces: ["speech"], readsText: true, executionModes: ["streaming"], formats: ["mp3"] } } satisfies AudioModel;
+    const music = { provider: "audio-lab", id: "music", name: "Music", providerName: "Audio Lab", protocol: "test", capabilities: { produces: ["music"], executionModes: ["async-task"], formats: ["mp3"], supportsLoop: true, supportsInstrumental: true } } satisfies AudioModel;
+    const audioModels = [transcriber, tts, music];
+    const speech = nodeGenerationSettings({ type: "audio", data: { audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 } });
+    expect(speech).toEqual({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 });
+    expect(applyRememberedSettings(base, speech, { ...catalogs, audioModels }).data).toMatchObject({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 });
+    // A model that only transcribes can't fill an audio node.
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
+    expect(applyRememberedSettings(base, speech, { ...catalogs }).data).toMatchObject({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts" });
+    const score = nodeGenerationSettings({ type: "audio", data: { audioModel: music, durationSeconds: 30, loop: true, instrumental: false } });
+    expect(applyRememberedSettings(base, score, { ...catalogs, audioModels }).data).toMatchObject({ audioModel: { provider: "audio-lab", id: "music" }, durationSeconds: 30, loop: true, instrumental: false });
   });
 });

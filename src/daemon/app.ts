@@ -106,12 +106,14 @@ import { modelUsageList } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
-import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
+import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
+import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
+import { AUDIO_KINDS, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -546,7 +548,6 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-      text: { type: "string", minLength: 1, maxLength: 10_000 },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -557,8 +558,7 @@ const toolRunSchema = {
       durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
       loop: { type: "boolean" },
       instrumental: { type: "boolean" },
-      lyrics: { type: "string", maxLength: 20_000 },
-      negativePrompt: { type: "string", maxLength: 4_000 },
+      kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -674,6 +674,7 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
+  const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
@@ -793,7 +794,10 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
+  const elevenLabsProvider = new ElevenLabsAudioProvider(
+    () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
+  );
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, elevenLabsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -804,15 +808,12 @@ export function createApp(options: AppOptions = {}) {
       if (toolId === "animate-3d") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
-      const audioOperation: AudioOperation | undefined = toolId === "generate-speech" ? "speech"
-        : toolId === "generate-sound-effect" ? "sound-effect"
-          : toolId === "generate-music" ? "music" : toolId === "generate-audio" ? "audio-scene" : undefined;
-      if (audioOperation) {
-        const explicit = (input as { model?: AgentModelRef }).model;
-        const selected = providerAudio.resolveModel(audioOperation, explicit);
+      if (toolId === "generate-audio") {
+        const { model: explicit, kind } = input as AudioGenerationRequest;
+        const selected = providerAudio.resolveModel(explicit, kind);
         if (!selected) {
           if (options.audioGenerator) return input;
-          throw new ToolRunError(`No ${audioOperation === "sound-effect" ? "sound effect" : audioOperation} model is available. Connect an audio provider first.`, 503);
+          throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
         }
         return { ...input, model: { provider: selected.provider, id: selected.id } };
       }
@@ -1319,7 +1320,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1360,7 +1361,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -2299,7 +2300,7 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
-        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
       },
@@ -3369,6 +3370,16 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
+    }, {
+      id: "elevenlabs",
+      name: ELEVENLABS_PROVIDER_NAME,
+      configured: Boolean(elevenLabsSettings.key()),
+      enabled: providerEnabled("elevenlabs"),
+      custom: false,
+      status: elevenLabsSettings.key() ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
+      credentialType: "api_key" as const,
+      capabilities: ["audio"] as const,
     }];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
@@ -3478,6 +3489,35 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  app.get("/settings/models/providers/elevenlabs", async () => elevenLabsSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/elevenlabs", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, properties: {
+      apiKey: { type: "string", minLength: 1, maxLength: 10_000 },
+    } } },
+  }, async (request, reply) => {
+    try {
+      const result = await elevenLabsSettings.update(request.body);
+      catalogRefresh.invalidate("elevenlabs");
+      return result;
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
+    await elevenLabsSettings.clear();
+    catalogRefresh.invalidate("elevenlabs");
+    return reply.code(204).send();
+  });
+  app.get<{ Params: { provider: string }; Querystring: { search?: string; pageToken?: string } }>("/audio-providers/:provider/voices", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: {
+      search: { type: "string", maxLength: 200 },
+      pageToken: { type: "string", minLength: 1, maxLength: 2_000 },
+    } } },
+  }, async (request, reply) => {
+    try { return await providerAudio.voices(request.params.provider, request.query); }
+    catch (cause) {
+      if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {

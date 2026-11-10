@@ -28,6 +28,8 @@ import {
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
   updateVolcengineSeedAudioApiKey,
+  updateElevenLabsSettings,
+  removeElevenLabsSettings,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
@@ -272,10 +274,44 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "elevenlabs") return <ElevenLabsProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted, removeElevenLabsSettings);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateElevenLabsSettings(apiKey.trim());
+      setApiKey("");
+      onCompleted();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={provider} onBack={onBack}>
+      {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.delete.removeKey")} /><ProviderEnableControl provider={provider} disabled={deletion.busy || saving} /></> : null}
+    </ProviderDetailHeader>
+    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+    <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+      <label className="settings-search-field-label">{t("providers.apiKey")}</label>
+      <div className="settings-detail-inline">
+        <input className="settings-search-input" type="password" value={apiKey} placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} onChange={(event) => setApiKey(event.target.value)} />
+        <Button variant="primary" type="submit" disabled={saving || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
+      </div>
+      {error ? <p className="settings-note is-danger">{error}</p> : null}
+    </form>
+    {provider.configured ? <AudioModels providerId={provider.id} /> : null}
+  </section>;
 }
 
 /** A provider an installed plugin adds: its key and address are set on the plugin's page. */
@@ -839,7 +875,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
-function useProviderDeletion(providerId: string, onRemoved?: () => void) {
+function useProviderDeletion(providerId: string, onRemoved?: () => void, removeAction: () => Promise<void> = () => removeProvider(providerId)) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -848,7 +884,7 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
     if (busy) return;
     setBusy(true);
     setError(undefined);
-    try { await removeProvider(providerId); onRemoved?.(); }
+    try { await removeAction(); onRemoved?.(); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }

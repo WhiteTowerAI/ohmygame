@@ -161,16 +161,16 @@ left keeps the children fixed in canvas coordinates.
 Generation nodes use these semantic board fields (runtime state and visual size
 do not belong in the board file):
 
-- `speech`: `text`, optional `promptSource`, `model`, `voiceId`, `speed`, and
-  generated `assetId`;
-- `sound-effect`: `prompt`, optional `promptSource`, `model`, `durationSeconds`,
-  `loop`, `negativePrompt`, and generated `assetId`;
-- `music`: `prompt`, `instrumental`, optional `promptSource`, `model`, `lyrics`,
-  `durationSeconds`, `loop`, and generated `assetId`.
+- `audio`: `prompt`, optional `promptSource`, `model`, the model's audio
+  settings (such as `voiceId` and `speed`), `durationSeconds`, `loop`,
+  `instrumental`, and generated `assetId`.
 
-The editor's Add menu and the agent's active tools expose an audio operation only
-when the current audio catalog has a configured, enabled model advertising that
-operation. Existing nodes remain valid if that provider later becomes unavailable.
+One audio node makes speech, sound effects and music; the model decides which.
+For a text-to-speech model, `prompt` is the line to speak word for word; for
+the others it describes the audio. Options the model doesn't take are left
+out of the request. Boards saved with the older `speech`, `sound-effect`,
+`music` or `audio-scene` nodes open as audio nodes, and canvas_check asks for
+them to be saved that way.
 
 Text and Document nodes accept up to 14 connected Text, Document, Image or image
 Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
@@ -224,8 +224,8 @@ Wheel panning and trackpad pinch zoom are available in either tool.
 
 Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
 Enter confirms an active input-method composition or a video `@` reference
-suggestion before it can generate. Text and document content, negative prompts,
-and lyrics keep ordinary multiline editing.
+suggestion before it can generate. Text and document content keep ordinary
+multiline editing.
 
 `assets.json` maps asset IDs to readable names and project-relative paths.
 Descriptions describe purpose; prompts record generation instructions.

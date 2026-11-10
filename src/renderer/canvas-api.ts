@@ -46,7 +46,8 @@ export interface CanvasMediaRequest {
 export type CanvasMediaResult =
   | { kind: "asset"; assetId: string; name: string; mediaType: string }
   | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
-  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
+  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
+  | { kind: "text"; text: string };
 export const runCanvasMedia = (id: string, input: CanvasMediaRequest): Promise<CanvasMediaResult> => request(`${base(id)}/media`, { method: "POST", body: JSON.stringify(input) });
 
 export const createCanvasTable = (id: string, title: string, version?: string): Promise<CanvasTableDetail> => canvasRequest(`${base(id)}/tables`, { method: "POST", body: JSON.stringify({ title }), workspaceVersion: version });

@@ -31,7 +31,7 @@ just added (`src/renderer/asset-canvas-nodes.tsx`).
 
 ![Paused 3D preview with playback and clip controls (sample model)](assets/3d-preview-playback.png)
 
-The **Model 3D** node has Image to 3D, Text to 3D, Retexture, and Remesh modes. Text
+The canvas add-node menu groups both 3D nodes under **3D**. The **Model 3D** node has Image to 3D, Text to 3D, Retexture, and Remesh modes. Text
 and retexture prompts can connect to Text or Document nodes. Processing modes take
 a source GLB connection. Retexture also accepts a style image; Hyper3D always needs
 one. The source asset is preserved, and each result becomes a new Library asset.

@@ -8,7 +8,6 @@ import {
   type AudioGenerationRequest,
   type AudioModel,
   type GeneratedAudio,
-  type SpeechAudioRequest,
 } from "../shared/audio.js";
 import {
   AudioGenerationError,
@@ -37,7 +36,8 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
     name: "Doubao Speech Synthesis 2.0",
     protocol: "volcengine-tts-v3",
     capabilities: {
-      operations: ["speech"],
+      produces: ["speech"],
+      readsText: true,
       executionModes: ["streaming"],
       languages: [
         "zh-cn",
@@ -119,11 +119,6 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio> {
-    if (input.operation !== "speech")
-      throw new AudioGenerationError(
-        `${DOUBAO_SPEECH_PROVIDER_NAME} currently supports speech generation only`,
-        400,
-      );
     const model = VOLCENGINE_TTS_MODELS.find(
       (entry) => entry.id === input.model?.id,
     );
@@ -179,7 +174,7 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
         },
         body: JSON.stringify({
           req_params: {
-            text: input.text.trim(),
+            text: input.prompt.trim(),
             speaker: voiceId,
             ...(input.voiceKind === "cloned"
               ? { model: `seed-tts-2.0-${input.voiceModel ?? "standard"}` }
@@ -239,14 +234,14 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
 }
 
 function validateSpeech(
-  input: SpeechAudioRequest,
+  input: AudioGenerationRequest,
   model: AudioModel,
   voiceId?: string,
 ): void {
   const caps = model.capabilities;
-  if (!input.text?.trim())
+  if (!input.prompt?.trim())
     throw new AudioGenerationError("Speech text must not be empty", 400);
-  if (input.text.length > caps.maxTextCharacters!)
+  if (input.prompt.length > caps.maxTextCharacters!)
     throw new AudioGenerationError(
       `Speech text must be ${caps.maxTextCharacters!.toLocaleString("en")} characters or fewer`,
       400,
