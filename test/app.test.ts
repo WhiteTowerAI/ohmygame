@@ -1769,7 +1769,6 @@ describe("daemon", () => {
       models: [],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" }),
-        expect.objectContaining({ provider: "volcengine-seed-audio", configured: false, state: "not_configured" }),
         expect.objectContaining({ provider: "elevenlabs", configured: false, state: "not_configured" }),
       ],
     });
@@ -1798,15 +1797,14 @@ describe("daemon", () => {
     ]));
     expect(JSON.stringify(providers)).not.toContain("doubao-key");
 
-    // One key connects speech synthesis and Seed Audio.
+    // One key connects one provider with both models.
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [
         expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0", providerName: "Doubao Speech" }),
-        expect.objectContaining({ provider: "volcengine-seed-audio", id: "seed-audio-1.0", providerName: "Doubao Speech" }),
+        expect.objectContaining({ provider: "volcengine-tts", id: "seed-audio-1.0", providerName: "Doubao Speech" }),
       ],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
-        expect.objectContaining({ provider: "volcengine-seed-audio", state: "ready" }),
         expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
@@ -1823,7 +1821,6 @@ describe("daemon", () => {
       models: [],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
-        expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
         expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
@@ -1838,7 +1835,7 @@ describe("daemon", () => {
       .toEqual(expect.arrayContaining([expect.objectContaining({ provider: "elevenlabs", configured: true, state: "ready", listsVoices: true })]));
   });
 
-  it("lists Doubao Speech once, with one switch for speech synthesis and Seed Audio", async () => {
+  it("lists Doubao Speech once, with one switch for its speech synthesis and Seed Audio models", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-doubao-speech-")) });
     apps.push(app);
     await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
@@ -1846,18 +1843,17 @@ describe("daemon", () => {
     const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json() as Array<{ id: string; name: string }>;
     expect(providers.filter((provider) => ["volcengine-tts", "volcengine-seed-audio"].includes(provider.id)))
       .toEqual([expect.objectContaining({ id: "volcengine-tts", name: "Doubao Speech", configured: true })]);
-    // The separate Seed Audio settings are gone; its preview stays.
+    // Seed Audio has no settings or preview of its own.
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).statusCode).toBe(404);
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-seed-audio", payload: { apiKey: "other" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: "/settings/models/providers/volcengine-seed-audio/preview", payload: { prompt: "rain" } })).statusCode).toBe(404);
 
     expect((await app.inject({ method: "PATCH", url: "/settings/models/providers/volcengine-tts/enabled", payload: { enabled: false } })).statusCode).toBeLessThan(300);
     const catalog = (await app.inject({ method: "GET", url: "/audio-models/catalog" })).json();
     expect(catalog.models).toEqual([]);
-    expect(catalog.providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ provider: "volcengine-tts", state: "disabled" }),
-      expect.objectContaining({ provider: "volcengine-seed-audio", state: "disabled" }),
-    ]));
-    expect((await app.inject({ method: "POST", url: "/settings/models/providers/volcengine-seed-audio/preview", payload: { prompt: "rain" } })).statusCode).toBe(409);
+    expect(catalog.providers.filter((provider: { provider: string }) => provider.provider !== "elevenlabs"))
+      .toEqual([expect.objectContaining({ provider: "volcengine-tts", state: "disabled" })]);
+    expect((await app.inject({ method: "POST", url: "/settings/models/providers/volcengine-tts/preview", payload: { model: "seed-audio-1.0", text: "rain" } })).statusCode).toBe(409);
   });
 
   it("previews Doubao Speech audio through the saved connection", async () => {
@@ -1890,6 +1886,17 @@ describe("daemon", () => {
     expect(preview.headers["x-provider-request-id"]).toBe("preview-log-1");
     expect(preview.rawPayload).toEqual(mp3Fixture());
     expect(audioFetch).toHaveBeenCalledTimes(1);
+
+    // Seed Audio is previewed through the same provider and calls its own API.
+    audioFetch.mockResolvedValueOnce(Response.json({ code: 0, audio: mp3Fixture(48000).toString("base64") }));
+    const seed = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/volcengine-tts/preview",
+      payload: { model: "seed-audio-1.0", text: "rain on a tin roof" },
+    });
+    expect(seed.statusCode).toBe(200);
+    expect(String(audioFetch.mock.calls[1]![0])).toBe("https://openspeech.bytedance.com/api/v3/tts/create");
+    expect(JSON.parse(String(audioFetch.mock.calls[1]![1]!.body))).toMatchObject({ model: "seed-audio-1.0", text_prompt: "Create audio approximately 2 seconds long. rain on a tin roof" });
   });
 
   it("offers 3D models once Meshy is configured", async () => {

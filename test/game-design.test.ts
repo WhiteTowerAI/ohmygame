@@ -1118,7 +1118,7 @@ describe("design merge and validation", () => {
 });
 
 it("sends an audio node's settings and keeps no subtitles a provider returns", async () => {
-  const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
+  const model = { provider: "volcengine-tts", id: "seed-audio-1.0" };
   const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
   const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
   const { directory, store, project, boardId } = await runtime(fakeGenerator, "asset-canvas", undefined, { catalog: () => ({ models: [], providers: [] }), generate });

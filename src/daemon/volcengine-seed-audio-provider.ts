@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
   AUDIO_VOICE_ID_PATTERN,
+  DOUBAO_SPEECH_PROVIDER_ID,
   DOUBAO_SPEECH_PROVIDER_NAME,
   type AudioGenerationRequest,
   type AudioModel,
   type GeneratedAudio,
 } from "../shared/audio.js";
-import {
-  AudioGenerationError,
-  type AudioProviderAdapter,
-} from "./audio-generation.js";
+import { AudioGenerationError } from "./audio-generation.js";
 import {
   audioRequestSignal,
   decodeAudioBase64,
@@ -21,8 +19,9 @@ import {
 } from "./audio-media.js";
 
 const DEFAULT_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/create";
-const PROVIDER_ID = "volcengine-seed-audio";
-const MODEL_ID = "seed-audio-1.0";
+const PROVIDER_ID = DOUBAO_SPEECH_PROVIDER_ID;
+export const SEED_AUDIO_MODEL_ID = "seed-audio-1.0";
+const MODEL_ID = SEED_AUDIO_MODEL_ID;
 const MAX_PROMPT_CHARACTERS = 3000;
 // A fixed public budget leaves room for the language, delivery and timing instructions.
 const INSTRUCTION_BUDGET = 256;
@@ -30,7 +29,6 @@ const SAMPLE_RATES = [8000, 16000, 24000, 32000, 40000, 44100, 48000] as const;
 export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
   {
     provider: PROVIDER_ID,
-    // Seed Audio is part of Doubao Speech: same console, same key.
     providerName: DOUBAO_SPEECH_PROVIDER_NAME,
     id: MODEL_ID,
     name: "Seed Audio 1.0",
@@ -76,8 +74,8 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
   },
 ];
 
-export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
-  readonly id = PROVIDER_ID;
+/** Seed Audio, one of Doubao Speech's two services; `DoubaoSpeechProvider` serves it. */
+export class VolcengineSeedAudioProvider {
   readonly name = DOUBAO_SPEECH_PROVIDER_NAME;
   constructor(
     private readonly apiKey: () => string | undefined,

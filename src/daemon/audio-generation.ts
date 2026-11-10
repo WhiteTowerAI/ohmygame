@@ -8,6 +8,7 @@ import {
   type AudioVoicePage,
   type GeneratedAudio,
 } from "../shared/audio.js";
+import { currentAudioModel } from "../shared/audio-legacy.js";
 import type { ModelRef } from "../shared/contracts.js";
 
 export class AudioGenerationError extends Error {
@@ -80,7 +81,7 @@ export class ProviderAudio implements AudioGenerator {
   /** The requested model, or else the first ready one that makes `kind`, preferring models that read text for speech. */
   resolveModel(requested?: ModelRef, kind?: AudioKind): AudioModel | undefined {
     const models = this.catalog().models.filter((model) => model.capabilities.produces.length);
-    if (requested) return models.find((model) => sameModel(model, requested));
+    if (requested) return models.find((model) => sameModel(model, currentAudioModel(requested)));
     const fitting = kind ? models.filter((model) => model.capabilities.produces.includes(kind)) : models;
     return (kind === "speech" ? fitting.find((model) => model.capabilities.readsText) : undefined) ?? fitting[0];
   }

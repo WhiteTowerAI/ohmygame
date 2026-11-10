@@ -110,10 +110,9 @@ import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audi
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
-import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
-import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
+import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -781,24 +780,16 @@ export function createApp(options: AppOptions = {}) {
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
   });
-  const volcengineTtsProvider = new VolcengineTtsProvider(
-    () => doubaoVoiceSettings.key("volcengine-tts"),
-    options.audioFetch,
-    undefined,
-    () => providerEnabled("volcengine-tts"),
-    () => doubaoVoiceSettings.defaultVoiceId(),
-  );
-  const volcengineSeedAudioProvider = new VolcengineSeedAudioProvider(
-    () => doubaoVoiceSettings.key("volcengine-seed-audio"),
-    options.audioFetch,
-    undefined,
-    // One Doubao Speech switch covers both services.
-    () => providerEnabled("volcengine-tts"),
-  );
+  const doubaoSpeechProvider = new DoubaoSpeechProvider({
+    key: (service) => doubaoVoiceSettings.key(service),
+    defaultVoiceId: () => doubaoVoiceSettings.defaultVoiceId(),
+    enabled: () => providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
+    request: options.audioFetch,
+  });
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, elevenLabsProvider]);
+  const providerAudio = new ProviderAudio([doubaoSpeechProvider, elevenLabsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -3352,10 +3343,10 @@ export function createApp(options: AppOptions = {}) {
         capabilities: ["video"] as const,
       };
     }), {
-      id: "volcengine-tts",
+      id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: doubaoVoiceSettings.get().configured,
-      enabled: providerEnabled("volcengine-tts"),
+      enabled: providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
       custom: false,
       status: doubaoVoiceSettings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
@@ -3469,8 +3460,7 @@ export function createApp(options: AppOptions = {}) {
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    volcengineTtsProvider,
-    volcengineSeedAudioProvider,
+    doubaoSpeechProvider,
     providerEnabled,
     cloudModels,
     modelAuth,
