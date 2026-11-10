@@ -32,6 +32,7 @@ import {
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type MediaModelDefaults,
+  type MediaModelUsage,
   type ImageModel,
   type ImageModelCatalog,
   type ModelAuthEvent,
@@ -623,6 +624,8 @@ export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | n
 }
 
 export interface VolcengineTtsPreviewInput {
+  /** The Doubao Speech model to test; speech synthesis when unset. Seed Audio reads the text as a description. */
+  model?: "seed-tts-2.0" | "seed-audio-1.0";
   text: string;
   voiceId?: string;
   language?: string;
@@ -681,8 +684,8 @@ export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
   return request("/image-models/catalog");
 }
 
-export async function setDefaultMediaModel(usage: "image" | "video" | "3d", model?: AgentModelRef): Promise<void> {
-  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : "/model3d-models/default";
+export async function setDefaultMediaModel(usage: MediaModelUsage, model?: AgentModelRef): Promise<void> {
+  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : usage === "3d" ? "/model3d-models/default" : `/audio-models/${usage}/default`;
   await request(endpoint, model ? { method: "PUT", body: JSON.stringify(model) } : { method: "DELETE" });
   notifyAgentModelsChanged();
 }
@@ -1833,11 +1836,6 @@ export async function inspectProjectPreview(projectId: string, settings: Project
 
 /** The Doubao Speech connection; `distinctKeys` means the two services still use keys saved apart. */
 export function getVolcengineTtsSettings(): Promise<{ configured: boolean; distinctKeys?: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
-export async function previewSeedAudio(prompt: string): Promise<Blob> {
-  const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
 
 /** A plugin panel a project's plugins offer, with its page's address. */
 export interface PluginPanel {

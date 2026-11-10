@@ -184,7 +184,7 @@ export async function inspectCanvasBoard(workspace: string, id: string): Promise
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
-  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio or transcription shape. It opens in the current format; save it that way.`);
+  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio or transcription shape. Audio opens in the current format without audioReferences, audioReferenceSerial or subtitles; old Seed Audio models move under provider "volcengine-tts", and transcriptions become Text nodes. Save it that way.`);
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;
     if (isResizableCanvasNodeType(node.type) || (width === undefined && height === undefined)) continue;

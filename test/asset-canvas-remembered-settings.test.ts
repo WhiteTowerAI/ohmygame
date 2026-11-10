@@ -110,5 +110,10 @@ describe("Asset Canvas remembered settings", () => {
     expect(applyRememberedSettings(base, speech, { ...catalogs }).data).toMatchObject({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts" });
     const score = nodeGenerationSettings({ type: "audio", data: { audioModel: music, durationSeconds: 30, loop: true, instrumental: false } });
     expect(applyRememberedSettings(base, score, { ...catalogs, audioModels }).data).toMatchObject({ audioModel: { provider: "audio-lab", id: "music" }, durationSeconds: 30, loop: true, instrumental: false });
+    // Without a last audio node, a new one starts from the speech default; the last node's model still wins.
+    const defaultAudioModel = { provider: "audio-lab", id: "music" };
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModel }).data.audioModel).toEqual(defaultAudioModel);
+    expect(applyRememberedSettings(base, speech, { ...catalogs, audioModels, defaultAudioModel }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
+    expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels, defaultAudioModel: { provider: "gone", id: "x" } }).data.audioModel).toEqual({ provider: "volcengine-tts", id: "seed-tts-2.0" });
   });
 });

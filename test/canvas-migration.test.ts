@@ -9,7 +9,7 @@ import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { CanvasStore, readCanvasBoard } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { migrateLegacyAudioJob, migrateLegacyAudioNodes } from "../src/shared/audio-legacy.js";
+import { currentAudioModel, migrateLegacyAudioJob, migrateLegacyAudioNodes } from "../src/shared/audio-legacy.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -128,6 +128,25 @@ describe("audio nodes saved before they were merged", () => {
     ]);
     expect(value.nodes[4]).toEqual({ id: "transcript", type: "text", data: { text: "Keep this transcript", instruction: "" } });
     expect(value.nodes[5]).toEqual({ id: "note", type: "text", data: { text: "Keep" } });
+    // Seed Audio is now a Doubao Speech model.
+    expect(value.nodes.slice(0, 4).map((node) => (node.data as { model?: unknown }).model)).toEqual([
+      { provider: "volcengine-tts", id: "seed-audio-1.0" },
+      { provider: "volcengine-tts", id: "seed-audio-1.0" },
+      { provider: "volcengine-tts", id: "seed-tts-2.0" },
+      { provider: "volcengine-tts", id: "seed-audio-1.0" },
+    ]);
+  });
+
+  it("read a Seed Audio choice under Doubao Speech", () => {
+    const old = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, current = { provider: "volcengine-tts", id: "seed-audio-1.0" };
+    const { value, migrated } = migrateLegacyAudioNodes({ nodes: [
+      { id: "seed", type: "audio", data: { prompt: "Rain", model: old } },
+      { id: "tts", type: "audio", data: { prompt: "Hi", model: current } },
+    ] });
+    expect(migrated).toEqual(["seed"]);
+    expect(value.nodes.map((node) => node.data.model)).toEqual([current, current]);
+    expect(migrateLegacyAudioJob({ id: "j", toolId: "generate-audio", input: { prompt: "Rain", model: old } })).toEqual({ id: "j", toolId: "generate-audio", input: { prompt: "Rain", model: current } });
+    expect(currentAudioModel(old)).toEqual(current);
   });
 
   it("read per-kind tool jobs and runs as generate-audio with their kind", () => {

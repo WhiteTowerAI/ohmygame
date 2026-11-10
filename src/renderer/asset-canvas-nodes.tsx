@@ -336,8 +336,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
     const duration = data.durationSeconds;
     change({
       audioModel: { provider: model.provider, id: model.id },
-      // Voices belong to one provider.
-      ...(model.provider !== selectedModel?.provider ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
+      // Voices belong to an API: Doubao's TTS and Seed Audio models share a provider but not voice options.
+      ...(model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
       ...(!next.supportsLoop ? { loop: undefined } : {}),
       ...(!next.supportsInstrumental ? { instrumental: undefined } : {}),
       ...(duration !== undefined && next.maxDurationSeconds === undefined ? { durationSeconds: undefined } : {}),
@@ -347,7 +347,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
   const providerStatus = runtime?.providers.find((provider) => provider.provider === selectedModel?.provider);
-  const needsVoice = reads && !data.voiceId && (caps?.requiresVoice || (selectedModel?.protocol === "volcengine-tts-v3" && !providerStatus?.defaultVoiceId));
+  // A model that speaks the text needs a voice: the node's, or the provider's default.
+  const needsVoice = reads && !data.voiceId && !providerStatus?.defaultVoiceId;
   const issue = (needsVoice ? t("audioStudio.needVoice") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (caps?.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > caps.maxTextCharacters ? t("audioStudio.promptLimit", { count: caps.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
 
