@@ -13945,6 +13945,8 @@ summary.work-summary:hover {
 .settings-detail-inline > .settings-voice-sample { width: 40px; min-width: 40px; padding: 0; }
 .story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }
+/* The sticky footer covers what scrolls under it, so it matches the composer, which is lighter in light mode. */
+:root[data-appearance="light"] .story-media-composer:has(.canvas-audio-options) .story-media-controls { background: var(--surface); }
 /* Account controls reuse the compact model rows and composer menu. */
 .agent-account-profiles .provider-model-copy > small:not(.provider-model-default) { font-family: inherit; font-size: 11px; }
 .agent-account-profiles .agent-usage-inline { flex: 0 1 auto; justify-content: flex-end; }
