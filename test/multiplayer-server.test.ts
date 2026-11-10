@@ -719,7 +719,11 @@ export default defineGame({
   ) {
     return customService("drop", adapter, { mode: "realtime", roomPolicy: "drop-in", maxClients: 3, ...settings }, serverOptions);
   }
-  function player(manifest: MultiplayerManifestConfig, options: Partial<ConstructorParameters<typeof MultiplayerClient>[0]> = {}) {
+  function player(
+    manifest: MultiplayerManifestConfig,
+    options: Partial<ConstructorParameters<typeof MultiplayerClient>[0]> = {},
+    callbacks: ConstructorParameters<typeof MultiplayerClient>[1] = {},
+  ) {
     const wrapper = new MultiplayerClient({
       manifest,
       storage: memoryStorage(),
@@ -728,7 +732,7 @@ export default defineGame({
       // Other tests leave players alone on purpose; only the merge tests let them move.
       mergeCheckMs: 60_000,
       ...options,
-    });
+    }, callbacks);
     wrappers.push(wrapper);
     return wrapper;
   }
@@ -894,7 +898,9 @@ export default defineGame({
 
   it("lets players roam a shared world that never ends", async () => {
     const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
-    const explorer = player(deployment);
+    const events: string[] = [];
+    let snapshots = 0;
+    const explorer = player(deployment, {}, { onEvent: (event) => events.push(event.type), onSnapshot: () => snapshots++ });
     await explorer.quickPlay();
     // One explorer is enough; there is nobody to wait for.
     await wait(() => expect(explorer.snapshot?.state.phase).toBe("playing"));
@@ -904,6 +910,9 @@ export default defineGame({
     await wait(() => expect(me().x).toBe(0));
     clearInterval(frames);
     explorer.sendInput({ x: 0, y: 0 });
+    // Every tick that moved the explorer sent a snapshot, and no event beside it.
+    expect(snapshots).toBeGreaterThan(20);
+    expect(events).not.toContain("state.updated");
     // Walking through the centre or into the edge finishes nothing.
     expect(explorer.snapshot!.state.phase).toBe("playing");
     const friend = player(deployment);

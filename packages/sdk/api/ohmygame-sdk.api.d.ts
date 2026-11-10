@@ -605,6 +605,10 @@ export interface MultiplayerClientOptions {
 }
 export interface MultiplayerClientCallbacks {
     onStatus?: (status: MultiplayerConnectionStatus) => void;
+    /**
+     * Room events, such as a player joining or a match finishing. A realtime room's ticks
+     * raise none: watch onSnapshot for their changes.
+     */
     onEvent?: (event: MultiplayerEvent) => void;
     onReady?: (playerId: string, inviteCode?: string) => void;
     onCommandResult?: (result: TurnCommandResult) => void;

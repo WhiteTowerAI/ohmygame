@@ -784,6 +784,9 @@ export class GameRoom extends Room {
       {},
       undefined,
       state.phase === "finished",
+      true,
+      this.record.members,
+      { tick: true },
     );
   }
   /** Whether enough seats are connected for the rules to play a round. */
@@ -1172,7 +1175,8 @@ export class GameRoom extends Room {
     persist = true,
     active = true,
     members = this.record.members,
-    host: { views?: HostViews; fromHost?: boolean } = {},
+    /** views and fromHost: a hosting player's answer. tick: a realtime tick, which the snapshot alone reports. */
+    host: { views?: HostViews; fromHost?: boolean; tick?: boolean } = {},
   ): void {
     const now = Date.now();
     if (this.lockstepRound) {
@@ -1208,14 +1212,17 @@ export class GameRoom extends Room {
     else
       for (const client of this.clients)
         client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
-    this.broadcast("event", {
-      type,
-      roomId: this.roomId,
-      deploymentId: this.services.config.deploymentId,
-      sequence: record.snapshot.sequence,
-      serverTime: record.snapshot.serverTime,
-      payload,
-    });
+    // A realtime tick changes the state many times a second; its snapshot says it all, and an
+    // event beside each would add about a sixth to what every player receives.
+    if (!(host.tick && type === "state.updated"))
+      this.broadcast("event", {
+        type,
+        roomId: this.roomId,
+        deploymentId: this.services.config.deploymentId,
+        sequence: record.snapshot.sequence,
+        serverTime: record.snapshot.serverTime,
+        payload,
+      });
     // A hosting player's realtime loop learns of changes it did not make, such as a seat taken.
     if (this.hosted && this.services.config.mode === "realtime" && !host.fromHost)
       this.hostConnection()?.send("host.sync", { state: record.snapshot.state });
@@ -1348,6 +1355,7 @@ export class GameRoom extends Room {
     this.commit(state, state.phase === "finished" ? "room.finished" : "state.updated", {}, undefined, state.phase === "finished", true, this.record.members, {
       ...(message.views ? { views: message.views as HostViews } : {}),
       fromHost: true,
+      tick: true,
     });
   }
 }
