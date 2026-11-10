@@ -27,20 +27,12 @@ const audioProviders: ProviderSummary[] = [
     capabilities: ["audio"],
     methods: [],
   },
-  {
-    id: "volcengine-seed-audio",
-    name: "Doubao Seed Audio",
-    configured: true,
-    enabled: true,
-    status: "connected",
-    capabilities: ["audio"],
-    methods: [],
-  },
 ];
 const api = {
   listProviders: vi.fn(async () => audioProviders),
   getVolcengineTtsSettings: vi.fn(async () => ({
     configured: true,
+    distinctKeys: true,
     defaultVoiceId: "zh_female_vv_uranus_bigtts",
   })),
   listAudioModelCatalog: vi.fn(async () => ({ models: [], providers: [] })),
@@ -162,15 +154,19 @@ it("confirms before removing the provider", async () => {
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
 });
 
-it.each(audioProviders)("keeps $name settings and actions independent", async (provider) => {
+it("sets up Doubao Speech with one key, a default voice and a preview for each service", async () => {
+  const provider = audioProviders[0]!;
   await render(vi.fn(), provider);
+  expect(host.querySelector("#doubao-speech-preview")).toBeTruthy();
+  expect(host.querySelector("#doubao-seed-preview")).toBeTruthy();
+  // Keys saved apart before are reported, since saving here replaces both.
+  expect(host.textContent).toContain("still use the two keys saved earlier");
   const header = host.querySelector(".settings-detail-head")!;
   const toggle = header.querySelector<HTMLInputElement>('[role="switch"]')!;
   expect(toggle.getAttribute("aria-label")).toBe(`Enable ${provider.name}`);
   expect(host.querySelector(".settings-provider-filters")).toBeNull();
   expect(host.querySelector(`#${provider.id}-api-key`)).toBeTruthy();
-  if (provider.id === "volcengine-tts") expect(host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
-  else expect(host.querySelector("#volcengine-tts-voice-select")).toBeNull();
+  expect(host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenCalledWith(provider.id, false);
   await act(async () => header.querySelector<HTMLButtonElement>(".settings-provider-delete")!.click());

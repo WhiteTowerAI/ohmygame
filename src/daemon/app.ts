@@ -113,7 +113,7 @@ import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
+import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -792,7 +792,8 @@ export function createApp(options: AppOptions = {}) {
     () => doubaoVoiceSettings.key("volcengine-seed-audio"),
     options.audioFetch,
     undefined,
-    () => providerEnabled("volcengine-seed-audio"),
+    // One Doubao Speech switch covers both services.
+    () => providerEnabled("volcengine-tts"),
   );
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
@@ -3353,21 +3354,11 @@ export function createApp(options: AppOptions = {}) {
     }), {
       id: "volcengine-tts",
       name: DOUBAO_SPEECH_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-tts")),
+      configured: doubaoVoiceSettings.get().configured,
       enabled: providerEnabled("volcengine-tts"),
       custom: false,
-      status: doubaoVoiceSettings.key("volcengine-tts") ? "connected" as const : "not_configured" as const,
+      status: doubaoVoiceSettings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }, {
-      id: "volcengine-seed-audio",
-      name: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-seed-audio")),
-      enabled: providerEnabled("volcengine-seed-audio"),
-      custom: false,
-      status: doubaoVoiceSettings.key("volcengine-seed-audio") ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
     }, {

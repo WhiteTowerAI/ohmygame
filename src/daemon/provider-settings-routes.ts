@@ -23,7 +23,7 @@ import type { PluginModelProviders } from "./plugin-model-providers.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { isSeedanceProviderId } from "./seedance-models.js";
 import type { SeedanceSettingsStore } from "./seedance-settings.js";
-import type { DoubaoService, DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
+import type { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import type { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
 import type { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 
@@ -188,9 +188,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     const native = native3DProviders.find(([id]) => id === providerId);
     const seedance = isSeedanceProviderId(providerId);
     const minimax = isMinimaxProviderId(providerId);
-    const volcengineTts = providerId === "volcengine-tts";
-    const volcengineSeedAudio = providerId === "volcengine-seed-audio";
-    if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const doubaoSpeech = providerId === "volcengine-tts";
+    if (!native && !seedance && !minimax && !doubaoSpeech && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
@@ -200,7 +199,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
         if (native) await native[2].clear();
         else if (seedance) await seedanceSettings.clear(providerId);
         else if (minimax) await minimaxSettings.clear(providerId);
-        else if (volcengineTts || volcengineSeedAudio) await doubaoVoiceSettings.setService(providerId as DoubaoService, null);
+        else if (doubaoSpeech) await doubaoVoiceSettings.clear();
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -267,19 +266,16 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     return reply.code(204).send();
   });
 
-  app.get("/settings/models/providers/volcengine-tts", async () => {
-    const { ttsConfigured, defaultVoiceId } = doubaoVoiceSettings.get();
-    return { configured: ttsConfigured, ...(defaultVoiceId ? { defaultVoiceId } : {}) };
-  });
+  // Doubao Speech: one key for speech synthesis and Seed Audio.
+  app.get("/settings/models/providers/volcengine-tts", async () => doubaoVoiceSettings.get());
   app.put<{ Body: { apiKey?: string; defaultVoiceId?: string | null } }>("/settings/models/providers/volcengine-tts", { schema: { body: {
     type: "object", additionalProperties: false, minProperties: 1,
     properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 }, defaultVoiceId: { anyOf: [{ type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN }, { type: "null" }] } },
   } } }, async (request, reply) => {
     try {
-      if (request.body.apiKey !== undefined) await doubaoVoiceSettings.setService("volcengine-tts", request.body.apiKey);
+      if (request.body.apiKey !== undefined) await doubaoVoiceSettings.update(request.body.apiKey);
       if (request.body.defaultVoiceId !== undefined) await doubaoVoiceSettings.setDefaultVoice(request.body.defaultVoiceId);
-      const { ttsConfigured, defaultVoiceId } = doubaoVoiceSettings.get();
-      return { configured: ttsConfigured, ...(defaultVoiceId ? { defaultVoiceId } : {}) };
+      return doubaoVoiceSettings.get();
     }
     catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
@@ -317,13 +313,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
       }
     },
   );
-  app.get("/settings/models/providers/volcengine-seed-audio", async () => ({ configured: doubaoVoiceSettings.get().seedConfigured }));
-  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/volcengine-seed-audio", { schema: apiKeySettingsSchema }, async (request, reply) => {
-    try { await doubaoVoiceSettings.setService("volcengine-seed-audio", request.body.apiKey); return { configured: true }; }
-    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-  });
   app.post<{ Body: { prompt: string; durationSeconds?: number } }>("/settings/models/providers/volcengine-seed-audio/preview", { schema: { body: { type: "object", additionalProperties: false, required: ["prompt"], properties: { prompt: { type: "string", minLength: 1, maxLength: 500 }, durationSeconds: { type: "number", minimum: 0.1, maximum: 5 } } } } }, async (request, reply) => {
-    if (!providerEnabled("volcengine-seed-audio")) return reply.code(409).send({ error: "The audio service is disabled" });
+    if (!providerEnabled("volcengine-tts")) return reply.code(409).send({ error: "The audio service is disabled" });
     try {
       const generated = await volcengineSeedAudioProvider.generate({ model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: request.body.prompt, durationSeconds: request.body.durationSeconds, output: { format: "mp3", sampleRate: 48000 } });
       reply.header("content-type", generated.mediaType); reply.header("cache-control", "no-store"); return reply.send(Buffer.from(generated.bytes));

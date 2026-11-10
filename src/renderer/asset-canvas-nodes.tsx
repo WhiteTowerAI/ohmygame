@@ -300,7 +300,9 @@ function videoAspectRatios(model: VideoModel | undefined, referenceCount: number
 }
 
 function audioProviderNotes(providers: readonly AudioProviderCatalogStatus[] | undefined): CanvasChipNote[] {
-  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.name, message: provider.message }]);
+  // Doubao Speech's two services share a name and a key, so they report the same problem once.
+  const notes = (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.name, message: provider.message }]);
+  return notes.filter((note, index) => notes.findIndex((other) => other.group === note.group && other.message === note.message) === index);
 }
 
 const AUDIO_DURATION_OPTIONS = [1, 2, 3, 5, 10, 15, 30, 60, 120, 300, 600] as const;

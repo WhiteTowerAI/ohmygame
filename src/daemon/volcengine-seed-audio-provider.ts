@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AUDIO_VOICE_ID_PATTERN,
-  DOUBAO_SEED_AUDIO_PROVIDER_NAME,
+  DOUBAO_SPEECH_PROVIDER_NAME,
   type AudioGenerationRequest,
   type AudioModel,
   type GeneratedAudio,
@@ -30,7 +30,8 @@ const SAMPLE_RATES = [8000, 16000, 24000, 32000, 40000, 44100, 48000] as const;
 export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
   {
     provider: PROVIDER_ID,
-    providerName: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
+    // Seed Audio is part of Doubao Speech: same console, same key.
+    providerName: DOUBAO_SPEECH_PROVIDER_NAME,
     id: MODEL_ID,
     name: "Seed Audio 1.0",
     protocol: "volcengine-seed-audio-v3",
@@ -80,7 +81,7 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
 
 export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
   readonly id = PROVIDER_ID;
-  readonly name = DOUBAO_SEED_AUDIO_PROVIDER_NAME;
+  readonly name = DOUBAO_SPEECH_PROVIDER_NAME;
   constructor(
     private readonly apiKey: () => string | undefined,
     private readonly request: typeof fetch = fetch,
