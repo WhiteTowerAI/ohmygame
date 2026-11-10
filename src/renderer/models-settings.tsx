@@ -15,7 +15,6 @@ import type {
 import {
   getCustomProvider,
   getVolcengineTtsSettings,
-  previewSeedAudio,
   removeProvider,
   setProviderEnabled,
   getOpenAIEndpointSettings,
@@ -309,7 +308,7 @@ function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provide
       </div>
       {error ? <p className="settings-note is-danger">{error}</p> : null}
     </form>
-    {provider.configured ? <AudioModels providerIds={[provider.id]} /> : null}
+    {provider.configured ? <AudioModels providerId={provider.id} /> : null}
   </section>;
 }
 
@@ -713,13 +712,10 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinc
           {distinctKeys ? <p className="settings-note">{t("providers.doubaoDistinctKeys")}</p> : null}
           {keyError ? <p className="settings-note is-danger" role="alert">{keyError}</p> : null}
       </form>
-      {provider.configured ? <AudioModels providerIds={DOUBAO_SPEECH_PROVIDER_IDS} /> : null}
+      {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
   );
 }
-
-/** Seed Audio models keep their own provider ID, so saved model choices still match. */
-const DOUBAO_SPEECH_PROVIDER_IDS = ["volcengine-tts", "volcengine-seed-audio"];
 
 /** A short, billable test of one Doubao Speech service: a spoken line, or a Seed Audio sound. */
 function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; voiceId?: string; disabled: boolean }) {
@@ -736,7 +732,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
     try {
       const blob = speech
         ? await previewVolcengineTtsSpeech({ text: text.trim(), ...(voiceId ? { voiceId } : {}) })
-        : await previewSeedAudio(text.trim());
+        : await previewVolcengineTtsSpeech({ model: "seed-audio-1.0", text: text.trim() });
       setUrl(URL.createObjectURL(blob));
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
@@ -757,7 +753,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
   );
 }
 
-function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
+function AudioModels({ providerId }: { providerId: string }) {
   const [models, setModels] = useState<AudioModel[]>();
   const [emptyMessage, setEmptyMessage] = useState(t("providers.noAudioModels"));
   const [error, setError] = useState<string>();
@@ -765,16 +761,15 @@ function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
     let active = true;
     void listAudioModelCatalog().then((catalog) => {
       if (!active) return;
-      const status = catalog.providers.find((provider) => provider.provider === providerIds[0]);
-      setModels(catalog.models.filter((model) => providerIds.includes(model.provider)));
+      const status = catalog.providers.find((provider) => provider.provider === providerId);
+      setModels(catalog.models.filter((model) => model.provider === providerId));
       setEmptyMessage(status?.message ?? t("providers.noAudioModels"));
       setError(status?.state === "error" ? status.message : undefined);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
-    // Keyed by value: callers pass a new array on every render.
-  }, [providerIds.join(",")]);
+  }, [providerId]);
 
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>

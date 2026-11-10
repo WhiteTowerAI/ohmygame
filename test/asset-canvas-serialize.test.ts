@@ -204,8 +204,8 @@ describe("3D processing node serialization", () => {
 
 it("serializes all audio settings without runtime state", () => {
   const settings = { voiceId: "S_character", voiceKind: "cloned" as const, pitch: -4, volume: 20, speed: 10, language: "en", style: "warm", output: { format: "wav" as const, sampleRate: 48000 as const } };
-  const node = toAssetCanvasNode({ id: "scene", type: "audio", position: { x: 10, y: 20 }, data: { ...settings, audioModel: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: "Use @Audio8", audioAsset: { metadata: { durationMs: 1000 } } } });
-  expect(node.data).toMatchObject({ ...settings, prompt: "Use @Audio8", model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" } });
+  const node = toAssetCanvasNode({ id: "scene", type: "audio", position: { x: 10, y: 20 }, data: { ...settings, audioModel: { provider: "volcengine-tts", id: "seed-audio-1.0" }, prompt: "Use @Audio8", audioAsset: { metadata: { durationMs: 1000 } } } });
+  expect(node.data).toMatchObject({ ...settings, prompt: "Use @Audio8", model: { provider: "volcengine-tts", id: "seed-audio-1.0" } });
   expect(node.data).not.toHaveProperty("audioAsset");
   const canvas = createAssetCanvasDocument(); canvas.nodes = [node]; canvas.editorLayout.nodes.scene = { x: 10, y: 20 };
   expect(isAssetCanvasDocument(canvas)).toBe(true);

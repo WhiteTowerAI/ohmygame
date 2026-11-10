@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   AUDIO_VOICE_ID_MAX_LENGTH,
   AUDIO_VOICE_ID_PATTERN,
+  DOUBAO_SPEECH_PROVIDER_ID,
   DOUBAO_SPEECH_PROVIDER_NAME,
   DOUBAO_TTS_DIALECTS,
   findVolcengineTtsVoice,
@@ -9,10 +10,7 @@ import {
   type AudioModel,
   type GeneratedAudio,
 } from "../shared/audio.js";
-import {
-  AudioGenerationError,
-  type AudioProviderAdapter,
-} from "./audio-generation.js";
+import { AudioGenerationError } from "./audio-generation.js";
 import {
   audioRequestSignal,
   decodeAudioBase64,
@@ -25,7 +23,7 @@ import {
 
 const DEFAULT_ENDPOINT =
   "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
-const PROVIDER_ID = "volcengine-tts";
+const PROVIDER_ID = DOUBAO_SPEECH_PROVIDER_ID;
 const BIT_RATES = [16000, 32000, 64000, 160000];
 
 export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
@@ -87,8 +85,8 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
   },
 ];
 
-export class VolcengineTtsProvider implements AudioProviderAdapter {
-  readonly id = PROVIDER_ID;
+/** Speech synthesis (TTS 2.0), one of Doubao Speech's two services; `DoubaoSpeechProvider` serves it. */
+export class VolcengineTtsProvider {
   readonly name = DOUBAO_SPEECH_PROVIDER_NAME;
 
   constructor(
