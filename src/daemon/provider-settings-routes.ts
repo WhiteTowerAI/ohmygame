@@ -299,9 +299,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
       if (!providerEnabled("volcengine-tts")) return reply.code(409).send({ error: "The speech service is disabled" });
       try {
         const generated = await volcengineTtsProvider.generate({
-          operation: "speech",
           model: { provider: "volcengine-tts", id: "seed-tts-2.0" },
-          text: request.body.text,
+          prompt: request.body.text,
           voiceId: request.body.voiceId,
           language: request.body.language,
           style: request.body.style,
@@ -326,7 +325,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   app.post<{ Body: { prompt: string; durationSeconds?: number } }>("/settings/models/providers/volcengine-seed-audio/preview", { schema: { body: { type: "object", additionalProperties: false, required: ["prompt"], properties: { prompt: { type: "string", minLength: 1, maxLength: 500 }, durationSeconds: { type: "number", minimum: 0.1, maximum: 5 } } } } }, async (request, reply) => {
     if (!providerEnabled("volcengine-seed-audio")) return reply.code(409).send({ error: "The audio service is disabled" });
     try {
-      const generated = await volcengineSeedAudioProvider.generate({ operation: "sound-effect", model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: request.body.prompt, durationSeconds: request.body.durationSeconds, output: { format: "mp3", sampleRate: 48000 } });
+      const generated = await volcengineSeedAudioProvider.generate({ model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: request.body.prompt, durationSeconds: request.body.durationSeconds, output: { format: "mp3", sampleRate: 48000 } });
       reply.header("content-type", generated.mediaType); reply.header("cache-control", "no-store"); return reply.send(Buffer.from(generated.bytes));
     } catch (cause) { if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
   });

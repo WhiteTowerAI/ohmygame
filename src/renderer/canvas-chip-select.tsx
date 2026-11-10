@@ -11,6 +11,8 @@ export interface CanvasChipOption<Value extends string> {
   shortLabel?: string;
   /** Options sharing a group are listed under its heading, like the Home model picker's providers. */
   group?: string;
+  /** A second line in the menu, such as what a model makes. */
+  description?: string;
 }
 
 /** A line under a group heading, such as why a connected provider has no models. */
@@ -172,7 +174,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
               {group.options.map((option) => {
                 const selected = option.value === value;
                 const choice = <button type="button" role={optionAction ? "menuitemradio" : "option"} aria-selected={optionAction ? undefined : selected} aria-checked={optionAction ? selected : undefined} key={option.value} onClick={() => choose(option)}>
-                  <span>{option.label}</span>
+                  {option.description ? <span className="canvas-chip-option-text"><span>{option.label}</span><small>{option.description}</small></span> : <span>{option.label}</span>}
                   {selected ? <Check size={13} /> : null}
                 </button>;
                 return optionAction && OptionActionIcon ? <div className="canvas-chip-menu-row" key={option.value}>

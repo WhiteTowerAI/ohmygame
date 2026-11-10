@@ -358,17 +358,17 @@ describe("agent tools", () => {
       catalog: () => ({ models: [], providers: [] }), generate,
     });
     await runner.load();
-    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_speech");
-    if (!tool) throw new Error("Expected speech tool");
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_audio");
+    if (!tool) throw new Error("Expected audio tool");
 
-    const result = await tool.execute("call-speech", { text: "Welcome", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-speech", { prompt: "Welcome", kind: "speech", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.split("\n")[0]!.replace("Generated audio saved to ", "");
 
     expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
     expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
   it("registers standalone image and frame processing tools", async () => {

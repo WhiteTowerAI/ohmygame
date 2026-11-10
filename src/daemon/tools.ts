@@ -1,4 +1,5 @@
-import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles, type RunSceneAudioToolRequest } from "../shared/audio.js";
+import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
+import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -43,12 +44,7 @@ import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } f
 import { isImageHookRecords } from "../shared/plugin-hooks.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
-import type {
-  AudioGenerationRequest,
-  RunMusicToolRequest,
-  RunSoundEffectToolRequest,
-  RunSpeechToolRequest,
-} from "../shared/audio.js";
+import type { AudioGenerationRequest } from "../shared/audio.js";
 
 const VIDEO_DEFAULT_DURATION = 6;
 const HISTORY_LIMIT = 20;
@@ -115,7 +111,7 @@ export class ToolRunner {
     await mkdir(this.#runsDirectory, { recursive: true });
     try {
       const jobs: ToolJobRecord[] = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
-      for (const job of jobs) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
+      for (const job of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
         ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry to resume the submitted 3D task." } : {}) });
     } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
   }
@@ -145,7 +141,7 @@ export class ToolRunner {
       toolId,
       createdAt: new Date().toISOString(),
       status: "running",
-      title: promptTitle("prompt" in input ? input.prompt : "text" in input ? input.text : undefined) ?? metadata.title ?? toolName(toolId),
+      title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
       ...(metadata.context ? { context: metadata.context } : {}),
       input: structuredClone(input),
       prepared,
@@ -322,18 +318,9 @@ export class ToolRunner {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
-    if (toolId === "generate-speech") {
-      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(toolId, { operation: "speech", ...(input as RunSpeechToolRequest) }, signal);
-    }
-    if (toolId === "generate-sound-effect") {
-      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(toolId, { operation: "sound-effect", ...(input as RunSoundEffectToolRequest) }, signal);
-    }
-    if (toolId === "generate-audio") { assertOnlyKeys(input, ["prompt", "model", "durationSeconds", ...AUDIO_SETTING_KEYS]); return this.#runAudio(toolId, { ...(input as RunSceneAudioToolRequest), operation: "audio-scene" }, signal); }
-    if (toolId === "generate-music") {
-      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "output", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
+    if (toolId === "generate-audio") {
+      assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
+      return this.#runAudio(input as AudioGenerationRequest, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
@@ -597,7 +584,8 @@ export class ToolRunner {
     }
   }
 
-  async #runAudio(toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio", input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+    const toolId = "generate-audio";
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
@@ -609,9 +597,7 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const extension = audioExtension(generated.mediaType);
       const fileName = `output.${extension}`;
-      const prompt = input.operation === "speech" ? input.text.trim()
-        : input.operation === "dialogue" ? input.turns.map((turn) => turn.text.trim()).filter(Boolean).join("\n")
-          : input.prompt.trim();
+      const prompt = input.prompt.trim();
       const audio = { ...(generated.metadata ? { metadata: generated.metadata } : {}), request: input };
       const companions = audioCompanionFiles(fileName, audio);
       if (this.assetLibrary) {
@@ -704,7 +690,7 @@ export class ToolRunner {
 
   async #readRun(runId: string): Promise<StoredToolRun | undefined> {
     try {
-      const value = JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>;
+      const value = migrateLegacyAudioJob(JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>);
       if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
       if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string" ||
         file.assetId !== undefined && typeof file.assetId !== "string")) return undefined;
@@ -746,9 +732,6 @@ function toolName(toolId: ToolId): string {
   if (toolId === "generate-video") return "Generated Video";
   if (toolId === "image-to-3d") return "Generated 3D Model";
   if (toolId === "animate-3d") return "Animated 3D Model";
-  if (toolId === "generate-speech") return "Generated Speech";
-  if (toolId === "generate-sound-effect") return "Generated Sound Effect";
-  if (toolId === "generate-music") return "Generated Music";
   if (toolId === "generate-audio") return "Generated Audio";
   return "Generated Image";
 }
@@ -800,7 +783,7 @@ function imageFileName(mediaType: string, index?: number): string {
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
   if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
   if (toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
-  if (toolId === "generate-speech" || toolId === "generate-sound-effect" || toolId === "generate-music" || toolId === "generate-audio") return (input as RunSpeechToolRequest | RunSoundEffectToolRequest | RunMusicToolRequest).model;
+  if (toolId === "generate-audio") return (input as AudioGenerationRequest).model;
   return undefined;
 }
 

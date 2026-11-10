@@ -1024,9 +1024,6 @@ describe("daemon", () => {
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
-      "generate_speech",
-      "generate_sound_effect",
-      "generate_music",
       "generate_audio",
     ]);
   });
@@ -1751,12 +1748,12 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/doubao-voice" })).statusCode).toBe(404);
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/doubao-voice", payload: { apiKey: "key" } })).statusCode).toBe(404);
     for (const file of ["audio.audio.json", "audio.srt", "audio.vtt"]) expect((await app.inject({ method: "GET", url: `/library/assets/unused/audio/${file}` })).statusCode).toBe(404);
-    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"]) {
-      for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
-        const response = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { text: "hello", prompt: "rain", ...removed } });
-        expect(response.statusCode).toBe(400);
-      }
+    for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
+      const response = await app.inject({ method: "POST", url: "/tools/generate-audio/jobs", payload: { prompt: "rain", ...removed } });
+      expect(response.statusCode).toBe(400);
     }
+    // The per-kind tools merged into generate-audio.
+    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music"]) expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "rain" } })).statusCode).toBe(404);
     expect(generate).not.toHaveBeenCalled();
   });
 
@@ -1861,7 +1858,7 @@ describe("daemon", () => {
       expect.objectContaining({
         provider: "volcengine-seed-audio",
         id: "seed-audio-1.0",
-        capabilities: expect.objectContaining({ operations: ["speech", "sound-effect", "music", "audio-scene"] }),
+        capabilities: expect.objectContaining({ produces: ["speech", "sound-effect", "music"] }),
       }),
     ]);
     expect(catalog.providers).toEqual(expect.arrayContaining([

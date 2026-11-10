@@ -24,7 +24,7 @@ const DEFAULT_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/create";
 const PROVIDER_ID = "volcengine-seed-audio";
 const MODEL_ID = "seed-audio-1.0";
 const MAX_PROMPT_CHARACTERS = 3000;
-// A fixed public budget leaves room for the operation and timing instructions.
+// A fixed public budget leaves room for the language, delivery and timing instructions.
 const INSTRUCTION_BUDGET = 256;
 const SAMPLE_RATES = [8000, 16000, 24000, 32000, 40000, 44100, 48000] as const;
 export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
@@ -35,7 +35,8 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
     name: "Seed Audio 1.0",
     protocol: "volcengine-seed-audio-v3",
     capabilities: {
-      operations: ["speech", "sound-effect", "music", "audio-scene"],
+      // One prompt makes voices, effects and music together.
+      produces: ["speech", "sound-effect", "music"],
       executionModes: ["synchronous"],
       languages: [
         "zh-cn",
@@ -67,14 +68,12 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
       promptInstructionCharacters: INSTRUCTION_BUDGET,
       maxDurationSeconds: 120,
       supportsLoop: false,
-      supportsLyrics: false,
       supportsInstrumental: false,
       supportsVocalToggle: false,
       supportsSpeaker: true,
       supportsPitch: true,
       supportsVolume: true,
       supportsStyle: true,
-      supportsNegativePrompt: false,
     },
   },
 ];
@@ -102,11 +101,6 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio> {
-    if (input.operation === "dialogue")
-      throw new AudioGenerationError(
-        "Use audio-scene for prompted dialogue",
-        400,
-      );
     const model = VOLCENGINE_SEED_AUDIO_MODELS[0]!,
       caps = model.capabilities;
     if (input.model?.provider !== PROVIDER_ID || input.model.id !== MODEL_ID)
@@ -117,7 +111,7 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
     const key = this.apiKey();
     if (!key)
       throw new AudioGenerationError(`${this.name} is not connected`, 503);
-    const prompt = input.operation === "speech" ? input.text : input.prompt;
+    const prompt = input.prompt;
     if (!prompt?.trim())
       throw new AudioGenerationError("Audio prompt must not be empty", 400);
     if (prompt.length > caps.maxTextCharacters!)
@@ -126,7 +120,6 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
         400,
       );
     if (
-      "durationSeconds" in input &&
       input.durationSeconds !== undefined &&
       (!Number.isFinite(input.durationSeconds) ||
         input.durationSeconds <= 0 ||
@@ -136,22 +129,9 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
         `Seed Audio target duration must be greater than 0 and no more than ${caps.maxDurationSeconds} seconds`,
         400,
       );
-    if ("loop" in input && input.loop)
+    if (input.loop)
       throw new AudioGenerationError(
         "Seed Audio does not create guaranteed seamless loops",
-        400,
-      );
-    if (input.operation === "sound-effect" && input.negativePrompt?.trim())
-      throw new AudioGenerationError(
-        "Seed Audio does not support negative prompts",
-        400,
-      );
-    if (
-      input.operation === "music" &&
-      (!input.instrumental || input.lyrics?.trim())
-    )
-      throw new AudioGenerationError(
-        "The music tool supports instrumental music only; use audio-scene for voice and scene prompts",
         400,
       );
     if (input.output?.channels !== undefined)
@@ -189,20 +169,11 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
     )
       throw new AudioGenerationError("Invalid Speaker ID", 400);
     let textPrompt = prompt.trim();
-    const duration =
-      "durationSeconds" in input && input.durationSeconds !== undefined
-        ? ` approximately ${input.durationSeconds} seconds long`
-        : "";
+    // The prompt says what to make; only the target length is added.
     const instruction =
-      input.operation === "sound-effect"
-        ? `Create a standalone game sound effect${duration}. Do not include speech, narration, singing, or background music. Description: `
-        : input.operation === "music"
-          ? `Create instrumental game background music${duration}. Do not include vocals, speech, narration, or lyrics. Description: `
-          : input.operation === "speech"
-            ? "Speak the following text exactly. "
-            : duration
-              ? `Create audio${duration}. `
-              : "";
+      input.durationSeconds !== undefined
+        ? `Create audio approximately ${input.durationSeconds} seconds long. `
+        : "";
     textPrompt = `${instruction}${input.language ? `Language: ${input.language}. ` : ""}${input.style?.trim() ? `Delivery: ${input.style.trim()}. ` : ""}${textPrompt}`;
     if (textPrompt.length > MAX_PROMPT_CHARACTERS)
       throw new AudioGenerationError(

@@ -18,7 +18,7 @@ function sent(request: ReturnType<typeof vi.fn<typeof fetch>>) {
 describe("ElevenLabs audio provider", () => {
   it("sends speech to the voice's text-to-speech endpoint with mapped settings", async () => {
     const { request, adapter } = provider(new Response(MP3, { headers: { "request-id": "req-1" } }));
-    await expect(adapter.generate({ operation: "speech", model: speech, text: "  Hello there  ", voiceId: "voice/1", language: "zh-cn", speed: 50 })).resolves.toMatchObject({
+    await expect(adapter.generate({ model: speech, prompt: "  Hello there  ", voiceId: "voice/1", language: "zh-cn", speed: 50 })).resolves.toMatchObject({
       mediaType: "audio/mpeg",
       model: speech,
       metadata: { providerRequestId: "req-1" },
@@ -31,22 +31,24 @@ describe("ElevenLabs audio provider", () => {
 
   it("requires a voice for speech", async () => {
     const { request, adapter } = provider(new Response(MP3));
-    await expect(adapter.generate({ operation: "speech", model: speech, text: "Hello" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(adapter.generate({ model: speech, prompt: "Hello" })).rejects.toMatchObject({ statusCode: 400 });
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("sends sound effects and music to their own endpoints within the model's duration", async () => {
+  it("routes sound-effect and music models to their own endpoints within the model's duration", async () => {
     const effect = provider(new Response(MP3));
-    await effect.adapter.generate({ operation: "sound-effect", model: { provider: "elevenlabs", id: "eleven_text_to_sound_v2" }, prompt: "Door slam", durationSeconds: 2, loop: true });
+    await effect.adapter.generate({ model: { provider: "elevenlabs", id: "eleven_text_to_sound_v2" }, prompt: "Door slam", durationSeconds: 2, loop: true });
     expect(sent(effect.request).url).toContain("/v1/sound-generation?");
     expect(JSON.parse(String(sent(effect.request).init.body))).toEqual({ text: "Door slam", model_id: "eleven_text_to_sound_v2", duration_seconds: 2, loop: true });
-    await expect(effect.adapter.generate({ operation: "sound-effect", model: { provider: "elevenlabs", id: "eleven_text_to_sound_v2" }, prompt: "Door", durationSeconds: 31 })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(effect.adapter.generate({ model: { provider: "elevenlabs", id: "eleven_text_to_sound_v2" }, prompt: "Door", durationSeconds: 31 })).rejects.toMatchObject({ statusCode: 400 });
 
     const music = provider(new Response(MP3));
-    await music.adapter.generate({ operation: "music", model: { provider: "elevenlabs", id: "music_v1" }, prompt: "Calm harp", instrumental: true, durationSeconds: 12.5 });
+    await music.adapter.generate({ model: { provider: "elevenlabs", id: "music_v1" }, prompt: "Calm harp", instrumental: true, durationSeconds: 12.5 });
     expect(sent(music.request).url).toContain("/v1/music?");
     expect(JSON.parse(String(sent(music.request).init.body))).toEqual({ prompt: "Calm harp", model_id: "music_v1", force_instrumental: true, music_length_ms: 12_500 });
-    await expect(music.adapter.generate({ operation: "music", model: { provider: "elevenlabs", id: "music_v1" }, prompt: "Song", instrumental: false, lyrics: "la la" })).rejects.toMatchObject({ statusCode: 400 });
+    const vocal = provider(new Response(MP3));
+    await vocal.adapter.generate({ model: { provider: "elevenlabs", id: "music_v1" }, prompt: "Song" });
+    expect(JSON.parse(String(sent(vocal.request).init.body))).toEqual({ prompt: "Song", model_id: "music_v1" });
   });
 
   it("lists account voices a page at a time and keeps only https samples", async () => {
@@ -91,7 +93,7 @@ describe("ElevenLabs audio provider", () => {
       [500, "boom", 502],
     ] as const) {
       const { adapter } = provider(Response.json({ detail }, { status }));
-      await expect(adapter.generate({ operation: "speech", model: speech, text: "Hi", voiceId: "a" })).rejects.toMatchObject({ statusCode: expected });
+      await expect(adapter.generate({ model: speech, prompt: "Hi", voiceId: "a" })).rejects.toMatchObject({ statusCode: expected });
     }
     const { adapter } = provider(Response.json({ detail: "Invalid API key" }, { status: 401 }));
     await expect(adapter.voices({})).rejects.toThrow("ElevenLabs: Invalid API key");

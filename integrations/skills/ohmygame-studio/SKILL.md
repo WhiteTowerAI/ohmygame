@@ -25,8 +25,8 @@ project.
 ## Generate assets
 
 Use `generate_image`, `generate_video`, `generate_3d_asset`,
-`animate_3d_asset`, `generate_speech`, `generate_sound_effect` and
-`generate_music` and `generate_audio`. Each call uses the person's provider credits, so:
+`animate_3d_asset` and `generate_audio`. Each call uses the person's provider
+credits, so:
 
 - Write one specific prompt and generate once; do not try variations unless
   asked.
@@ -35,10 +35,12 @@ Use `generate_image`, `generate_video`, `generate_3d_asset`,
   characters.
 - Results name the saved file's workspace-relative path. Read the file with
   your own tools to check it before using it in the game.
-- Use `generate_audio` for scene prompts combining dialogue, ambience and music.
-  Pick a model whose capabilities cover the request; a model that sets
-  `requiresVoice` needs a voice from its provider. Keep the returned audio JSON
-  companion beside the audio in the project.
+- `generate_audio` makes speech, sound effects and music. Set `kind` and
+  OhMyGame picks a model that makes it, or pick a `model` yourself. For a
+  text-to-speech model the prompt is the exact line to speak; otherwise it
+  describes the sound. Some models mix dialogue, ambience and music from one
+  prompt. A model that sets `requiresVoice` needs a voice from its provider.
+  Keep the returned audio JSON companion beside the audio in the project.
 
 Generation can take minutes. A tool that is not done within about 45 seconds
 returns a job ID: call `wait_job` with it until the job finishes. Never start

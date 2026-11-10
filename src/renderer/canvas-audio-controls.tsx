@@ -180,7 +180,7 @@ export function CanvasAudioControls({
   const caps = model?.capabilities,
     tts = Boolean(caps?.supportsSpeechOptions),
     // Speed and language shape spoken delivery; sound-effect and music-only models ignore them.
-    speaks = !caps || caps.operations.includes("speech") || caps.operations.includes("audio-scene");
+    speaks = !caps || caps.produces.includes("speech");
   const preset = findVolcengineTtsVoice(value.voiceId);
   const usesCustomVoice =
     customVoice ||

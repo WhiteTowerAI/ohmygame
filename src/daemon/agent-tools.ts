@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -20,7 +20,7 @@ import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { CanvasError } from "./canvas-files.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings, type AudioGenerationRequest } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
@@ -31,9 +31,6 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
-  "generate-speech": "generate_speech",
-  "generate-sound-effect": "generate_sound_effect",
-  "generate-music": "generate_music",
   "generate-audio": "generate_audio",
 };
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
@@ -120,13 +117,12 @@ export function createAgentTools(
   canvasStore?: CanvasStore,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
-    toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio",
-    request: RunToolRequest,
+    request: AudioGenerationRequest,
     prompt: string,
     prefix: string,
     signal?: AbortSignal,
   ) => {
-    const run = await tools.run(toolId, request, signal, project.id);
+    const run = await tools.run("generate-audio", request, signal, project.id);
     try {
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output) throw new Error("Audio generator returned no output");
@@ -497,63 +493,6 @@ export function createAgentTools(
       }
     },
   }), defineTool({
-    name: PI_TOOL_NAMES["generate-speech"],
-    label: "Generate Speech",
-    description: "Generate character or narrator speech and save it into the current project. Use an exact voice ID supported by the connected speech provider.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      text: Type.String({ minLength: 1, maxLength: 10_000, description: "The words to speak" }),
-      voiceId: Type.Optional(Type.String({ minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN, description: "Provider Speaker ID; omit to use the configured default" })),
-      model: Type.Optional(mediaModelParameter()),
-      language: Type.Optional(Type.String({ maxLength: 40 })),
-      style: Type.Optional(Type.String({ maxLength: 2_000, description: "Delivery or emotional direction" })),
-      speed: Type.Optional(Type.Number({ minimum: -50, maximum: 100 })),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")], { description: "Output format supported by the selected model; Doubao Speech supports mp3 only" })),
-      sampleRate: Type.Optional(Type.Union([8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000].map((value) => Type.Literal(value)))),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-speech", {
-      ...audioSettings(input),
-      text: input.text, voiceId: input.voiceId, model: input.model, language: input.language, style: input.style, speed: input.speed,
-      output: input.output ?? { format: input.format, sampleRate: input.sampleRate },
-    }, input.text, "speech", signal),
-  }), defineTool({
-    name: PI_TOOL_NAMES["generate-sound-effect"],
-    label: "Generate Sound Effect",
-    description: "Generate a sound effect with a compatible connected audio provider and save it into the current project.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe the sound, environment, timing, and intensity" }),
-      model: Type.Optional(mediaModelParameter()),
-      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
-      loop: Type.Optional(Type.Boolean()),
-      negativePrompt: Type.Optional(Type.String({ maxLength: 4_000 })),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-sound-effect", {
-      ...audioSettings(input),
-      prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds, loop: input.loop,
-      negativePrompt: input.negativePrompt, output: input.output ?? { format: input.format },
-    }, input.prompt, "sound-effect", signal),
-  }), defineTool({
-    name: PI_TOOL_NAMES["generate-music"],
-    label: "Generate Music",
-    description: "Generate music with a compatible connected audio provider and save it into the current project.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe genre, mood, tempo, instrumentation, and structure" }),
-      model: Type.Optional(mediaModelParameter()),
-      instrumental: Type.Boolean({ description: "Generate without vocals" }),
-      lyrics: Type.Optional(Type.String({ maxLength: 20_000 })),
-      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
-      loop: Type.Optional(Type.Boolean()),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-music", {
-      ...audioSettings(input),
-      prompt: input.prompt, model: input.model, instrumental: input.instrumental, lyrics: input.lyrics,
-      durationSeconds: input.durationSeconds, loop: input.loop, output: input.output ?? { format: input.format },
-    }, input.prompt, "music", signal),
-  }), defineTool({
     name: "crop_image",
     label: "Crop Image",
     description: "Extract a rectangle in source pixels.",
@@ -683,9 +622,25 @@ export function createAgentTools(
     },
   }), defineTool({
     name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
-    description: "Create game scene audio combining dialogue, sound effects, ambience and music. Use Seed Audio with a text prompt or a Speaker ID. Duration is a target, not an exact cut. Save audio and metadata companions to the project.",
-    parameters: Type.Object({ ...audioToolSettings, prompt: Type.String({ minLength: 1, maxLength: 2744 }), model: Type.Optional(mediaModelParameter()), durationSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 120 })) }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-audio", { ...audioSettings(input), prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds }, input.prompt, "audio", signal),
+    description: [
+      "Generate speech, a sound effect, music, or audio that mixes them, and save it with its metadata companion into the current project.",
+      "Set kind to what you need and OhMyGame picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
+      "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
+      "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
+    ].join(" "),
+    parameters: Type.Object({
+      ...audioToolSettings,
+      prompt: Type.String({ minLength: 1, maxLength: AUDIO_PROMPT_MAX_LENGTH, description: "The words to speak, or a description of the audio" }),
+      kind: Type.Optional(Type.Union(AUDIO_KINDS.map((kind) => Type.Literal(kind)), { description: "What to make; picks a model when model is omitted" })),
+      model: Type.Optional(mediaModelParameter()),
+      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
+      loop: Type.Optional(Type.Boolean({ description: "A seamless loop, for models that make one" })),
+      instrumental: Type.Optional(Type.Boolean({ description: "Music without vocals, for models that offer the choice" })),
+    }),
+    execute: async (_toolCallId, input, signal) => saveGeneratedAudio({
+      ...audioSettings(input), prompt: input.prompt, kind: input.kind, model: input.model,
+      durationSeconds: input.durationSeconds, loop: input.loop, instrumental: input.instrumental,
+    }, input.prompt, input.kind ?? "audio", signal),
   }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",

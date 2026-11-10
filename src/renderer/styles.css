@@ -6027,6 +6027,9 @@ button {
   white-space: nowrap;
 }
 
+.canvas-chip-menu-group > button > .canvas-chip-option-text { display: grid; padding: 4px 0; white-space: normal; }
+.canvas-chip-option-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-chip-option-text > small { color: var(--text-muted); font-size: 10px; line-height: 14px; }
 .canvas-chip-menu-row { display: flex; align-items: center; gap: 2px; }
 .canvas-chip-menu-row > [role="menuitemradio"] { flex: 1; min-width: 0; }
 .canvas-chip-menu-row > [role="menuitemradio"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

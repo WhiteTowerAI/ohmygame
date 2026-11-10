@@ -113,7 +113,7 @@ import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
 import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { AUDIO_KINDS, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -548,7 +548,6 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-      text: { type: "string", minLength: 1, maxLength: 10_000 },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -559,8 +558,7 @@ const toolRunSchema = {
       durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
       loop: { type: "boolean" },
       instrumental: { type: "boolean" },
-      lyrics: { type: "string", maxLength: 20_000 },
-      negativePrompt: { type: "string", maxLength: 4_000 },
+      kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -810,15 +808,12 @@ export function createApp(options: AppOptions = {}) {
       if (toolId === "animate-3d") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
-      const audioOperation: AudioOperation | undefined = toolId === "generate-speech" ? "speech"
-        : toolId === "generate-sound-effect" ? "sound-effect"
-          : toolId === "generate-music" ? "music" : toolId === "generate-audio" ? "audio-scene" : undefined;
-      if (audioOperation) {
-        const explicit = (input as { model?: AgentModelRef }).model;
-        const selected = providerAudio.resolveModel(audioOperation, explicit);
+      if (toolId === "generate-audio") {
+        const { model: explicit, kind } = input as AudioGenerationRequest;
+        const selected = providerAudio.resolveModel(explicit, kind);
         if (!selected) {
           if (options.audioGenerator) return input;
-          throw new ToolRunError(`No ${audioOperation === "sound-effect" ? "sound effect" : audioOperation} model is available. Connect an audio provider first.`, 503);
+          throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
         }
         return { ...input, model: { provider: selected.provider, id: selected.id } };
       }
@@ -2305,7 +2300,7 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
-        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
       },

@@ -131,9 +131,7 @@ it("lists account voices and limits speed for models that speak, and hides both 
   vi.stubGlobal("fetch", fetch);
   const speech = ELEVENLABS_MODELS.find((model) => model.id === "eleven_v4")!;
   await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={speech} listsVoices onChange={vi.fn()} />));
-  await act(async () => { await Promise.resolve(); });
-  const options = Array.from(host.querySelectorAll("select")[0]!.options).map((option) => option.value);
-  expect(options).toEqual(["", "saved", "aria"]);
+  await vi.waitFor(() => expect(Array.from(host.querySelectorAll("select")[0]!.options).map((option) => option.value)).toEqual(["", "saved", "aria"]));
   expect(String(fetch.mock.calls[0]![0])).toContain("/audio-providers/elevenlabs/voices");
   const speed = host.querySelector<HTMLInputElement>(".audio-control-adjustments input")!;
   expect([speed.min, speed.max]).toEqual(["-30", "20"]);

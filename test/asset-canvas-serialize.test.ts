@@ -104,18 +104,18 @@ describe("Asset Canvas node serialization", () => {
     (node.data as { reasoningLevel: string }).reasoningLevel = "turbo";
     expect(isAssetCanvasDocument(canvas)).toBe(false);
   });
-  it.each(["text", "image", "video", "speech", "sound-effect", "music", "model-3d", "animate-3d", "asset", "document"] as const)("preserves %s node metadata without runtime fields", (type) => {
+  it.each(["text", "image", "video", "audio", "model-3d", "animate-3d", "asset", "document"] as const)("preserves %s node metadata without runtime fields", (type) => {
     const node = toAssetCanvasNode({ id: "node", type, position: { x: 0, y: 0 }, title: "Player", description: "Main character", data: { documentId: "rules", assetId: "reference", text: "Rules", nodeDetails: { title: "Runtime name", label: "Runtime label", edit: () => {} } } });
     expect(node).toMatchObject({ title: "Player", description: "Main character" });
     expect(node.data).not.toHaveProperty("nodeDetails");
   });
-  it("round-trips a speech node without runtime fields and accepts it as a saved board", () => {
-    const node = toAssetCanvasNode({ id: "narration", type: "speech", position: { x: 0, y: 0 }, data: {
-      text: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" },
+  it("round-trips an audio node without runtime fields and accepts it as a saved board", () => {
+    const node = toAssetCanvasNode({ id: "narration", type: "audio", position: { x: 0, y: 0 }, data: {
+      prompt: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" },
       voiceId: "zh_male_m191_uranus_bigtts", speed: 25, assetId: "audio-1", audioRuntime: { models: [], providers: [] },
     } as unknown as Parameters<typeof toAssetCanvasNode>[0]["data"] });
-    expect(node.type).toBe("speech");
-    expect(node.data).toEqual({ text: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, model: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_male_m191_uranus_bigtts", speed: 25, assetId: "audio-1" });
+    expect(node.type).toBe("audio");
+    expect(node.data).toEqual({ prompt: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, model: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_male_m191_uranus_bigtts", speed: 25, assetId: "audio-1" });
     const canvas = createAssetCanvasDocument();
     canvas.nodes = [
       node,
@@ -123,25 +123,23 @@ describe("Asset Canvas node serialization", () => {
     ];
     canvas.editorLayout.nodes = { narration: { x: 0, y: 0 }, script: { x: 0, y: 200 } };
     expect(isAssetCanvasDocument(canvas)).toBe(true);
-    if (canvas.nodes[0]!.type !== "speech") throw new Error("Expected speech node");
+    if (canvas.nodes[0]!.type !== "audio") throw new Error("Expected audio node");
     canvas.nodes[0]!.data.speed = 200;
     expect(isAssetCanvasDocument(canvas)).toBe(false);
   });
-  it.each([
-    ["sound-effect", { prompt: "Heavy rain", durationSeconds: 10, loop: true, negativePrompt: "thunder", assetId: "sfx-1" }],
-    ["music", { prompt: "Quiet harbor theme", instrumental: false, lyrics: "Follow the tide", durationSeconds: 60, loop: false, assetId: "music-1" }],
-  ] as const)("round-trips a %s node", (type, data) => {
-    const node = toAssetCanvasNode({ id: type, type, position: { x: 10, y: 20 }, data: { ...data, audioModel: { provider: "audio-provider", id: "audio-model" } } });
-    expect(node).toMatchObject({ type, data: { ...data, model: { provider: "audio-provider", id: "audio-model" } } });
+  it("round-trips an audio node's length, loop and instrumental settings", () => {
+    const data = { prompt: "Quiet harbor theme", instrumental: false, durationSeconds: 60, loop: true, assetId: "music-1" };
+    const node = toAssetCanvasNode({ id: "music", type: "audio", position: { x: 10, y: 20 }, data: { ...data, audioModel: { provider: "audio-provider", id: "audio-model" } } });
+    expect(node).toMatchObject({ type: "audio", data: { ...data, model: { provider: "audio-provider", id: "audio-model" } } });
     const board = createAssetCanvasDocument();
     board.nodes = [node];
-    board.editorLayout.nodes = { [type]: { x: 10, y: 20 } };
+    board.editorLayout.nodes = { music: { x: 10, y: 20 } };
     expect(isAssetCanvasDocument(board)).toBe(true);
   });
-  it.each(["speech", "sound-effect", "music"] as const)("connects text and document nodes to a %s node as its prompt source", async (type) => {
+  it("connects text and document nodes to an audio node as its prompt source", async () => {
     const { connectionRelation } = await import("../src/renderer/asset-canvas-workspace.js");
     const text = { id: "script", type: "text", position: { x: 0, y: 0 }, data: { text: "Welcome", instruction: "" } } as Parameters<typeof connectionRelation>[0];
-    const target = { id: "audio", type, position: { x: 200, y: 0 }, data: type === "speech" ? { text: "" } : type === "music" ? { prompt: "", instrumental: true } : { prompt: "" } } as Parameters<typeof connectionRelation>[1];
+    const target = { id: "audio", type: "audio", position: { x: 200, y: 0 }, data: { prompt: "" } } as Parameters<typeof connectionRelation>[1];
     expect(connectionRelation(text, target, undefined, [], [], [])).toBe("prompt");
     target.data.promptSource = { type: "node", nodeId: "script" };
     expect(connectionRelation(text, target, undefined, [], [], [])).toBeUndefined();
@@ -206,7 +204,7 @@ describe("3D processing node serialization", () => {
 
 it("serializes all creative audio settings and references without runtime state", () => {
   const settings = { voiceId: "S_character", voiceKind: "cloned" as const, pitch: -4, volume: 20, speed: 10, subtitles: true, language: "en", style: "warm", output: { format: "wav" as const, sampleRate: 48000 as const }, audioReferenceSerial: 8, audioReferences: [{ id: "Audio8", type: "audio" as const, source: { type: "library" as const, assetId: "reference" } }] };
-  const node = toAssetCanvasNode({ id: "scene", type: "audio-scene", position: { x: 10, y: 20 }, data: { ...settings, audioModel: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: "Use @Audio8", audioAsset: { metadata: { durationMs: 1000 } } } });
+  const node = toAssetCanvasNode({ id: "scene", type: "audio", position: { x: 10, y: 20 }, data: { ...settings, audioModel: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, prompt: "Use @Audio8", audioAsset: { metadata: { durationMs: 1000 } } } });
   expect(node.data).toMatchObject({ ...settings, prompt: "Use @Audio8", model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" } });
   expect(node.data).not.toHaveProperty("audioAsset");
   const canvas = createAssetCanvasDocument(); canvas.nodes = [node]; canvas.editorLayout.nodes.scene = { x: 10, y: 20 };

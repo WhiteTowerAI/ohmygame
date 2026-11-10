@@ -20,7 +20,9 @@ const SPEED_RANGE = [-30, 20] as const;
 /** Speech-to-text accepts files up to 5 GB; the daemon keeps to its own audio limit. */
 const MAX_TRANSCRIPTION_BYTES = MAX_AUDIO_BYTES;
 
-const model = (id: string, name: string, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat" | "executionModes">): AudioModel => ({
+type Endpoint = "speech" | "sound" | "music" | "transcription";
+const ENDPOINTS = new Map<string, Endpoint>();
+const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat" | "executionModes">): AudioModel => (ENDPOINTS.set(id, endpoint), {
   provider: ELEVENLABS_PROVIDER_ID,
   providerName: ELEVENLABS_PROVIDER_NAME,
   id,
@@ -31,11 +33,11 @@ const model = (id: string, name: string, capabilities: Omit<AudioModel["capabili
 
 /** Model ids and limits from https://elevenlabs.io/docs/models. */
 export const ELEVENLABS_MODELS: readonly AudioModel[] = [
-  model("eleven_v4", "Eleven v4", { operations: ["speech"], maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
-  model("eleven_flash_v2_5", "Eleven Flash v2.5", { operations: ["speech"], maxTextCharacters: 40_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
-  model("eleven_text_to_sound_v2", "Eleven Sound Effects v2", { operations: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
-  model("music_v1", "Eleven Music v1", { operations: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
-  model("scribe_v2", "Scribe v2", { operations: ["transcription"] }),
+  model("eleven_v4", "Eleven v4", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_flash_v2_5", "Eleven Flash v2.5", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 40_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_text_to_sound_v2", "Eleven Sound Effects v2", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
+  model("music_v1", "Eleven Music v1", "music", { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
+  model("scribe_v2", "Scribe v2", "transcription", { produces: [], transcribes: true }),
 ];
 
 export class ElevenLabsAudioProvider implements AudioProviderAdapter {
@@ -52,10 +54,11 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
   models(): AudioModel[] { return ELEVENLABS_MODELS.map((candidate) => structuredClone(candidate)); }
 
   async generate(input: AudioGenerationRequest, signal?: AbortSignal): Promise<GeneratedAudio> {
-    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id && candidate.capabilities.operations.includes(input.operation));
-    if (!selected || input.model?.provider !== this.id) throw new AudioGenerationError(`The selected ${this.name} model can't do this`, 400);
-    if (input.operation === "speech") {
-      const text = input.text.trim();
+    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id);
+    const endpoint = selected && ENDPOINTS.get(selected.id);
+    if (!selected || !endpoint || endpoint === "transcription" || input.model?.provider !== this.id) throw new AudioGenerationError(`The selected ${this.name} model can't generate audio`, 400);
+    if (endpoint === "speech") {
+      const text = input.prompt.trim();
       const voiceId = input.voiceId?.trim();
       if (!text || text.length > (selected.capabilities.maxTextCharacters ?? 10_000)) throw new AudioGenerationError("Speech text is empty or too long", 400);
       if (!voiceId || voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH) throw new AudioGenerationError(`Choose an ${this.name} voice`, 400);
@@ -67,7 +70,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
         ...(input.speed !== undefined ? { voice_settings: { speed: speechSpeed(input.speed) } } : {}),
       }, signal);
     }
-    if (input.operation === "sound-effect") {
+    if (endpoint === "sound") {
       return this.#audio("/v1/sound-generation", selected, {
         text: requiredPrompt(input.prompt),
         model_id: selected.id,
@@ -75,16 +78,12 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
         ...(input.loop ? { loop: true } : {}),
       }, signal);
     }
-    if (input.operation === "music") {
-      if (input.lyrics?.trim()) throw new AudioGenerationError(`${this.name} music takes a prompt, not lyrics`, 400);
-      return this.#audio("/v1/music", selected, {
-        prompt: requiredPrompt(input.prompt),
-        model_id: selected.id,
-        force_instrumental: input.instrumental,
-        ...(input.durationSeconds !== undefined ? { music_length_ms: Math.round(within(input.durationSeconds, selected) * 1000) } : {}),
-      }, signal);
-    }
-    throw new AudioGenerationError(`${this.name} doesn't support this audio operation`, 400);
+    return this.#audio("/v1/music", selected, {
+      prompt: requiredPrompt(input.prompt),
+      model_id: selected.id,
+      ...(input.instrumental !== undefined ? { force_instrumental: input.instrumental } : {}),
+      ...(input.durationSeconds !== undefined ? { music_length_ms: Math.round(within(input.durationSeconds, selected) * 1000) } : {}),
+    }, signal);
   }
 
   async voices(query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage> {
@@ -105,7 +104,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
   }
 
   async transcribe(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription> {
-    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id && candidate.capabilities.operations.includes("transcription"));
+    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id && candidate.capabilities.transcribes);
     if (!selected) throw new AudioGenerationError(`The selected ${this.name} model can't transcribe`, 400);
     if (!input.bytes.length || input.bytes.length > MAX_TRANSCRIPTION_BYTES) throw new AudioGenerationError("The audio is empty or too large to transcribe", 413);
     const form = new FormData();
