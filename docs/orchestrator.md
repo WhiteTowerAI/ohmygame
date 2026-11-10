@@ -53,7 +53,9 @@ ordinary prompt that names who sent them.
 **Start team** creates any missing role conversations and gives the writer the
 goal. Advisors wait until someone messages them. Each time the writer finishes
 a turn, it is given the next one: the teammate messages that arrived meanwhile,
-or, when none did, an instruction to carry on with the goal. A run ends when:
+or, when none did, an instruction to carry on with the goal. With more than one
+writer, a message to a writer that must wait for another is held, and that
+writer takes the next turn once the working one finishes. A run ends when:
 
 - the writer calls `mark_goal_complete` — the team shows **Goal complete** and
   its summary;

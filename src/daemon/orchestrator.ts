@@ -243,10 +243,13 @@ export class OrchestratorSupervisor {
     }
     this.deps.events.publish(projectId, "orchestrator.message", { fromRoleId: from.config.id, toRoleId: to.config.id, text }, { conversationId: to.conversationId });
     const message: OrchestratorPendingMessage = { fromRoleId: from.config.id, fromName: from.config.name, text };
-    if (to.status === "running") {
-      run.pending.set(to.conversationId, [...(run.pending.get(to.conversationId) ?? []), message]);
+    const queue = () => {
+      run.pending.set(to.conversationId!, [...(run.pending.get(to.conversationId!) ?? []), message]);
       return { delivered: true, queued: true };
-    }
+    };
+    if (to.status === "running") return queue();
+    // Another writer is still working, so this one waits for its turn with the message.
+    if (to.config.capability === "writer" && run.state.roles.some((role) => role !== to && role.config.capability === "writer" && role.status === "running")) return queue();
     await this.#promptRole(run, to, teammatePrompt([message]));
     return { delivered: true, queued: false };
   }
@@ -293,10 +296,12 @@ export class OrchestratorSupervisor {
       this.#publish(project.id);
       return;
     }
-    const messages = this.drain(project.id, end.conversationId);
+    // With several writers, one that teammates wrote to while it had to wait goes next; otherwise this one carries on.
+    const next = run.state.roles.find((item) => item !== role && item.config.capability === "writer" && item.conversationId && run.pending.get(item.conversationId)?.length) ?? role;
+    const messages = this.drain(project.id, next.conversationId!);
     const text = messages.length ? teammatePrompt(messages) : continuePrompt(run.state.config.goal);
     try {
-      await this.#promptRole(run, role, text);
+      await this.#promptRole(run, next, text);
     } catch {
       run.state = { ...run.state, status: "stopped" };
       this.#publish(project.id);

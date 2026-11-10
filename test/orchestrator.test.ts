@@ -260,6 +260,19 @@ describe("orchestrator loop", () => {
     expect(supervisor.state(project.id)!.status).toBe("stopped");
   });
 
+  it("holds a message for a second writer until the first one's turn ends, then gives it the turn", async () => {
+    const { supervisor, project, prompts } = await harness();
+    const artist: OrchestratorRoleConfig = { ...writer, id: "artist", name: "Artist", persona: "Draw the sprites." };
+    await supervisor.configure(project, config([writer, artist]));
+    await supervisor.start(project);
+    const [programmer, painter] = supervisor.state(project.id)!.roles.map((role) => role.conversationId!);
+    prompts.length = 0;
+    expect(await supervisor.deliver(project.id, programmer!, "artist", "The player needs a night palette.")).toEqual({ delivered: true, queued: true });
+    expect(prompts).toHaveLength(0);
+    await supervisor.turnEnded(project, { conversationId: programmer!, status: "completed", changes: [] });
+    expect(prompts).toEqual([{ conversationId: painter, text: expect.stringContaining("Programmer: The player needs a night palette.") }]);
+  });
+
   it("does not advance an advisor, and ignores a conversation not on the team", async () => {
     const { supervisor, project, prompts, started } = await harness();
     const { programmer, critic } = await started();

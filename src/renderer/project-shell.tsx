@@ -1734,7 +1734,7 @@ export function ProjectShell({
     </div>, nodes.chat.toolbar)}
     {project ? <Dialog open={teamOpen} onClose={() => setTeamOpen(false)} size="lg" title={t("team.title")} description={t("team.description")}>
       <OrchestratorPanel
-        key={projectId}
+        key={`${projectId}:${team ? "team" : "none"}`}
         projectId={projectId}
         state={team}
         messages={teamMessages}
