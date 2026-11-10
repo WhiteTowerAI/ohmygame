@@ -27,7 +27,6 @@ import {
   updateMinimaxApiKey,
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
-  updateVolcengineSeedAudioApiKey,
   updateElevenLabsSettings,
   removeElevenLabsSettings,
   saveVolcengineTtsDefaultVoiceId,
@@ -273,7 +272,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "volcengine-tts") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "elevenlabs") return <ElevenLabsProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
@@ -310,7 +309,7 @@ function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provide
       </div>
       {error ? <p className="settings-note is-danger">{error}</p> : null}
     </form>
-    {provider.configured ? <AudioModels providerId={provider.id} /> : null}
+    {provider.configured ? <AudioModels providerIds={[provider.id]} /> : null}
   </section>;
 }
 
@@ -600,15 +599,15 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
 
 function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
   const [defaultVoiceId, setDefaultVoiceId] = useState<string>();
+  const [distinctKeys, setDistinctKeys] = useState(false);
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   const deletion = useProviderDeletion(provider.id, onCompleted);
   useEffect(() => {
-    if (provider.id !== "volcengine-tts") return;
     let active = true;
-    void getVolcengineTtsSettings().then((settings) => { if (active) setDefaultVoiceId(settings.defaultVoiceId); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    void getVolcengineTtsSettings().then((settings) => { if (active) { setDefaultVoiceId(settings.defaultVoiceId); setDistinctKeys(Boolean(settings.distinctKeys)); } }).catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
-  }, [provider.id]);
+  }, [provider.id, provider.configured]);
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
@@ -616,13 +615,13 @@ function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: Pr
       </ProviderDetailHeader>
       <ProviderDeleteConfirmation provider={provider} deletion={deletion} />
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
-      <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} onChanged={onCompleted} />
+      <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} distinctKeys={distinctKeys} onChanged={onCompleted} />
     </section>
   );
 }
 
-function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChanged }: { provider: ProviderSummary; defaultVoiceId?: string; onChanged: () => void }) {
-  const speech = provider.id === "volcengine-tts";
+/** Doubao Speech: one key for speech synthesis and Seed Audio, a default voice, and a preview of each. */
+function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinctKeys, onChanged }: { provider: ProviderSummary; defaultVoiceId?: string; distinctKeys: boolean; onChanged: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [keyError, setKeyError] = useState<string>();
   const [savingKey, setSavingKey] = useState(false);
@@ -630,18 +629,13 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
   const [customVoice, setCustomVoice] = useState(false);
   const [voiceError, setVoiceError] = useState<string>();
   const [savingVoice, setSavingVoice] = useState(false);
-  const [previewText, setPreviewText] = useState(speech ? t("providers.previewSampleText") : t("providers.seedPreviewSamplePrompt"));
-  const [previewUrl, setPreviewUrl] = useState<string>();
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewError, setPreviewError] = useState<string>();
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   async function saveKey(event: FormEvent): Promise<void> {
     event.preventDefault();
     setSavingKey(true);
     setKeyError(undefined);
     try {
-      await (speech ? updateVolcengineTtsApiKey : updateVolcengineSeedAudioApiKey)(apiKey.trim());
+      await updateVolcengineTtsApiKey(apiKey.trim());
       setApiKey("");
       onChanged();
     } catch (cause) { setKeyError(errorMessage(cause)); }
@@ -657,24 +651,12 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
     } catch (cause) { setVoiceError(errorMessage(cause)); }
     finally { setSavingVoice(false); }
   }
-  async function runPreview(): Promise<void> {
-    if (previewBusy) return;
-    setPreviewBusy(true);
-    setPreviewError(undefined);
-    try {
-      const blob = speech
-        ? await previewVolcengineTtsSpeech({ text: previewText.trim(), ...(defaultVoiceId.trim() ? { voiceId: defaultVoiceId.trim() } : {}) })
-        : await previewSeedAudio(previewText.trim());
-      setPreviewUrl(URL.createObjectURL(blob));
-    } catch (cause) { setPreviewError(errorMessage(cause)); }
-    finally { setPreviewBusy(false); }
-  }
 
   const usesCustomVoice = customVoice || (Boolean(defaultVoiceId) && !findVolcengineTtsVoice(defaultVoiceId));
   const keyId = `${provider.id}-api-key`;
   return (
     <>
-      {provider.configured && speech ? (
+      {provider.configured ? (
         <form className="settings-detail-field" onSubmit={(event) => void saveVoice(event)}>
           <label className="settings-search-field-label" htmlFor="volcengine-tts-voice-select">{t("providers.defaultVoiceId")}</label>
           <div className="settings-detail-inline">
@@ -708,26 +690,10 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
           {voiceError ? <p className="settings-note is-danger" role="alert">{voiceError}</p> : null}
         </form>
       ) : null}
-      {provider.configured ? (
-        <section className="settings-detail-field" aria-label={t("providers.previewTitle")}>
-          <label className="settings-search-field-label" htmlFor={`${provider.id}-preview`}>{speech ? t("providers.previewTextLabel") : t("providers.seedPreviewPromptLabel")}</label>
-          <div className="settings-detail-inline">
-            <input
-              id={`${provider.id}-preview`}
-              className="settings-search-input"
-              value={previewText}
-              onChange={(event) => setPreviewText(event.target.value)}
-              maxLength={500}
-              disabled={previewBusy}
-            />
-            <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
-              {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
-            </Button>
-          </div>
-          {previewUrl ? <audio controls src={previewUrl} className="settings-audio-preview" /> : null}
-          {previewError ? <p className="settings-note is-danger" role="alert">{previewError}</p> : null}
-        </section>
-      ) : null}
+      {provider.configured ? <>
+        <DoubaoPreview kind="speech" voiceId={defaultVoiceId.trim()} disabled={provider.enabled === false} />
+        <DoubaoPreview kind="seed" disabled={provider.enabled === false} />
+      </> : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
           <label className="settings-search-field-label" htmlFor={keyId}>{t("providers.apiKey")}</label>
           <div className="settings-detail-inline">
@@ -744,14 +710,54 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               {savingKey ? t("common.saving") : t("common.save")}
             </Button>
           </div>
+          {distinctKeys ? <p className="settings-note">{t("providers.doubaoDistinctKeys")}</p> : null}
           {keyError ? <p className="settings-note is-danger" role="alert">{keyError}</p> : null}
       </form>
-      {provider.configured ? <AudioModels providerId={provider.id} /> : null}
+      {provider.configured ? <AudioModels providerIds={DOUBAO_SPEECH_PROVIDER_IDS} /> : null}
     </>
   );
 }
 
-function AudioModels({ providerId }: { providerId: string }) {
+/** Seed Audio models keep their own provider ID, so saved model choices still match. */
+const DOUBAO_SPEECH_PROVIDER_IDS = ["volcengine-tts", "volcengine-seed-audio"];
+
+/** A short, billable test of one Doubao Speech service: a spoken line, or a Seed Audio sound. */
+function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; voiceId?: string; disabled: boolean }) {
+  const speech = kind === "speech";
+  const [text, setText] = useState(speech ? t("providers.previewSampleText") : t("providers.seedPreviewSamplePrompt"));
+  const [url, setUrl] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  async function run(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const blob = speech
+        ? await previewVolcengineTtsSpeech({ text: text.trim(), ...(voiceId ? { voiceId } : {}) })
+        : await previewSeedAudio(text.trim());
+      setUrl(URL.createObjectURL(blob));
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  const id = `doubao-${kind}-preview`;
+  return (
+    <section className="settings-detail-field" aria-label={speech ? t("providers.previewTitle") : t("providers.seedPreviewTitle")}>
+      <label className="settings-search-field-label" htmlFor={id}>{speech ? t("providers.previewTextLabel") : t("providers.seedPreviewPromptLabel")}</label>
+      <div className="settings-detail-inline">
+        <input id={id} className="settings-search-input" value={text} onChange={(event) => setText(event.target.value)} maxLength={500} disabled={busy} />
+        <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={busy || !text.trim() || disabled} onClick={() => void run()}>
+          {busy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
+        </Button>
+      </div>
+      {url ? <audio controls src={url} className="settings-audio-preview" /> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
   const [models, setModels] = useState<AudioModel[]>();
   const [emptyMessage, setEmptyMessage] = useState(t("providers.noAudioModels"));
   const [error, setError] = useState<string>();
@@ -759,15 +765,16 @@ function AudioModels({ providerId }: { providerId: string }) {
     let active = true;
     void listAudioModelCatalog().then((catalog) => {
       if (!active) return;
-      const status = catalog.providers.find((provider) => provider.provider === providerId);
-      setModels(catalog.models.filter((model) => model.provider === providerId));
+      const status = catalog.providers.find((provider) => provider.provider === providerIds[0]);
+      setModels(catalog.models.filter((model) => providerIds.includes(model.provider)));
       setEmptyMessage(status?.message ?? t("providers.noAudioModels"));
       setError(status?.state === "error" ? status.message : undefined);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
-  }, [providerId]);
+    // Keyed by value: callers pass a new array on every render.
+  }, [providerIds.join(",")]);
 
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>
@@ -1345,6 +1352,10 @@ function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | 
   if (provider.plugin) return t("providers.description.plugin", { plugin: provider.plugin.name });
   if (provider.id === "codex-cli") return t("codexImages.description");
   if (provider.id === "hyper3d") return t("providers.description.hyper3d");
+  // Ark's two providers sell the same models in different regions, with separate accounts.
+  if (provider.id === "volcengine-ark") return t("providers.description.volcengineArk");
+  if (provider.id === "byteplus-modelark") return t("providers.description.byteplusModelArk");
+  if (provider.id === "volcengine-tts") return t("providers.description.doubaoSpeech");
   if (provider.managed) return t("providers.group.free");
   if (isLocalModelProvider(provider)) return t("providers.description.local");
   if (provider.custom) return t("providers.description.custom");

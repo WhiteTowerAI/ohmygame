@@ -8,8 +8,7 @@ provider-neutral request.
 
 ## Providers and connection settings
 
-**Settings → Providers** lists **Doubao Speech**, **Doubao Seed Audio**, and
-**ElevenLabs**. ElevenLabs uses one account API key for speech, sound effects,
+**Settings → Providers** lists **Doubao Speech** and **ElevenLabs**. ElevenLabs uses one account API key for speech, sound effects,
 music and transcription. Its voices are listed from the account rather than
 built in. The key is kept by the daemon and is never written to canvas files.
 
@@ -34,23 +33,30 @@ Each layer stays separate:
   doesn't take are dropped before the adapter sees them. Transcription is a
   media tool on an audio node, not a node of its own.
 
-Doubao Speech and Doubao Seed Audio remain separate providers. Each has its
-own API key, enable state, preview, model list and deletion action. Speech
-also has a default voice setting. Saving or removing one service does not
-change the other.
+**Doubao Speech** (豆包语音) covers speech synthesis (TTS 2.0) and Seed Audio.
+Both are services of the same Volcengine product: one console and one API key
+(**Console → API Key management**, sent as `X-Api-Key`). So OhMyGame has one
+provider for them, with one key, one enable switch, one deletion action, a
+default voice, a preview for each service, and both models. It is not Volcengine
+Ark (火山方舟), which sells Seedance and Seedream with a different key.
 
-Existing `doubao-voice.json` credentials and migrations from earlier settings
-files remain readable, including shared keys previously saved by the unified
-page. New settings changes use service-specific keys. Credentials remain in
-the daemon's settings directory with restricted file permissions and are never
-returned by settings or catalog endpoints.
+A key works for each service only once it is activated in the console. A
+service that isn't fails at generation with the provider's entitlement error
+(503); a saved key does not verify entitlement or quota. Preview actions make a
+real, potentially billable generation request.
 
-The internal provider IDs remain `volcengine-tts` and `volcengine-seed-audio`.
-Models are fixed by the official resource IDs and model names; Volcengine has no
-model-list API for these services.
-Existing nodes, model references, and service-specific settings endpoints stay
-compatible. A saved key means configured; it does not verify service entitlement
-or quota. Preview actions make a real, potentially billable generation request.
+Keys saved separately for the two services, before they were one provider, keep
+working: `doubao-voice.json` still reads per-service keys and older settings
+files. Saving a key replaces them with one shared key, and the settings page
+says when they still differ. Credentials remain in the daemon's settings
+directory with restricted file permissions and are never returned by settings
+or catalog endpoints.
+
+The adapters keep their provider IDs, `volcengine-tts` and
+`volcengine-seed-audio`, so saved model choices still match; both show as
+Doubao Speech. The `volcengine-tts` switch enables both. Models are fixed by the
+official resource IDs and model names; Volcengine has no model-list API for these
+services.
 
 | Model                   | Produces                     | Prompt                             |
 | ----------------------- | ---------------------------- | ---------------------------------- |
@@ -207,10 +213,9 @@ ignored and omitted from new companion files.
 ## HTTP interfaces
 
 - `GET /audio-models/catalog` — live models, capabilities and provider states;
-- service-specific GET/PUT endpoints at
-  `/settings/models/providers/volcengine-tts` (key and `defaultVoiceId`) and
-  `/settings/models/providers/volcengine-seed-audio`;
-- `DELETE /settings/models/providers/<provider-id>` — disconnect one service;
+- GET/PUT `/settings/models/providers/volcengine-tts` — the Doubao Speech key
+  for both services and `defaultVoiceId`; GET also reports `distinctKeys`;
+- `DELETE /settings/models/providers/volcengine-tts` — disconnect both services;
 - `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
 - `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
 - GET/PUT `/settings/models/providers/elevenlabs` (key) and
@@ -222,8 +227,9 @@ ignored and omitted from new companion files.
   returns `{ kind: "text", text }`;
 - `POST /tools/<tool-id>/jobs` — enqueue one of the tools above.
 
-The unified `/settings/models/providers/doubao-voice` endpoints and Library audio
-companion download endpoint are removed. New audio requests reject `references`,
+The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
+settings endpoints and the Library audio companion download endpoint are
+removed. New audio requests reject `references`,
 `referenceAssetId` and `subtitles`; existing saved canvas fields are omitted
 when constructing a new request.
 

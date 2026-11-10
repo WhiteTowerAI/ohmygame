@@ -615,15 +615,6 @@ export async function listAudioVoices(provider: string, query: { search?: string
   return request(`/audio-providers/${encodeURIComponent(provider)}/voices${params.size ? `?${params}` : ""}`);
 }
 
-export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
-  const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {
-    method: "PUT",
-    body: JSON.stringify({ apiKey }),
-  });
-  notifyAgentModelsChanged();
-  return result;
-}
-
 export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | null): Promise<{ configured: boolean; defaultVoiceId?: string }> {
   return request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
     method: "PUT",
@@ -1840,7 +1831,8 @@ export async function inspectProjectPreview(projectId: string, settings: Project
 }
 
 
-export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
+/** The Doubao Speech connection; `distinctKeys` means the two services still use keys saved apart. */
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; distinctKeys?: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
   const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
   if (!response.ok) throw await responseError(response);

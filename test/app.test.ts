@@ -1762,7 +1762,7 @@ describe("daemon", () => {
     apps.push(app);
 
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
-      .toEqual({ configured: false });
+      .toEqual({ configured: false, distinctKeys: false });
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/elevenlabs" })).json())
       .toEqual({ configured: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
@@ -1783,14 +1783,14 @@ describe("daemon", () => {
       method: "PUT",
       url: "/settings/models/providers/volcengine-tts",
       payload: { apiKey: "doubao-key" },
-    })).json()).toEqual({ configured: true });
+    })).json()).toEqual({ configured: true, distinctKeys: false });
     expect((await app.inject({
       method: "PUT",
       url: "/settings/models/providers/volcengine-tts",
       payload: { defaultVoiceId: "zh_female_vv_uranus_bigtts" },
-    })).json()).toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+    })).json()).toEqual({ configured: true, distinctKeys: false, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
-      .toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+      .toEqual({ configured: true, distinctKeys: false, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
 
     const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
     expect(providers).toEqual(expect.arrayContaining([
@@ -1798,11 +1798,15 @@ describe("daemon", () => {
     ]));
     expect(JSON.stringify(providers)).not.toContain("doubao-key");
 
+    // One key connects speech synthesis and Seed Audio.
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
-      models: [expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0" })],
+      models: [
+        expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0", providerName: "Doubao Speech" }),
+        expect.objectContaining({ provider: "volcengine-seed-audio", id: "seed-audio-1.0", providerName: "Doubao Speech" }),
+      ],
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
-        expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "volcengine-seed-audio", state: "ready" }),
         expect.objectContaining({ provider: "elevenlabs", state: "not_configured" }),
       ],
     });
@@ -1811,10 +1815,10 @@ describe("daemon", () => {
       method: "PUT",
       url: "/settings/models/providers/volcengine-tts",
       payload: { defaultVoiceId: null },
-    })).json()).toEqual({ configured: true });
+    })).json()).toEqual({ configured: true, distinctKeys: false });
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-tts" })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
-      .toEqual({ configured: false });
+      .toEqual({ configured: false, distinctKeys: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [],
       providers: [
@@ -1834,41 +1838,26 @@ describe("daemon", () => {
       .toEqual(expect.arrayContaining([expect.objectContaining({ provider: "elevenlabs", configured: true, state: "ready", listsVoices: true })]));
   });
 
-  it("stores the Doubao Seed Audio key independently and exposes compatible models", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-seed-audio-settings-")) });
+  it("lists Doubao Speech once, with one switch for speech synthesis and Seed Audio", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-doubao-speech-")) });
     apps.push(app);
+    await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
 
-    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).json())
-      .toEqual({ configured: false });
-    expect((await app.inject({
-      method: "PUT",
-      url: "/settings/models/providers/volcengine-seed-audio",
-      payload: { apiKey: "seed-audio-key" },
-    })).json()).toEqual({ configured: true });
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json() as Array<{ id: string; name: string }>;
+    expect(providers.filter((provider) => ["volcengine-tts", "volcengine-seed-audio"].includes(provider.id)))
+      .toEqual([expect.objectContaining({ id: "volcengine-tts", name: "Doubao Speech", configured: true })]);
+    // The separate Seed Audio settings are gone; its preview stays.
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-seed-audio", payload: { apiKey: "other" } })).statusCode).toBe(404);
 
-    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
-    expect(providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "volcengine-seed-audio", configured: true, capabilities: ["audio"] }),
-      expect.objectContaining({ id: "volcengine-tts", configured: false }),
-    ]));
-    expect(JSON.stringify(providers)).not.toContain("seed-audio-key");
-
+    expect((await app.inject({ method: "PATCH", url: "/settings/models/providers/volcengine-tts/enabled", payload: { enabled: false } })).statusCode).toBeLessThan(300);
     const catalog = (await app.inject({ method: "GET", url: "/audio-models/catalog" })).json();
-    expect(catalog.models).toEqual([
-      expect.objectContaining({
-        provider: "volcengine-seed-audio",
-        id: "seed-audio-1.0",
-        capabilities: expect.objectContaining({ produces: ["speech", "sound-effect", "music"] }),
-      }),
-    ]);
+    expect(catalog.models).toEqual([]);
     expect(catalog.providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ provider: "volcengine-seed-audio", state: "ready" }),
-      expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
+      expect.objectContaining({ provider: "volcengine-tts", state: "disabled" }),
+      expect.objectContaining({ provider: "volcengine-seed-audio", state: "disabled" }),
     ]));
-
-    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-seed-audio" })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).json())
-      .toEqual({ configured: false });
+    expect((await app.inject({ method: "POST", url: "/settings/models/providers/volcengine-seed-audio/preview", payload: { prompt: "rain" } })).statusCode).toBe(409);
   });
 
   it("previews Doubao Speech audio through the saved connection", async () => {
