@@ -80,7 +80,9 @@ const SERVICE_CODES = new Set<OhMyGameErrorCode>(["quota_exceeded", "rate_limite
 export async function serviceRequest(serverUrl: string, path: string, options?: RequestInit, accept: readonly number[] = []): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(new URL(path, serverUrl), { ...options, signal: AbortSignal.timeout(10_000) });
+    // The service knows players by bearer token, never by cookie. Requests without
+    // credentials share one connection with the room client's matchmaking.
+    response = await fetch(new URL(path, serverUrl), { credentials: "omit", ...options, signal: AbortSignal.timeout(10_000) });
   } catch (cause) {
     const timedOut = isRecord(cause) && cause.name === "TimeoutError";
     throw new OhMyGameError(

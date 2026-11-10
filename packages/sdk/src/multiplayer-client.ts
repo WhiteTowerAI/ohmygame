@@ -281,8 +281,7 @@ export class MultiplayerClient<Game = unknown> {
         this.lockstep = { adapter, runner: new LockstepRunner(adapter, this.lockstepHooks()) };
       } else this.hostRules = { adapter, playerView: hasPlayerView(options.rules) };
     }
-    this.client =
-      options.transport ?? new ColyseusClient(options.manifest.serverUrl);
+    this.client = options.transport ?? colyseusClient(options.manifest.serverUrl);
     this.storage = options.storage ?? browserStorage();
     this.guest = new GuestIdentity({
       serverUrl: options.manifest.serverUrl,
@@ -1242,6 +1241,18 @@ function toOhMyGameError(cause: unknown, code: OhMyGameErrorCode): OhMyGameError
   return new OhMyGameError(code, cause instanceof Error ? cause.message : String(cause), { cause });
 }
 
+/**
+ * Colyseus sends matchmaking with credentials by default, and browsers keep requests
+ * with and without credentials on separate connections: joining then opened a second
+ * TLS connection, most of a second far from the service. The service never reads
+ * cookies, so matchmaking goes without them, on the connection the guest and data
+ * requests already opened.
+ */
+function colyseusClient(serverUrl: string): ColyseusClient {
+  const client = new ColyseusClient(serverUrl);
+  client.http.options.credentials = "omit";
+  return client;
+}
 export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "identity" | "allowLocalhost">;
 
 /**

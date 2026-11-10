@@ -1133,6 +1133,7 @@ export default defineGame({
     await service.stop();
     const runtime = new LocalMultiplayerRuntime();
     const clients: MultiplayerClient[] = [];
+    const fetched = vi.spyOn(globalThis, "fetch");
     try {
       const [gomoku, stones] = await Promise.all([runtime.configure("local-board", "gomoku"), runtime.configure("local-stones", "stones")]);
       expect(gomoku.serverUrl).toBe(stones.serverUrl);
@@ -1148,6 +1149,13 @@ export default defineGame({
       await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
       await wait(() => expect(guest.playerId).toBeTruthy());
       expect(guest.playerId).not.toBe(owner.playerId);
+      // Guest sessions, invitations and matchmaking all go without cookies, so a browser
+      // sends them over one connection instead of opening a second for matchmaking.
+      const toService = fetched.mock.calls.filter(([url]) => String(url instanceof Request ? url.url : url).startsWith(gomoku.serverUrl));
+      expect(toService.map(([url]) => new URL(String(url instanceof Request ? url.url : url)).pathname)).toEqual(
+        expect.arrayContaining(["/v1/guests", "/v1/rooms/resolve", expect.stringMatching(/^\/matchmake\/create\//)]),
+      );
+      for (const [url, init] of toService) expect([String(url), init?.credentials ?? (url instanceof Request ? url.credentials : undefined)]).toEqual([String(url), "omit"]);
       owner.sendCommand("start");
       await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
       owner.sendCommand("action", { action: "move", point: { r: 7, c: 7 } });
@@ -1158,6 +1166,7 @@ export default defineGame({
       expect(await restored.reconnect()).toBe(true);
       await wait(() => expect(restored.snapshot?.state.game?.history).toHaveLength(1));
     } finally {
+      fetched.mockRestore();
       for (const client of clients) client.dispose();
       await runtime.close();
     }
