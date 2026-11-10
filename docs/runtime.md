@@ -745,10 +745,11 @@ Generated images, videos and 3D models appear as small thumbnails under the
 tool calls that made them, without opening those calls. A call still running
 holds its place with a loading tile. Choosing an image shows it larger, with
 the same copy and save actions as other chat images; choosing a video or a 3D
-model opens it in a dialog, where the model can be turned and played. Once a
-turn ends its work folds away, so the same thumbnails also show under the
-response. The files remain in the project's `assets/generated/` folder, and
-the conversation keeps their references.
+model opens it in a dialog, where the model can be turned and played. A 3D
+model's tile is an icon, and its file loads when the tile is opened. Results
+are not repeated under the response; open a finished turn's work to see them.
+The files remain in the project's `assets/generated/` folder, and the
+conversation keeps their references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

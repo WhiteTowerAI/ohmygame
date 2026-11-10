@@ -9333,8 +9333,7 @@ summary.work-summary:hover {
 }
 
 .tool-artifact-tile img,
-.tool-artifact-tile video,
-.tool-artifact-tile .model-preview {
+.tool-artifact-tile video {
   display: block;
   width: 96px;
   height: 96px;
@@ -9351,18 +9350,20 @@ summary.work-summary:hover {
   outline-offset: -2px;
 }
 
-.tool-artifact-tile .model-preview {
-  background: transparent;
-  pointer-events: none;
-}
-
 .tool-artifact-open {
+  display: grid;
   width: 100%;
   height: 100%;
   padding: 0;
+  place-items: center;
   border: 0;
   background: none;
+  color: inherit;
   cursor: pointer;
+}
+
+.tool-artifact-open:hover {
+  color: var(--color-text);
 }
 
 .tool-artifact-badge {

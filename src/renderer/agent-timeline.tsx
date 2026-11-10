@@ -35,7 +35,6 @@ import { PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
 import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
-import { ModelPreview } from "./model-preview.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
@@ -199,7 +198,6 @@ function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePat
             {visible.map((turn, index) => (
               <LimitResumeContext.Provider key={turn.id} value={start + index === lastFailedIndex ? limitResumeControl : undefined}>
               <Turn
-                projectId={projectId}
                 turn={turn}
                 waitingForInput={turn.status === "inProgress" && waitingForInput}
                 steeringPending={steeringPending && start + index === latestSteeringIndex}
@@ -255,9 +253,8 @@ interface AssistantControls {
   onCopy: (id: string, text: string) => void;
 }
 
-const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPending = false, userControls, assistantControls, changeControls }: {
+const Turn = memo(function Turn({ turn, waitingForInput, steeringPending = false, userControls, assistantControls, changeControls }: {
   turn: ThreadTurn;
-  projectId: string;
   waitingForInput: boolean;
   steeringPending?: boolean;
   userControls: UserControls;
@@ -291,13 +288,13 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
-        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} changes={fileChanges} />
-        : <ArtifactStrip projectId={projectId} artifacts={display.artifacts} />}
+        ? <FinalResponse items={display.finalMessages} controls={assistantControls} changes={fileChanges} />
+        : null}
       {display.finalMessages.length === 0 ? fileChanges : null}
       {steeringPending ? <SteeringActivity /> : null}
     </article>
   );
-}, (previous, next) => previous.turn === next.turn && previous.projectId === next.projectId &&
+}, (previous, next) => previous.turn === next.turn &&
   previous.waitingForInput === next.waitingForInput && previous.steeringPending === next.steeringPending &&
   equalControls(previous.userControls, next.userControls) && equalControls(previous.assistantControls, next.assistantControls) &&
   previous.changeControls === next.changeControls);
@@ -314,10 +311,8 @@ function SteeringActivity() {
   );
 }
 
-function FinalResponse({ projectId, items, artifacts, controls, changes }: {
-  projectId: string;
+function FinalResponse({ items, controls, changes }: {
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
-  artifacts: TurnDisplay["artifacts"];
   controls: AssistantControls;
   changes: ReactNode;
 }) {
@@ -329,7 +324,6 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   return (
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
-      <ArtifactStrip projectId={projectId} artifacts={artifacts} />
       {changes}
       {responseId ? (
         <div className="assistant-response-footer">
@@ -960,7 +954,7 @@ function formatToolValue(value: unknown): string {
 }
 
 /** A row of small results. Each opens whole; `pending` holds a place for every one still being made. */
-function ArtifactStrip({ projectId, artifacts, pending = 0 }: { projectId?: string; artifacts: ToolArtifact[]; pending?: number }) {
+function ArtifactStrip({ projectId, artifacts, pending }: { projectId?: string; artifacts: ToolArtifact[]; pending: number }) {
   if (!projectId || artifacts.length + pending === 0) return null;
   return <div className="tool-artifact-strip">
     {artifacts.map((artifact) => <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
@@ -975,8 +969,10 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
   const [open, setOpen] = useState(false);
   const [target, visible] = useNearViewport<HTMLDivElement>();
   const titleId = useId();
+  // A model is megabytes to fetch and a 3D view to draw, and a row can hold a dozen: it loads when opened.
+  const wanted = artifact.type === "model" ? open : visible;
   useEffect(() => {
-    if (!visible) return;
+    if (!wanted) return;
     let disposed = false;
     let objectUrl: string | undefined;
     setPreview(undefined);
@@ -989,7 +985,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, projectId, visible]);
+  }, [artifact.path, projectId, wanted]);
   const name = artifact.path.split("/").at(-1) ?? artifact.path;
   if (artifact.type === "image") {
     return <div ref={target} className="tool-artifact-tile" title={name}>{preview
@@ -997,14 +993,12 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
       : null}</div>;
   }
   const label = artifact.type === "model" ? t("timeline.generated3d") : t("timeline.generatedVideo");
-  const Badge = artifact.type === "model" ? Box : Film;
   return <div ref={target} className="tool-artifact-tile" title={name}>
-    {preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
-      {artifact.type === "model"
-        // A still: the model turns and plays once it is opened.
-        ? <ModelPreview source={preview.url} label={label} minHeight={0} interactive={false} controls={false} />
-        : <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />}
-      <span className="tool-artifact-badge" aria-hidden="true"><Badge size={11} /></span>
+    {artifact.type === "model" ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
+      {open && !preview ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Box size={28} aria-hidden="true" />}
+    </button> : preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
+      <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />
+      <span className="tool-artifact-badge" aria-hidden="true"><Film size={11} /></span>
     </button> : null}
     {/* In the page body: a chat column can be narrower than the window the dialog covers. */}
     {open && preview ? createPortal(<AssetDialogShell title={name} labelledBy={titleId} footer={null} onClose={() => setOpen(false)}

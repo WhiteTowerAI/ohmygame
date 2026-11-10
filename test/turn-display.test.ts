@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock } from "../src/renderer/turn-display.js";
+import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock } from "../src/renderer/turn-display.js";
 
 describe("mergeCompletedCompactionTurns", () => {
   const compaction: Turn = {
@@ -267,15 +267,12 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([compaction]);
   });
 
-  it("lists what a finished turn made once each, and leaves a running turn's results with its work", () => {
+  it("lists what a group of calls made once each, in the order it was made", () => {
     const image = { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } as const;
     const model = { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } as const;
-    const items = [tool("completed", { artifact: image }), tool("completed", { artifact: model }), tool("completed", { artifact: model }), answer("Done.")];
 
-    expect(projectTurnDisplay(turn(items, false)).artifacts).toEqual([image, model]);
-    const running = projectTurnDisplay(turn(items, true));
-    expect(running.artifacts).toEqual([]);
-    expect(running.work[0]).toMatchObject({ kind: "tool-group", tools: items.slice(0, 3) });
+    expect(collectArtifacts([tool("completed", { artifact: image }), tool("completed"), tool("completed", { artifact: model }), tool("completed", { artifact: model })]))
+      .toEqual([image, model]);
   });
 
   it("keeps a final answer in the stable container until the turn ends", () => {

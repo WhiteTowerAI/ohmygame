@@ -7,8 +7,6 @@ const compactionMerges = new WeakMap<Turn, WeakMap<Turn, Turn>>();
 export interface TurnDisplay {
   user?: Extract<ThreadItem, { type: "userMessage" }>;
   work: WorkDisplayItem[];
-  /** What a finished turn made, shown small under its response; a running turn shows each result with the work that made it. */
-  artifacts: ToolArtifact[];
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
   working: boolean;
@@ -63,7 +61,6 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
     return {
       user,
       work: projectWorkItems(workItems),
-      artifacts: collectArtifacts(processItems),
       messages: activityItems.filter((item) => !isWorkItem(item)),
       finalMessages,
       working: false,
@@ -88,7 +85,6 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   return {
     user,
     work,
-    artifacts: [],
     messages: [],
     finalMessages,
     working,
