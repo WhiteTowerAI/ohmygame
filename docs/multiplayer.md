@@ -55,7 +55,11 @@ carries no Colyseus code in its build. `multiplayer.js` takes the shared modules
 account; see [Game sign-in](game-sign-in.md). Local builds have no sign-in
 (`game.auth.available` is false). Without a signed-in player, a deployment that allows
 guests joins as one. The service accepts accounts only when it is started with
-`OHMYGAME_ACCOUNT_ISSUER`. The guest identity and room recovery both live in `localStorage`, so a
+`OHMYGAME_ACCOUNT_ISSUER`. Creating the client already asks for the player's token, a
+guest session if needed, and opens a connection to the service, so a join that follows
+waits only for matchmaking and the room's WebSocket. The SDK's requests to the service,
+matchmaking included, go without cookies: the service knows players by token alone, and
+the browser can send them all over one connection. The guest identity and room recovery both live in `localStorage`, so a
 browser is one player in every tab, and can return to its seat after the tab
 closes. A second tab is the same player and cannot take a second seat in a room.
 While a dropped player's seat waits for them (`reconnectSeconds`), the same

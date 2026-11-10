@@ -24,6 +24,7 @@ export interface GuestIdentityOptions {
 export class GuestIdentity implements IdentityProvider {
   private readonly storage?: Storage;
   private readonly key: string;
+  private issuing?: Promise<string>;
 
   constructor(private readonly options: GuestIdentityOptions) {
     this.storage = options.storage ?? browserStorage();
@@ -43,6 +44,14 @@ export class GuestIdentity implements IdentityProvider {
     } catch {
       /* Request a fresh guest identity. */
     }
+    // A join started while the client's early request is on its way waits for that one.
+    this.issuing ??= this.issue().finally(() => {
+      this.issuing = undefined;
+    });
+    return this.issuing;
+  }
+
+  private async issue(): Promise<string> {
     // Sending the old token, even an expired one, keeps the same guest and their saves.
     const previous = this.saved();
     const response = await serviceRequest(this.options.endpoint ?? this.options.serverUrl, "/v1/guests", {

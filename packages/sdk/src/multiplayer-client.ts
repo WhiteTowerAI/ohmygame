@@ -311,6 +311,13 @@ export class MultiplayerClient<Game = unknown> {
     } catch {
       /* A broken save never prevents a new room. */
     }
+    // Joining waits for this player's token and a connection to the service. Both start
+    // while the player is still on the menu, so a join is left with matchmaking and the
+    // room's own WebSocket.
+    if (!options.transport) {
+      preconnect(this.endpoint());
+      void this.token().catch(() => {});
+    }
   }
   /**
    * The room's tick in milliseconds, as the service reports it when the player joins: how
@@ -1248,6 +1255,22 @@ function toOhMyGameError(cause: unknown, code: OhMyGameErrorCode): OhMyGameError
  * cookies, so matchmaking goes without them, on the connection the guest and data
  * requests already opened.
  */
+/**
+ * Asks the browser to open a connection to the service before the first request, for
+ * requests without credentials as the SDK sends them. A browser may close it again if
+ * nothing uses it soon; then the first request opens its own, as without it.
+ */
+function preconnect(url: string): void {
+  if (typeof document === "undefined" || !document.head) return;
+  const origin = new URL(url).origin;
+  for (const link of document.head.querySelectorAll<HTMLLinkElement>('link[rel="preconnect"]'))
+    if (link.href.replace(/\/$/, "") === origin && link.crossOrigin === "anonymous") return;
+  const link = document.createElement("link");
+  link.rel = "preconnect";
+  link.href = origin;
+  link.crossOrigin = "anonymous";
+  document.head.append(link);
+}
 function colyseusClient(serverUrl: string): ColyseusClient {
   const client = new ColyseusClient(serverUrl);
   client.http.options.credentials = "omit";

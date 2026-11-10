@@ -123,8 +123,10 @@ export declare class GuestIdentity implements IdentityProvider {
     private readonly options;
     private readonly storage?;
     private readonly key;
+    private issuing?;
     constructor(options: GuestIdentityOptions);
     getToken(): Promise<string>;
+    private issue;
     private saved;
 }
 

@@ -1143,12 +1143,16 @@ export default defineGame({
       const guestIdentityStorage = memoryStorage();
       const guest = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: guestStorage, identityStorage: guestIdentityStorage });
       clients.push(owner, guest);
+      // Each client asks for its guest session before the player joins, and joining uses it.
+      const guestRequests = () => fetched.mock.calls.filter(([url]) => String(url).endsWith("/v1/guests")).length;
+      expect(guestRequests()).toBe(2);
       await owner.createRoom();
       await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
       await guest.joinRoom({ roomCode: owner.roomCode });
       await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
       await wait(() => expect(guest.playerId).toBeTruthy());
       expect(guest.playerId).not.toBe(owner.playerId);
+      expect(guestRequests()).toBe(2);
       // Guest sessions, invitations and matchmaking all go without cookies, so a browser
       // sends them over one connection instead of opening a second for matchmaking.
       const toService = fetched.mock.calls.filter(([url]) => String(url instanceof Request ? url.url : url).startsWith(gomoku.serverUrl));
