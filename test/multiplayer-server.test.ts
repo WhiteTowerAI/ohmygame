@@ -297,6 +297,8 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(deployment).toMatchObject({ gameId: "game-1", serverUrl: "https://games.example.test", authPolicy: "guest-or-account", adapterId: "stones", maxClients: 3 });
     // The same settings find the same deployment; others make a new one, up to the game's limit.
     expect(await (await register("game-1", "owner-token", settings)).json()).toEqual(deployment);
+    // "public", the older name, is the same deployment.
+    expect(await (await register("game-1", "owner-token", { ...settings, roomPolicy: "public" })).json()).toEqual(deployment);
     expect((await register("game-1", "owner-token", { ...settings, adapterId: "missing" })).status).toBe(400);
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 2 })).status).toBe(201);
     expect((await register("game-1", "owner-token", { ...settings, maxClients: 4 })).status).toBe(409);

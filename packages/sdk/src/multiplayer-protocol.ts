@@ -3,8 +3,12 @@ export type MultiplayerMode = "turn-based" | "realtime";
 export type MultiplayerAuthPolicy =
   "anonymous" | "guest-or-account" | "account-required";
 /**
- * drop-in is realtime only: players join a room with a free seat, or a new one, without
- * creating or starting it, and can join a round in progress. It has no room owner.
+ * invite-or-public: an owner creates the room; it is listed while waiting, and anyone
+ * with its ID or invite code joins until the match starts. invite-only: never listed,
+ * and joining takes the invite code. drop-in is realtime only: players join a room with
+ * a free seat, or a new one, without creating or starting it, and can join a round in
+ * progress. It has no room owner. "public" is an older name for invite-or-public, still
+ * read in saved deployments; registering it makes an invite-or-public deployment.
  */
 export type MultiplayerRoomPolicy =
   "invite-or-public" | "public" | "invite-only" | "drop-in";

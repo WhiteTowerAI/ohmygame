@@ -552,6 +552,12 @@ smoothed, and `retain(keys)` forgets players who left.
 
 ## Drop-in rooms
 
+`roomPolicy` is `"invite-or-public"` (listed while it waits, joined by ID or
+invite code until the match starts), `"invite-only"` (never listed; joining takes
+the invite code), or `"drop-in"`. `"public"` is an older name for
+`"invite-or-public"`: saved deployments with it still load, and registering it
+makes an `"invite-or-public"` deployment.
+
 `roomPolicy: "drop-in"` lets realtime players press Play without creating a
 room. The manifest validator rejects it for turn-based games, where a latecomer
 has no turn to take. Call `quickPlay({ displayName })` instead of `createRoom`:

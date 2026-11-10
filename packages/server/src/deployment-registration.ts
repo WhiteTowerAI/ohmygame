@@ -45,7 +45,8 @@ export function deploymentFor(gameId: string, request: DeploymentRequest, public
     mode: request.mode,
     adapterId: request.adapterId,
     maxClients: request.maxClients,
-    roomPolicy: request.roomPolicy,
+    // "public" behaves as invite-or-public; new deployments use the one name.
+    roomPolicy: request.roomPolicy === "public" ? "invite-or-public" : request.roomPolicy,
     reconnectSeconds: request.reconnectSeconds,
     // Published games let players sign in, and let guests play.
     authPolicy: "guest-or-account" as const,

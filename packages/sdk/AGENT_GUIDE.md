@@ -128,9 +128,17 @@ The manifest's `multiplayer.adapterId` decides who runs the rules. OhMyGame's
 | `lockstep`                          | Every browser, the same deterministic rules | Realtime games where every screen must agree              | Yes           |
 | `owner`                             | Each page runs its own player               | Casual or co-op realtime games, physics, low-latency feel | No            |
 
-`mode` is `"turn-based"` or `"realtime"`. `roomPolicy` is `"invite-or-public"`,
-`"public"`, `"invite-only"`, or `"drop-in"` (realtime only: no owner, players
-join a running round with `quickPlay`). `lockstep` and `owner` deployments carry
+`mode` is `"turn-based"` or `"realtime"`. `roomPolicy` is one of:
+
+- `"invite-or-public"`: the owner creates the room and starts it; it is listed by
+  `publicRooms()` while waiting, and anyone with its ID or invite code joins until
+  the match starts.
+- `"invite-only"`: never listed; joining takes the invite code.
+- `"drop-in"` (realtime only): no owner; `quickPlay` joins the fullest room with a
+  free seat, or a new one, even during a round, and rounds start and restart on
+  their own.
+
+`"public"` is an older name for `"invite-or-public"`. `lockstep` and `owner` deployments carry
 a `tickMs` that must equal the rules' `tickMs`.
 
 Only built-in rules count toward leaderboards. `host`, `lockstep` and `owner`
