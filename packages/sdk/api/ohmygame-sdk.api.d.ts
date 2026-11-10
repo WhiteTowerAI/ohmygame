@@ -1238,7 +1238,11 @@ export declare function isOwnerMessage(value: unknown): value is Record<string, 
 export declare function isOwnerFrame(value: unknown): value is OwnerFrame;
 export declare function isOwnerSync(value: unknown): value is OwnerSync;
 export declare function isOwnerSharedUpdate(value: unknown): value is OwnerSharedUpdate;
-/** Plain JSON equality, as the service compares a shared value with what a change expects. */
+/**
+ * Plain JSON equality, as JSON.stringify would see it (keys holding undefined count as
+ * absent), without building either string: the service compares a shared value with what a
+ * change expects, and a realtime room's whole state with the last one every tick.
+ */
 export declare function sameJson(left: unknown, right: unknown): boolean;
 
 // rules.d.ts

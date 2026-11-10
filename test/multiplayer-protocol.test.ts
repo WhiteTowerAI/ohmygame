@@ -6,6 +6,7 @@ import {
   isTurnCommand,
   isTurnCommandResult,
   normalizeDisplayName,
+  sameJson,
 } from "@ohmygame/sdk/protocol";
 
 const manifest = {
@@ -107,5 +108,15 @@ describe("multiplayer protocol", () => {
     for (const serverUrl of ["http://192.168.1.2:43130", "http://127.0.0.1.evil.test", "http://user@localhost:43130", "http://localhost:43130/other"]) {
       expect(isMultiplayerManifestConfig({ ...manifest, serverUrl }, { allowLocalhost: true })).toBe(false);
     }
+  });
+  it("compares states as JSON would serialize them", () => {
+    expect(sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
+    // A rule that leaves a key undefined has not changed the state the room would send.
+    expect(sameJson({ a: undefined, b: 1 }, { b: 1 })).toBe(true);
+    expect(sameJson({ b: 1 }, { a: undefined, b: 1 })).toBe(true);
+    expect(sameJson({ a: null }, {})).toBe(false);
+    expect(sameJson([1, 2], { 0: 1, 1: 2 })).toBe(false);
+    expect(sameJson({ players: [{ x: 1 }] }, { players: [{ x: 1.5 }] })).toBe(false);
+    expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);
   });
 });

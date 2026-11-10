@@ -684,14 +684,25 @@ export function isOwnerSync(value: unknown): value is OwnerSync {
 export function isOwnerSharedUpdate(value: unknown): value is OwnerSharedUpdate {
   return isRecord(value) && isSequence(value.round) && typeof value.by === "string" && Array.isArray(value.changes);
 }
-/** Plain JSON equality, as the service compares a shared value with what a change expects. */
+/**
+ * Plain JSON equality, as JSON.stringify would see it (keys holding undefined count as
+ * absent), without building either string: the service compares a shared value with what a
+ * change expects, and a realtime room's whole state with the last one every tick.
+ */
 export function sameJson(left: unknown, right: unknown): boolean {
   if (left === right) return true;
-  if (Array.isArray(left) && Array.isArray(right))
-    return left.length === right.length && left.every((item, index) => sameJson(item, right[index]));
-  if (isRecord(left) && isRecord(right) && !Array.isArray(left) && !Array.isArray(right)) {
-    const keys = Object.keys(left);
-    return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) if (!sameJson(left[index], right[index])) return false;
+    return true;
   }
-  return false;
+  if (!isRecord(left) || !isRecord(right)) return false;
+  let keys = 0;
+  for (const key in left) {
+    if (left[key] === undefined) continue;
+    keys++;
+    if (!Object.hasOwn(right, key) || !sameJson(left[key], right[key])) return false;
+  }
+  for (const key in right) if (right[key] !== undefined) keys--;
+  return keys === 0;
 }

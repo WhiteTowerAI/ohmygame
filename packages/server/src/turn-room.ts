@@ -474,6 +474,10 @@ export class GameRoom extends Room {
     );
   }
 
+  /** Whether every seat and spectator sees the whole state, so one snapshot serves them all. */
+  private get sharedSnapshot(): boolean {
+    return !this.services.adapter.viewFor && !(this.hosted && this.record.views && this.record.snapshot.state.game !== undefined);
+  }
   /** What one seat may see; without a seat, what a spectator may see. */
   snapshotFor(playerId: string | undefined): MultiplayerSnapshot {
     const snapshot = structuredClone(this.record.snapshot);
@@ -771,8 +775,7 @@ export class GameRoom extends Room {
       this.tickMs / 1000,
       actions,
     );
-    if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state))
-      return;
+    if (sameJson(state, this.record.snapshot.state)) return;
     // Realtime games close on service restart, so only the terminal state needs a disk write.
     this.commit(
       state,
@@ -1199,8 +1202,11 @@ export class GameRoom extends Room {
     this.record = record;
     // A closed room must not be offered to quick play or a merging player before it disposes.
     if (state.phase === "closed" && !this.locked) void this.lock();
-    for (const client of this.clients)
-      client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
+    // Without per-seat views every connection sees the same snapshot: encode it once.
+    if (this.sharedSnapshot) this.broadcast("snapshot", record.snapshot);
+    else
+      for (const client of this.clients)
+        client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
     this.broadcast("event", {
       type,
       roomId: this.roomId,
@@ -1336,7 +1342,7 @@ export class GameRoom extends Room {
     )
       return;
     const state = mergeHostState(message.state, this.record.snapshot.state);
-    if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state)) return;
+    if (sameJson(state, this.record.snapshot.state)) return;
     // Like the service's own tick, only the end of a round needs a disk write.
     this.commit(state, state.phase === "finished" ? "room.finished" : "state.updated", {}, undefined, state.phase === "finished", true, this.record.members, {
       ...(message.views ? { views: message.views as HostViews } : {}),
