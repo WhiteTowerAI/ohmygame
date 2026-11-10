@@ -72,6 +72,8 @@ const en = {
     tryAgain: "Try again",
     copied: "Copied",
     copyDetails: "Copy details",
+    copyLink: "Copy link",
+    openLinkFailed: "Couldn’t open your browser. Copy this link and open it in a browser.",
     technicalDetails: "Technical details",
     signIn: "Sign in",
     signOut: "Sign out",
