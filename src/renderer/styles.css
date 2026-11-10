@@ -2210,13 +2210,6 @@ select.settings-search-input {
 .asset-template-source-actions button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; }
 .asset-template-source-actions button:disabled { opacity: .55; cursor: wait; }
 
-.home-whats-new-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(var(--recent-project-min-width), 100%), 232px));
-  gap: var(--recent-project-gap);
-  padding-bottom: 2px;
-}
-
 .home-whats-new-item {
   display: flex;
   flex-direction: column;
@@ -5349,7 +5342,7 @@ button {
   display: grid;
   gap: 6px;
   padding: 10px 12px 12px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
 }
 
 .asset-example-prompt label {
@@ -5425,7 +5418,7 @@ button {
   padding: 0;
   width: 100%;
   height: 100%;
-  color: var(--icon-secondary);
+  color: var(--text-secondary);
 }
 
 .story-media-audio > svg {
@@ -12668,10 +12661,6 @@ summary.work-summary:hover {
 
   .settings-page-inner {
     padding-top: 30px;
-  }
-
-  .home-whats-new-grid {
-    grid-template-columns: 1fr;
   }
 
   .sidebar-page {
