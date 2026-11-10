@@ -64,13 +64,16 @@ describe("AssetLibrary", () => {
       assets: [
         { ...base, id: "old", name: "old.png" },
         { ...base, id: "chat", name: "screenshot.png", origin: "uploaded" },
+        { ...base, id: "project", name: "sprite.png" },
       ],
-      sources: { "tool:run:old.png": "old", "conversation-image:image/png:hash": "chat" },
+      sources: { "tool:run:old.png": "old", "conversation-image:image/png:hash": "chat", "project:project:sprite.png": "project" },
     }));
     const library = new AssetLibrary(dataDirectory);
     await library.load();
     expect(library.get("old")).toMatchObject({ origin: "unknown", purpose: "asset", saved: true });
     expect(library.get("chat")).toMatchObject({ origin: "uploaded", purpose: "reference" });
+    // A project's file isn't saved to the Library until the person saves it.
+    expect(library.get("project")).toMatchObject({ origin: "unknown", saved: false });
   });
 
   it("keeps a reference promoted to an asset when the same input is submitted again", async () => {

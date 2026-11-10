@@ -267,7 +267,7 @@ function parseLibrary(value: unknown): StoredLibrary | undefined {
         ...asset,
         origin,
         purpose: asset.purpose ?? (keys.some((key) => key.startsWith("conversation-image:")) ? "reference" : "asset"),
-        saved: asset.saved ?? origin !== "workspace",
+        saved: asset.saved ?? !keys.some((key) => originFromSource(key) === "workspace"),
       };
     }),
   };

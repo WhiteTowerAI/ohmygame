@@ -91,9 +91,20 @@ export async function readCanvasIndex(workspace: string): Promise<CanvasWorkspac
   if (!isCanvasIndex(value)) throw new CanvasError("canvas/index.json: duplicate IDs or unknown mainDocumentId");
   return value;
 }
+async function present(file: string): Promise<boolean> {
+  try { await lstat(file); return true; }
+  catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false; throw cause; }
+}
 async function ensureCanvasIndex(workspace: string): Promise<CanvasWorkspaceIndex> {
   const current = await readCanvasIndex(workspace);
   if (current) return current;
+  // compat: since beta.5.6, remove from beta.7 and 2026-12-11. A message for the canvas format from before
+  // beta.2, whose migration script went in beta.5.6: a Design in design/, or an Asset Canvas in canvas.json.
+  for (const legacy of [["design", "index.json"], ["editor", "layout.json"]]) {
+    if (legacy[0] === "editor" && !(await present(path.join(workspace, "canvas.json")))) continue;
+    if (!(await present(path.join(workspace, ...legacy)))) continue;
+    throw new CanvasError("This project's Canvas is in the format from before beta.2 (design/ or canvas.json), which this version doesn't open. Its files are unchanged. To move them to canvas/, stop OhMyGame and run scripts/migrate-canvas-workspaces.ts from the source of OhMyGame v0.0.0-beta.5.5 against its data directory.", 409);
+  }
   try {
     await lstat(path.join(workspace, "canvas"));
     throw new CanvasError("The canvas directory is missing index.json. Restore its index before opening it.", 409);
