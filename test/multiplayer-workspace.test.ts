@@ -93,6 +93,10 @@ describe("multiplayer workspace integration", () => {
       expect(
         await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
       ).toContain("never import.meta.env.DEV");
+      // Owner games learn the SDK's own direct connections, not a WebRTC stack of their own.
+      expect(
+        await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
+      ).toContain("createMultiplayerClient(game, callbacks, { p2p: true })");
 
       // After a restart the local service may listen elsewhere; only files still declaring the old address move.
       expect(await readWorkspaceMultiplayer(project)).toEqual(config);

@@ -31,6 +31,8 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("Colyseus + WebSocket");
     expect(text).toContain("multiplayer_setup");
     expect(text).toContain("Do not silently substitute PeerJS");
+    // The SDK's own direct connections are allowed; a hand-made WebRTC stack is not.
+    expect(text).toContain("built-in p2p option");
     expect(text).toContain("server/rules.ts");
     expect(text).toContain("defineGame for a turn-based game");
     expect(text).toContain("defineRealtimeGame for a realtime game such as multiplayer snake");
