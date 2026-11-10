@@ -21,6 +21,7 @@ import {
   type LockstepReport,
   type LockstepSync,
   type MultiplayerGameState,
+  type RealtimeAction,
   type RealtimeInput,
 } from "./multiplayer-protocol.js";
 import type { GameAdapter } from "./rules.js";
@@ -73,6 +74,8 @@ export class LockstepRunner {
   private held = new Map<string, { input: RealtimeInput; frame: number }>();
   /** This page's inputs the service has not yet counted. */
   private sent: SentInput[] = [];
+  /** This page's actions no frame has carried yet, each with the frame it was sent for. */
+  private actions: { frame: number; action: RealtimeAction }[] = [];
   /** Other players' inputs the service passed on before the frames they count in. */
   private early = new Map<string, SentInput[]>();
   /** When recent frames arrived, less their number of ticks: the earliest is the clock. */
@@ -111,7 +114,10 @@ export class LockstepRunner {
     this.round = value.round;
     this.tickMs = value.tickMs;
     this.startedAt = start.startedAt;
-    if (!sameRound) this.sent = [];
+    if (!sameRound) {
+      this.sent = [];
+      this.actions = [];
+    }
     this.arrivals = [];
     this.held.clear();
     this.early.clear();
@@ -172,11 +178,22 @@ export class LockstepRunner {
     return { inputId, frame, input };
   }
 
+  /**
+   * An action this page sends now, guessed in the frame its inputs would count in until a
+   * frame from the service carries it. The service puts it in the frame after it arrives.
+   */
+  action(action: RealtimeAction): void {
+    if (this.state?.phase !== "playing") return;
+    this.actions.push({ frame: Math.max(this.frame + 1, this.aheadFrame(this.clock()) + 1), action });
+    this.show(true);
+  }
+
   reset(): void {
     this.round = undefined;
     this.state = undefined;
     this.frame = 0;
     this.sent = [];
+    this.actions = [];
     this.held.clear();
     this.early.clear();
     this.arrivals = [];
@@ -249,7 +266,11 @@ export class LockstepRunner {
       }
       const mine = this.mine(frame);
       if (mine && frame - mine.frame <= lifetime) inputs.set(me, { input: mine.input, at });
-      const next = this.adapter.step(guess, inputs, at, this.tickMs / 1000, []);
+      // This page's own actions, in the frame they were sent for, or the next one if it passed.
+      const actions = this.actions
+        .filter((entry) => Math.max(entry.frame, this.frame + 1) === frame)
+        .map((entry) => ({ playerId: me, action: entry.action }));
+      const next = this.adapter.step(guess, inputs, at, this.tickMs / 1000, actions);
       // Only a frame from the service ends a round.
       if (next.phase !== "playing") break;
       guess = next;
@@ -298,6 +319,12 @@ export class LockstepRunner {
     const me = this.hooks.playerId();
     const acked = me === undefined ? undefined : frame.acks?.[me];
     if (acked !== undefined) this.sent = this.sent.filter((entry) => entry.inputId > acked);
+    // The service keeps each player's actions in the order they arrived: the frame carries
+    // this page's oldest. One no frame carried within the furthest a page runs ahead was
+    // refused, and is no longer guessed.
+    const carried = (frame.actions ?? []).filter((entry) => entry.playerId === me).length;
+    const stale = frame.frame - Math.ceil(LOCKSTEP_MAX_AHEAD_MS / this.tickMs);
+    this.actions = this.actions.slice(carried).filter((entry) => entry.frame > stale);
     // Inputs passed on early are in the frames now, or were replaced by newer ones there.
     for (const [playerId, waiting] of this.early) {
       const ack = frame.acks?.[playerId];

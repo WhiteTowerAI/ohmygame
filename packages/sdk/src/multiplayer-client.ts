@@ -530,6 +530,7 @@ export class MultiplayerClient<Game = unknown> {
       }
     }
     this.room.send("action", action);
+    this.lockstep?.runner.action(action);
     return true;
   }
   private flushInput(): void {

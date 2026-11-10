@@ -176,6 +176,59 @@ describe("lockstep rules", () => {
   });
 });
 
+describe("lockstep actions", () => {
+  it("shows a player's own action before its frame arrives, once, and drops one no frame carries", () => {
+    const adapter = compileGame(defineRealtimeGame({
+      players: { min: 1, max: 2 },
+      tickMs: 100,
+      setup: () => ({ jumps: {} as Record<string, number> }),
+      input: () => ({}),
+      action: (value) => ({ jump: value.jump === true }),
+      tick(G: { jumps: Record<string, number> }, _ctx, _inputs, _dt, actions) {
+        for (const { playerId } of actions) G.jumps[playerId] = (G.jumps[playerId] ?? 0) + 1;
+      },
+    }));
+    let now = 0;
+    const runner = new LockstepRunner(adapter, {
+      show: () => {},
+      finish: () => {},
+      checkpoint: () => {},
+      reporter: () => false,
+      resync: () => {},
+      ping: () => {},
+      playerId: () => "b",
+      every: () => () => {},
+    }, () => now);
+    const jumps = () => (runner.shown!.game as { jumps: Record<string, number> }).jumps;
+    const start = { ...room("playing"), players: room("playing").players.map((player) => ({ ...player, connected: true })), seed: 7 };
+    runner.sync({ round: 1, tickMs: 100, start: { state: start, startedAt: 0 }, frames: [] });
+    const frame = (n: number, actions?: LockstepFrame["actions"]) => {
+      now = n * 100 + 50;
+      runner.receive({ round: 1, frame: n, inputs: {}, ...(actions ? { actions } : {}) });
+    };
+    frame(1);
+    frame(2);
+    runner.pong(now - 100);
+    // Sent now, the jump counts in frame 4, which the page shows from 330 ms.
+    runner.action({ jump: true });
+    expect(jumps()).toEqual({});
+    now = 330;
+    expect(jumps()).toEqual({ b: 1 });
+    frame(3);
+    frame(4, [{ playerId: "b", action: { jump: true } }]);
+    // The frame carried it: the guess does not count it a second time.
+    expect(runner.current!.game).toEqual({ jumps: { b: 1 } });
+    now = 520;
+    expect(jumps()).toEqual({ b: 1 });
+    // A jump no frame carries within the furthest the page runs ahead was refused.
+    runner.action({ jump: true });
+    now = 720;
+    expect(jumps()).toEqual({ b: 2 });
+    for (let n = 5; n <= 17; n++) frame(n);
+    expect(jumps()).toEqual({ b: 1 });
+  });
+});
+
 describe("predicting a player's own moves in a room the service runs", () => {
   const snapshot = (sequence: number, x: number, acks?: number[]) => ({
     roomId: "r", gameId: "g", deploymentId: "d", mode: "realtime" as const, sequence, serverTime: new Date().toISOString(),

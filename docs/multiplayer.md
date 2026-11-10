@@ -437,8 +437,11 @@ when it arrives.
   to everyone else as soon as it arrives (`lockstep.early`, with the frame it will
   count in), so pages guess ahead with other players' real inputs instead of
   waiting for the frame; what a page cannot know is only what has not reached it
-  yet, about a round trip. Each frame that arrives replaces the guess. Actions and
-  seat changes are not guessed: they show when their frame arrives.
+  yet, about a round trip. Each frame that arrives replaces the guess. A page's
+  own actions are guessed in the frame its inputs would count in, until a frame
+  carries them; one no frame carries within a second was refused and is dropped
+  from the guess. Other players' actions and seat changes are not guessed: they
+  show when their frame arrives.
 - `client.snapshot` and `onSnapshot` give the guess. `client.confirmed` gives the
   newest frame's state, which trails it by about a round trip and is never
   corrected. A game that draws other players from `client.confirmed` and its own
