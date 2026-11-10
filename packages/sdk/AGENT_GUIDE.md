@@ -248,7 +248,7 @@ export default defineRealtimeGame({
 ```
 
 - `client.sendInput(input)`: what the player holds now. Safe to call every
-  frame; the SDK sends the latest at most once a tick. A player who stops
+  frame; the SDK sends the latest about once a tick, and a change at once. A player who stops
   sending drops out of `inputs` after five ticks, so keep anything lasting (a
   heading) in `G`.
 - `client.sendAction(action)`: something done once (fire, jump). Call once per
@@ -272,6 +272,13 @@ may jump when a frame corrects it. `client.confirmed` is the newest frame from
 the service, a round trip behind but never corrected. To avoid jumps, draw the
 local player from `client.snapshot` and other players from `client.confirmed`.
 Collisions between players are then decided slightly later than they appear.
+
+**Rules the service runs.** When a self-hosted service runs the realtime rules
+itself, pass them anyway, `createMultiplayerClient(game, callbacks, { rules })`:
+the SDK steps them with each input so the player's own moves show at once in
+`client.snapshot`, and replays what the service has not read on each snapshot.
+`client.confirmed` is the service's newest. Only inputs are predicted, not
+actions; rules with `playerView` are not predicted.
 
 ### Owner rooms (`owner`)
 

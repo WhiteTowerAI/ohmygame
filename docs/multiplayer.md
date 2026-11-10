@@ -323,7 +323,16 @@ const rules = defineRealtimeGame({
   for a whole one (`snapshot.request`) when it holds another, as after a missed
   tick; `onSnapshot` always gets whole snapshots. In a room whose rules the
   service runs, each tick also carries `acks`: for each seat in
-  `state.players`, the `inputId` of the newest input that tick read, or -1. Rules with `playerView` get a
+  `state.players`, the `inputId` of the newest input that tick read, or -1.
+- A page that passes those rules to `createMultiplayerClient` (as
+  `{ rules }`, rules from `defineRealtimeGame` or a compiled realtime adapter)
+  predicts its own player: each input it sends steps the rules at once with that
+  input alone, and each snapshot restarts from the service's state and replays
+  the inputs after the seat's ack. `client.snapshot` is that guess and
+  `client.confirmed` the service's newest. Actions are not predicted, and rules
+  with `playerView` are not predicted at all. Where the service read inputs
+  differently, such as two arriving in one tick, the next snapshot corrects the
+  guess. Prediction runs on the page and costs the service nothing. Rules with `playerView` get a
   whole snapshot each tick, since each seat's differs. `G` should hold game data
   only. Ticks raise no room event (`onEvent`); events report seats taken and
   given up, round starts and finishes. The page draws other players between snapshots,

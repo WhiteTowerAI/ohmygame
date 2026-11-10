@@ -903,6 +903,24 @@ export default defineGame({
     await wait(() => expect(watcher.snapshot?.state.players).toHaveLength(1));
   });
 
+  it("shows a player's own moves at once when the page passes the rules the service runs", async () => {
+    const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
+    const walker = player(deployment, { rules: createBuiltInAdapter("roam") });
+    await walker.quickPlay();
+    await wait(() => expect(walker.snapshot?.state.phase).toBe("playing"));
+    const start = walker.snapshot!.state.players[0]!.x;
+    walker.sendInput({ x: 1, y: 0 });
+    // Before any trip to the service: the walker has moved, and the service's room has not.
+    expect(walker.snapshot!.state.players[0]!.x).toBeGreaterThan(start);
+    expect(walker.confirmed!.state.players[0]!.x).toBe(start);
+    const frames = setInterval(() => walker.sendInput({ x: 1, y: 0 }), 1000 / 60);
+    await wait(() => expect(walker.confirmed!.state.players[0]!.x).toBeGreaterThan(start + 3));
+    clearInterval(frames);
+    walker.sendInput({ x: 0, y: 0 });
+    // Once the service has read every input, the guess and the service agree.
+    await wait(() => expect(walker.snapshot!.state.players[0]!.x).toBeCloseTo(walker.confirmed!.state.players[0]!.x, 5));
+  });
+
   it("lets players roam a shared world that never ends", async () => {
     const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
     const events: string[] = [];

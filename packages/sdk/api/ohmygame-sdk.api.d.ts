@@ -591,7 +591,9 @@ export interface MultiplayerClientOptions {
     /**
      * The game's rules from defineGame or defineRealtimeGame, usually the default export of
      * server/rules.ts. Required when the deployment runs its rules on a player's browser
-     * (adapterId "host"): the service asks one player at a time to run them for the room.
+     * (adapterId "host" or "lockstep"). For a realtime room whose rules the service runs,
+     * passing the same rules predicts this player's own moves: snapshot shows them at once
+     * and confirmed is the service's newest. Rules with playerView are not predicted.
      */
     rules?: unknown;
     connectionTimeoutMs?: number;
@@ -674,6 +676,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly lockstep?;
     /** This player's part of the round, for an owner deployment. */
     private readonly owner?;
+    /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
+    private readonly prediction?;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
     /**
      * The room's tick in milliseconds, as the service reports it when the player joins: how
@@ -694,8 +698,8 @@ export declare class MultiplayerClient<Game = unknown> {
     /**
      * The room at the newest frame the service sent, with no guess: in a lockstep round it
      * trails snapshot by about a round trip and is never corrected, so drawing other players
-     * from it shows them a little late but without jumps. Outside a lockstep round it is
-     * snapshot.
+     * from it shows them a little late but without jumps. With predicted moves it is the
+     * service's newest snapshot. Otherwise it is snapshot.
      */
     get confirmed(): MultiplayerSnapshot | undefined;
     /** Whether this player's browser runs the game's rules for the room now. */
@@ -762,6 +766,14 @@ export declare class MultiplayerClient<Game = unknown> {
     private showOwner;
     sendAction(action: ClientAction<Game>): boolean;
     private flushInput;
+    /**
+     * Predicts this player from the rules the service runs: realtime rules from
+     * defineRealtimeGame, or a compiled realtime adapter. Rules with playerView are not
+     * predicted, since the page does not see the whole state they step.
+     */
+    private predictionFor;
+    /** Shows this player's predicted moves on the room's latest seats and phase. */
+    private showPredicted;
     /** What the lockstep runner does with the round: show it, and report to the service. */
     private lockstepHooks;
     /** Shows a lockstep round's state on the room's latest seats and phase. */

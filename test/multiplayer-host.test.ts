@@ -3,6 +3,8 @@ import { HostLoop, mergeHostState, runHostRequest } from "@ohmygame/sdk/host";
 import { compileGame, defineGame, defineRealtimeGame } from "@ohmygame/server";
 import type { LockstepFrame, MultiplayerGameState } from "@ohmygame/sdk/protocol";
 import { LockstepRunner } from "../packages/sdk/src/lockstep.js";
+import { OwnPrediction } from "../packages/sdk/src/prediction.js";
+import { createBuiltInAdapter } from "@ohmygame/games";
 
 function room(phase: MultiplayerGameState["phase"]): MultiplayerGameState {
   return {
@@ -171,5 +173,37 @@ describe("lockstep rules", () => {
     frame(7, { a: { dx: 1 }, b: { dx: 1 } }, { a: 2 });
     expect(runner.current!.game).toEqual({ x: { a: 3, b: 4 } });
     expect(x()).toEqual({ a: 4, b: 5 });
+  });
+});
+
+describe("predicting a player's own moves in a room the service runs", () => {
+  const snapshot = (sequence: number, x: number, acks?: number[]) => ({
+    roomId: "r", gameId: "g", deploymentId: "d", mode: "realtime" as const, sequence, serverTime: new Date().toISOString(),
+    state: { ...room("playing"), players: [{ playerId: "a", displayName: "A", connected: true, x, y: 50 }] },
+    ...(acks ? { acks } : {}),
+  });
+
+  it("steps each input at once, and replays the ones the service has not read on its snapshots", () => {
+    // Roam walks 12 units a second: 0.6 a 50 ms tick.
+    const prediction = new OwnPrediction(createBuiltInAdapter("roam"), { playerId: () => "a", tickMs: () => 50 });
+    prediction.confirm(snapshot(1, 50));
+    prediction.sent(0, { x: 1, y: 0 });
+    prediction.sent(1, { x: 1, y: 0 });
+    expect(prediction.state!.players[0]!.x).toBeCloseTo(51.2);
+    // The service read input 0; input 1 is replayed on its position.
+    prediction.confirm(snapshot(2, 50.6, [0]));
+    expect(prediction.state!.players[0]!.x).toBeCloseTo(51.2);
+    // Where the service disagrees, its position wins.
+    prediction.confirm(snapshot(3, 50.5, [0]));
+    expect(prediction.state!.players[0]!.x).toBeCloseTo(51.1);
+    prediction.confirm(snapshot(4, 51.1, [1]));
+    expect(prediction.state!.players[0]!.x).toBeCloseTo(51.1);
+    // A snapshot without acks, such as a seat taken, keeps the last one.
+    prediction.sent(2, { x: 1, y: 0 });
+    prediction.confirm(snapshot(5, 51.1));
+    expect(prediction.state!.players[0]!.x).toBeCloseTo(51.7);
+    // Outside a round nothing is guessed.
+    prediction.confirm({ ...snapshot(6, 51.1), state: { ...snapshot(6, 51.1).state, phase: "finished" } });
+    expect(prediction.state!.phase).toBe("finished");
   });
 });

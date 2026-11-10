@@ -45,6 +45,7 @@ import type { OhMyGame } from "./index.js";
 import { LockstepRunner } from "./lockstep.js";
 import { OwnerSession } from "./owner.js";
 import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
+import { OwnPrediction } from "./prediction.js";
 
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
 
@@ -78,7 +79,9 @@ export interface MultiplayerClientOptions {
   /**
    * The game's rules from defineGame or defineRealtimeGame, usually the default export of
    * server/rules.ts. Required when the deployment runs its rules on a player's browser
-   * (adapterId "host"): the service asks one player at a time to run them for the room.
+   * (adapterId "host" or "lockstep"). For a realtime room whose rules the service runs,
+   * passing the same rules predicts this player's own moves: snapshot shows them at once
+   * and confirmed is the service's newest. Rules with playerView are not predicted.
    */
   rules?: unknown;
   connectionTimeoutMs?: number;
@@ -190,6 +193,8 @@ export class MultiplayerClient<Game = unknown> {
   private readonly lockstep?: { adapter: GameAdapter; runner: LockstepRunner };
   /** This player's part of the round, for an owner deployment. */
   private readonly owner?: OwnerSession;
+  /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
+  private readonly prediction?: OwnPrediction;
 
   constructor(
     private readonly options: MultiplayerClientOptions,
@@ -219,6 +224,8 @@ export class MultiplayerClient<Game = unknown> {
         clock: this.tickClock,
       });
     const runsRules = options.manifest.adapterId === HOST_ADAPTER_ID || options.manifest.adapterId === LOCKSTEP_ADAPTER_ID;
+    if (!runsRules && options.manifest.mode === "realtime" && options.manifest.adapterId !== OWNER_ADAPTER_ID && options.rules !== undefined)
+      this.prediction = this.predictionFor(options.rules);
     if (runsRules) {
       if (options.rules === undefined)
         throw new OhMyGameError(
@@ -303,10 +310,11 @@ export class MultiplayerClient<Game = unknown> {
   /**
    * The room at the newest frame the service sent, with no guess: in a lockstep round it
    * trails snapshot by about a round trip and is never corrected, so drawing other players
-   * from it shows them a little late but without jumps. Outside a lockstep round it is
-   * snapshot.
+   * from it shows them a little late but without jumps. With predicted moves it is the
+   * service's newest snapshot. Otherwise it is snapshot.
    */
   get confirmed(): MultiplayerSnapshot | undefined {
+    if (this.prediction) return this.fromService ?? this.current;
     const round = this.lockstep?.runner.current;
     const base = this.fromService;
     if (!round || !base || base.state.phase !== "playing" || this.current?.state.phase !== "playing") return this.current;
@@ -550,7 +558,40 @@ export class MultiplayerClient<Game = unknown> {
       this.room.send("lockstep.input", this.lockstep.runner.input(this.inputId++, input));
       return;
     }
-    this.room.send("input", { ...input, inputId: this.inputId++ });
+    const inputId = this.inputId++;
+    this.room.send("input", { ...input, inputId });
+    if (this.prediction) {
+      this.prediction.sent(inputId, input);
+      this.showPredicted();
+    }
+  }
+  /**
+   * Predicts this player from the rules the service runs: realtime rules from
+   * defineRealtimeGame, or a compiled realtime adapter. Rules with playerView are not
+   * predicted, since the page does not see the whole state they step.
+   */
+  private predictionFor(rules: unknown): OwnPrediction | undefined {
+    let adapter: GameAdapter;
+    if (isRecord(rules) && typeof rules.step === "function" && rules.mode === "realtime") adapter = rules as unknown as GameAdapter;
+    else {
+      try {
+        adapter = compileGame(rules as Parameters<typeof compileGame>[0]);
+      } catch (cause) {
+        throw new OhMyGameError("invalid_option", `The game's rules are invalid: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+      }
+      if (adapter.mode !== "realtime")
+        throw new OhMyGameError("invalid_option", "The game's rules are turn-based, but the deployment is realtime.");
+    }
+    if (adapter.playerView || adapter.viewFor) return undefined;
+    return new OwnPrediction(adapter, { playerId: () => this.saved?.playerId, tickMs: () => this.roomTickMs });
+  }
+  /** Shows this player's predicted moves on the room's latest seats and phase. */
+  private showPredicted(): void {
+    const base = this.fromService;
+    const state = this.prediction?.state;
+    if (!base || !state || base.state.phase !== "playing") return;
+    this.current = { ...base, state };
+    this.callbacks.onSnapshot?.(this.current);
   }
   /** What the lockstep runner does with the round: show it, and report to the service. */
   private lockstepHooks() {
@@ -794,6 +835,7 @@ export class MultiplayerClient<Game = unknown> {
       this.lastEventSequence = -1;
       this.reportedUnreadable = false;
       this.inputId = 0;
+      this.prediction?.reset();
       this.bind(room);
       this.persist();
       this.setStatus("connected");
@@ -956,6 +998,7 @@ export class MultiplayerClient<Game = unknown> {
         if (this.room !== room || !this.saved) return;
         this.saved.reconnectionToken = room.reconnectionToken;
         this.inputId = 0;
+        this.prediction?.reset();
         this.persist();
         this.setStatus("connected");
         this.awaitingSnapshot = true;
@@ -1028,6 +1071,9 @@ export class MultiplayerClient<Game = unknown> {
     } else if (this.owner && value.state.phase === "playing") {
       // Nor while an owner round plays: the players' states and shared data come on their own.
       this.showOwner();
+    } else if (this.prediction && value.state.phase === "playing") {
+      this.prediction.confirm(value);
+      this.showPredicted();
     } else {
       this.current = value;
       this.callbacks.onSnapshot?.(value);
