@@ -808,8 +808,9 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
   const audio = kind === "audio";
   const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;
-  const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url ?? exampleUrl, assetAspectRatio ?? parseAspectRatio(aspectRatio));
-  const mediaStyle = audio ? { "--story-media-width": "520px", "--story-media-height": "170px" } as CSSProperties : mediaLayout.style;
+  // Audio has no picture, so it takes the video default shape to sit evenly beside other media.
+  const mediaLayout = useMediaNodeLayout(threeD || audio ? undefined : preview.url ?? exampleUrl, audio ? 16 / 9 : assetAspectRatio ?? parseAspectRatio(aspectRatio));
+  const mediaStyle = mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
       <CanvasNodeLabel icon={Icon} label={label} details={details} className={`is-${kind === "animation" ? "model" : kind}`} />
