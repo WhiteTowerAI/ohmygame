@@ -160,6 +160,12 @@ interface LockstepRound {
 export class GameRoom extends Room {
   private record!: StoredRoom;
   private readonly controls = new Map<string, string>();
+  /**
+   * Connections that look open to the service while their player reconnects, such as a
+   * page refreshed before its old socket's close arrived. Colyseus closes them with
+   * CloseCode.WITH_ERROR, the same code it closes a flooding connection with.
+   */
+  private readonly superseded = new Set<string>();
   private readonly playerInputs = new Map<
     string,
     { input: RealtimeInput; at: number }
@@ -410,11 +416,19 @@ export class GameRoom extends Room {
     if (this.hosted) this.clock.setTimeout(() => this.assignHost(), 0);
   }
 
+  /** A reconnection: Colyseus closes a connection it still holds for the token before giving the seat on. */
+  checkReconnectionToken(reconnectionToken: string): string {
+    const stale = this.clients.find((client) => client.reconnectionToken === reconnectionToken);
+    if (stale) this.superseded.add(stale.sessionId);
+    return super.checkReconnectionToken(reconnectionToken);
+  }
   async onDrop(client: Client, code?: number): Promise<void> {
     // The service closed this connection, for example for flooding messages. Holding its
     // seat would keep the socket open while every message is ignored, so the player
-    // would see a frozen game; release it now so the client learns it was closed.
-    if (code === CloseCode.WITH_ERROR) {
+    // would see a frozen game; release it now so the client learns it was closed. A
+    // connection closed because its player is reconnecting keeps the seat for them.
+    const reconnecting = this.superseded.delete(client.sessionId);
+    if (code === CloseCode.WITH_ERROR && !reconnecting) {
       this.onLeave(client);
       return;
     }

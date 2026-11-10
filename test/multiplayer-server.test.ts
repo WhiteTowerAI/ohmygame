@@ -950,6 +950,32 @@ export default defineGame({
     expect(friend.snapshot!.state.phase).toBe("playing");
   });
 
+  it("keeps the seat of a page refreshed before the service saw its old connection close", async () => {
+    const storage = memoryStorage();
+    const identityStorage = memoryStorage();
+    const before = new MultiplayerClient({ manifest: config, storage, identityStorage, transport: new Client(endpoint) });
+    wrappers.push(before);
+    await before.createRoom({ displayName: "Owner" });
+    await wait(() => expect(before.playerId).toBeTruthy());
+    const guest = await peer(await transport(), config, before.roomId);
+    await wait(() => expect(before.snapshot?.state.players).toHaveLength(2));
+    before.sendCommand("start");
+    await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+    const playerId = before.playerId;
+    // The refreshed page has what the old one saved, while the old socket still looks open.
+    const copy = memoryStorage();
+    for (let index = 0; index < storage.length; index++) copy.setItem(storage.key(index)!, storage.getItem(storage.key(index)!)!);
+    const reloaded = new Client(endpoint);
+    const joinById = vi.spyOn(reloaded, "joinById");
+    const after = new MultiplayerClient({ manifest: config, storage: copy, identityStorage, transport: reloaded });
+    wrappers.push(after);
+    expect(await after.reconnect()).toBe(true);
+    // Back through its reconnection token, to the same seat, not joined again as a member.
+    expect(joinById).not.toHaveBeenCalled();
+    expect(after.playerId).toBe(playerId);
+    await wait(() => expect(guest.snapshot!.state.players[0]).toMatchObject({ playerId, connected: true }));
+  });
+
   it("restores a refreshed browser and a persisted match after service restart", async () => {
     const storage = memoryStorage();
     const identityStorage = memoryStorage();
