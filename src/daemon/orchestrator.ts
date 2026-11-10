@@ -26,6 +26,8 @@ export interface OrchestratorDeps {
   cancel(projectId: string, conversationId: string, turnId: string): Promise<void>;
   /** Archives a conversation rather than deleting it, so a disbanded team's history stays readable. */
   archiveConversation(project: ProjectState, conversationId: string): Promise<void>;
+  /** Whether a role's conversation can still be found, archived or not. */
+  hasConversation(project: ProjectState, conversationId: string): Promise<boolean>;
   now(): string;
 }
 
@@ -129,7 +131,9 @@ export class OrchestratorSupervisor {
     const roles: OrchestratorRoleState[] = [];
     for (const role of run.state.roles) {
       // A run that was stopped keeps its conversations, so starting again continues where it left off.
-      const conversationId = role.conversationId ?? (await this.deps.createConversation(project, role.config.name, role.config.model));
+      // A conversation that never got a message is not saved, so after a restart it may be gone and is made again.
+      const kept = role.conversationId && (await this.deps.hasConversation(project, role.conversationId)) ? role.conversationId : undefined;
+      const conversationId = kept ?? (await this.deps.createConversation(project, role.config.name, role.config.model));
       roles.push({ config: role.config, conversationId, status: "idle" });
     }
     const config: OrchestratorConfig = { ...run.state.config, conversations: conversationsOf({ roles }) };

@@ -54,6 +54,8 @@ async function harness(options: { refusePrompt?: () => boolean } = {}) {
   const created: string[] = [];
   const cancelled: string[] = [];
   const archived: string[] = [];
+  /** Conversations the harness pretends no longer exist. */
+  const gone = new Set<string>();
   const deps: OrchestratorDeps = {
     events: {
       publish: ((_projectId: string, type: string, data: unknown, scope?: { conversationId?: string }) => {
@@ -76,6 +78,7 @@ async function harness(options: { refusePrompt?: () => boolean } = {}) {
     archiveConversation: async (_project, conversationId) => {
       archived.push(conversationId);
     },
+    hasConversation: async (_project, conversationId) => !gone.has(conversationId),
     now: () => new Date(0).toISOString(),
   };
   const project = await tempProject();
@@ -87,7 +90,7 @@ async function harness(options: { refusePrompt?: () => boolean } = {}) {
     const roles = supervisor.state(project.id)!.roles;
     return { programmer: roles[0]!.conversationId!, critic: roles[1]!.conversationId! };
   };
-  return { supervisor, project, published, prompts, created, cancelled, archived, started };
+  return { supervisor, project, published, prompts, created, cancelled, archived, gone, started };
 }
 
 describe("orchestrator supervisor", () => {
@@ -141,6 +144,17 @@ describe("orchestrator supervisor", () => {
     await supervisor.start(project);
     expect(created).toEqual(["Programmer", "Critic"]);
     expect(supervisor.state(project.id)!.roles[0]!.conversationId).toBe(programmer);
+  });
+
+  it("makes a role's conversation again when it was lost before it got a message", async () => {
+    const { supervisor, project, started, created, gone } = await harness();
+    const { critic } = await started();
+    await supervisor.stop(project.id);
+    gone.add(critic);
+    await supervisor.start(project);
+    expect(created).toEqual(["Programmer", "Critic", "Critic"]);
+    expect(supervisor.state(project.id)!.roles[1]!.conversationId).not.toBe(critic);
+    expect(supervisor.state(project.id)!.config.conversations?.critic).toBe("conversation-3");
   });
 
   it("stays stopped when the writer cannot start because another conversation is busy", async () => {
@@ -337,6 +351,7 @@ function minimalDeps(): OrchestratorDeps {
     prompt: async () => ({ turnId: "turn" }),
     cancel: async () => {},
     archiveConversation: async () => {},
+    hasConversation: async () => true,
     now: () => new Date(0).toISOString(),
   };
 }

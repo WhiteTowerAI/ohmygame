@@ -84,7 +84,9 @@ newer OhMyGame, or one that is damaged, is left untouched and the team shows
 why it cannot be read instead of being replaced.
 
 A run does not resume by itself after OhMyGame restarts: the team loads as
-stopped and **Start team** continues it in the same conversations. **Disband**
+stopped and **Start team** continues it in the same conversations. A role
+conversation that never received a message is not saved yet, so it is made
+again when the team starts. **Disband**
 removes the saved team and archives its conversations, so their history stays
 readable under the archived chats.
 

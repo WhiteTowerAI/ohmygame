@@ -26,6 +26,7 @@ beforeEach(async () => {
     },
     cancel: async () => {},
     archiveConversation: async () => {},
+    hasConversation: async () => true,
     now: () => new Date(0).toISOString(),
   });
   app = Fastify();

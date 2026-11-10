@@ -1003,6 +1003,7 @@ export function createApp(options: AppOptions = {}) {
     archiveConversation: async (project, conversationId) => {
       await conversations.archive(project, conversationId);
     },
+    hasConversation: async (project, conversationId) => Boolean(await conversations.get(project, conversationId)),
     now: () => new Date().toISOString(),
   });
   /** The team tools, only for a conversation a team role owns. */
