@@ -413,6 +413,11 @@ interface AgentManagerOptions {
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
   /** Told when a call to an MCP server fails, so the plugin that runs it can log it. */
   onMcpToolFailed?: (server: string, tool: string, message: string) => void;
+  /**
+   * Which conversations may write files. Absent, or a conversation it does not
+   * name, means it may — so a project with no orchestrator behaves as before.
+   */
+  isWriterConversation?: (projectId: string, conversationId: string) => boolean;
 }
 
 interface UndoneChanges {
@@ -861,7 +866,10 @@ export class AgentManager {
     const planState = this.planState(conversation);
     if (mode === "normal" && planState.mode !== "normal") throw new Error("Finish or cancel the current plan before continuing");
     if (mode === "planning" && planState.mode === "executing") throw new Error("The plan is already executing");
-    if (!active && this.options.checkpoints && this.isProjectBusy(project.id)) throw new Error("Wait for the other conversation in this project to finish");
+    // Only a turn that writes files has to wait for another writer. An advisor reads, and the
+    // put-back check above already holds it off while a restore changes files under it.
+    if (!active && this.options.checkpoints && this.#mayWrite(key) && this.isProjectWriteBusy(project.id))
+      throw new Error("Wait for the other conversation in this project to finish");
     if (active) {
       if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
@@ -2365,6 +2373,20 @@ export class AgentManager {
   isProjectBusy(projectId: string): boolean {
     const prefix = `${projectId}:`;
     return this.#puttingBack.has(projectId) || [...this.#activeTurns.keys(), ...this.#revisions].some((key) => key.startsWith(prefix));
+  }
+
+  /** True while a turn that may write files is active in this project. Advisor turns never make it true. */
+  isProjectWriteBusy(projectId: string): boolean {
+    const prefix = `${projectId}:`;
+    return [...this.#activeTurns.keys(), ...this.#revisions].some((key) => key.startsWith(prefix) && this.#mayWrite(key));
+  }
+
+  /** A conversation key's last segment is its conversation id; neither id contains a colon. */
+  #mayWrite(key: string): boolean {
+    const resolver = this.options.isWriterConversation;
+    if (!resolver) return true;
+    const split = key.lastIndexOf(":");
+    return resolver(key.slice(0, split), key.slice(split + 1));
   }
 
   invalidateProjectSessions(projectId: string): void {
