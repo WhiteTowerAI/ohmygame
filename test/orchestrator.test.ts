@@ -324,6 +324,23 @@ describe("orchestrator ping-pong detection", () => {
     expect(state.diagnostic?.roleIds).toEqual(["critic", "programmer"]);
   });
 
+  it("does not pause a writer that collects one report from each of many advisors", async () => {
+    const { supervisor, project } = await harness();
+    const advisors = Array.from({ length: 10 }, (_, at) => ({ ...advisor, id: `advisor-${at + 1}`, name: `Advisor ${at + 1}` }));
+    await supervisor.configure(project, config([writer, ...advisors]));
+    await supervisor.start(project);
+    const roles = supervisor.state(project.id)!.roles;
+    const programmer = roles[0]!.conversationId!;
+    for (const role of roles.slice(1)) {
+      await supervisor.deliver(project.id, programmer, role.config.id, "What should change?");
+      await supervisor.deliver(project.id, role.conversationId!, "programmer", "Here is my report.");
+    }
+    // Two advisors talking to each other is a separate pair, with its own count.
+    await supervisor.deliver(project.id, roles[1]!.conversationId!, "advisor-2", "Do you agree?");
+    expect(supervisor.state(project.id)!.status).toBe("running");
+    expect(supervisor.state(project.id)!.diagnostic).toBeUndefined();
+  });
+
   it("a writer file change resets the count", async () => {
     const { supervisor, project, started } = await harness();
     const { programmer, critic } = await started();

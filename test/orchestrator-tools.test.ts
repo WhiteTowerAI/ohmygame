@@ -47,9 +47,17 @@ describe("orchestrator tools", () => {
     expect(text(result)).toContain("Queued");
   });
 
-  it("refuses an unknown teammate and the sender itself", async () => {
+  it("finds a teammate by name, and accepts a long report", async () => {
+    const deliver = vi.fn(async () => ({ delivered: true, queued: false }));
+    const tool = find(createOrchestratorTools(context({ deliver })), "send_message_to_agent");
+    await run(tool, { agent: "Programmer", message: "x".repeat(12_000) });
+    expect(deliver).toHaveBeenCalledWith("project-1", "conversation-1", "programmer", "x".repeat(12_000));
+    expect(JSON.stringify(tool.parameters)).toContain("16000");
+  });
+
+  it("refuses an unknown teammate, naming the real ones, and the sender itself", async () => {
     const tool = find(createOrchestratorTools(context()), "send_message_to_agent");
-    await expect(run(tool, { agent: "nobody", message: "hi" })).rejects.toThrow("nobody");
+    await expect(run(tool, { agent: "lead-programmer", message: "hi" })).rejects.toThrow('No agent called "lead-programmer". Your teammates are: programmer (Programmer).');
     await expect(run(tool, { agent: "critic", message: "hi" })).rejects.toThrow("That is you");
   });
 

@@ -36,8 +36,8 @@ interface Run {
   state: OrchestratorState;
   /** Messages waiting for a busy role, by conversation id, oldest first. */
   pending: Map<string, OrchestratorPendingMessage[]>;
-  /** Agent-to-agent messages since a writer last changed a file. */
-  messagesWithoutWrite: number;
+  /** Messages each pair of roles traded since a writer last changed a file, keyed by both role ids sorted. */
+  exchanges: Map<string, number>;
 }
 
 /** Rounds (a message each way) two roles may trade with no file changing before the run pauses. */
@@ -116,7 +116,7 @@ export class OrchestratorSupervisor {
       updatedAt: this.deps.now(),
     };
     await saveOrchestratorConfig(project, saved);
-    this.#runs.set(project.id, { project, state: idleState(saved, "idle"), pending: new Map(), messagesWithoutWrite: 0 });
+    this.#runs.set(project.id, { project, state: idleState(saved, "idle"), pending: new Map(), exchanges: new Map() });
     return this.#publish(project.id);
   }
 
@@ -127,7 +127,7 @@ export class OrchestratorSupervisor {
     if (run.state.status === "running") return run.state;
     run.project = project;
     run.pending.clear();
-    run.messagesWithoutWrite = 0;
+    run.exchanges.clear();
     const roles: OrchestratorRoleState[] = [];
     for (const role of run.state.roles) {
       // A run that was stopped keeps its conversations, so starting again continues where it left off.
@@ -183,12 +183,12 @@ export class OrchestratorSupervisor {
           diagnostic: { code: "store-unreadable", message: cause.message, roleIds: [] },
         },
         pending: new Map(),
-        messagesWithoutWrite: 0,
+        exchanges: new Map(),
       });
       return;
     }
     if (!config) return;
-    this.#runs.set(project.id, { project, state: idleState(config, "stopped"), pending: new Map(), messagesWithoutWrite: 0 });
+    this.#runs.set(project.id, { project, state: idleState(config, "stopped"), pending: new Map(), exchanges: new Map() });
   }
 
   /** Rebuilds every project's team at startup. */
@@ -231,7 +231,11 @@ export class OrchestratorSupervisor {
     if (!to?.conversationId) throw new Error(`No agent called "${toRoleId}". Use list_agents.`);
     if (to === from) throw new Error("That is you.");
     // Two roles replying to each other without anything being written is a fault, not progress.
-    if (++run.messagesWithoutWrite > PING_PONG_LIMIT * 2) {
+    // Only the same two roles trading messages counts: a writer collecting one report from each advisor is not a loop.
+    const pair = [from.config.id, to.config.id].sort().join(" ");
+    const traded = (run.exchanges.get(pair) ?? 0) + 1;
+    run.exchanges.set(pair, traded);
+    if (traded > PING_PONG_LIMIT * 2) {
       run.state = {
         ...run.state,
         status: "error",
@@ -288,7 +292,7 @@ export class OrchestratorSupervisor {
       if (run.state.status !== "running") this.#publish(project.id);
     }
     if (run.state.status !== "running") return;
-    if (end.changes.length && role.config.capability === "writer") run.messagesWithoutWrite = 0;
+    if (end.changes.length && role.config.capability === "writer") run.exchanges.clear();
     if (role.config.capability !== "writer") {
       // An advisor acts when a teammate addresses it; one that stopped short just goes quiet.
       this.#publish(project.id);

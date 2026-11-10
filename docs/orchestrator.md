@@ -72,9 +72,11 @@ single writer are the guards.
 ### Ping-pong
 
 Roles that only message each other without any file changing are stuck, not
-making progress. When more than three rounds of messages (`PING_PONG_LIMIT`,
-counted as messages in either direction) pass without the writer changing a
-file, the run pauses and the team explains which roles were involved. Clarify
+making progress. When the same two roles trade more than three rounds of
+messages (`PING_PONG_LIMIT`, counted in either direction) without the writer
+changing a file, the run pauses and the team explains which roles were
+involved. Each pair is counted on its own, so a writer collecting one report
+from every advisor is not a loop. Clarify
 the goal or the roles, then start the team again; starting clears the pause.
 
 ## Restart and storage

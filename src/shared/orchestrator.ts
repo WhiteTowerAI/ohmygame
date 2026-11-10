@@ -4,6 +4,8 @@ import type { AgentModelRef, AgentStatus } from "./contracts.js";
 export const ORCHESTRATOR_STORE_VERSION = 1;
 /** Advisors run at the same time, so each one more can mean one more model request in flight. */
 export const ORCHESTRATOR_MAX_ROLES = 20;
+/** Roles send detailed reports, so a message may be long; it still goes into the target's context whole. */
+export const ORCHESTRATOR_MAX_MESSAGE_LENGTH = 16_000;
 export const ORCHESTRATOR_ROLE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 
 /** A writer may change files; an advisor may only read and talk. */

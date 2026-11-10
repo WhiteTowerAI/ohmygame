@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { OrchestratorRoleCapability, OrchestratorRosterEntry } from "../shared/orchestrator.js";
+import { ORCHESTRATOR_MAX_MESSAGE_LENGTH, type OrchestratorRoleCapability, type OrchestratorRosterEntry } from "../shared/orchestrator.js";
 
 export interface OrchestratorToolContext {
   projectId: string;
@@ -14,7 +14,13 @@ export interface OrchestratorToolContext {
 
 /** The tools a role uses to work with its team. Text here goes to the model, so it stays in English. */
 export function createOrchestratorTools(context: OrchestratorToolContext): PiToolDefinition[] {
-  const named = (id: string) => context.roster().find((entry) => entry.id === id);
+  /** A teammate by id, or by name as a model may write it; ids are long slugs that are easy to misremember. */
+  const named = (wanted: string) => {
+    const roster = context.roster();
+    const key = wanted.trim().toLowerCase();
+    return roster.find((entry) => entry.id === wanted) ?? roster.find((entry) => entry.id === key || entry.name.toLowerCase() === key);
+  };
+  const teamIds = () => context.roster().filter((entry) => entry.id !== context.roleId).map((entry) => `${entry.id} (${entry.name})`).join(", ");
   return [
     defineTool({
       name: "list_agents",
@@ -39,12 +45,12 @@ export function createOrchestratorTools(context: OrchestratorToolContext): PiToo
       label: "Message Teammate",
       description: "Send a message to another agent on this project. Use it to ask a teammate for something only their role can give, or to answer one. The message arrives as their next prompt; a busy teammate gets it when their current turn ends.",
       parameters: Type.Object({
-        agent: Type.String({ minLength: 1, maxLength: 40, description: "The teammate's id, from list_agents" }),
-        message: Type.String({ minLength: 1, maxLength: 4_000, description: "What to tell them, in English" }),
+        agent: Type.String({ minLength: 1, maxLength: 120, description: "The teammate's id from list_agents, or their exact name" }),
+        message: Type.String({ minLength: 1, maxLength: ORCHESTRATOR_MAX_MESSAGE_LENGTH, description: "What to tell them, in English" }),
       }),
       execute: async (_toolCallId, input) => {
         const target = named(input.agent);
-        if (!target) throw new Error(`No agent called "${input.agent}". Use list_agents.`);
+        if (!target) throw new Error(`No agent called "${input.agent}". Your teammates are: ${teamIds()}.`);
         if (target.id === context.roleId) throw new Error("That is you.");
         const result = await context.deliver(context.projectId, context.conversationId, target.id, input.message);
         return {
