@@ -1652,7 +1652,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
     if (operation === "crop-image") { setCropNodeId(targets[0]!.id); return; }
     setCropNodeId(undefined);
-    if (operation === "split-image-grid" || operation === "extract-gif-frames") {
+    if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") {
       void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
       return;
     }
@@ -1754,7 +1754,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const message = errorMessage(error);
       const detail = message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message;
       setMediaToolError(detail);
-      if (operation === "split-image-grid" || operation === "extract-gif-frames") setNotice({ kind: "action", message: detail });
+      if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") setNotice({ kind: "action", message: detail });
     } finally {
       setMediaToolBusy(false);
     }
@@ -2619,7 +2619,7 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
       {extra}
     </div> : null}
   </div>;
-  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
+  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : id === "fix-pixel-art" ? t("assetCanvas.mediaTools.fixPixelArtHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
     {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
