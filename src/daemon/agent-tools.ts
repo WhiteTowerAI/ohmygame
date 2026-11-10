@@ -33,16 +33,21 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "animate-3d": "animate_3d_asset",
   "generate-audio": "generate_audio",
 };
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
+const ORCHESTRATOR_TOOL_NAMES = ["list_agents", "send_message_to_agent"];
+/** Only a writer can end a run, so only a writer sees the tool that does. */
+const ORCHESTRATOR_WRITER_TOOL_NAMES = ["mark_goal_complete"];
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media", ...ORCHESTRATOR_TOOL_NAMES, ...ORCHESTRATOR_WRITER_TOOL_NAMES]);
 
-export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
+/** `orchestrated` is true for a conversation a team role owns; it adds the team tools. */
+export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true, orchestrated = false): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : []), ...(orchestrated ? [...ORCHESTRATOR_TOOL_NAMES, ...ORCHESTRATOR_WRITER_TOOL_NAMES] : [])])];
 }
 
-export function planningPiToolNames(webSearchEnabled = true): string[] {
-  return ["read", "grep", "find", "ls", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
+/** Nothing here writes, which is also what a team's advisor role gets. */
+export function planningPiToolNames(webSearchEnabled = true, orchestrated = false): string[] {
+  return ["read", "grep", "find", "ls", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan", ...(orchestrated ? ORCHESTRATOR_TOOL_NAMES : [])];
 }
 
 export function projectPiToolNames(
@@ -50,10 +55,11 @@ export function projectPiToolNames(
   enabledTools: readonly ToolId[],
   registeredToolNames: readonly string[] = [],
   webSearchEnabled = true,
+  orchestrated = false,
 ): string[] {
   return mode === "planning"
-    ? [...planningPiToolNames(webSearchEnabled), ...(registeredToolNames.includes("canvas_check") ? ["canvas_check"] : [])]
-    : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
+    ? [...planningPiToolNames(webSearchEnabled, orchestrated), ...(registeredToolNames.includes("canvas_check") ? ["canvas_check"] : [])]
+    : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled, orchestrated);
 }
 
 export type AskQuestionnaire = (

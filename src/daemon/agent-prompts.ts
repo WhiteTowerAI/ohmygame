@@ -51,6 +51,15 @@ const PLUGIN_WORKSPACE_INSTRUCTIONS = [
   "Reply briefly, in the user's language.",
 ] as const;
 
+/** What a team role adds to its agent's instructions. Empty for a conversation with no role. */
+export function rolePersonaInstructions(persona: string | undefined): string[] {
+  if (!persona) return [];
+  return [
+    `Your role on this team:\n${persona}`,
+    "You are one of several agents working on this project at the same time. Use list_agents to see the others and send_message_to_agent to talk to one. Messages from teammates arrive as user messages that name their author. Keep messages to teammates short and specific, and do not reply just to acknowledge one.",
+  ];
+}
+
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
   if (project.type === "plugin") return [...PLUGIN_WORKSPACE_INSTRUCTIONS];
   if (project.type === "general") return [

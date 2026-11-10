@@ -29,8 +29,8 @@ export interface OrchestratorRoleState {
 export type OrchestratorStatus = "idle" | "running" | "stopped" | "completed" | "error";
 
 export interface OrchestratorDiagnostic {
-  /** Set when ping-pong detection paused the run. */
-  code: "ping-pong";
+  /** `ping-pong` when two roles only messaged each other; `store-unreadable` when the saved team could not be read. */
+  code: "ping-pong" | "store-unreadable";
   message: string;
   roleIds: string[];
 }
@@ -39,6 +39,8 @@ export interface OrchestratorConfig {
   version: number;
   goal: string;
   roles: OrchestratorRoleConfig[];
+  /** Role id to the conversation backing it, once a run has started; kept so a later run continues them. */
+  conversations?: Record<string, string>;
   updatedAt: string;
 }
 
@@ -47,4 +49,22 @@ export interface OrchestratorState {
   status: OrchestratorStatus;
   roles: OrchestratorRoleState[];
   diagnostic?: OrchestratorDiagnostic;
+  /** What the writer said was achieved, once it marked the goal complete. */
+  summary?: string;
+}
+
+/** One teammate as the team tools describe it. */
+export interface OrchestratorRosterEntry {
+  id: string;
+  name: string;
+  capability: OrchestratorRoleCapability;
+  status: AgentStatus;
+  persona: string;
+}
+
+/** A message from one role, waiting for the next turn of the role it was sent to. */
+export interface OrchestratorPendingMessage {
+  fromRoleId: string;
+  fromName: string;
+  text: string;
 }
