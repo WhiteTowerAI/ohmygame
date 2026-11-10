@@ -43,7 +43,8 @@ function takeModelLoadTurn(start: () => void): () => void {
   };
 }
 
-export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean }) {
+/** `autoPlay` starts a model's clip as it loads: for a view of one model, not a board or chat of them. */
+export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true, autoPlay = false }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean; autoPlay?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -52,7 +53,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [modelError, setModelError] = useState<string>();
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string>();
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(autoPlay);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const seen = useSeenOnScreen(frame);
   // The source whose turn it is: a new source must wait for its own.
@@ -78,8 +79,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     setModelError(undefined);
     setClips([]);
     setClip(undefined);
-    setPlaying(false);
-  }, [source]);
+    setPlaying(autoPlay);
+  }, [source, autoPlay]);
 
   useEffect(() => {
     if (!seen) return;

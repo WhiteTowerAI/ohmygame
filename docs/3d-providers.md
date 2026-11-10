@@ -16,8 +16,9 @@ its server catalog; signing in does not enable additional upstream operations.
 
 ## Canvas and agent tools
 
-3D previews in chat, the Asset Canvas, and asset dialogs start as still models
-and never turn on their own. In chat and asset dialogs, drag a model to see
+3D previews in chat and on the Asset Canvas start as still models, and no
+preview turns on its own. An asset dialog shows one model, so it plays that
+model's first clip as it opens. In chat and asset dialogs, drag a model to see
 another side; on the Asset Canvas, where dragging moves the node, open the
 model with **View** first. A model with animation clips shows **Play** in a row
 under it, with a clip picker when it has several; **Pause** holds the current

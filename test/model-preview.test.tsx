@@ -238,6 +238,20 @@ it("keeps thumbnails still without putting controls inside their open button", a
   expect(container.querySelector("button, select")).toBeNull();
 });
 
+it("plays as it loads where one model is shown, and again for the next", async () => {
+  const show = async (source: string) => {
+    await act(async () => root.render(<ModelPreview source={source} label="Character" autoPlay />));
+    await act(async () => viewer().load());
+  };
+  await show("model.glb");
+  expect(viewer().paused).toBe(false);
+  expect(button().getAttribute("aria-label")).toBe("Pause animation");
+  await click();
+  expect(viewer().paused).toBe(true);
+  await show("other.glb");
+  expect(viewer().paused).toBe(false);
+});
+
 it("shows no controls on a model without animation clips", async () => {
   await act(async () =>
     root.render(<ModelPreview source="static.glb" label="Prop" />),
