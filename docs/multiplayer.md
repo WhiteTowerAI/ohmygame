@@ -58,6 +58,11 @@ guests joins as one. The service accepts accounts only when it is started with
 `OHMYGAME_ACCOUNT_ISSUER`. The guest identity and room recovery both live in `localStorage`, so a
 browser is one player in every tab, and can return to its seat after the tab
 closes. A second tab is the same player and cannot take a second seat in a room.
+While a dropped player's seat waits for them (`reconnectSeconds`), the same
+player joining that room again without the saved room, such as from another
+device signed in to the same account, takes the seat over; a seat whose
+connection is still open stays with it. A full room accepts no joins while a seat
+waits, so there only the browser that saved the room gets back in.
 Games must keep this default rather than pass per-tab storage to mint extra
 players. Test another player in a private window or a different browser.
 

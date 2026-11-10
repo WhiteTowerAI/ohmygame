@@ -976,6 +976,34 @@ export default defineGame({
     await wait(() => expect(guest.snapshot!.state.players[0]).toMatchObject({ playerId, connected: true }));
   });
 
+  it("gives a held seat to the same player joining again from a browser without the saved room", async () => {
+    const identityStorage = memoryStorage();
+    const owner = new MultiplayerClient({ manifest: config, storage: memoryStorage(), identityStorage, transport: new Client(endpoint) });
+    wrappers.push(owner);
+    await owner.createRoom({ displayName: "Owner" });
+    await wait(() => expect(owner.roomCode).toBeTruthy());
+    const playerId = owner.playerId;
+    const roomCode = owner.roomCode!;
+    const guest = await peer(await transport(), config, owner.roomId);
+    await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+    owner.sendCommand("start");
+    await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+    owner.dispose();
+    await wait(() => expect(guest.snapshot!.state.players[0]!.connected).toBe(false));
+    // Same account, nothing saved for the room: joining by code takes the held seat back.
+    const elsewhere = new MultiplayerClient({ manifest: config, storage: memoryStorage(), identityStorage, transport: new Client(endpoint) });
+    wrappers.push(elsewhere);
+    await elsewhere.joinRoom({ roomCode });
+    await wait(() => expect(elsewhere.playerId).toBe(playerId));
+    await wait(() => expect(guest.snapshot!.state.players[0]).toMatchObject({ playerId, connected: true }));
+    // The dropped connection's window ending later does not take the seat away.
+    await new Promise((resolve) => setTimeout(resolve, config.reconnectSeconds * 1000 + 300));
+    expect(guest.snapshot!.state.players).toHaveLength(2);
+    expect(guest.snapshot!.state.players[0]).toMatchObject({ playerId, connected: true });
+    elsewhere.sendCommand("action", { action: "take", count: 1 });
+    await wait(() => expect((guest.snapshot?.state.game as { remaining: number } | undefined)?.remaining).toBe(20));
+  });
+
   it("restores a refreshed browser and a persisted match after service restart", async () => {
     const storage = memoryStorage();
     const identityStorage = memoryStorage();

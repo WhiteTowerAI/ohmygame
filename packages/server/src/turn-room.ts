@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { CloseCode, Room, type Client } from "@colyseus/core";
+import { CloseCode, Room, type Client, type Deferred } from "@colyseus/core";
 import {
   isOwnerMessage,
   isOwnerPatch,
@@ -166,6 +166,8 @@ export class GameRoom extends Room {
    * CloseCode.WITH_ERROR, the same code it closes a flooding connection with.
    */
   private readonly superseded = new Set<string>();
+  /** Dropped connections whose seat waits for them, by session. */
+  private readonly reconnections = new Map<string, Deferred<Client>>();
   private readonly playerInputs = new Map<
     string,
     { input: RealtimeInput; at: number }
@@ -359,11 +361,17 @@ export class GameRoom extends Room {
       throw new Error("The room owner has not joined yet.");
     let player =
       known && state.players.find((p) => p.playerId === known.playerId);
-    if (
-      player?.connected ||
-      (known && [...this.controls.values()].includes(known.playerId))
-    )
+    const held = known && [...this.controls].find(([, id]) => id === known.playerId)?.[0];
+    const dropped = held ? this.reconnections.get(held) : undefined;
+    if (!dropped && (player?.connected || held))
       throw new Error("This player already controls the room in another tab.");
+    if (held && dropped) {
+      // The player is back on a new connection, such as another device or a browser that
+      // lost its saved room: it takes the seat the dropped connection was holding.
+      this.controls.delete(held);
+      this.reconnections.delete(held);
+      dropped.reject(new Error("The player joined again on another connection."));
+    }
     const members = this.record.members.map((member) => ({ ...member }));
     if (!player) {
       if (state.players.length >= this.maxClients)
@@ -433,13 +441,18 @@ export class GameRoom extends Room {
       return;
     }
     this.connected(client, false);
+    const reconnection = this.allowReconnection(
+      client,
+      this.services.config.reconnectSeconds,
+    );
+    this.reconnections.set(client.sessionId, reconnection);
     try {
-      await this.allowReconnection(
-        client,
-        this.services.config.reconnectSeconds,
-      );
+      await reconnection;
     } catch {
       /* onLeave handles expiration after Colyseus releases the seat. */
+    } finally {
+      if (this.reconnections.get(client.sessionId) === reconnection)
+        this.reconnections.delete(client.sessionId);
     }
   }
   onReconnect(client: Client): void {
