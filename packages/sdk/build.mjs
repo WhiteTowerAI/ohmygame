@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
-const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "rules", "smoothing"];
+const MODULES = ["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "host", "multiplayer-client", "multiplayer-protocol", "peers", "rules", "smoothing"];
 
 /** The modules client.js carries; multiplayer.js imports them from it instead of bundling a copy. */
 const SHARED = new Set(["index", "errors", "identity", "account", "account-protocol", "cloud", "cloud-protocol", "define-game", "multiplayer-protocol"]);

@@ -7,6 +7,7 @@
  */
 import {
   isOwnerFrame,
+  isSequence,
   isOwnerSharedUpdate,
   isOwnerState,
   isOwnerSync,
@@ -23,9 +24,20 @@ export const OWNER_SHARED_TIMEOUT_MS = 5000;
  * last had: copies sent straight to other pages may have gone further than that one.
  */
 const SEQ_RESUME_GAP = 100;
+/** States sent straight to other pages go out at most this often; the newest one wins. */
+export const OWNER_DIRECT_INTERVAL_MS = 33;
+
+/** A player's whole state sent straight from their page to another. */
+export interface OwnerDirectState {
+  round: number;
+  seq: number;
+  state: Record<string, unknown>;
+}
 
 export interface OwnerHooks {
   send(type: "owner.state" | "owner.shared", value: unknown): void;
+  /** Sends this page's whole state straight to the players it reaches directly, if any. */
+  sendDirect?(packet: OwnerDirectState): void;
   /** The round changed: show it. */
   show(): void;
   playerId(): string | undefined;
@@ -53,6 +65,12 @@ export class OwnerSession {
   private requests = 0;
   /** This page's state version: each setState counts one. */
   private seq = 0;
+  /** The newest version of each other player's state this page shows. */
+  private readonly versions = new Map<string, number>();
+  /** Players who left this round, whose late direct states are dropped. */
+  private readonly departed = new Set<string>();
+  private directAt = 0;
+  private directTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly hooks: OwnerHooks) {
     this.pacer = new TickPacer(hooks.clock, hooks.tickMs, () => this.flush());
@@ -77,7 +95,10 @@ export class OwnerSession {
     const newRound = value.round !== this.round;
     this.round = value.round;
     this.others.clear();
+    this.versions.clear();
+    this.departed.clear();
     for (const [id, state] of Object.entries(value.players)) if (id !== me && isRecord(state)) this.others.set(id, state);
+    for (const [id, seq] of Object.entries(value.seqs ?? {})) if (id !== me && isSequence(seq)) this.versions.set(id, seq);
     this.shared = new Map(Object.entries(value.shared));
     const held = me === undefined ? undefined : value.players[me];
     this.sent = isRecord(held) ? { ...held } : {};
@@ -95,13 +116,33 @@ export class OwnerSession {
     const me = this.hooks.playerId();
     for (const [id, patch] of Object.entries(value.players ?? {})) {
       if (id === me || !isRecord(patch)) continue;
+      // A newer state already came straight from the player's page. A patch builds on the
+      // service's previous frame, which this page's version is at least as new as, so a
+      // newer patch still applies on top of a direct state.
+      const seq = isSequence(patch.seq) ? patch.seq : undefined;
+      if (seq !== undefined && seq <= (this.versions.get(id) ?? -1)) continue;
       const next = { ...this.others.get(id), ...(isRecord(patch.set) ? patch.set : undefined) };
       if (Array.isArray(patch.delete)) for (const key of patch.delete) if (typeof key === "string") delete next[key];
       this.others.set(id, next);
+      if (seq !== undefined) this.versions.set(id, seq);
     }
-    for (const id of value.left ?? []) if (typeof id === "string") this.others.delete(id);
+    for (const id of value.left ?? [])
+      if (typeof id === "string") {
+        this.others.delete(id);
+        this.versions.delete(id);
+        this.departed.add(id);
+      }
     // The service sends frames on its tick.
     this.hooks.clock.arrived();
+    this.hooks.show();
+  }
+
+  /** A player's whole state straight from their page, shown if it is newer than what this page has. */
+  direct(from: string, value: unknown): void {
+    if (!isRecord(value) || value.round !== this.round || !isSequence(value.seq) || !isOwnerState(value.state)) return;
+    if (from === this.hooks.playerId() || this.departed.has(from) || value.seq <= (this.versions.get(from) ?? -1)) return;
+    this.others.set(from, value.state);
+    this.versions.set(from, value.seq);
     this.hooks.show();
   }
 
@@ -134,6 +175,7 @@ export class OwnerSession {
     this.own = structuredClone(state);
     this.seq++;
     this.pacer.wake();
+    this.sendDirect();
     this.hooks.show();
   }
 
@@ -157,12 +199,34 @@ export class OwnerSession {
     this.shared.clear();
     this.own = {};
     this.sent = {};
+    this.versions.clear();
+    this.departed.clear();
+    clearTimeout(this.directTimer);
+    this.directTimer = undefined;
     this.pacer.stop();
     for (const { done, timer } of this.waiting.values()) {
       clearTimeout(timer);
       done(false);
     }
     this.waiting.clear();
+  }
+
+  /**
+   * Sends the whole state straight to the players reached directly, without waiting for
+   * the service's tick, at most every OWNER_DIRECT_INTERVAL_MS; a change within that goes
+   * out at its end.
+   */
+  private sendDirect(): void {
+    if (!this.hooks.sendDirect || !this.active || this.directTimer) return;
+    const wait = this.directAt + OWNER_DIRECT_INTERVAL_MS - Date.now();
+    const send = () => {
+      this.directTimer = undefined;
+      if (!this.active) return;
+      this.directAt = Date.now();
+      this.hooks.sendDirect?.({ round: this.round!, seq: this.seq, state: this.own });
+    };
+    if (wait <= 0) send();
+    else this.directTimer = setTimeout(send, wait);
   }
 
   /** Sends the keys of this page's state that changed since the service last had it; whether there were any. */

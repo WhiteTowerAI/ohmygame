@@ -17,6 +17,7 @@ import {
   OWNER_ADAPTER_ID,
   isOwnerMessage,
   isOwnerMessageEvent,
+  isOwnerEmit,
   type OwnerEmit,
   type OwnerSharedChange,
   multiplayerRoomType,
@@ -46,6 +47,7 @@ import {
 import type { OhMyGame } from "./index.js";
 import { LockstepRunner } from "./lockstep.js";
 import { OwnerSession } from "./owner.js";
+import { PeerMesh, type PeerOptions, type PeerStatus } from "./peers.js";
 import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
 import { OwnPrediction } from "./prediction.js";
 
@@ -94,6 +96,14 @@ export interface MultiplayerClientOptions {
    * players, and roughly how often that is checked. Defaults to 5 seconds.
    */
   mergeCheckMs?: number;
+  /**
+   * Owner rooms: also send states and messages straight to other players' pages over
+   * WebRTC where a direct connection opens, without the trip to the service. Everything
+   * still goes through the service too, which reaches the players a connection cannot.
+   * Players see each other's network addresses, so leave it off unless the game wants
+   * the speed. iceServers replaces the default public STUN servers.
+   */
+  p2p?: boolean | PeerOptions;
 }
 export interface MultiplayerClientCallbacks {
   onStatus?: (status: MultiplayerConnectionStatus) => void;
@@ -197,6 +207,10 @@ export class MultiplayerClient<Game = unknown> {
   private readonly lockstep?: { adapter: GameAdapter; runner: LockstepRunner };
   /** This player's part of the round, for an owner deployment. */
   private readonly owner?: OwnerSession;
+  /** Owner rooms with p2p: connections straight to other players' pages. */
+  private readonly mesh?: PeerMesh;
+  /** Messages already passed to onMessage, by sender and ID, so a copy from the other path is dropped. */
+  private readonly delivered = new Set<string>();
   /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
   private readonly prediction?: OwnPrediction;
 
@@ -219,9 +233,25 @@ export class MultiplayerClient<Game = unknown> {
         options.connectionTimeoutMs <= 0)
     )
       throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
+    if (options.p2p !== undefined && options.p2p !== false && options.manifest.adapterId !== OWNER_ADAPTER_ID)
+      throw new OhMyGameError("invalid_option", "p2p is for owner deployments.");
+    if (options.p2p) {
+      this.mesh = new PeerMesh(
+        {
+          signal: (to, data) => this.room?.send("p2p.signal", { to, data }),
+          playerId: () => this.saved?.playerId,
+          state: (from, packet) => this.owner?.direct(from, packet),
+          message: (from, packet) => {
+            if (isOwnerEmit(packet)) this.deliverMessage(from, packet.id, packet.message);
+          },
+        },
+        options.p2p === true ? {} : options.p2p,
+      );
+    }
     if (options.manifest.adapterId === OWNER_ADAPTER_ID)
       this.owner = new OwnerSession({
         send: (type, value) => this.room?.send(type, value),
+        ...(this.mesh ? { sendDirect: (packet) => this.mesh!.sendState(packet) } : {}),
         show: () => this.showOwner(),
         playerId: () => this.saved?.playerId,
         tickMs: () => this.tickMs,
@@ -290,6 +320,14 @@ export class MultiplayerClient<Game = unknown> {
    */
   get tickMs(): number {
     return this.roomTickMs;
+  }
+  /**
+   * Owner rooms with p2p: each other player this page has tried to reach directly, by
+   * playerId: "connecting", "open" (states and messages go straight there too), or
+   * "failed" (only through the service; tried again later). Empty without p2p.
+   */
+  get peers(): Record<string, PeerStatus> {
+    return this.mesh?.status() ?? {};
   }
   get status(): MultiplayerConnectionStatus {
     return this.connectionStatus;
@@ -493,6 +531,7 @@ export class MultiplayerClient<Game = unknown> {
     if (!isOwnerMessage(message)) throw new OhMyGameError("invalid_option", "A message must be a small plain object of JSON data.");
     if (!this.room || this.status !== "connected") return false;
     const emitted: OwnerEmit = { id: `${Date.now().toString(36)}.${(this.messageCount++).toString(36)}`, message };
+    this.mesh?.sendMessage(emitted);
     this.room.send("owner.emit", emitted);
     return true;
   }
@@ -501,8 +540,24 @@ export class MultiplayerClient<Game = unknown> {
     if (!this.owner) throw new OhMyGameError("invalid_option", "finishRound is for owner deployments.");
     this.room?.send("owner.finish", { winners });
   }
+  /** Passes a message on once, whichever path brought it first. */
+  private deliverMessage(from: string, id: string, message: Record<string, unknown>): void {
+    const key = `${from} ${id}`;
+    if (this.delivered.has(key)) return;
+    this.delivered.add(key);
+    // Copies arrive within moments of each other; older IDs need not be kept.
+    if (this.delivered.size > 512) this.delivered.delete(this.delivered.values().next().value!);
+    this.callbacks.onMessage?.(from, message);
+  }
+  /** Connects straight to the room's connected players, and drops those who left. */
+  private updatePeers(): void {
+    if (!this.mesh) return;
+    const players = this.room ? (this.fromService?.state.players ?? []) : [];
+    this.mesh.update(players.filter((player) => player.connected).map((player) => player.playerId));
+  }
   /** Shows an owner round: the room's seats and phase, with every player's state and the shared data. */
   private showOwner(): void {
+    this.updatePeers();
     const base = this.fromService;
     if (!this.owner?.active || !base || base.state.phase !== "playing") return;
     this.current = { ...base, state: { ...base.state, game: this.owner.game() } };
@@ -765,6 +820,7 @@ export class MultiplayerClient<Game = unknown> {
     this.fromService = undefined;
     this.lockstep?.runner.reset();
     this.owner?.reset();
+    this.mesh?.close();
     this.persist();
     room?.removeAllListeners();
     if (room) {
@@ -776,6 +832,7 @@ export class MultiplayerClient<Game = unknown> {
     this.stopHosting();
     this.stopInput();
     this.stopMerge();
+    this.mesh?.close();
     this.disposed = true;
     this.generation++;
     const room = this.room;
@@ -946,7 +1003,10 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("owner.shared", (value: unknown) => this.owner?.sharedUpdate(value));
     room.onMessage("owner.shared.result", (value: unknown) => this.owner?.sharedResult(value));
     room.onMessage("owner.message", (value: unknown) => {
-      if (isOwnerMessageEvent(value)) this.callbacks.onMessage?.(value.from, value.message);
+      if (isOwnerMessageEvent(value)) this.deliverMessage(value.from, value.id, value.message);
+    });
+    room.onMessage("p2p.signal", (value: unknown) => {
+      if (isRecord(value) && typeof value.from === "string") void this.mesh?.receive(value.from, value.data);
     });
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
@@ -1027,6 +1087,7 @@ export class MultiplayerClient<Game = unknown> {
       this.fromService = undefined;
       this.lockstep?.runner.reset();
       this.owner?.reset();
+      this.mesh?.close();
       if (code === 1000 || code >= 4000) {
         this.saved = undefined;
         this.persist();
@@ -1064,6 +1125,7 @@ export class MultiplayerClient<Game = unknown> {
     // A realtime room the service runs sends its snapshots on its tick.
     if (this.pacesToServiceTick() && !this.owner && value.state.phase === "playing") this.tickClock.arrived();
     this.fromService = value;
+    this.updatePeers();
     const first = !this.current;
     // While this player runs a round for the room, their own ticks are newer than any the
     // service sends back, about a round trip later, so the game keeps showing those. That

@@ -4,6 +4,9 @@ import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
 import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { TickClock, TickPacer } from "../packages/sdk/src/pacing.js";
+import { OWNER_DIRECT_INTERVAL_MS, OwnerSession } from "../packages/sdk/src/owner.js";
+import { DEFAULT_ICE_SERVERS, P2P_CONNECT_TIMEOUT_MS, P2P_MAX_PLAYERS, P2P_RETRY_MS, PeerMesh } from "../packages/sdk/src/peers.js";
+import { FakePeerConnection } from "./fake-peer-connection.js";
 
 const manifest: MultiplayerManifestConfig = {
   enabled: true,
@@ -425,5 +428,153 @@ describe("timing sends to the service's tick", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("owner rooms connected straight between pages", () => {
+  const hooks = (sent: unknown[] = [], direct: unknown[] = []) => ({
+    send: (type: string, value: unknown) => sent.push({ type, value }),
+    sendDirect: (packet: unknown) => direct.push(packet),
+    show: () => {},
+    playerId: () => "me",
+    tickMs: () => 100,
+    clock: new TickClock(() => 100),
+  });
+
+  it("keeps whichever of a player's states is newer, straight from their page or from the service", () => {
+    const owner = new OwnerSession(hooks());
+    const other = () => owner.game().players.b;
+    owner.sync({ round: 1, players: { b: { x: 0 } }, shared: {}, seqs: { b: 3 } });
+    // Straight from the page: newer than the service's version 3.
+    owner.direct("b", { round: 1, seq: 5, state: { x: 5, y: 1 } });
+    expect(other()).toEqual({ x: 5, y: 1 });
+    // The service's frame for version 4 is older: skipped.
+    owner.frame({ round: 1, players: { b: { set: { x: 4 }, seq: 4 } } });
+    expect(other()).toEqual({ x: 5, y: 1 });
+    // Version 7 builds on the service's previous frame, which version 5 is newer than: applied on top.
+    owner.frame({ round: 1, players: { b: { set: { x: 7 }, delete: ["y"], seq: 7 } } });
+    expect(other()).toEqual({ x: 7 });
+    // A late or out-of-order direct state is older: dropped.
+    owner.direct("b", { round: 1, seq: 6, state: { x: 6 } });
+    expect(other()).toEqual({ x: 7 });
+    // Wrong round, malformed, too large, or from this page: dropped.
+    owner.direct("b", { round: 2, seq: 9, state: { x: 9 } });
+    owner.direct("b", { round: 1, seq: "9", state: { x: 9 } });
+    owner.direct("b", { round: 1, seq: 9, state: { big: "x".repeat(5000) } });
+    owner.direct("me", { round: 1, seq: 9, state: { x: 9 } });
+    expect(owner.game().players).toEqual({ me: {}, b: { x: 7 } });
+    // A player who left stays gone, even if a direct state of theirs arrives late.
+    owner.frame({ round: 1, left: ["b"] });
+    owner.direct("b", { round: 1, seq: 20, state: { x: 20 } });
+    expect(owner.game().players).toEqual({ me: {} });
+  });
+
+  it("sends its whole state straight to other pages at once, then at most every 33 ms with the newest", () => {
+    vi.useFakeTimers();
+    try {
+      const sent: { type: string; value: unknown }[] = [];
+      const direct: unknown[] = [];
+      const owner = new OwnerSession(hooks(sent as unknown[], direct));
+      owner.sync({ round: 2, players: {}, shared: {} });
+      owner.setState({ x: 1 });
+      owner.setState({ x: 2 });
+      owner.setState({ x: 3 });
+      expect(direct).toEqual([{ round: 2, seq: 1, state: { x: 1 } }]);
+      vi.advanceTimersByTime(OWNER_DIRECT_INTERVAL_MS);
+      expect(direct).toEqual([{ round: 2, seq: 1, state: { x: 1 } }, { round: 2, seq: 3, state: { x: 3 } }]);
+      // The service's copy carries the same version, so a page that has both keeps the newer.
+      vi.advanceTimersByTime(200);
+      expect(sent.find((entry) => entry.type === "owner.state")?.value).toMatchObject({ seq: expect.any(Number) });
+      // Back in the same round after a reload, versions continue past what the service had.
+      const again: unknown[] = [];
+      const reloaded = new OwnerSession(hooks([], again));
+      reloaded.sync({ round: 2, players: { me: { x: 3 } }, shared: {}, seqs: { me: 3 } });
+      reloaded.setState({ x: 4 });
+      expect((again[0] as { seq: number }).seq).toBeGreaterThan(3 + 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("connects two pages, the lower ID offering, and passes packets both ways", async () => {
+    FakePeerConnection.reset();
+    const got: { to: string; channel: string; from: string; packet: unknown }[] = [];
+    const meshes = new Map<string, PeerMesh>();
+    const mesh = (me: string) => {
+      const created = new PeerMesh({
+        signal: (to, data) => setTimeout(() => void meshes.get(to)?.receive(me, structuredClone(data)), 1),
+        playerId: () => me,
+        state: (from, packet) => got.push({ to: me, channel: "states", from, packet }),
+        message: (from, packet) => got.push({ to: me, channel: "messages", from, packet }),
+      }, { peerConnection: FakePeerConnection as unknown as typeof RTCPeerConnection });
+      meshes.set(me, created);
+      return created;
+    };
+    const [a, b] = [mesh("a"), mesh("b")];
+    b.update(["a", "b"]);
+    expect(b.status()).toEqual({});
+    a.update(["a", "b"]);
+    expect(a.status()).toEqual({ b: "connecting" });
+    await vi.waitFor(() => expect([a.status(), b.status()]).toEqual([{ b: "open" }, { a: "open" }]));
+    const [offer] = [...FakePeerConnection.all.values()];
+    expect(offer!.configuration.iceServers).toEqual(DEFAULT_ICE_SERVERS);
+    a.sendState({ round: 1, seq: 1, state: { x: 1 } });
+    b.sendMessage({ id: "m1", message: { hit: true } });
+    await vi.waitFor(() => expect(got).toHaveLength(2));
+    expect(got).toContainEqual({ to: "b", channel: "states", from: "a", packet: { round: 1, seq: 1, state: { x: 1 } } });
+    expect(got).toContainEqual({ to: "a", channel: "messages", from: "b", packet: { id: "m1", message: { hit: true } } });
+    // A player who left is dropped. The other side sees its connection end at once, and
+    // forgets the player once its own room shows them gone.
+    a.update(["a"]);
+    expect(a.status()).toEqual({});
+    await vi.waitFor(() => expect(b.status()).toEqual({ a: "failed" }));
+    b.update(["b"]);
+    expect(b.status()).toEqual({});
+    // Rooms larger than P2P_MAX_PLAYERS connect none.
+    a.update(Array.from({ length: P2P_MAX_PLAYERS }, (_, index) => `p${index}`).concat("a"));
+    expect(a.status()).toEqual({});
+  });
+
+  it("gives up a connection that does not open, and offers again later", async () => {
+    vi.useFakeTimers();
+    FakePeerConnection.reset();
+    FakePeerConnection.reachable = false;
+    try {
+      const meshes = new Map<string, PeerMesh>();
+      const mesh = (me: string) => {
+        const created = new PeerMesh({
+          signal: (to, data) => setTimeout(() => void meshes.get(to)?.receive(me, data), 1),
+          playerId: () => me,
+          state: () => {},
+          message: () => {},
+        }, { peerConnection: FakePeerConnection as unknown as typeof RTCPeerConnection });
+        meshes.set(me, created);
+        return created;
+      };
+      const [a, b] = [mesh("a"), mesh("b")];
+      a.update(["a", "b"]);
+      b.update(["a", "b"]);
+      await vi.advanceTimersByTimeAsync(P2P_CONNECT_TIMEOUT_MS + 10);
+      expect([a.status(), b.status()]).toEqual([{ b: "failed" }, { a: "failed" }]);
+      // Not before the retry time; then the offering page tries again.
+      a.update(["a", "b"]);
+      expect(a.status()).toEqual({ b: "failed" });
+      FakePeerConnection.reachable = true;
+      await vi.advanceTimersByTimeAsync(P2P_RETRY_MS);
+      a.update(["a", "b"]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect([a.status(), b.status()]).toEqual([{ b: "open" }, { a: "open" }]);
+    } finally {
+      vi.useRealTimers();
+      FakePeerConnection.reset();
+    }
+  });
+
+  it("is only for owner deployments, and does nothing where the browser has no WebRTC", () => {
+    expect(() => new MultiplayerClient({ manifest, p2p: true })).toThrow("p2p is for owner deployments.");
+    const without = new PeerMesh({ signal: () => {}, playerId: () => "a", state: () => {}, message: () => {} });
+    expect(without.available).toBe(typeof RTCPeerConnection === "function");
+    without.update(["a", "b"]);
+    if (!without.available) expect(without.status()).toEqual({});
   });
 });

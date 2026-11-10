@@ -12,6 +12,7 @@ import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmyg
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "@ohmygame/games/gomoku";
 import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
+import { FakePeerConnection } from "./fake-peer-connection.js";
 import {
   applyStateChanges,
   multiplayerRoomType,
@@ -1721,6 +1722,62 @@ export default defineRealtimeGame({
       }
     } finally {
       for (const client of [a, b, c]) client.dispose();
+    }
+  });
+
+  it("sends owner states and messages straight between pages that connect, and through the service to the rest", async () => {
+    FakePeerConnection.reset();
+    // A slow tick: whatever arrives within a fraction of it came straight from the other page.
+    const manifest = await hostedService({ deploymentId: "owner-direct", adapterId: "owner", tickMs: 1000, mode: "realtime", roomPolicy: "drop-in", maxClients: 4 });
+    const messages = new Map<MultiplayerClient, { from: string; message: Record<string, unknown> }[]>();
+    const join = (p2p: boolean) => {
+      const got: { from: string; message: Record<string, unknown> }[] = [];
+      const client = new MultiplayerClient({
+        manifest, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage(),
+        ...(p2p ? { p2p: { peerConnection: FakePeerConnection as unknown as typeof RTCPeerConnection } } : {}),
+      }, { onMessage: (from, message) => got.push({ from, message }) });
+      messages.set(client, got);
+      return client;
+    };
+    const players = (client: MultiplayerClient) => (client.snapshot?.state.game as { players: Record<string, Record<string, unknown>> } | undefined)?.players;
+    const [a, b, c] = [join(true), join(true), join(false)];
+    try {
+      for (const client of [a, b, c]) await client.quickPlay();
+      await wait(() => expect([a, b, c].every((client) => client.snapshot?.state.phase === "playing" && client.playerId)).toBe(true));
+      await wait(() => expect(a.peers[b.playerId!]).toBe("open"));
+      expect(b.peers[a.playerId!]).toBe("open");
+      expect(c.peers).toEqual({});
+      const directStates = () => [...FakePeerConnection.all.values()].flatMap((pc) => pc.channels.get(0)?.sent ?? []).length;
+
+      for (const x of [1, 2, 3]) {
+        const before = directStates();
+        const start = Date.now();
+        a.setState({ x });
+        await vi.waitFor(() => expect(players(b)?.[a.playerId!]).toEqual({ x }), { timeout: 150, interval: 5 });
+        expect(Date.now() - start).toBeLessThan(150);
+        expect(directStates()).toBeGreaterThan(before);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      // The player without a direct connection gets it through the service, a tick later.
+      await wait(() => expect(players(c)?.[a.playerId!]).toEqual({ x: 3 }));
+      // And the service's copy does not take B back to an older state.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      expect(players(b)?.[a.playerId!]).toEqual({ x: 3 });
+
+      // A message arrives once on each page, though B gets it both ways.
+      expect(a.emit({ boom: 1 })).toBe(true);
+      await wait(() => expect(messages.get(c)).toEqual([{ from: a.playerId, message: { boom: 1 } }]));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(messages.get(b)).toEqual([{ from: a.playerId, message: { boom: 1 } }]);
+
+      // Leaving closes the page's connections; the other page lets the player go.
+      const left = b.playerId!;
+      await b.leave();
+      expect(b.peers).toEqual({});
+      await wait(() => expect(a.peers).not.toHaveProperty(left));
+    } finally {
+      for (const client of [a, b, c]) client.dispose();
+      FakePeerConnection.reset();
     }
   });
 

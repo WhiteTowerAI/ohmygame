@@ -498,6 +498,40 @@ play; use lockstep where every screen must agree.
   that arrives or reconnects during one gets them all (`owner.sync`).
 - Results never reach a match leaderboard.
 
+#### Direct connections (`p2p`)
+
+`createMultiplayerClient(ohmygame, { p2p: true })` connects an owner room's pages
+straight to each other over WebRTC (`packages/sdk/src/peers.ts`), so states and
+messages skip the trip to the service and the wait for its tick. A test between
+two phones on 5G (China Telecom and China Mobile, both with IPv6) measured a 70 ms
+median round trip; through the service the same state took about 400 ms.
+
+- The service stays in the path: pages send everything to it as before, and it
+  syncs late arrivals and reaches players a connection cannot. Its load grows only
+  by the setup messages (`p2p.signal`).
+- Every two players get one connection when the room has fewer than 8
+  (`P2P_MAX_PLAYERS`). The lower playerId offers; candidates found within 200 ms
+  go in one signal. Each connection has two negotiated channels: `states`,
+  unordered and never resent, and `messages`, ordered and reliable.
+- `setState` sends the page's whole state, with its round and `seq`, to every open
+  connection at once, then at most every 33 ms (`OWNER_DIRECT_INTERVAL_MS`) with
+  the newest. A receiving page keeps a player's state with the highest `seq`, from
+  either path; a frame's change with a newer `seq` applies on top, because it
+  builds on the service's previous frame, which the page has already passed.
+- `emit` sends the message both ways; the page passes each sender's message ID to
+  `onMessage` once.
+- A connection that does not open within 15 seconds is given up and offered again
+  a minute later (`P2P_CONNECT_TIMEOUT_MS`, `P2P_RETRY_MS`). `client.peers` lists
+  each other player as `"connecting"`, `"open"` or `"failed"`.
+- STUN defaults to `stun.cloudflare.com` and `stun.l.google.com`, which answer from
+  mainland China; `p2p: { iceServers }` replaces them. There is no TURN relay: a
+  pair that cannot connect stays on the service.
+- Connections open where both players have IPv6, or where the NATs keep a port per
+  socket. Symmetric NATs on both sides, measured on office networks and on mobile
+  IPv4, do not connect. `scripts/spikes/webrtc-p2p` holds the test page and its
+  results.
+- Players learn each other's network addresses, so it is off by default.
+
 ## Drawing between updates
 
 Other players' positions reach a page at most once a tick: in realtime

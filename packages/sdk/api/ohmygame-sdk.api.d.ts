@@ -571,6 +571,7 @@ import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
 import type { ClientAction, ClientInput, ClientMoves } from "./define-game.js";
 import type { OhMyGame } from "./index.js";
+import { type PeerOptions, type PeerStatus } from "./peers.js";
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
 export type MultiplayerConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
@@ -604,6 +605,14 @@ export interface MultiplayerClientOptions {
      * players, and roughly how often that is checked. Defaults to 5 seconds.
      */
     mergeCheckMs?: number;
+    /**
+     * Owner rooms: also send states and messages straight to other players' pages over
+     * WebRTC where a direct connection opens, without the trip to the service. Everything
+     * still goes through the service too, which reaches the players a connection cannot.
+     * Players see each other's network addresses, so leave it off unless the game wants
+     * the speed. iceServers replaces the default public STUN servers.
+     */
+    p2p?: boolean | PeerOptions;
 }
 export interface MultiplayerClientCallbacks {
     onStatus?: (status: MultiplayerConnectionStatus) => void;
@@ -678,6 +687,10 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly lockstep?;
     /** This player's part of the round, for an owner deployment. */
     private readonly owner?;
+    /** Owner rooms with p2p: connections straight to other players' pages. */
+    private readonly mesh?;
+    /** Messages already passed to onMessage, by sender and ID, so a copy from the other path is dropped. */
+    private readonly delivered;
     /** This player's own moves shown before the service's tick reads them, when the page passes the rules the service runs. */
     private readonly prediction?;
     constructor(options: MultiplayerClientOptions, callbacks?: MultiplayerClientCallbacks);
@@ -687,6 +700,12 @@ export declare class MultiplayerClient<Game = unknown> {
      * Pass it to a Smoother as intervalMs.
      */
     get tickMs(): number;
+    /**
+     * Owner rooms with p2p: each other player this page has tried to reach directly, by
+     * playerId: "connecting", "open" (states and messages go straight there too), or
+     * "failed" (only through the service; tried again later). Empty without p2p.
+     */
+    get peers(): Record<string, PeerStatus>;
     get status(): MultiplayerConnectionStatus;
     get roomId(): string | undefined;
     get playerId(): string | undefined;
@@ -764,6 +783,10 @@ export declare class MultiplayerClient<Game = unknown> {
     emit(message: Record<string, unknown>): boolean;
     /** Owner rooms: ends the round with these winners; the first page to say so decides. */
     finishRound(winners: string[]): void;
+    /** Passes a message on once, whichever path brought it first. */
+    private deliverMessage;
+    /** Connects straight to the room's connected players, and drops those who left. */
+    private updatePeers;
     /** Shows an owner round: the room's seats and phase, with every player's state and the shared data. */
     private showOwner;
     sendAction(action: ClientAction<Game>): boolean;
@@ -1170,6 +1193,7 @@ export declare function isTurnCommandResult(value: unknown): value is TurnComman
 export declare function isMultiplayerSnapshot(value: unknown): value is MultiplayerSnapshot;
 export declare function normalizeDisplayName(value: unknown): string;
 export declare function isRecord(value: unknown): value is Record<string, unknown>;
+export declare function isSequence(value: unknown): value is number;
 /** A seat change that every page applies at the same frame of a lockstep round. */
 export type LockstepEvent = {
     type: "join";
@@ -1362,6 +1386,62 @@ export declare function stateChanges(before: unknown, after: unknown): StateChan
  * rest is shared with `state`, which is left as it was.
  */
 export declare function applyStateChanges<T>(state: T, changes: readonly StateChange[]): T;
+
+// peers.d.ts
+export type PeerStatus = "connecting" | "open" | "failed";
+/** Public STUN servers, which tell a page its public address; both answer from mainland China. */
+export declare const DEFAULT_ICE_SERVERS: RTCIceServer[];
+/** Rooms with more players connect none: every page would hold a connection to each other one. */
+export declare const P2P_MAX_PLAYERS = 8;
+/** How long a connection may take to open before it is given up. */
+export declare const P2P_CONNECT_TIMEOUT_MS = 15000;
+/** How long after giving up the offering page tries again. */
+export declare const P2P_RETRY_MS = 60000;
+export interface PeerOptions {
+    iceServers?: RTCIceServer[];
+}
+export interface PeerHooks {
+    /** Sends connection setup to another player through the service. */
+    signal(to: string, data: Record<string, unknown>): void;
+    playerId(): string | undefined;
+    /** A state packet straight from a player. */
+    state(from: string, packet: unknown): void;
+    /** A message packet straight from a player. */
+    message(from: string, packet: unknown): void;
+}
+export declare class PeerMesh {
+    private readonly hooks;
+    private readonly peers;
+    /** Players whose connection was given up, and when the offering page may try again. */
+    private readonly failed;
+    private wanted;
+    private readonly factory?;
+    private readonly iceServers;
+    constructor(hooks: PeerHooks, options?: PeerOptions);
+    /** Whether this browser can connect directly at all. */
+    get available(): boolean;
+    /** Each other player this page has tried to reach directly, and how that went. */
+    status(): Record<string, PeerStatus>;
+    /** Whether a state or message would reach anyone directly now. */
+    get open(): boolean;
+    /** The players in the room now: connects to new ones, drops those gone. */
+    update(players: readonly string[]): void;
+    /** Connection setup another player sent through the service. */
+    receive(from: string, data: unknown): Promise<void>;
+    /** Sends a state packet to every player reached directly. */
+    sendState(packet: unknown): void;
+    /** Sends a message packet to every player reached directly. */
+    sendMessage(packet: unknown): void;
+    close(): void;
+    private send;
+    private offer;
+    private create;
+    private deliver;
+    private addIncoming;
+    /** Gives up a connection; the offering page tries again after P2P_RETRY_MS. */
+    private fail;
+    private drop;
+}
 
 // rules.d.ts
 /**

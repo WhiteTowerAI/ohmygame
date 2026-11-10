@@ -540,7 +540,7 @@ export function normalizeDisplayName(value: unknown): string {
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function isSequence(value: unknown): value is number {
+export function isSequence(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 function isServerTime(value: unknown): value is string {
