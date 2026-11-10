@@ -91,6 +91,7 @@ describe("audio nodes saved before they were merged", () => {
       { id: "rain", type: "sound-effect", data: { prompt: "Rain", negativePrompt: "thunder", durationSeconds: 5, loop: true } },
       { id: "scene", type: "audio-scene", data: { prompt: "Rain behind a voice", durationSeconds: 0.05 } },
       { id: "voice", type: "audio", data: { prompt: "Hi", subtitles: true, audioReferenceSerial: 1, audioReferences: [{ id: "Audio1", type: "audio", source: { type: "library", assetId: "rain" } }] } },
+      { id: "transcript", type: "transcription", data: { text: "Welcome aboard", audioAssetId: "line" } },
     ] });
     await writeFile(boardPath, text);
     const read = await readCanvasBoard(project.workspacePath, boardId);
@@ -99,9 +100,10 @@ describe("audio nodes saved before they were merged", () => {
       { id: "rain", type: "audio", data: { prompt: "Rain", durationSeconds: 5, loop: true } },
       { id: "scene", type: "audio", data: { prompt: "Rain behind a voice", durationSeconds: 0.1 } },
       { id: "voice", type: "audio", data: { prompt: "Hi" } },
+      { id: "transcript", type: "text", data: { text: "Welcome aboard", instruction: "" } },
     ]);
     const check = await checkCanvasWorkspace(project.workspacePath);
-    expect(check.issues.filter((issue) => issue.message.includes("older audio shape")).length).toBe(4);
+    expect(check.issues.filter((issue) => issue.message.includes("older audio or transcription shape")).length).toBe(5);
     expect(await readFile(boardPath, "utf8")).toBe(text);
   });
 
@@ -112,17 +114,20 @@ describe("audio nodes saved before they were merged", () => {
       { id: "theme", type: "music", data: { prompt: "Harbor", model } },
       { id: "tts", type: "speech", data: { text: "Welcome", model: { provider: "volcengine-tts", id: "seed-tts-2.0" } } },
       { id: "scene", type: "audio-scene", data: { prompt: "As written", model } },
+      { id: "transcript", type: "transcription", data: { text: "Keep this transcript", audioAssetId: "line" } },
       { id: "note", type: "text", data: { text: "Keep" } },
     ] });
-    expect(migrated).toEqual(["line", "theme", "tts", "scene"]);
+    expect(migrated).toEqual(["line", "theme", "tts", "scene", "transcript"]);
     expect(value.nodes.map((node) => (node.data as { prompt?: string }).prompt)).toEqual([
       "Speak the following text exactly. Welcome",
       "Create instrumental game background music. Do not include vocals, speech, narration, or lyrics. Description: Harbor",
       "Welcome",
       "As written",
       undefined,
+      undefined,
     ]);
-    expect(value.nodes[4]).toEqual({ id: "note", type: "text", data: { text: "Keep" } });
+    expect(value.nodes[4]).toEqual({ id: "transcript", type: "text", data: { text: "Keep this transcript", instruction: "" } });
+    expect(value.nodes[5]).toEqual({ id: "note", type: "text", data: { text: "Keep" } });
   });
 
   it("read per-kind tool jobs and runs as generate-audio with their kind", () => {

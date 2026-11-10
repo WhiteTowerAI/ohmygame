@@ -184,7 +184,7 @@ export async function inspectCanvasBoard(workspace: string, id: string): Promise
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
-  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio shape. It opens as type "audio" with its text in prompt and without audioReferences, audioReferenceSerial or subtitles. Save it that way.`);
+  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio or transcription shape. It opens in the current format; save it that way.`);
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;
     if (isResizableCanvasNodeType(node.type) || (width === undefined && height === undefined)) continue;

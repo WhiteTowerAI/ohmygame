@@ -1,10 +1,11 @@
 import type { AudioKind } from "./audio.js";
 
-// compat: since beta.5.6, remove from beta.7 and 2026-12-12. The speech, sound-effect, music and audio-scene nodes and the generate-speech, generate-sound-effect and generate-music tools, merged into the audio node and generate-audio. Read from board files, browser drafts, the clipboard, plugin presets and generation history.
+// compat: since beta.5.6, remove from beta.7 and 2026-12-12. The speech, sound-effect, music and audio-scene nodes and the generate-speech, generate-sound-effect and generate-music tools, merged into the audio node and generate-audio. The earlier transcription node becomes a normal Text node. Read from board files, browser drafts, the clipboard, plugin presets and generation history.
 // compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles, which no generation uses since beta.5.0, are dropped from audio nodes as they load.
 const DROPPED = ["subtitles", "audioReferences", "audioReferenceSerial"] as const;
 
 const NODE_KINDS: Readonly<Record<string, AudioKind | null>> = { speech: "speech", "sound-effect": "sound-effect", music: "music", "audio-scene": null };
+const TRANSCRIPTION_NODE = "transcription";
 const TOOL_KINDS: Readonly<Record<string, AudioKind>> = { "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music" };
 
 /** Seed Audio used to get these ahead of the prompt; they move into it so older work sounds the same. */
@@ -29,13 +30,14 @@ function audioData(kind: AudioKind | null, data: Data): Record<string, unknown> 
 type NodeRecord = { id?: unknown; type: string; data?: Data };
 const record = (node: unknown): node is NodeRecord => Boolean(node && typeof node === "object" && typeof (node as { type?: unknown }).type === "string");
 const legacyType = (node: unknown): node is NodeRecord => record(node) && node.type in NODE_KINDS;
+const legacyTranscription = (node: unknown): node is NodeRecord => record(node) && node.type === TRANSCRIPTION_NODE;
 const droppedFields = (node: unknown): node is NodeRecord =>
   record(node) && node.type === "audio" && Boolean(node.data && typeof node.data === "object" && DROPPED.some((key) => key in node.data!));
 
-/** Reads each speech, sound-effect, music or audio-scene node as an audio node, and drops audio references and subtitles. */
+/** Reads retired audio nodes in their current form. Completed transcriptions become editable Text nodes with the same ID, preserving prompt links. */
 export function migrateLegacyAudioNodes<T>(value: T): { value: T; migrated: string[] } {
   const nodes = value && typeof value === "object" ? (value as { nodes?: unknown }).nodes : undefined;
-  const changes = (node: unknown) => legacyType(node) || droppedFields(node);
+  const changes = (node: unknown) => legacyType(node) || legacyTranscription(node) || droppedFields(node);
   if (!Array.isArray(nodes) || !nodes.some(changes)) return { value, migrated: [] };
   const migrated: string[] = [];
   return {
@@ -43,6 +45,10 @@ export function migrateLegacyAudioNodes<T>(value: T): { value: T; migrated: stri
       if (legacyType(node)) {
         migrated.push(String(node.id));
         return { ...node, type: "audio", data: audioData(NODE_KINDS[node.type]!, node.data ?? {}) };
+      }
+      if (legacyTranscription(node)) {
+        migrated.push(String(node.id));
+        return { ...node, type: "text", data: { text: typeof node.data?.text === "string" ? node.data.text : "", instruction: "" } };
       }
       if (!droppedFields(node)) return node;
       migrated.push(String(node.id));
