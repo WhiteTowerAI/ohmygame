@@ -12,6 +12,14 @@ export interface OrchestratorToolContext {
   completeGoal(projectId: string, conversationId: string, summary: string): Promise<void>;
 }
 
+/**
+ * The tool names a conversation gets, adjusted for its team role. An advisor runs unattended
+ * beside the writer, so it cannot stop to ask the person a question and wait.
+ */
+export function teamToolNames(names: string[], capability: OrchestratorRoleCapability | undefined): string[] {
+  return capability === "advisor" ? names.filter((name) => name !== "questionnaire") : names;
+}
+
 /** The tools a role uses to work with its team. Text here goes to the model, so it stays in English. */
 export function createOrchestratorTools(context: OrchestratorToolContext): PiToolDefinition[] {
   /** A teammate by id, or by name as a model may write it; ids are long slugs that are easy to misremember. */

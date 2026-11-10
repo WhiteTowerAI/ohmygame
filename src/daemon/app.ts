@@ -7,7 +7,7 @@ import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
 import { OrchestratorSupervisor } from "./orchestrator.js";
 import { registerOrchestratorRoutes } from "./orchestrator-routes.js";
-import { createOrchestratorTools } from "./orchestrator-tools.js";
+import { createOrchestratorTools, teamToolNames } from "./orchestrator-tools.js";
 import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
 import { createCanvasWatches } from "./canvas-watch.js";
@@ -1222,7 +1222,7 @@ export function createApp(options: AppOptions = {}) {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
       const role = orchestrator.roleFor(project.id, conversationId);
       // An advisor gets the read-only set whatever its plan mode, so it can never write beside the writer.
-      return projectPiToolNames(role?.config.capability === "advisor" ? "planning" : mode, TOOL_IDS, registered, webSearch.enabled(), Boolean(role));
+      return teamToolNames(projectPiToolNames(role?.config.capability === "advisor" ? "planning" : mode, TOOL_IDS, registered, webSearch.enabled(), Boolean(role)), role?.config.capability);
     },
     isWriterConversation: (projectId, conversationId) => orchestrator.isWriterConversation(projectId, conversationId),
     onLimitChange: (projectId, conversationId, limitReached) => limitContinuations.changed(projectId, conversationId, limitReached),

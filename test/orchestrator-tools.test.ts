@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { activePiToolNames, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
-import { createOrchestratorTools, type OrchestratorToolContext } from "../src/daemon/orchestrator-tools.js";
+import { createOrchestratorTools, teamToolNames, type OrchestratorToolContext } from "../src/daemon/orchestrator-tools.js";
 
 function context(overrides: Partial<OrchestratorToolContext> = {}): OrchestratorToolContext {
   return {
@@ -94,6 +94,15 @@ describe("orchestrator tool gating", () => {
   it("does not pass registered team tools through as extension tools twice", () => {
     const names = activePiToolNames([], ["list_agents", "send_message_to_agent", "mark_goal_complete"]);
     expect(names).not.toContain("list_agents");
+  });
+
+  it("keeps an advisor from asking the person a question it would wait on", () => {
+    const planning = projectPiToolNames("planning", [], [], true, true);
+    expect(planning).toContain("questionnaire");
+    expect(teamToolNames(planning, "advisor")).not.toContain("questionnaire");
+    expect(teamToolNames(planning, "advisor")).toEqual(expect.arrayContaining(["read", "send_message_to_agent"]));
+    expect(teamToolNames(planning, "writer")).toEqual(planning);
+    expect(teamToolNames(planning, undefined)).toEqual(planning);
   });
 
   it("leaves an unorchestrated conversation exactly as it was", () => {

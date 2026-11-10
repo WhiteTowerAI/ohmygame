@@ -294,6 +294,30 @@ describe("orchestrator loop", () => {
     expect(prompts).toEqual([{ conversationId: painter, text: expect.stringContaining("Programmer: The player needs a night palette.") }]);
   });
 
+  it("gives a busy advisor the messages that came meanwhile once its turn ends", async () => {
+    const { supervisor, project, prompts, started } = await harness();
+    const { programmer, critic } = await started();
+    await supervisor.deliver(project.id, programmer, "critic", "Review the jump.");
+    await supervisor.deliver(project.id, programmer, "critic", "Also the audio.");
+    prompts.length = 0;
+    await supervisor.turnEnded(project, { conversationId: critic, status: "completed", changes: [] });
+    expect(prompts).toEqual([{ conversationId: critic, text: expect.stringContaining("Programmer: Also the audio.") }]);
+    expect(supervisor.state(project.id)!.roles[1]!.status).toBe("running");
+  });
+
+  it("keeps an advisor's waiting messages after a failed turn and sends them with the next one", async () => {
+    const { supervisor, project, prompts, started } = await harness();
+    const { programmer, critic } = await started();
+    await supervisor.deliver(project.id, programmer, "critic", "First note.");
+    await supervisor.deliver(project.id, programmer, "critic", "Second note.");
+    await supervisor.turnEnded(project, { conversationId: critic, status: "failed", changes: [] });
+    prompts.length = 0;
+    await supervisor.deliver(project.id, programmer, "critic", "Third note.");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.text).toContain("Programmer: Second note.");
+    expect(prompts[0]!.text).toContain("Programmer: Third note.");
+  });
+
   it("does not advance an advisor, and ignores a conversation not on the team", async () => {
     const { supervisor, project, prompts, started } = await harness();
     const { programmer, critic } = await started();
@@ -350,6 +374,22 @@ describe("orchestrator ping-pong detection", () => {
     }
     expect(supervisor.state(project.id)!.status).toBe("running");
     expect(supervisor.state(project.id)!.diagnostic).toBeUndefined();
+  });
+
+  it("starting again after a pause does not prompt a writer still in its turn", async () => {
+    const { supervisor, project, prompts, started } = await harness();
+    const { programmer, critic } = await started();
+    for (let round = 0; round <= PING_PONG_LIMIT * 2; round++) {
+      await supervisor.deliver(project.id, critic, "programmer", "note").catch(() => {});
+    }
+    expect(supervisor.state(project.id)!.status).toBe("error");
+    prompts.length = 0;
+    const state = await supervisor.start(project);
+    expect(state.status).toBe("running");
+    expect(prompts).toHaveLength(0);
+    // Its turn from before the pause ends, and the loop picks it up from there.
+    await supervisor.turnEnded(project, { conversationId: programmer, status: "completed", changes: [] });
+    expect(prompts).toEqual([{ conversationId: programmer, text: expect.stringContaining("Carry on") }]);
   });
 
   it("starting again clears the diagnostic", async () => {

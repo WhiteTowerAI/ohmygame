@@ -14,8 +14,9 @@ added to that agent's system prompt) and a capability:
 - **Writer** — may change files. A team has at least one.
 - **Advisor** — reads the project and messages teammates. It gets the
   read-only tool set plan mode uses (`read`, `grep`, `find`, `ls`,
-  `web_search`, `questionnaire`, `update_plan`), whatever its own plan mode
-  is, so a coding agent such as Claude Code also runs it read-only.
+  `web_search`, `update_plan`), whatever its own plan mode is, so a coding
+  agent such as Claude Code also runs it read-only. It does not get
+  `questionnaire`: it runs unattended and must not stop to wait for you.
 
 Each role is an ordinary conversation in the project, titled after the role
 and using the model of the chat the team was set up from. Its history is kept
@@ -43,7 +44,7 @@ them.
 | Tool | Who | What it does |
 | --- | --- | --- |
 | `list_agents` | every role | The roster: id, name, capability, status and persona. |
-| `send_message_to_agent` | every role | Sends a message to a teammate. An idle teammate starts a turn on it; a busy one gets it when its turn ends. |
+| `send_message_to_agent` | every role | Sends a message to a teammate, found by id or name. An idle teammate starts a turn on it; a busy one gets every message that arrived meanwhile when its turn ends. |
 | `mark_goal_complete` | writers | Ends the run with a summary of what was achieved. |
 
 Messages appear in the team's **Team messages** list as they are sent

@@ -134,12 +134,15 @@ export class OrchestratorSupervisor {
       // A conversation that never got a message is not saved, so after a restart it may be gone and is made again.
       const kept = role.conversationId && (await this.deps.hasConversation(project, role.conversationId)) ? role.conversationId : undefined;
       const conversationId = kept ?? (await this.deps.createConversation(project, role.config.name, role.config.model));
-      roles.push({ config: role.config, conversationId, status: "idle" });
+      // A paused run does not cancel its turns, so a role still working keeps its status and its turn.
+      roles.push({ ...role, conversationId, status: kept && role.status === "running" ? "running" : "idle" });
     }
     const config: OrchestratorConfig = { ...run.state.config, conversations: conversationsOf({ roles }) };
     await saveOrchestratorConfig(project, config);
     run.state = { config, roles, status: "running" };
     const writer = roles.find((role) => role.config.capability === "writer")!;
+    // A writer still in a turn from before the pause carries on when that turn ends; a second prompt would double it.
+    if (writer.status === "running") return this.#publish(project.id);
     try {
       await this.#promptRole(run, writer, openingPrompt(config.goal));
     } catch (cause) {
@@ -258,7 +261,8 @@ export class OrchestratorSupervisor {
     if (to.status === "running") return queue();
     // Another writer is still working, so this one waits for its turn with the message.
     if (to.config.capability === "writer" && run.state.roles.some((role) => role !== to && role.config.capability === "writer" && role.status === "running")) return queue();
-    await this.#promptRole(run, to, teammatePrompt([message]));
+    // Anything still waiting for this role, say from a turn of its that failed, goes with the new message.
+    await this.#promptRole(run, to, teammatePrompt([...this.drain(projectId, to.conversationId), message]));
     return { delivered: true, queued: false };
   }
 
@@ -294,7 +298,14 @@ export class OrchestratorSupervisor {
     if (run.state.status !== "running") return;
     if (end.changes.length && role.config.capability === "writer") run.exchanges.clear();
     if (role.config.capability !== "writer") {
-      // An advisor acts when a teammate addresses it; one that stopped short just goes quiet.
+      // An advisor acts when a teammate addresses it: messages that came while it was busy start its next turn.
+      const waiting = end.status === "completed" ? this.drain(project.id, end.conversationId) : [];
+      if (waiting.length) {
+        await this.#promptRole(run, role, teammatePrompt(waiting)).catch(() => {
+          // It could not start now; the messages wait for the next one sent to it.
+          run.pending.set(end.conversationId, [...waiting, ...(run.pending.get(end.conversationId) ?? [])]);
+        });
+      }
       this.#publish(project.id);
       return;
     }
