@@ -1,6 +1,6 @@
 {
   "name": "@ohmygame/sdk",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Browser SDK for OhMyGame games.",
   "license": "Apache-2.0",
   "author": "WhiteTowerAI",
