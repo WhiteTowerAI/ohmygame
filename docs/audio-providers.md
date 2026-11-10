@@ -29,8 +29,9 @@ Each layer stays separate:
   switch. An adapter calls whichever of the provider's APIs a model needs. It
   may also list account voices (`voices`) and transcribe audio (`transcribe`).
 - **One canvas node and one tool**: the `audio` node and `generate-audio`
-  (`generate_audio` for agents). Without a model, `kind` picks a ready model
-  that makes it, preferring a `readsText` model for speech. Options the model
+  (`generate_audio` for agents). Without a model, `kind` picks the default
+  set for it (see below), or else a ready model that makes it, preferring a
+  `readsText` model for speech. Options the model
   doesn't take are dropped before the adapter sees them. Transcription is a
   media tool on an audio node, not a node of its own.
 
@@ -82,6 +83,24 @@ as the audio node and `generate-audio` (`src/shared/audio-legacy.ts`). Speech
 text moves to the prompt; lyrics and negative prompts, which no provider took,
 are dropped. Seed Audio used to add a fixed instruction per operation; it is
 folded into the migrated prompt so older work sounds the same.
+
+## Default models
+
+Speech, sound effects and music each have their own default, since most audio
+models make one kind. They sit with the image, video and 3D defaults: globally
+in **Settings → Providers**, and per project under Canvas's **Default models**,
+where an unset kind uses the global one. They are stored as `speech`,
+`sound-effect` and `music` in the same places as the others: the provider
+preferences (`defaultSpeechModel`, `defaultSoundEffectModel`,
+`defaultMusicModel`), `PUT`/`DELETE /audio-models/<kind>/default`, and a
+project's `mediaModelDefaults`.
+
+When a request names no model, its `kind` resolves to the project default, then
+the global default, then the automatic choice. A request without a `kind`, such
+as an audio node with no model, uses the speech defaults. A default that isn't connected,
+is disabled, or doesn't make that kind is skipped. A new audio node starts with
+the last audio node's model, or else the speech default, since a node isn't
+tied to one kind.
 
 ## Asset Canvas
 

@@ -1,7 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { MediaModelCatalog, MediaModelDefaults, MediaModelUsage, ModelRef, ProjectState, ProviderCapability } from "../shared/contracts.js";
-import { listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
+import { AUDIO_KINDS, type AudioKind, type AudioModelCatalog } from "../shared/audio.js";
+import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState, type ProviderCapability } from "../shared/contracts.js";
+import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
 import { LoaderCircle, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
@@ -10,9 +11,23 @@ import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { ProviderMark } from "./model-selector.js";
 import { Select } from "./ui/index.js";
 
-const USAGES = ["image", "video", "3d"] as const;
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
 type Catalogs = Partial<Record<MediaModelUsage, Catalog>>;
+
+const isAudioKind = (usage: MediaModelUsage): usage is AudioKind => (AUDIO_KINDS as readonly string[]).includes(usage);
+const usageCapability = (usage: MediaModelUsage): ProviderCapability => isAudioKind(usage) ? "audio" : usage;
+const usageLabel = (usage: MediaModelUsage) => t(`mediaDefaults.usage.${usage}`);
+
+/** One audio catalog as a catalog per kind: the models that make it, in the order the automatic choice takes them, and its default. */
+function audioCatalog(audio: AudioModelCatalog, kind: AudioKind): Catalog {
+  const models = audio.models.filter((model) => model.capabilities.produces.includes(kind));
+  return {
+    // Speech prefers a model that reads the text word for word.
+    models: kind === "speech" ? [...models.filter((model) => model.capabilities.readsText), ...models.filter((model) => !model.capabilities.readsText)] : models,
+    providers: [],
+    ...(audio.defaultModels?.[kind] ? { defaultModel: audio.defaultModels[kind] } : {}),
+  };
+}
 
 function useMediaModelCatalogs(enabled = true) {
   const [catalogs, setCatalogs] = useState<Catalogs>({});
@@ -25,14 +40,16 @@ function useMediaModelCatalogs(enabled = true) {
     const refresh = () => {
       const current = ++revision;
       setLoading(true);
-      void Promise.allSettled([listImageModelCatalog(), listVideoModelCatalog(), listModel3DCatalog()]).then((results) => {
+      void Promise.allSettled([listImageModelCatalog(), listVideoModelCatalog(), listModel3DCatalog(), listAudioModelCatalog()]).then(([image, video, model3D, audio]) => {
         if (!active || current !== revision) return;
         const loaded: Catalogs = {};
         let failure: string | undefined;
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled") loaded[USAGES[index]!] = result.value;
+        for (const [usage, result] of [["image", image], ["video", video], ["3d", model3D]] as const) {
+          if (result.status === "fulfilled") loaded[usage] = result.value;
           else failure ??= errorMessage(result.reason);
-        });
+        }
+        if (audio.status === "fulfilled") for (const kind of AUDIO_KINDS) loaded[kind] = audioCatalog(audio.value, kind);
+        else failure ??= errorMessage(audio.reason);
         setCatalogs(loaded);
         setError(failure);
         setLoading(false);
@@ -62,8 +79,8 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
     ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName })) ?? []),
   ];
   return <div className="media-default-field">
-    <span>{t(`capability.${usage}`)}</span>
-    <CanvasChipSelect label={inherit ? t("mediaDefaults.projectModel", { usage: t(`capability.${usage}`) }) : t("mediaDefaults.globalModel", { usage: t(`capability.${usage}`) })}
+    <span>{usageLabel(usage)}</span>
+    <CanvasChipSelect label={inherit ? t("mediaDefaults.projectModel", { usage: usageLabel(usage) }) : t("mediaDefaults.globalModel", { usage: usageLabel(usage) })}
       value={selected ? modelKey(selected) : ""} options={options} menuContainer={menuContainer}
       disabled={disabled || !catalog || (!catalog.models.length && !selected)}
       onChange={(value) => onChange(catalog?.models.find((model) => modelKey(model) === value))} />
@@ -74,7 +91,7 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
 function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: {
   usage: MediaModelUsage; catalog?: Catalog; loading: boolean; disabled: boolean; onChange: (model?: ModelRef) => void;
 }) {
-  const label = t(`capability.${usage}`);
+  const label = usageLabel(usage);
   const selected = catalog?.defaultModel;
   const selectedModel = selected && catalog?.models.find((model) => modelKey(model) === modelKey(selected));
   const first = catalog?.models[0];
@@ -98,7 +115,7 @@ export function GlobalMediaModelDefaults({ capability, leading }: { capability: 
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const usages = USAGES.filter((usage) => capability === "all" || usage === capability);
+  const usages = MEDIA_MODEL_USAGES.filter((usage) => capability === "all" || usageCapability(usage) === capability);
   if (!usages.length && !leading) return null;
   async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (busy) return;
@@ -177,7 +194,7 @@ export function ProjectMediaModelSettings({ project, onSaved }: {
     {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
       style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
       <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <LoaderCircle className="spin" size={12} aria-label={t("mediaDefaults.saving")} /> : null}</div>
-      {USAGES.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
+      {MEDIA_MODEL_USAGES.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
       {error || loadError ? <p className="settings-error" role="alert">{error ?? loadError}</p> : null}
     </div>, document.body) : null}
   </>;

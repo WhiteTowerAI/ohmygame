@@ -1,3 +1,4 @@
+import type { AudioGenerationRequest, GeneratedAudio } from "../src/shared/audio.js";
 import { mp3Fixture } from "./audio-fixtures.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1739,6 +1740,46 @@ describe("daemon", () => {
     ]));
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/openrouter/seedance-key", payload: { apiKey: "wrong" } })).statusCode).toBe(404);
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/openrouter/seedance-key" })).statusCode).toBe(404);
+  });
+
+  it("uses the default model set for each audio kind, project first, then global, then automatic", async () => {
+    const generate = vi.fn(async (input: AudioGenerationRequest): Promise<GeneratedAudio> => ({ bytes: mp3Fixture(), mediaType: "audio/mpeg", model: input.model!, metadata: {} }));
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-defaults-")), audioGenerator: { catalog: () => ({ models: [], providers: [] }), generate } });
+    apps.push(app);
+    await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
+    await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } });
+    const eleven = { provider: "elevenlabs", id: "eleven_v4" }, seed = { provider: "volcengine-tts", id: "seed-audio-1.0" }, tts = { provider: "volcengine-tts", id: "seed-tts-2.0" };
+
+    expect((await app.inject({ method: "PUT", url: "/audio-models/speech/default", payload: eleven })).statusCode).toBe(204);
+    // A default must make its kind.
+    expect((await app.inject({ method: "PUT", url: "/audio-models/music/default", payload: eleven })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json().defaultModels).toEqual({ speech: eleven });
+
+    const projectId = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas", name: "Audio defaults" } })).json().id;
+    const settingsUrl = `/projects/${projectId}/settings/generation-models`;
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { "sound-effect": eleven } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { speech: seed } })).json().mediaModelDefaults).toEqual({ speech: seed });
+
+    const run = async (payload: Record<string, unknown>) => {
+      const response = await app.inject({ method: "POST", url: "/tools/generate-audio/jobs", payload: { prompt: "Welcome", ...payload } });
+      expect(response.statusCode, response.body).toBe(202);
+      await vi.waitFor(async () => {
+        const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((entry: { id: string }) => entry.id === response.json().id);
+        expect(job?.status, job?.error).toBe("succeeded");
+      });
+      return generate.mock.calls.at(-1)![0].model;
+    };
+    expect(await run({ kind: "speech", projectId, nodeId: "line" })).toEqual(seed);
+    expect(await run({ kind: "speech" })).toEqual(eleven);
+    expect(await run({ kind: "speech", model: tts })).toEqual(tts);
+    // Without a kind, as for an audio node with no model, the speech default applies.
+    expect(await run({})).toEqual(eleven);
+    // Without a default for music, the automatic choice stands; a disconnected default is skipped.
+    expect(await run({ kind: "music" })).toEqual(seed);
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/elevenlabs/credential" })).statusCode).toBe(204);
+    expect(await run({ kind: "speech" })).toEqual(tts);
+    expect((await app.inject({ method: "DELETE", url: "/audio-models/speech/default" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json().defaultModels).toBeUndefined();
   });
 
   it("removes unified audio settings and companion downloads, and rejects removed generation options", async () => {

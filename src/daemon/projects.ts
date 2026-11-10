@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isPreviewViewport } from "../shared/contracts.js";
+import { isPreviewViewport, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -1793,7 +1793,7 @@ function validPublication(value: unknown): value is PublicationState {
 
 function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.entries(value).every(([usage, ref]) => ["image", "video", "3d"].includes(usage)
+  return Object.entries(value).every(([usage, ref]) => (MEDIA_MODEL_USAGES as readonly string[]).includes(usage)
     && ref && typeof ref === "object" && !Array.isArray(ref)
     && Object.keys(ref).every((key) => key === "provider" || key === "id")
     && typeof ref.provider === "string" && ref.provider.trim().length > 0 && ref.provider.length <= 100

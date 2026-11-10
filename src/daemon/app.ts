@@ -91,7 +91,7 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
@@ -789,7 +789,10 @@ export function createApp(options: AppOptions = {}) {
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio([doubaoSpeechProvider, elevenLabsProvider]);
+  const providerAudio = new ProviderAudio([doubaoSpeechProvider, elevenLabsProvider], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+    const model = providerModelSettings.defaultMediaModel(kind);
+    return model ? [[kind, model]] : [];
+  })));
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -802,7 +805,7 @@ export function createApp(options: AppOptions = {}) {
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
       if (toolId === "generate-audio") {
         const { model: explicit, kind } = input as AudioGenerationRequest;
-        const selected = providerAudio.resolveModel(explicit, kind);
+        const selected = providerAudio.resolveModel(explicit, kind, project?.mediaModelDefaults);
         if (!selected) {
           if (options.audioGenerator) return input;
           throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
@@ -2823,13 +2826,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{ Params: { projectId: string }; Body: MediaModelDefaults }>(
     "/projects/:projectId/settings/generation-models",
-    { schema: { body: { type: "object", additionalProperties: true, properties: {
-      image: modelRefSchema, video: modelRefSchema, "3d": modelRefSchema,
-    } } } },
+    { schema: { body: { type: "object", additionalProperties: true, properties: Object.fromEntries(MEDIA_MODEL_USAGES.map((usage) => [usage, modelRefSchema])) } } },
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (Object.keys(request.body).some((key) => !["image", "video", "3d"].includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
+      if (Object.keys(request.body).some((key) => !(MEDIA_MODEL_USAGES as readonly string[]).includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
       for (const [usage, generator] of [["image", providerImages], ["video", providerVideos], ["3d", providerModels3D]] as const) {
         const ref = request.body[usage];
         const previous = project.mediaModelDefaults?.[usage];
@@ -2837,6 +2838,14 @@ export function createApp(options: AppOptions = {}) {
         const catalog = await generator.catalog();
         if (!catalog.models.some((model) => model.provider === ref.provider && model.id === ref.id)) {
           return reply.code(400).send({ error: `The selected ${usage === "3d" ? "3D" : usage} model is not available` });
+        }
+      }
+      for (const kind of AUDIO_KINDS) {
+        const ref = request.body[kind];
+        const previous = project.mediaModelDefaults?.[kind];
+        if (!ref || (ref.provider === previous?.provider && ref.id === previous.id)) continue;
+        if (!providerAudio.catalog().models.some((model) => model.provider === ref.provider && model.id === ref.id && model.capabilities.produces.includes(kind))) {
+          return reply.code(400).send({ error: `The selected ${kind.replace("-", " ")} model is not available` });
         }
       }
       return projects.setMediaModelDefaults(project.id, request.body);
@@ -3470,6 +3479,19 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  for (const kind of AUDIO_KINDS) {
+    app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
+      if (!providerAudio.catalog().models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+        return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
+      }
+      await providerModelSettings.setDefaultMediaModel(kind, request.body);
+      return reply.code(204).send();
+    });
+    app.delete(`/audio-models/${kind}/default`, async (_request, reply) => {
+      await providerModelSettings.setDefaultMediaModel(kind);
+      return reply.code(204).send();
+    });
+  }
   app.get("/settings/models/providers/elevenlabs", async () => elevenLabsSettings.get());
   app.put<{ Body: { apiKey: string } }>("/settings/models/providers/elevenlabs", {
     schema: { body: { type: "object", additionalProperties: false, minProperties: 1, properties: {
