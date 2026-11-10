@@ -23,7 +23,8 @@ import {
   Share2,
   Upload,
   X,
-  Package
+  Package,
+  Bot
 } from "./icons.js";
 import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -94,6 +95,7 @@ import {
   setConversationReasoning,
   startPreview,
   subscribeToProject,
+  getOrchestrator,
   undoCheckpoint,
   waitForRuntime,
   createPluginFolder,
@@ -156,6 +158,8 @@ import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { OrchestratorPanel, type TeamMessage } from "./orchestrator-panel.js";
+import type { OrchestratorState } from "../shared/orchestrator.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -223,6 +227,8 @@ const MAX_PREVIEW_PICKS = 6;
 
 /** How often streamed text renders: often enough to read as it arrives, far less than once a token. */
 const TEXT_INTERVAL_MS = 50;
+/** Team messages a window keeps; older ones are still in each role's conversation. */
+const TEAM_MESSAGES_MAX = 100;
 
 export function ProjectShell({
   projectId,
@@ -258,6 +264,17 @@ export function ProjectShell({
   /** Says why a new project's first message is back in the input box, until a message is sent. */
   const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
+  // The project's team, if it has one, and what its agents said to each other while this window watched.
+  const [team, setTeam] = useState<OrchestratorState>();
+  const [teamMessages, setTeamMessages] = useState<TeamMessage[]>([]);
+  const [teamOpen, setTeamOpen] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setTeam(undefined);
+    setTeamMessages([]);
+    void getOrchestrator(projectId).then((state) => { if (current) setTeam(state); }).catch(() => {});
+    return () => { current = false; };
+  }, [projectId]);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
@@ -506,6 +523,8 @@ export function ProjectShell({
         applyText();
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
+        if (event.type === "orchestrator.state") setTeam(event.data.state);
+        if (event.type === "orchestrator.message") setTeamMessages((messages) => [...messages, { id: event.id, ...event.data }].slice(-TEAM_MESSAGES_MAX));
         if (event.type === "project.files.changed") {
           pendingFileChange.current = mergeFileChanges(pendingFileChange.current, event.data);
           setPluginFileChange(pendingFileChange.current);
@@ -1678,6 +1697,16 @@ export function ProjectShell({
                 // Checking again clears the daemon's cache; the usual reload then reads the fresh accounts and models.
                 onRefresh={async () => { await listAccountProfiles(accountRuntime, true); window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); }} />
             </div> : null}
+            <button
+              className={`icon-button pane-header-action${team?.status === "running" ? " is-active" : ""}`}
+              type="button"
+              disabled={!project}
+              onClick={() => setTeamOpen(true)}
+              title={team?.status === "running" ? `${t("team.title")} · ${t("team.run.running")}` : t("team.title")}
+              aria-label={t("team.title")}
+            >
+              <Bot size={14} />
+            </button>
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1703,6 +1732,17 @@ export function ProjectShell({
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
     </div>, nodes.chat.toolbar)}
+    {project ? <Dialog open={teamOpen} onClose={() => setTeamOpen(false)} size="lg" title={t("team.title")} description={t("team.description")}>
+      <OrchestratorPanel
+        key={projectId}
+        projectId={projectId}
+        state={team}
+        messages={teamMessages}
+        defaultModel={state.settings.model}
+        onState={setTeam}
+        onOpenConversation={(conversationId) => { setTeamOpen(false); onOpenConversation(conversationId); }}
+      />
+    </Dialog> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
       <div className="agent-body" ref={timeline} onScroll={(event) => {
         const element = event.currentTarget;

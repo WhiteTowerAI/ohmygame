@@ -4,6 +4,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
+import type { OrchestratorRoleConfig, OrchestratorState } from "../shared/orchestrator.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -402,6 +403,32 @@ export async function scheduleMessage(projectId: string, conversationId: string,
 
 export async function removeScheduledMessage(projectId: string, conversationId: string, messageId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/scheduled-messages/${messageId}`, { method: "DELETE" });
+}
+
+/** The project's team, or undefined when it has none yet. */
+export async function getOrchestrator(projectId: string): Promise<OrchestratorState | undefined> {
+  try {
+    return await request<OrchestratorState>(`/projects/${projectId}/orchestrator`);
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) return undefined;
+    throw cause;
+  }
+}
+
+export function saveOrchestrator(projectId: string, config: { goal: string; roles: OrchestratorRoleConfig[] }): Promise<OrchestratorState> {
+  return request<OrchestratorState>(`/projects/${projectId}/orchestrator`, { method: "PUT", body: JSON.stringify(config) });
+}
+
+export function startOrchestrator(projectId: string): Promise<OrchestratorState> {
+  return request<OrchestratorState>(`/projects/${projectId}/orchestrator/start`, { method: "POST" });
+}
+
+export function stopOrchestrator(projectId: string): Promise<OrchestratorState> {
+  return request<OrchestratorState>(`/projects/${projectId}/orchestrator/stop`, { method: "POST" });
+}
+
+export async function removeOrchestrator(projectId: string): Promise<void> {
+  await request(`/projects/${projectId}/orchestrator`, { method: "DELETE" });
 }
 
 export async function updateAgentRuntime(id: AgentRuntimeId, change: UpdateAgentRuntimeRequest): Promise<AgentRuntimeStatus> {
