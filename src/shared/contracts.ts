@@ -4,6 +4,7 @@ import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { GameTuningState } from "./game-tuning.js";
 import type { MediaContentType } from "./media-files.js";
+import type { OrchestratorState } from "./orchestrator.js";
 import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalRequestDetails, StoredApprovalDecision } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
@@ -836,8 +837,15 @@ export interface PlanState {
   steps: PlanStep[];
 }
 
+export interface ThreadItemAuthor {
+  kind: "user" | "agent";
+  /** Present when kind is "agent". */
+  roleId?: string;
+  name?: string;
+}
+
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges; /** Absent for a message the person typed, and for anything recorded before roles existed. */ author?: ThreadItemAuthor }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -1414,6 +1422,10 @@ export interface RuntimeEventData {
   "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
   "scheduled.changed": { messages: ScheduledMessage[] };
+  /** The whole orchestrator picture, so a client can resync without a fetch. */
+  "orchestrator.state": { state: OrchestratorState };
+  /** One role spoke to another. The prompt itself arrives as a userMessage. */
+  "orchestrator.message": { fromRoleId: string; toRoleId: string; text: string };
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };
   "publish.error": { error: string };
@@ -1452,6 +1464,8 @@ export const RUNTIME_EVENT_TYPES = [
   "prompt.steered",
   "prompt.removed",
   "scheduled.changed",
+  "orchestrator.state",
+  "orchestrator.message",
   "publish.started",
   "publish.completed",
   "publish.error",
