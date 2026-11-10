@@ -51,6 +51,11 @@ conflicts, workspace versions, and recovery. Start with `src/daemon/checkpoints.
 are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 `test/checkpoint-routes.test.ts`, and `test/checkpoint-references.test.ts`.
 
+[Agent teams](orchestrator.md) covers running several agents on one project:
+writer and advisor roles, the team tools, how a run advances and pauses, and
+`orchestrator.json`. Start with `src/daemon/orchestrator.ts`; the focused suites
+are `test/orchestrator.test.ts` and `test/orchestrator-concurrency.test.ts`.
+
 [Project archives](project-archives.md) covers **Export project** and
 **Import project**: the archive layout and manifest, what an export leaves out,
 and how an import becomes a new project.
