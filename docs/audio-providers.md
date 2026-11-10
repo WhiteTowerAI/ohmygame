@@ -104,9 +104,10 @@ saved voice outside the loaded page stays selected by ID. Speed and language app
 for models that speak; sound-effect and music-only models ignore them.
 
 Audio reference uploads, trimming and image/audio references are no longer
-available in audio nodes or generation requests. Existing canvas reference
-fields remain readable but do not affect new generations. This change does not
-remove the reference workflows for image or video generation.
+available in audio nodes or generation requests. Saved `audioReferences`,
+`audioReferenceSerial` and `subtitles` are dropped when a board, draft, copied
+node or plugin preset loads, and canvas_check reports those nodes until the
+board is saved. Image and video generation keep their references.
 
 Node settings survive save/reopen and copy/paste. A new audio node starts
 with the last one's model and settings. Unsupported combinations are reported before requests.
@@ -229,9 +230,8 @@ ignored and omitted from new companion files.
 
 The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
 settings endpoints and the Library audio companion download endpoint are
-removed. New audio requests reject `references`,
-`referenceAssetId` and `subtitles`; existing saved canvas fields are omitted
-when constructing a new request.
+removed. New audio requests reject `references`, `referenceAssetId` and
+`subtitles`.
 
 ## Capability validation
 

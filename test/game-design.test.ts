@@ -564,15 +564,6 @@ describe("Markdown design workspace", () => {
     const unordered = await tool.execute("unordered", { boardId, nodeIds: ["note", "cracked", "seed", "clip"], regenerate: true }, undefined, undefined, {} as never);
     expect(unordered.content[0]).toMatchObject({ text: expect.stringContaining("Generated media for node seed.") });
     expect(unordered.content[0]).not.toMatchObject({ text: expect.stringContaining("Not generated, because") });
-    // Audio generation reads no other node's output, whatever references its node keeps.
-    const voices = await store.board(project.id, boardId);
-    for (const [id, other] of [["voice-a", "voice-b"], ["voice-b", "voice-a"]] as const) {
-      voices.board.nodes.push({ id, type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Hello", audioReferences: [{ id: "Audio1", type: "audio", source: { type: "node", nodeId: other } }] } });
-      voices.board.editorLayout.nodes[id] = { x: 0, y: 0 };
-    }
-    await store.saveBoard(project.id, voices.board, voices.revision);
-    const spoken = await tool.execute("voices", { boardId, nodeIds: ["voice-a", "voice-b"] }, undefined, undefined, {} as never).catch((error: Error) => error);
-    expect(spoken instanceof Error ? spoken.message : "").not.toContain("use each other's output");
     // Nodes that use each other's output cannot be ordered.
     const looped = await store.board(project.id, boardId), seed = looped.board.nodes.find((candidate) => candidate.id === "seed")!;
     if (seed.type !== "image") throw new Error("Expected image node");
@@ -1126,14 +1117,13 @@ describe("design merge and validation", () => {
   });
 });
 
-it("sends an audio node's settings but not its references or subtitles", async () => {
+it("sends an audio node's settings and keeps no subtitles a provider returns", async () => {
   const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
   const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
   const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
-  const { directory, store, project, boardId, library } = await runtime(fakeGenerator, "asset-canvas", undefined, { catalog: () => ({ models: [], providers: [] }), generate });
-  const reference = await library.add("rain.wav", Buffer.from("reference"));
+  const { directory, store, project, boardId } = await runtime(fakeGenerator, "asset-canvas", undefined, { catalog: () => ({ models: [], providers: [] }), generate });
   const detail = await store.board(project.id, boardId);
-  detail.board.nodes.push({ id: "scene", type: "audio", position: { x: 300, y: 0 }, data: { prompt: "Use @Audio1 behind a welcoming voice", model, pitch: -3, volume: 10, subtitles: true, output: { format: "wav", sampleRate: 48000 }, audioReferenceSerial: 1, audioReferences: [{ id: "Audio1", type: "audio", source: { type: "library", assetId: reference.id } }] } });
+  detail.board.nodes.push({ id: "scene", type: "audio", position: { x: 300, y: 0 }, data: { prompt: "Use @Audio1 behind a welcoming voice", model, pitch: -3, volume: 10, output: { format: "wav", sampleRate: 48000 } } });
   detail.board.editorLayout.nodes.scene = { x: 300, y: 0 };
   await store.saveBoard(project.id, detail.board, detail.revision);
   await store.generateNode(project.id, boardId, "scene");

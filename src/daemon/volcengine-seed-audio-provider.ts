@@ -38,7 +38,6 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
     capabilities: {
       // One prompt makes voices, effects and music together.
       produces: ["speech", "sound-effect", "music"],
-      executionModes: ["synchronous"],
       languages: [
         "zh-cn",
         "en",
@@ -66,11 +65,9 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
         ogg_opus: [48000],
       },
       maxTextCharacters: MAX_PROMPT_CHARACTERS - INSTRUCTION_BUDGET,
-      promptInstructionCharacters: INSTRUCTION_BUDGET,
       maxDurationSeconds: 120,
       supportsLoop: false,
       supportsInstrumental: false,
-      supportsVocalToggle: false,
       supportsSpeaker: true,
       supportsPitch: true,
       supportsVolume: true,

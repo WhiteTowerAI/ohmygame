@@ -90,6 +90,7 @@ describe("audio nodes saved before they were merged", () => {
       { id: "line", type: "speech", data: { text: "Welcome", voiceId: "narrator", speed: 0.5 } },
       { id: "rain", type: "sound-effect", data: { prompt: "Rain", negativePrompt: "thunder", durationSeconds: 5, loop: true } },
       { id: "scene", type: "audio-scene", data: { prompt: "Rain behind a voice", durationSeconds: 0.05 } },
+      { id: "voice", type: "audio", data: { prompt: "Hi", subtitles: true, audioReferenceSerial: 1, audioReferences: [{ id: "Audio1", type: "audio", source: { type: "library", assetId: "rain" } }] } },
     ] });
     await writeFile(boardPath, text);
     const read = await readCanvasBoard(project.workspacePath, boardId);
@@ -97,9 +98,10 @@ describe("audio nodes saved before they were merged", () => {
       { id: "line", type: "audio", data: { prompt: "Welcome", voiceId: "narrator", speed: 0.5 } },
       { id: "rain", type: "audio", data: { prompt: "Rain", durationSeconds: 5, loop: true } },
       { id: "scene", type: "audio", data: { prompt: "Rain behind a voice", durationSeconds: 0.1 } },
+      { id: "voice", type: "audio", data: { prompt: "Hi" } },
     ]);
     const check = await checkCanvasWorkspace(project.workspacePath);
-    expect(check.issues.filter((issue) => issue.message.includes("now one audio node")).length).toBe(3);
+    expect(check.issues.filter((issue) => issue.message.includes("older audio shape")).length).toBe(4);
     expect(await readFile(boardPath, "utf8")).toBe(text);
   });
 

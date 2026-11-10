@@ -113,14 +113,11 @@ describe("Asset Canvas clipboard", () => {
   });
 });
 
-it("remaps audio reference sources while keeping stable aliases and reserved serials", () => {
-  const nodes: AssetCanvasNode[] = [
-    { id: "voice", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Hello", assetId: "voice-output" } },
-    { id: "scene", type: "audio", position: { x: 300, y: 0 }, data: { prompt: "Use @Audio7", audioReferenceSerial: 9, audioReferences: [{ id: "Audio7", type: "audio", source: { type: "node", nodeId: "voice" } }] } },
-  ];
-  let index = 0;
-  const copied = duplicateCanvasSelection(nodes, [], { x: 0, y: 300 }, () => `copy${++index}`);
-  expect(copied.nodes[1]!.data).toMatchObject({ audioReferenceSerial: 9, audioReferences: [{ id: "Audio7", source: { type: "node", nodeId: "copy1" } }] });
+it("drops audio references and subtitles from audio nodes copied before they were removed", () => {
+  const value = { format: "ohmygame/canvas-nodes", version: 1, projectId: "p", edges: [], nodes: [
+    { id: "scene", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Use @Audio7", subtitles: true, audioReferenceSerial: 9, audioReferences: [{ id: "Audio7", type: "audio", source: { type: "library", assetId: "rain" } }] } },
+  ] };
+  expect(parseCanvasClipboard(JSON.stringify(value))?.nodes).toEqual([{ id: "scene", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "Use @Audio7" } }]);
 });
 
 it("reads audio nodes copied before they were merged", () => {

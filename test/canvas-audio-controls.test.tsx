@@ -9,9 +9,7 @@ import {
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
 import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
 import { ELEVENLABS_MODELS } from "../src/daemon/elevenlabs-audio-provider.js";
-import {
-  type AudioCanvasSettings,
-} from "../src/shared/audio.js";
+import type { AudioSettings } from "../src/shared/audio.js";
 
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
 beforeEach(() => {
@@ -29,7 +27,7 @@ afterEach(async () => {
 it("offers format-specific rates without subtitles or reference inputs", async () => {
   const changed = vi.fn();
   function Harness() {
-    const [value, setValue] = useState<AudioCanvasSettings>({});
+    const [value, setValue] = useState<AudioSettings>({});
     return (
       <CanvasAudioControls
         value={value}
@@ -69,10 +67,9 @@ it("offers format-specific rates without subtitles or reference inputs", async (
 it("reveals custom and cloned voice controls without losing saved synthesis settings", async () => {
   const changed = vi.fn();
   function Harness() {
-    const [value, setValue] = useState<AudioCanvasSettings>({
+    const [value, setValue] = useState<AudioSettings>({
       voiceId: "zh_female_vv_uranus_bigtts",
       pitch: -2,
-      subtitles: true,
       pronunciation: [{ word: "NPC", replacement: "non-player character" }],
     });
     return (
@@ -120,8 +117,8 @@ it("reveals custom and cloned voice controls without losing saved synthesis sett
   expect(label("Cloned voice model")).toBeUndefined();
 });
 
-it("ignores legacy references and subtitles when checking current model options", () => {
-  expect(audioSettingsIssue({ subtitles: true, audioReferences: [{ id: "Image1", type: "image", source: { type: "library", assetId: "portrait" } }], voiceId: "voice" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeUndefined();
+it("checks saved settings against the current model", () => {
+  expect(audioSettingsIssue({ voiceId: "voice" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeUndefined();
   expect(audioSettingsIssue({ output: { format: "mp3", sampleRate: 40000 } }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
   expect(audioSettingsIssue({ ssml: "<speak>Hello</speak>" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
 });

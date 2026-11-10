@@ -184,7 +184,7 @@ export async function inspectCanvasBoard(workspace: string, id: string): Promise
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
-  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: speech, sound-effect, music and audio-scene nodes are now one audio node; it opens as type "audio" with its text in prompt. Save it that way.`);
+  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio shape. It opens as type "audio" with its text in prompt and without audioReferences, audioReferenceSerial or subtitles. Save it that way.`);
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;
     if (isResizableCanvasNodeType(node.type) || (width === undefined && height === undefined)) continue;
@@ -293,7 +293,6 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
       detail.board.nodes = detail.board.nodes.filter((node) => !removed.has(node.id)).map((node) => {
         const data = { ...node.data };
         if ("assetId" in data && data.assetId && ids.has(data.assetId)) delete data.assetId;
-        if ("audioReferences" in data) data.audioReferences = data.audioReferences?.filter((reference) => reference.source.type === "library" ? !ids.has(reference.source.assetId) : !removed.has(reference.source.nodeId));
         if ("images" in data) data.images = data.images.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
         if ("references" in data && data.references) data.references = data.references.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
         if ("source" in data && data.source && (data.source.type === "library" ? ids.has(data.source.assetId) : removed.has(data.source.nodeId))) delete data.source;

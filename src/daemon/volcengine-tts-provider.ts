@@ -38,7 +38,6 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
     capabilities: {
       produces: ["speech"],
       readsText: true,
-      executionModes: ["streaming"],
       languages: [
         "zh-cn",
         "en",
@@ -84,7 +83,6 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
       supportsSSML: true,
       supportsSpeechOptions: true,
       maxTextCharacters: 10_000,
-      supportsVoiceClone: false,
     },
   },
 ];
