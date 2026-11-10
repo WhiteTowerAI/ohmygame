@@ -94,7 +94,7 @@ the suites are `test/usage-stats.test.ts` and `test/usage-settings-ui.test.tsx`.
 | [agent-runtimes.md](agent-runtimes.md) | Native runtime architecture, accepted design decisions, and validation boundaries. |
 | [preview-runtime.md](preview-runtime.md)         | Startup modes, dependency installation, leases, browser storage, and diagnostics.                                              |
 | [runtime-recovery.md](runtime-recovery.md)       | Preview isolation, daemon supervision, reconnect behavior, and recovery scenarios.                                             |
-| [canvas-agent.md](canvas-agent.md)               | Canvas files, concurrent editing, agent tools, media, and migration.                                                           |
+| [canvas-agent.md](canvas-agent.md)               | Canvas files, concurrent editing, agent tools and media.                                                                       |
 | [coding-agents.md](coding-agents.md)             | Coding agent CLIs: discovery, sessions, tools, approvals, isolation, and adding an agent.                                      |
 | [external-agents.md](external-agents.md)         | OhMyGame as an MCP server for Claude Code, Codex, and other external agents: setup, launcher, tools, and contract.            |
 | [plugins.md](plugins.md)                         | Plugins: manifest, project file, extension hosts, pages, releases, connections, and bundled workflows. |

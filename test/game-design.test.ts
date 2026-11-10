@@ -238,17 +238,6 @@ describe("Markdown design workspace", () => {
     expect(await readFile(path.join(project.workspacePath, "canvas/AGENTS.md"), "utf8")).toBe("Custom canvas instructions");
     expect(await readFile(path.join(project.workspacePath, "README.md"), "utf8")).toBe("Existing project notes");
   });
-  it.each(["design", "canvas.json"])("requires migration before opening the legacy %s format", async (legacy) => {
-    const { store, projects } = await runtime();
-    const project = await projects.create("Legacy project");
-    const source = path.join(project.workspacePath, legacy);
-    if (legacy === "design") await mkdir(source);
-    else await writeFile(source, "Legacy canvas data");
-
-    await expect(store.workspace(project.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("migrate-canvas-workspaces.ts") });
-    await expect(lstat(path.join(project.workspacePath, "canvas"))).rejects.toMatchObject({ code: "ENOENT" });
-    if (legacy === "canvas.json") expect(await readFile(source, "utf8")).toBe("Legacy canvas data");
-  });
   it("preserves an incomplete canvas instead of reinitializing its assets", async () => {
     const { store, projects } = await runtime();
     const project = await projects.create("Incomplete canvas");

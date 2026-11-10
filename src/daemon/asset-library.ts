@@ -262,11 +262,7 @@ function parseLibrary(value: unknown): StoredLibrary | undefined {
     ...(stored as StoredLibrary),
     assets: stored.assets.map((asset) => {
       const keys = sources.get(asset.id) ?? [];
-      const inferred = keys.map(originFromSource);
-      const known = inferred.find((origin) => origin === "generated") ?? inferred.find((origin) => origin !== "unknown");
-      // compat: since beta.2, remove from beta.4 and 2026-11-07. Library records saved without an origin.
-      // Legacy source-less records were created by the upload endpoints.
-      const origin = asset.origin && asset.origin !== "unknown" ? asset.origin : known ?? asset.origin ?? (keys.length ? "unknown" : "uploaded");
+      const origin = asset.origin ?? "unknown";
       return {
         ...asset,
         origin,

@@ -94,12 +94,6 @@ export async function readCanvasIndex(workspace: string): Promise<CanvasWorkspac
 async function ensureCanvasIndex(workspace: string): Promise<CanvasWorkspaceIndex> {
   const current = await readCanvasIndex(workspace);
   if (current) return current;
-  // compat: since beta.2, remove from beta.4 and 2026-11-07. The canvas format before canvas/, with scripts/migrate-canvas-workspaces.ts.
-  for (const legacy of ["design", "canvas.json"]) {
-    try { await lstat(path.join(workspace, legacy)); }
-    catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") continue; throw cause; }
-    throw new CanvasError("This project uses the previous canvas format. Stop OhMyGame and run scripts/migrate-canvas-workspaces.ts from an OhMyGame source checkout against its data directory (see docs/canvas-agent.md) before opening it.", 409);
-  }
   try {
     await lstat(path.join(workspace, "canvas"));
     throw new CanvasError("The canvas directory is missing index.json. Restore its index before opening it.", 409);
