@@ -3920,8 +3920,8 @@ const zhCN: typeof en = {
     loadingProgress: "正在加载 3D 模型 {{percent}}%",
     loading: "正在加载 3D 模型",
     clip: "动画片段",
-    play: "播放 3D 预览",
-    pause: "暂停 3D 预览",
+    play: "播放动画",
+    pause: "暂停动画",
   },
   markdown: {
     openInCode: "在代码中打开 {{path}}",

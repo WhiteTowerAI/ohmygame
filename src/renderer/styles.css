@@ -4451,7 +4451,9 @@ select.settings-search-input {
   position: absolute;
   z-index: 2;
   bottom: 8px;
-  left: 8px;
+  /* Under the model, which sits in the middle of a frame with no visible edge. */
+  left: 50%;
+  transform: translateX(-50%);
   max-width: calc(100% - 16px);
   display: flex;
   align-items: center;

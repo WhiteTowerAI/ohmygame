@@ -3994,8 +3994,8 @@ const en = {
     loadingProgress: "Loading 3D model {{percent}}%",
     loading: "Loading 3D model",
     clip: "Animation clip",
-    play: "Play 3D preview",
-    pause: "Pause 3D preview",
+    play: "Play animation",
+    pause: "Pause animation",
   },
   markdown: {
     openInCode: "Open {{path}} in Code",

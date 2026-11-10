@@ -159,14 +159,14 @@ it("loads once on screen and stays still until the person plays the preview", as
   expect(viewer().getAttribute("interaction-prompt")).toBe("none");
   expect(viewer().paused).toBe(true);
   expect(viewer().autoRotate).toBe(false);
-  expect(button().getAttribute("aria-label")).toBe("Play 3D preview");
+  expect(button().getAttribute("aria-label")).toBe("Play animation");
   await click();
   expect(viewer().paused).toBe(false);
-  expect(viewer().autoRotate).toBe(true);
-  expect(button().getAttribute("aria-label")).toBe("Pause 3D preview");
+  // Playing shows the move; it never turns the model.
+  expect(viewer().autoRotate).toBe(false);
+  expect(button().getAttribute("aria-label")).toBe("Pause animation");
   await click();
   expect(viewer().paused).toBe(true);
-  expect(viewer().autoRotate).toBe(false);
 });
 
 it("pauses offscreen and resumes only when playback was requested", async () => {
@@ -175,18 +175,15 @@ it("pauses offscreen and resumes only when playback was requested", async () => 
   const element = viewer();
   await act(async () => element.visible(false));
   expect(element.paused).toBe(true);
-  expect(element.autoRotate).toBe(false);
   expect(element.currentTime).toBe(1);
   await act(async () => element.visible(true));
   expect(element.paused).toBe(false);
-  expect(element.autoRotate).toBe(true);
   await click();
   await act(async () => {
     element.visible(false);
     element.visible(true);
   });
   expect(element.paused).toBe(true);
-  expect(element.autoRotate).toBe(false);
 });
 
 it("stops hidden-page playback and honors a pause after returning", async () => {
@@ -199,7 +196,6 @@ it("stops hidden-page playback and honors a pause after returning", async () => 
     });
   await changeVisibility("hidden");
   expect(viewer().paused).toBe(true);
-  expect(viewer().autoRotate).toBe(false);
   await changeVisibility("visible");
   expect(viewer().paused).toBe(false);
   await click();
@@ -223,9 +219,7 @@ it("keeps the chosen clip while pausing and resets playback for a new model", as
   await render("other.glb");
   expect(previous.isConnected).toBe(false);
   expect(previous.paused).toBe(true);
-  expect(previous.autoRotate).toBe(false);
   expect(viewer().paused).toBe(true);
-  expect(viewer().autoRotate).toBe(false);
   expect(container.querySelector("select")!.value).toBe("Walk");
   previous.play.mockClear();
   previous.pause.mockClear();
@@ -241,21 +235,29 @@ it("keeps the chosen clip while pausing and resets playback for a new model", as
 it("keeps thumbnails still without putting controls inside their open button", async () => {
   await render("thumbnail.glb", false);
   expect(viewer().paused).toBe(true);
-  expect(viewer().autoRotate).toBe(false);
   expect(container.querySelector("button, select")).toBeNull();
 });
 
-it("lets a static model rotate on request without animation clips", async () => {
+it("shows no controls on a model without animation clips", async () => {
   await act(async () =>
     root.render(<ModelPreview source="static.glb" label="Prop" />),
   );
   viewer().availableAnimations = [];
   await act(async () => viewer().load());
+  expect(container.querySelector("button, select")).toBeNull();
+  expect(viewer().paused).toBe(true);
+  expect(viewer().autoRotate).toBe(false);
+});
+
+it("offers one clip to play without a picker", async () => {
+  await act(async () =>
+    root.render(<ModelPreview source="walk.glb" label="Character" />),
+  );
+  viewer().availableAnimations = ["Walk"];
+  await act(async () => viewer().load());
   expect(container.querySelector("select")).toBeNull();
   await click();
-  expect(viewer().autoRotate).toBe(true);
-  await click();
-  expect(viewer().autoRotate).toBe(false);
+  expect(viewer().paused).toBe(false);
 });
 
 it("stops a failed preview and removes its playback controls", async () => {
@@ -268,7 +270,6 @@ it("stops a failed preview and removes its playback controls", async () => {
     ),
   );
   expect(viewer().paused).toBe(true);
-  expect(viewer().autoRotate).toBe(false);
   expect(container.querySelector("[role=alert]")?.textContent).toContain(
     "lost its graphics context",
   );
