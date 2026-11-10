@@ -16,6 +16,8 @@ import {
   MULTIPLAYER_ROOM_LIMIT_CODE,
   OWNER_ADAPTER_ID,
   isOwnerMessage,
+  isOwnerMessageEvent,
+  type OwnerEmit,
   type OwnerSharedChange,
   multiplayerRoomType,
   TICK_MS_RANGE,
@@ -180,6 +182,8 @@ export class MultiplayerClient<Game = unknown> {
   /** Early sends left: a few a second, so an input that changes every frame cannot double the messages. */
   private earlySends = EARLY_SENDS_BURST;
   private earlySendsAt = 0;
+  /** Owner rooms: messages this page has emitted, which number their IDs. */
+  private messageCount = 0;
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
   private aloneSince?: number;
@@ -488,7 +492,8 @@ export class MultiplayerClient<Game = unknown> {
     if (!this.owner) throw new OhMyGameError("invalid_option", "emit is for owner deployments.");
     if (!isOwnerMessage(message)) throw new OhMyGameError("invalid_option", "A message must be a small plain object of JSON data.");
     if (!this.room || this.status !== "connected") return false;
-    this.room.send("owner.emit", message);
+    const emitted: OwnerEmit = { id: `${Date.now().toString(36)}.${(this.messageCount++).toString(36)}`, message };
+    this.room.send("owner.emit", emitted);
     return true;
   }
   /** Owner rooms: ends the round with these winners; the first page to say so decides. */
@@ -941,7 +946,7 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("owner.shared", (value: unknown) => this.owner?.sharedUpdate(value));
     room.onMessage("owner.shared.result", (value: unknown) => this.owner?.sharedResult(value));
     room.onMessage("owner.message", (value: unknown) => {
-      if (isRecord(value) && typeof value.from === "string" && isRecord(value.message)) this.callbacks.onMessage?.(value.from, value.message);
+      if (isOwnerMessageEvent(value)) this.callbacks.onMessage?.(value.from, value.message);
     });
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)

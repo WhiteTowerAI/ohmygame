@@ -1676,6 +1676,54 @@ export default defineRealtimeGame({
     }
   });
 
+  it("relays connection setup between two players of an owner room, and numbers each state", async () => {
+    const manifest = await hostedService({ deploymentId: "owner-p2p", adapterId: "owner", tickMs: 40, mode: "realtime", roomPolicy: "drop-in", maxClients: 4 });
+    const join = () => new MultiplayerClient({ manifest, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    type Raw = { room: Room };
+    const [a, b, c] = [join(), join(), join()];
+    try {
+      for (const client of [a, b, c]) await client.quickPlay();
+      expect(new Set([a.roomId, b.roomId, c.roomId]).size).toBe(1);
+      await wait(() => expect([a, b, c].every((client) => client.snapshot?.state.phase === "playing" && client.playerId)).toBe(true));
+      const raw = (client: MultiplayerClient) => (client as unknown as Raw).room;
+      const signals = new Map<MultiplayerClient, unknown[]>([[a, []], [b, []], [c, []]]);
+      const frames: unknown[] = [];
+      for (const [client, got] of signals) raw(client).onMessage("p2p.signal", (value: unknown) => got.push(value));
+      raw(b).onMessage("owner.frame", (value: unknown) => frames.push(value));
+
+      // Passed on unread, with who sent it, to the one player it names.
+      raw(a).send("p2p.signal", { to: b.playerId, data: { description: { type: "offer", sdp: "v=0" } } });
+      await wait(() => expect(signals.get(b)).toEqual([{ from: a.playerId, data: { description: { type: "offer", sdp: "v=0" } } }]));
+      // Not to anyone else, not to the sender, not when too large or malformed.
+      raw(a).send("p2p.signal", { to: a.playerId, data: { x: 1 } });
+      raw(a).send("p2p.signal", { to: "nobody", data: { x: 1 } });
+      raw(a).send("p2p.signal", { to: c.playerId, data: { sdp: "x".repeat(9000) } });
+      raw(a).send("p2p.signal", { to: c.playerId, data: "text" });
+      raw(a).send("p2p.signal", { to: c.playerId, data: { ok: true } });
+      await wait(() => expect(signals.get(c)).toEqual([{ from: a.playerId, data: { ok: true } }]));
+      expect(signals.get(a)).toEqual([]);
+      expect(signals.get(b)).toHaveLength(1);
+
+      // Each state carries its version on the sender's page, which frames and later syncs pass on.
+      a.setState({ x: 1 });
+      a.setState({ x: 2 });
+      await wait(() => expect(frames.some((frame) => (frame as { players?: Record<string, { seq?: number }> }).players?.[a.playerId!]?.seq === 2)).toBe(true));
+      const late = join();
+      const synced: unknown[] = [];
+      try {
+        await late.quickPlay();
+        expect(late.roomId).toBe(a.roomId);
+        raw(late).onMessage("owner.sync", (value: unknown) => synced.push(value));
+        raw(late).send("sync");
+        await wait(() => expect(synced).toContainEqual(expect.objectContaining({ seqs: { [a.playerId!]: 2 } })));
+      } finally {
+        late.dispose();
+      }
+    } finally {
+      for (const client of [a, b, c]) client.dispose();
+    }
+  });
+
   it("types a realtime game's input in the page", () => {
     const rules = defineRealtimeGame({
       players: { min: 1, max: 2 },

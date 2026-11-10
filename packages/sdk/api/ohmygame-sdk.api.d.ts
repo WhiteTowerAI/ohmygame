@@ -663,6 +663,8 @@ export declare class MultiplayerClient<Game = unknown> {
     /** Early sends left: a few a second, so an input that changes every frame cannot double the messages. */
     private earlySends;
     private earlySendsAt;
+    /** Owner rooms: messages this page has emitted, which number their IDs. */
+    private messageCount;
     private displayName?;
     private mergeTimer?;
     private aloneSince?;
@@ -1254,6 +1256,11 @@ export declare function isLockstepReport(value: unknown): value is LockstepRepor
 export interface OwnerPatch {
     set?: Record<string, unknown>;
     delete?: string[];
+    /**
+     * The state's version on its page, which counts each setState. Pages that get a
+     * player's state straight from that player's page keep whichever version is newer.
+     */
+    seq?: number;
 }
 /** One tick of an owner room: every player's state changes since the last, and who left. */
 export interface OwnerFrame {
@@ -1266,6 +1273,27 @@ export interface OwnerSync {
     round: number;
     players: Record<string, Record<string, unknown>>;
     shared: Record<string, unknown>;
+    /** Each player's newest state version the service has. */
+    seqs?: Record<string, number>;
+}
+/** A page's one-off message (owner.emit), with an ID unique on that page so a copy that also arrives straight from it is dropped. */
+export interface OwnerEmit {
+    id: string;
+    message: Record<string, unknown>;
+}
+/** The service passing an owner.emit on (owner.message). */
+export interface OwnerMessageEvent extends OwnerEmit {
+    from: string;
+}
+/** The most characters of JSON one p2p.signal may carry: a session description with its candidates. */
+export declare const P2P_SIGNAL_MAX_LENGTH = 8192;
+/**
+ * Connection setup between two players' pages in an owner room, which the service passes
+ * on unread (p2p.signal): the page sends { to, data } and the other gets { from, data }.
+ */
+export interface P2PSignal {
+    to: string;
+    data: Record<string, unknown>;
 }
 /**
  * One change to an owner room's shared data: value sets key, and no value removes it. It
@@ -1291,6 +1319,9 @@ export declare function isOwnerState(value: unknown): value is Record<string, un
 export declare function isOwnerPatch(value: unknown): value is OwnerPatch;
 export declare function isOwnerSharedChange(value: unknown): value is OwnerSharedChange;
 export declare function isOwnerMessage(value: unknown): value is Record<string, unknown>;
+export declare function isOwnerEmit(value: unknown): value is OwnerEmit;
+export declare function isOwnerMessageEvent(value: unknown): value is OwnerMessageEvent;
+export declare function isP2PSignal(value: unknown): value is P2PSignal;
 export declare function isOwnerFrame(value: unknown): value is OwnerFrame;
 export declare function isOwnerSync(value: unknown): value is OwnerSync;
 export declare function isOwnerSharedUpdate(value: unknown): value is OwnerSharedUpdate;

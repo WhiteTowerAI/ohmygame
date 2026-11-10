@@ -474,7 +474,10 @@ play; use lockstep where every screen must agree.
   once, and goes out at most once a tick with only the top-level keys that
   changed (`owner.state`), timed from when frames arrive and the round trip to
   reach the service just before its tick. Every tick the service sends everyone the states that
-  changed since the last one, together, and who left (`owner.frame`).
+  changed since the last one, together, and who left (`owner.frame`). Each change
+  carries `seq`, the state's version on its page (every `setState` counts one); frames
+  and `owner.sync` pass the newest on, so a page that also gets states straight from
+  other pages keeps whichever is newer.
 - `snapshot.state.game` is `{ players, shared }`: every player's state by
   playerId, the local one as just set, and the shared data.
 - `client.updateShared(changes)` changes shared data (`owner.shared`). Each change
@@ -484,7 +487,12 @@ play; use lockstep where every screen must agree.
   (`owner.shared`), then answers the requester (`owner.shared.result`), so the
   promise resolves whether it worked. Up to 256 keys of up to 1024 characters.
 - `client.emit(message)` passes a message to every other page at once, which
-  gets it through `onMessage(from, message)`.
+  gets it through `onMessage(from, message)`. It goes out as `owner.emit`
+  `{ id, message }` and arrives as `owner.message` `{ from, id, message }`; the ID is
+  unique on the sending page, so a copy that also came straight from it is dropped.
+- `p2p.signal` `{ to, data }` carries connection setup from one page to another
+  player in the same room, who gets `{ from, data }`; the service passes it on
+  unread, at most `P2P_SIGNAL_MAX_LENGTH` (8192) characters of JSON.
 - `client.finishRound(winners)` ends the round; the first page to say so decides,
   among the seats. Each round starts with no states and no shared data; a page
   that arrives or reconnects during one gets them all (`owner.sync`).

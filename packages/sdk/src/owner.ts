@@ -18,6 +18,11 @@ import { TickPacer, type TickClock } from "./pacing.js";
 
 /** How long a shared request waits for the service before it counts as refused. */
 export const OWNER_SHARED_TIMEOUT_MS = 5000;
+/**
+ * How far a page that comes back to a round numbers its state past the version the service
+ * last had: copies sent straight to other pages may have gone further than that one.
+ */
+const SEQ_RESUME_GAP = 100;
 
 export interface OwnerHooks {
   send(type: "owner.state" | "owner.shared", value: unknown): void;
@@ -46,6 +51,8 @@ export class OwnerSession {
   private readonly pacer: TickPacer;
   private readonly waiting = new Map<string, { done: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> }>();
   private requests = 0;
+  /** This page's state version: each setState counts one. */
+  private seq = 0;
 
   constructor(private readonly hooks: OwnerHooks) {
     this.pacer = new TickPacer(hooks.clock, hooks.tickMs, () => this.flush());
@@ -74,6 +81,8 @@ export class OwnerSession {
     this.shared = new Map(Object.entries(value.shared));
     const held = me === undefined ? undefined : value.players[me];
     this.sent = isRecord(held) ? { ...held } : {};
+    const heldSeq = me === undefined ? undefined : value.seqs?.[me];
+    if (heldSeq !== undefined) this.seq = Math.max(this.seq, heldSeq + SEQ_RESUME_GAP);
     // A new round starts empty; back in the same round, the page carries on with its own state.
     if (newRound) this.own = { ...this.sent };
     this.flush();
@@ -123,6 +132,7 @@ export class OwnerSession {
   setState(state: Record<string, unknown>): void {
     if (!isOwnerState(state)) throw new Error("A player's state must be a small plain object of JSON data.");
     this.own = structuredClone(state);
+    this.seq++;
     this.pacer.wake();
     this.hooks.show();
   }
@@ -163,6 +173,7 @@ export class OwnerSession {
       if (JSON.stringify(value) !== JSON.stringify(this.sent[key])) (patch.set ??= {})[key] = value;
     for (const key of Object.keys(this.sent)) if (!Object.hasOwn(this.own, key)) (patch.delete ??= []).push(key);
     if (!patch.set && !patch.delete) return false;
+    patch.seq = this.seq;
     this.hooks.send("owner.state", patch);
     this.sent = structuredClone(this.own);
     this.pacer.sent();

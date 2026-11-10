@@ -632,6 +632,11 @@ export function isLockstepReport(value: unknown): value is LockstepReport {
 export interface OwnerPatch {
   set?: Record<string, unknown>;
   delete?: string[];
+  /**
+   * The state's version on its page, which counts each setState. Pages that get a
+   * player's state straight from that player's page keep whichever version is newer.
+   */
+  seq?: number;
 }
 /** One tick of an owner room: every player's state changes since the last, and who left. */
 export interface OwnerFrame {
@@ -644,6 +649,27 @@ export interface OwnerSync {
   round: number;
   players: Record<string, Record<string, unknown>>;
   shared: Record<string, unknown>;
+  /** Each player's newest state version the service has. */
+  seqs?: Record<string, number>;
+}
+/** A page's one-off message (owner.emit), with an ID unique on that page so a copy that also arrives straight from it is dropped. */
+export interface OwnerEmit {
+  id: string;
+  message: Record<string, unknown>;
+}
+/** The service passing an owner.emit on (owner.message). */
+export interface OwnerMessageEvent extends OwnerEmit {
+  from: string;
+}
+/** The most characters of JSON one p2p.signal may carry: a session description with its candidates. */
+export const P2P_SIGNAL_MAX_LENGTH = 8192;
+/**
+ * Connection setup between two players' pages in an owner room, which the service passes
+ * on unread (p2p.signal): the page sends { to, data } and the other gets { from, data }.
+ */
+export interface P2PSignal {
+  to: string;
+  data: Record<string, unknown>;
 }
 /**
  * One change to an owner room's shared data: value sets key, and no value removes it. It
@@ -668,7 +694,8 @@ export function isOwnerState(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && isValue(value, OWNER_STATE_MAX_LENGTH);
 }
 export function isOwnerPatch(value: unknown): value is OwnerPatch {
-  return isRecord(value) && Object.keys(value).every((key) => key === "set" || key === "delete") &&
+  return isRecord(value) && Object.keys(value).every((key) => key === "set" || key === "delete" || key === "seq") &&
+    (value.seq === undefined || isSequence(value.seq)) &&
     (value.set === undefined || isOwnerState(value.set)) &&
     (value.delete === undefined || (Array.isArray(value.delete) && value.delete.length <= 64 && value.delete.every((key) => typeof key === "string")));
 }
@@ -680,6 +707,17 @@ export function isOwnerSharedChange(value: unknown): value is OwnerSharedChange 
 }
 export function isOwnerMessage(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && isValue(value);
+}
+const isMessageId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,40}$/.test(value);
+export function isOwnerEmit(value: unknown): value is OwnerEmit {
+  return isRecord(value) && Object.keys(value).length === 2 && isMessageId(value.id) && isOwnerMessage(value.message);
+}
+export function isOwnerMessageEvent(value: unknown): value is OwnerMessageEvent {
+  return isRecord(value) && typeof value.from === "string" && isMessageId(value.id) && isOwnerMessage(value.message);
+}
+export function isP2PSignal(value: unknown): value is P2PSignal {
+  return isRecord(value) && typeof value.to === "string" && value.to.length <= 100 && isRecord(value.data) &&
+    isPlainJson(value.data) && JSON.stringify(value.data).length <= P2P_SIGNAL_MAX_LENGTH;
 }
 export function isOwnerFrame(value: unknown): value is OwnerFrame {
   return isRecord(value) && isSequence(value.round) && (value.players === undefined || isRecord(value.players)) &&

@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client, type Deferred } from "@colyseus/core";
 import {
-  isOwnerMessage,
+  isOwnerEmit,
+  isP2PSignal,
   isOwnerPatch,
   isOwnerSharedChange,
   isLockstepInput,
@@ -31,6 +32,7 @@ import {
   type MultiplayerManifestConfig,
   type MultiplayerPlayer,
   type OwnerFrame,
+  type OwnerMessageEvent,
   type OwnerPatch,
   type OwnerSharedUpdate,
   type OwnerSync,
@@ -131,6 +133,8 @@ interface OwnerRound {
   shared: Map<string, unknown>;
   /** The seats the frames so far describe. */
   players: Set<string>;
+  /** Each player's newest state version, as their page numbers them. */
+  seqs: Map<string, number>;
 }
 
 /** A lockstep round as the room runs it: it numbers frames of input; the players' browsers run the rules. */
@@ -326,6 +330,7 @@ export class GameRoom extends Room {
     this.onMessage("owner.shared", (client, value: unknown) => this.ownerShared(client, value));
     this.onMessage("owner.emit", (client, value: unknown) => this.ownerEmit(client, value));
     this.onMessage("owner.finish", (client, value: unknown) => this.ownerFinish(client, value));
+    this.onMessage("p2p.signal", (client, value: unknown) => this.p2pSignal(client, value));
     this.onMessage("lockstep.checkpoint", (client, value: unknown) => this.lockstepCheckpoint(client, value));
     this.clock.setInterval(() => this.maintenance(), 1000);
     // A hosted realtime room runs no tick: the hosting player's browser does.
@@ -888,6 +893,7 @@ export class GameRoom extends Room {
       left: [],
       shared: new Map(),
       players: new Set(state.players.map((player) => player.playerId)),
+      seqs: new Map(),
     };
     for (const client of this.clients) this.sendOwner(client);
     const next = { ...state };
@@ -901,6 +907,7 @@ export class GameRoom extends Room {
       round: round.round,
       players: Object.fromEntries(round.states),
       shared: Object.fromEntries(round.shared),
+      ...(round.seqs.size ? { seqs: Object.fromEntries(round.seqs) } : {}),
     };
     client.send("owner.sync", sync);
   }
@@ -923,6 +930,7 @@ export class GameRoom extends Room {
       if (!now.has(id)) {
         round.states.delete(id);
         round.dirty.delete(id);
+        round.seqs.delete(id);
         round.left.push(id);
       }
     round.players = now;
@@ -939,6 +947,7 @@ export class GameRoom extends Room {
       return;
     }
     round.states.set(id, next);
+    if (value.seq !== undefined) round.seqs.set(id, value.seq);
     const pending = round.dirty.get(id) ?? {};
     const set = { ...pending.set, ...value.set };
     const removed = new Set(pending.delete ?? []);
@@ -947,7 +956,8 @@ export class GameRoom extends Room {
       delete set[key];
       removed.add(key);
     }
-    round.dirty.set(id, { ...(Object.keys(set).length ? { set } : {}), ...(removed.size ? { delete: [...removed] } : {}) });
+    const seq = round.seqs.get(id);
+    round.dirty.set(id, { ...(Object.keys(set).length ? { set } : {}), ...(removed.size ? { delete: [...removed] } : {}), ...(seq !== undefined ? { seq } : {}) });
     this.record.updatedAt = Date.now();
   }
   /**
@@ -989,8 +999,19 @@ export class GameRoom extends Room {
   /** A one-off message for every other player, such as a collision only one page saw. */
   private ownerEmit(client: Client, value: unknown): void {
     const id = this.controls.get(client.sessionId);
-    if (!id || !this.ownerRound || !isOwnerMessage(value)) return;
-    for (const other of this.clients) if (other !== client) other.send("owner.message", { from: id, message: value });
+    if (!id || !this.ownerRound || !isOwnerEmit(value)) return;
+    const event: OwnerMessageEvent = { from: id, id: value.id, message: value.message };
+    for (const other of this.clients) if (other !== client) other.send("owner.message", event);
+  }
+  /**
+   * Connection setup from one page to another player's, passed on unread: in an owner room
+   * two pages can send their states straight to each other. Only to a player in this room.
+   */
+  private p2pSignal(client: Client, value: unknown): void {
+    const from = this.controls.get(client.sessionId);
+    if (!from || !this.owner || !isP2PSignal(value) || value.to === from) return;
+    for (const other of this.clients)
+      if (this.controls.get(other.sessionId) === value.to) other.send("p2p.signal", { from, data: value.data });
   }
   /** A page says the round is over; the first to say so decides the winners, among the seats. */
   private ownerFinish(client: Client, value: unknown): void {
