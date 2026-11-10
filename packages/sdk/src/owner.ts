@@ -14,6 +14,7 @@ import {
   type OwnerPatch,
   type OwnerSharedChange,
 } from "./multiplayer-protocol.js";
+import { TickPacer, type TickClock } from "./pacing.js";
 
 /** How long a shared request waits for the service before it counts as refused. */
 export const OWNER_SHARED_TIMEOUT_MS = 5000;
@@ -24,6 +25,8 @@ export interface OwnerHooks {
   show(): void;
   playerId(): string | undefined;
   tickMs(): number;
+  /** Where the service's tick falls, so this page's state reaches it just before. */
+  clock: TickClock;
 }
 
 /** What an owner round shows the game, as snapshot.state.game. */
@@ -40,11 +43,13 @@ export class OwnerSession {
   private own: Record<string, unknown> = {};
   /** The state the service holds for this page, so only changed keys are sent. */
   private sent: Record<string, unknown> = {};
-  private timer?: ReturnType<typeof setInterval>;
+  private readonly pacer: TickPacer;
   private readonly waiting = new Map<string, { done: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> }>();
   private requests = 0;
 
-  constructor(private readonly hooks: OwnerHooks) {}
+  constructor(private readonly hooks: OwnerHooks) {
+    this.pacer = new TickPacer(hooks.clock, hooks.tickMs, () => this.flush());
+  }
 
   /** Whether a round is running and this page has it. */
   get active(): boolean {
@@ -86,6 +91,8 @@ export class OwnerSession {
       this.others.set(id, next);
     }
     for (const id of value.left ?? []) if (typeof id === "string") this.others.delete(id);
+    // The service sends frames on its tick.
+    this.hooks.clock.arrived();
     this.hooks.show();
   }
 
@@ -110,21 +117,13 @@ export class OwnerSession {
 
   /**
    * Sets this player's state, which shows at once. It goes to the service at most once a
-   * tick, only the top-level keys that changed, and keeps going while the page keeps
-   * changing it.
+   * tick, timed to reach it just before its tick, with only the top-level keys that changed,
+   * and keeps going while the page keeps changing it.
    */
   setState(state: Record<string, unknown>): void {
     if (!isOwnerState(state)) throw new Error("A player's state must be a small plain object of JSON data.");
     this.own = structuredClone(state);
-    if (!this.timer) {
-      this.flush();
-      this.timer = setInterval(() => {
-        if (!this.flush()) {
-          clearInterval(this.timer);
-          this.timer = undefined;
-        }
-      }, this.hooks.tickMs());
-    }
+    this.pacer.wake();
     this.hooks.show();
   }
 
@@ -148,8 +147,7 @@ export class OwnerSession {
     this.shared.clear();
     this.own = {};
     this.sent = {};
-    clearInterval(this.timer);
-    this.timer = undefined;
+    this.pacer.stop();
     for (const { done, timer } of this.waiting.values()) {
       clearTimeout(timer);
       done(false);
@@ -167,6 +165,7 @@ export class OwnerSession {
     if (!patch.set && !patch.delete) return false;
     this.hooks.send("owner.state", patch);
     this.sent = structuredClone(this.own);
+    this.pacer.sent();
     return true;
   }
 }

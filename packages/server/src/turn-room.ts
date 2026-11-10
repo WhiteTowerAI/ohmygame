@@ -302,9 +302,10 @@ export class GameRoom extends Room {
       this.action(client, value),
     );
     this.onMessage("lockstep.input", (client, value: unknown) => this.lockstepInput(client, value));
-    // Pages measure their round trip to run ahead by the right amount.
-    this.onMessage("lockstep.ping", (client, value: unknown) => {
-      if (typeof value === "number" && Number.isFinite(value)) client.send("lockstep.pong", value);
+    // Pages measure their round trip: lockstep pages to run ahead by the right amount, and
+    // realtime and owner pages to time what they send to reach this room just before its tick.
+    this.onMessage("ping", (client, value: unknown) => {
+      if (typeof value === "number" && Number.isFinite(value)) client.send("pong", value);
     });
     this.onMessage("lockstep.finish", (client, value: unknown) => this.lockstepFinish(client, value));
     this.onMessage("owner.state", (client, value: unknown) => this.ownerState(client, value));

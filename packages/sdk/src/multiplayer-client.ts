@@ -41,6 +41,7 @@ import {
 import type { OhMyGame } from "./index.js";
 import { LockstepRunner } from "./lockstep.js";
 import { OwnerSession } from "./owner.js";
+import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
 
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
 
@@ -146,7 +147,14 @@ export class MultiplayerClient<Game = unknown> {
   private latestInput?: RealtimeInput;
   /** The room's tick, from the service; input goes out no faster. */
   private roomTickMs = DEFAULT_TICK_MS;
-  private inputTimer?: ReturnType<typeof setInterval>;
+  /** Where the service's tick falls, so input and owner states reach it just before it. */
+  private readonly tickClock = new TickClock(() => this.roomTickMs);
+  private readonly inputPacer = new TickPacer(this.tickClock, () => this.roomTickMs, () => {
+    if (!this.latestInput) return false;
+    this.flushInput();
+    return true;
+  });
+  private pingTimer?: ReturnType<typeof setInterval>;
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
   private aloneSince?: number;
@@ -186,6 +194,7 @@ export class MultiplayerClient<Game = unknown> {
         show: () => this.showOwner(),
         playerId: () => this.saved?.playerId,
         tickMs: () => this.tickMs,
+        clock: this.tickClock,
       });
     const runsRules = options.manifest.adapterId === HOST_ADAPTER_ID || options.manifest.adapterId === LOCKSTEP_ADAPTER_ID;
     if (runsRules) {
@@ -384,9 +393,10 @@ export class MultiplayerClient<Game = unknown> {
   /**
    * Sends what the player is doing now in a realtime game, in the shape the rules read,
    * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
-   * at most once per service tick, and keeps going out while the game keeps calling, so
-   * a held key stays fresh. Sending faster would only be discarded, and a flood closes the
-   * connection. Throws invalid_option for an input that is not plain JSON of at most
+   * at most once per service tick, timed to reach the service just before its tick, and
+   * keeps going out while the game keeps calling, so a held key stays fresh. Sending
+   * faster would only be discarded, and a flood closes the connection. Throws
+   * invalid_option for an input that is not plain JSON of at most
    * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
    */
   sendInput(input: ClientInput<Game>): void {
@@ -397,12 +407,7 @@ export class MultiplayerClient<Game = unknown> {
       );
     if (!this.room || this.status !== "connected") return;
     this.latestInput = input;
-    if (this.inputTimer) return;
-    this.flushInput();
-    this.inputTimer = setInterval(() => {
-      if (this.latestInput) this.flushInput();
-      else this.stopInput();
-    }, this.tickMs);
+    this.inputPacer.wake();
   }
   /**
    * Sends something the player does once in a realtime game, such as { fire: true }, in
@@ -525,7 +530,7 @@ export class MultiplayerClient<Game = unknown> {
         return !!first && first.playerId === this.saved?.playerId;
       },
       resync: () => this.room?.send("sync"),
-      ping: (sentAt: number) => this.room?.send("lockstep.ping", sentAt),
+      ping: (sentAt: number) => this.room?.send("ping", sentAt),
       playerId: () => this.saved?.playerId,
       every: startTicker,
     };
@@ -626,9 +631,25 @@ export class MultiplayerClient<Game = unknown> {
     }
   }
   private stopInput(): void {
-    clearInterval(this.inputTimer);
-    this.inputTimer = undefined;
+    this.inputPacer.stop();
     this.latestInput = undefined;
+    clearInterval(this.pingTimer);
+    this.pingTimer = undefined;
+    this.tickClock.reset();
+  }
+  /**
+   * Rooms whose service tick reads what the page sends once a tick, a realtime room the
+   * service runs and an owner room, time those sends to it: the page measures its round trip.
+   * A host's loop and lockstep frames keep their own time.
+   */
+  private pacesToServiceTick(): boolean {
+    return this.options.manifest.mode === "realtime" && !this.lockstep && !this.hostRules;
+  }
+  private startPinging(): void {
+    if (this.pingTimer || !this.pacesToServiceTick()) return;
+    const ping = () => this.room?.send("ping", performance.now());
+    ping();
+    this.pingTimer = setInterval(ping, PING_INTERVAL_MS);
   }
   async publicRooms(): Promise<PublicMultiplayerRoom[]> {
     const { gameId, deploymentId } = this.options.manifest;
@@ -742,6 +763,7 @@ export class MultiplayerClient<Game = unknown> {
       this.persist();
       this.setStatus("connected");
       room.send("sync");
+      this.startPinging();
       this.scheduleMerge();
     } catch (cause) {
       const error = toOhMyGameError(cause, "request_failed");
@@ -829,7 +851,10 @@ export class MultiplayerClient<Game = unknown> {
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
     room.onMessage("lockstep.sync", (value: unknown) => this.lockstep?.runner.sync(value));
     room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
-    room.onMessage("lockstep.pong", (value: unknown) => this.lockstep?.runner.pong(value));
+    room.onMessage("pong", (value: unknown) => {
+      this.lockstep?.runner.pong(value);
+      this.tickClock.pong(value);
+    });
     room.onMessage("lockstep.early", (value: unknown) => this.lockstep?.runner.receiveEarly(value));
     room.onMessage("owner.sync", (value: unknown) => this.owner?.sync(value));
     room.onMessage("owner.frame", (value: unknown) => this.owner?.frame(value));
@@ -897,6 +922,7 @@ export class MultiplayerClient<Game = unknown> {
         this.persist();
         this.setStatus("connected");
         room.send("sync");
+        this.startPinging();
       });
     });
     room.onError((_code, message) =>
@@ -947,6 +973,8 @@ export class MultiplayerClient<Game = unknown> {
       return;
     }
     if (value.sequence < (this.fromService?.sequence ?? -1)) return;
+    // A realtime room the service runs sends its snapshots on its tick.
+    if (this.pacesToServiceTick() && !this.owner && value.state.phase === "playing") this.tickClock.arrived();
     this.fromService = value;
     const first = !this.current;
     // While this player runs a round for the room, their own ticks are newer than any the

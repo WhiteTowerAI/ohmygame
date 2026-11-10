@@ -170,7 +170,10 @@ plain JSON of at most 512 characters (`REALTIME_INPUT_MAX_LENGTH`), nested no mo
 than four levels, and never uses the key `inputId`, which the SDK adds; otherwise
 `sendInput` throws `invalid_option`. The SDK sends the latest input at most once per
 service tick, which the service reports when the player joins, and keeps resending
-it while the game keeps calling. The room passes the rules only inputs from the
+it while the game keeps calling. In a room whose rules the service runs it times
+those sends to reach the service just before its tick, from when snapshots arrive
+and the round trip it measures every two seconds (`ping`, answered with `pong`);
+until it knows both, it sends once a tick from the first send. The room passes the rules only inputs from the
 last five ticks (at least 250 ms), so a player who stops sending stops steering.
 A realtime connection may send twice the tick rate in messages a second, and at
 least 40; beyond that it is closed with code 4002. The room releases that seat
@@ -401,8 +404,8 @@ when it arrives.
 - The page whose rules end the round reports the final state
   (`lockstep.finish`); the first report decides the winners, which the service
   takes among the seats as from a host, and the next round's setup gets its game.
-- Pages run ahead (rollback). A page measures its round trip (`lockstep.ping`,
-  answered with `lockstep.pong`) and tells from when frames arrive which frame the
+- Pages run ahead (rollback). A page measures its round trip (`ping`,
+  answered with `pong`) and tells from when frames arrive which frame the
   service is at. It shows the rules stepped from the newest frame to the frame an
   input sent now would reach the service in, with its own inputs and everyone
   else's last input, at most one second ahead, and redraws when that frame moves
@@ -439,7 +442,8 @@ play; use lockstep where every screen must agree.
 - `client.setState(state)` sets the local player's public state, a plain object
   of at most 4096 characters of JSON (`OWNER_STATE_MAX_LENGTH`). It shows at
   once, and goes out at most once a tick with only the top-level keys that
-  changed (`owner.state`). Every tick the service sends everyone the states that
+  changed (`owner.state`), timed from when frames arrive and the round trip to
+  reach the service just before its tick. Every tick the service sends everyone the states that
   changed since the last one, together, and who left (`owner.frame`).
 - `snapshot.state.game` is `{ players, shared }`: every player's state by
   playerId, the local one as just set, and the shared data.

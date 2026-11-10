@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
 import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { TickClock, TickPacer } from "../packages/sdk/src/pacing.js";
 
 const manifest: MultiplayerManifestConfig = {
   enabled: true,
@@ -236,5 +237,79 @@ describe("smoothing other players between updates", () => {
     expect(smoother.get("a", 0)).toBeUndefined();
     smoother.delete("b");
     expect(smoother.get("b", 0)).toBeUndefined();
+  });
+});
+
+describe("timing sends to the service's tick", () => {
+  /** A clock whose service ticks reach the page at `phase` within each 50 ms, with a 30 ms round trip. */
+  const learned = (phase: number) => {
+    const clock = new TickClock(() => 50);
+    for (let tick = 0; tick < 10; tick++) clock.arrived(1000 + tick * 50 + phase + (tick % 3));
+    clock.pong(1500, 1530);
+    return clock;
+  };
+
+  it("sends a whole round trip and a margin before a tick's message arrives", () => {
+    // Tick messages arrive about 21 ms into each 50; send 30 + 8 ms earlier, at 33 into the cycle.
+    const at = learned(20).nextSend(2000)!;
+    expect(at).toBeGreaterThanOrEqual(2000);
+    expect(at - 2000).toBeCloseTo(33, -0.5);
+    // Arrivals either side of the cycle's wrap still average to its edge, not its middle.
+    const edge = new TickClock(() => 50);
+    for (const at of [1049, 1100, 1151, 1199, 1250, 1301]) edge.arrived(at);
+    edge.pong(0, 10);
+    expect(((edge.nextSend(2000)! - 2000) % 50 + 50) % 50).toBeCloseTo(32, -0.5);
+  });
+
+  it("waits until it knows both the tick and the round trip", () => {
+    const clock = new TickClock(() => 50);
+    clock.arrived(1000);
+    clock.arrived(1050);
+    clock.arrived(1100);
+    expect(clock.nextSend(2000)).toBeUndefined();
+    clock.pong(1200, 1100); // an answer from before it was sent is not a trip
+    expect(clock.nextSend(2000)).toBeUndefined();
+    clock.pong(1200, 1230);
+    expect(clock.nextSend(2000)).toBeDefined();
+  });
+
+  it("sends at once, then once a tick at the clock's moments, and never more than twice a tick", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      vi.setSystemTime(0);
+      const sent: number[] = [];
+      let waiting = 3;
+      const unknown = new TickPacer(new TickClock(() => 50), () => 50, () => {
+        if (!waiting) return false;
+        waiting--;
+        sent.push(performance.now());
+        return true;
+      });
+      vi.advanceTimersByTime(1000);
+      unknown.wake();
+      vi.advanceTimersByTime(500);
+      // Without a tick to time to, once a tick from the first send; it stops with nothing left.
+      expect(sent).toEqual([1000, 1050, 1100]);
+      expect(unknown.running).toBe(false);
+
+      sent.length = 0;
+      const clock = learned(20);
+      const paced = new TickPacer(clock, () => 50, () => {
+        sent.push(performance.now());
+        return true;
+      });
+      vi.advanceTimersByTime(500); // now 2000
+      paced.wake();
+      for (let i = 0; i < 20; i++) paced.wake(); // waking while running sends nothing extra
+      vi.advanceTimersByTime(200);
+      paced.stop();
+      expect(sent[0]).toBe(2000);
+      // Then at 33 ms into each 50 ms cycle.
+      const cycle = (at: number) => ((at - 2033) % 50 + 50) % 50;
+      for (const at of sent.slice(1)) expect(Math.min(cycle(at), 50 - cycle(at))).toBeLessThan(3);
+      for (let i = 1; i < sent.length; i++) expect(sent[i]! - sent[i - 1]!).toBeGreaterThanOrEqual(25);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

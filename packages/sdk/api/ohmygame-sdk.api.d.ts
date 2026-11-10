@@ -646,7 +646,10 @@ export declare class MultiplayerClient<Game = unknown> {
     private latestInput?;
     /** The room's tick, from the service; input goes out no faster. */
     private roomTickMs;
-    private inputTimer?;
+    /** Where the service's tick falls, so input and owner states reach it just before it. */
+    private readonly tickClock;
+    private readonly inputPacer;
+    private pingTimer?;
     private displayName?;
     private mergeTimer?;
     private aloneSince?;
@@ -707,9 +710,10 @@ export declare class MultiplayerClient<Game = unknown> {
     /**
      * Sends what the player is doing now in a realtime game, in the shape the rules read,
      * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
-     * at most once per service tick, and keeps going out while the game keeps calling, so
-     * a held key stays fresh. Sending faster would only be discarded, and a flood closes the
-     * connection. Throws invalid_option for an input that is not plain JSON of at most
+     * at most once per service tick, timed to reach the service just before its tick, and
+     * keeps going out while the game keeps calling, so a held key stays fresh. Sending
+     * faster would only be discarded, and a flood closes the connection. Throws
+     * invalid_option for an input that is not plain JSON of at most
      * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
      */
     sendInput(input: ClientInput<Game>): void;
@@ -772,6 +776,13 @@ export declare class MultiplayerClient<Game = unknown> {
     private alone;
     private checkMerge;
     private stopInput;
+    /**
+     * Rooms whose service tick reads what the page sends once a tick, a realtime room the
+     * service runs and an owner room, time those sends to it: the page measures its round trip.
+     * A host's loop and lockstep frames keep their own time.
+     */
+    private pacesToServiceTick;
+    private startPinging;
     publicRooms(): Promise<PublicMultiplayerRoom[]>;
     leave(): Promise<void>;
     /** Leaves without reporting a closed connection, for moving to another room. */
