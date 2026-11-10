@@ -1,5 +1,6 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
 import { BrowserWindow, WebContentsView, screen, shell, type BaseWindow, type Input, type WebContents } from "electron";
+import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
 import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest, isLocalSignInPage } from "./game-sign-in.js";
@@ -44,6 +45,8 @@ export function isGameRecordingShortcut(input: Pick<Input, "type" | "key" | "con
 /** One human game per project; Preview and Play move the same native view. */
 export class WebGamePlayerWindows {
   readonly #games = new Map<string, Game>();
+  /** The filter the person chose per project, kept for a game not started yet. */
+  readonly #filters = new Map<string, PreviewColorFilter>();
 
   constructor(
     private readonly onState: (state: WebGamePlayerState) => void,
@@ -102,7 +105,9 @@ export class WebGamePlayerWindows {
     await game.ready;
     await game.navigation;
     if (this.#games.get(projectId) !== game || !game.view || game.crashed) throw new Error("The game preview is unavailable.");
-    return (await game.view.webContents.capturePage()).toPNG();
+    // Encoding blocks the main process, and with it every window: PNG takes
+    // about 200 ms for a full Retina frame, JPEG about a seventh of that.
+    return (await game.view.webContents.capturePage()).toJPEG(90);
   }
 
   /** What a recording of this project's running game should capture. */
@@ -117,12 +122,31 @@ export class WebGamePlayerWindows {
     return { contents: game.view.webContents, title: game.title ?? "" };
   }
 
-  /** The Play window has no toolbar, so its title says that it is recording. */
-  setRecording(projectId: string, recording: boolean): void {
+  /**
+   * The Play window has no toolbar, so its title says that it is recording.
+   * A recording is of the game as it is, so its filter is off meanwhile.
+   */
+  async setRecording(projectId: string, recording: boolean): Promise<void> {
     const game = this.#games.get(projectId);
     if (!game) return;
     game.recording = recording;
     this.#titlePlayWindow(game);
+    await this.#applyFilter(projectId, game);
+  }
+
+  /** The colour filter over the person's game, in Preview and Play; none clears it. */
+  setFilter(projectId: string, filter: PreviewColorFilter | undefined): void {
+    if (filter) this.#filters.set(projectId, filter);
+    else this.#filters.delete(projectId);
+    const game = this.#games.get(projectId);
+    if (game) void this.#applyFilter(projectId, game);
+  }
+
+  async #applyFilter(projectId: string, game: Game): Promise<void> {
+    const contents = game.view?.webContents;
+    if (!contents || contents.isDestroyed() || game.crashed) return;
+    const filter = game.recording ? undefined : this.#filters.get(projectId);
+    await contents.executeJavaScript(`window.setFilter?.(${JSON.stringify(filter ?? null)})`).catch(() => {});
   }
 
   async open(projectId: string, request: WebGamePlayerRequest, resolveTarget: () => Promise<WebGamePlayerTarget>): Promise<void> {
@@ -280,6 +304,7 @@ export class WebGamePlayerWindows {
         contents.on("did-navigate-in-page", rememberRoute);
         this.#place(game);
         await contents.loadURL(this.hostUrl);
+        await this.#applyFilter(projectId, game);
         await this.#load(game, url);
         if (this.#games.get(projectId) !== game) throw new Error("Game launch was cancelled.");
       } catch (error) {
@@ -304,6 +329,9 @@ export class WebGamePlayerWindows {
     if (game.crashed) {
       await game.view!.webContents.loadURL(this.hostUrl);
       game.crashed = false;
+      // The new host page starts without the filter.
+      const projectId = [...this.#games].find(([, item]) => item === game)?.[0];
+      if (projectId) await this.#applyFilter(projectId, game);
     }
     game.lastUrl = url;
     await game.view!.webContents.executeJavaScript(`window.loadGame(${JSON.stringify(url)})`);

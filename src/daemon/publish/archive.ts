@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
+import { PROJECT_FILE_NAME } from "../../shared/project-file.js";
 import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
@@ -93,9 +94,24 @@ export class ArtifactBuilder {
 
   /** The game as it would publish, without the size limit, for hosting elsewhere. */
   async build(project: ProjectState): Promise<Buffer> {
-    if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
-      throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
+    assertBuildable(project);
     return this.#create(project);
+  }
+
+  /** The same build as `build`, as files in `destination`, an empty folder. */
+  async buildFolder(project: ProjectState, destination: string): Promise<void> {
+    assertBuildable(project);
+    const prepared = await this.#prepare(project);
+    try {
+      const source = await prepared.folder();
+      for (const file of await filesIn(source)) {
+        const target = path.join(destination, ...file.split("/"));
+        await mkdir(path.dirname(target), { recursive: true });
+        await cp(path.join(source, ...file.split("/")), target);
+      }
+    } finally {
+      await prepared.dispose();
+    }
   }
 
   async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<Buffer> {
@@ -107,7 +123,7 @@ export class ArtifactBuilder {
     }
   }
 
-  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<PreparedArtifact> {
+  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<PreparedArtifact & { folder(): Promise<string> }> {
     const temporaries: string[] = [];
     const media = maxBytes !== undefined && project.type === "interactive-story"
       ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
@@ -155,29 +171,33 @@ export class ArtifactBuilder {
         if (sdk && this.#account) updates.account = this.#account;
       }
       const built = source;
+      // The folder that publishes: the build, with the manifest entries publishing writes.
+      const folder = async (gameId?: string, publication: { accessToken?: string } = {}) => {
+        const manifestUpdates = { ...updates };
+        if (register) {
+          if (!gameId || !publication.accessToken) throw new PublishError("Publishing a multiplayer game needs its OhMyGame game and the publisher's sign-in.");
+          manifestUpdates.multiplayer = await registerDeployment(this.#gameServiceUrl!, gameId, publication.accessToken, register);
+        }
+        if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
+        // The local service's test sign-in and in-memory saves never ship: published games
+        // get OhMyGame's services above, or none.
+        const manifest = sdk ? await readOptionalManifest(built) : {};
+        const local = (["account", "cloud"] as const).filter((key) => !(key in manifestUpdates) && pointsAtThisComputer(manifest[key]));
+        let packaged = built;
+        if (Object.keys(manifestUpdates).length || local.length) {
+          packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
+          temporaries.push(packaged);
+          await cp(built, packaged, { recursive: true });
+          const published: Record<string, unknown> = { ...(await readOptionalManifest(built)), ...manifestUpdates };
+          for (const key of local) delete published[key];
+          await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify(published, null, 2)}\n`);
+        }
+        return packaged;
+      };
       return {
-        package: async (gameId?: string, publication: { accessToken?: string } = {}) => {
-          const manifestUpdates = { ...updates };
-          if (register) {
-            if (!gameId || !publication.accessToken) throw new PublishError("Publishing a multiplayer game needs its OhMyGame game and the publisher's sign-in.");
-            manifestUpdates.multiplayer = await registerDeployment(this.#gameServiceUrl!, gameId, publication.accessToken, register);
-          }
-          if (sdk && this.#gameServiceUrl && gameId) manifestUpdates.cloud = { serverUrl: this.#gameServiceUrl, gameId } satisfies CloudConfig;
-          // The local service's test sign-in and in-memory saves never ship: published games
-          // get OhMyGame's services above, or none.
-          const manifest = sdk ? await readOptionalManifest(built) : {};
-          const local = (["account", "cloud"] as const).filter((key) => !(key in manifestUpdates) && pointsAtThisComputer(manifest[key]));
-          let packaged = built;
-          if (Object.keys(manifestUpdates).length || local.length) {
-            packaged = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
-            temporaries.push(packaged);
-            await cp(built, packaged, { recursive: true });
-            const published: Record<string, unknown> = { ...(await readOptionalManifest(built)), ...manifestUpdates };
-            for (const key of local) delete published[key];
-            await writeFile(path.join(packaged, "manifest.json"), `${JSON.stringify(published, null, 2)}\n`);
-          }
-          return createZip(packaged, false, cover, maxBytes, false, media);
-        },
+        package: async (gameId?: string, publication?: { accessToken?: string }) =>
+          createZip(await folder(gameId, publication), false, cover, maxBytes, false, media),
+        folder: () => folder(),
         dispose,
       };
     } catch (cause) {
@@ -304,6 +324,12 @@ async function assertSupportedNetworking(source: string): Promise<void> {
     if (/\b(?:0\.peerjs\.com|turn\.peerjs\.com)\b|(?:unpkg\.com|cdn\.jsdelivr\.net)[^\s"'`<>]*\bpeerjs\b/i.test(text))
       throw new PublishError("The build includes PeerJS networking. Use the Colyseus SDK and declare its multiplayer deployment before publishing.");
   }
+}
+
+/** Only games that play as a web page have a web build. */
+export function assertBuildable(project: ProjectState): void {
+  if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
+    throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
 }
 
 async function publishStartupDirectory(project: ProjectState): Promise<string> {
@@ -467,6 +493,8 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
 
 function ignored(name: string, relative: string, plugin: boolean): boolean {
   if (name === "node_modules" || name === ".git" || name === ".data" || (!plugin && name === "AGENTS.md")) return true;
+  // Every project names its type in it: OhMyGame's file, not the game's.
+  if (!plugin && !relative && name === PROJECT_FILE_NAME) return true;
   if (!name.startsWith(".")) return false;
   return !(plugin && !relative && name === ".ohmygame-plugin");
 }

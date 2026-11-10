@@ -8,6 +8,7 @@ import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
+import { syncPluginTheme } from "./appearance.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import type { UsageStats } from "../shared/usage-stats.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -84,7 +85,7 @@ import {
   type Model3DAnimationAction,
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
-import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -93,7 +94,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginSkillContent } from "../shared/plugins.js";
+import type { PluginLogView, PluginSkillContent, PluginSourceUpdate, PluginUninstallPreview } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -163,6 +164,7 @@ declare global {
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      browseAccountDirectory?: (runtime: AccountRuntimeId, profileId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
@@ -238,6 +240,11 @@ declare global {
 
 export async function createProject(input: CreateProjectRequest = {}): Promise<ProjectState> {
   return request("/projects", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** The type a folder chosen to open names, as the new-project dialog lists types; none when it doesn't say. */
+export async function getProjectFolderType(workspacePath: string): Promise<{ type?: string }> {
+  return request("/projects/folder-type", { method: "POST", body: JSON.stringify({ workspacePath }) });
 }
 
 export async function listProjects(): Promise<ProjectState[]> {
@@ -416,6 +423,14 @@ export function addAccountProfile(runtime: AccountRuntimeId, name: string, confi
   return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
 }
 
+export function updateAccountProfile(runtime: AccountRuntimeId, profileId: string, change: UpdateAgentAccountProfileRequest): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export function moveAccountProfile(runtime: AccountRuntimeId, profileId: string, direction: -1 | 1): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
+}
+
 export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
   return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
 }
@@ -450,7 +465,7 @@ export async function syncCloudSession(session: { accessToken: string; userId: s
 export async function getCloudQuotas(): Promise<import("../shared/cloud-models.js").CloudQuotaSnapshot | null> { return request("/cloud/quotas"); }
 
 export async function listProviders(): Promise<ProviderSummary[]> {
-  return request("/settings/providers");
+  return request(`/settings/providers?locale=${encodeURIComponent(language)}`);
 }
 
 export async function setProviderEnabled(providerId: string, enabled: boolean): Promise<ProviderSummary> {
@@ -805,6 +820,11 @@ export async function consentToPlugin(id: string, allowed: string[]): Promise<vo
 }
 
 /** Installed plugins, one row per version. */
+/** Themes of the plugins the person has on, for Settings › Appearance. */
+export async function listPluginThemes(): Promise<import("../shared/plugins.js").PluginTheme[]> {
+  return request(`/plugin-themes?locale=${encodeURIComponent(language)}`);
+}
+
 export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }
@@ -817,10 +837,47 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 /** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+  void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
 }
 
-export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+/** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
+export async function exportStorePlugin(id: string, publisher: string, folder: string): Promise<{ folder: string }> {
+  return request(`/plugin-store/${pluginPath(id)}/export`, { method: "POST", body: JSON.stringify({ publisher, folder }) });
+}
+
+/** A plugin's log since the app started, credentials redacted, and whether it is quarantined. */
+export function readPluginLog(id: string): Promise<PluginLogView> {
+  return request(`/plugin-store/${pluginPath(id)}/log`);
+}
+
+/** Adds a panel's uncaught error to its plugin's log. */
+export async function reportPluginPanelError(id: string, text: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/log`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+}
+
+/** Whether the service started in safe mode, with no plugin running. */
+export function readPluginStatus(): Promise<{ safeMode: boolean }> {
+  return request("/plugin-store/status");
+}
+
+/** Newer packages where installed plugins came from; checked at startup and when the Plugins page opens. */
+export function readPluginUpdates(): Promise<PluginSourceUpdate[]> {
+  return request("/plugin-store/updates");
+}
+
+/** The projects using each installed version of a plugin. */
+export function readPluginUsage(id: string): Promise<Record<string, string[]>> {
+  return request(`/plugin-store/${pluginPath(id)}/usage`);
+}
+
+export function readPluginUninstall(id: string, version: string): Promise<PluginUninstallPreview> {
+  return request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}/uninstall`);
+}
+
+/** Uninstalls a version; `keepData` keeps the last version's settings and data for a later install. */
+export async function uninstallStorePlugin(id: string, version: string, options: { keepData?: boolean } = {}): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}${options.keepData ? "?keepData=true" : ""}`, { method: "DELETE" });
+  void syncPluginTheme(listPluginThemes, id);
 }
 
 export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
@@ -851,7 +908,9 @@ export async function inspectAddedPlugin(source: import("../shared/plugins.js").
 }
 
 export async function addPlugin(source: import("../shared/plugins.js").PluginAddSource, digest: string): Promise<{ id: string; version: string }> {
-  return request("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  const added = await request<{ id: string; version: string }>("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  void syncPluginTheme(listPluginThemes);
+  return added;
 }
 
 export async function inspectPluginFile(file: Blob): Promise<import("../shared/plugins.js").PluginAddPreview> {
@@ -859,7 +918,9 @@ export async function inspectPluginFile(file: Blob): Promise<import("../shared/p
 }
 
 export async function addPluginFile(file: Blob, digest: string): Promise<{ id: string; version: string }> {
-  return uploadPluginPackage(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
+  const added = await uploadPluginPackage<{ id: string; version: string }>(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
+  void syncPluginTheme(listPluginThemes);
+  return added;
 }
 
 export async function readPluginSkill(pluginId: string, skillId: string): Promise<PluginSkillContent> {
@@ -1069,8 +1130,8 @@ export async function setProjectLogo(projectId: string, logo: Blob | undefined):
   return response.json() as Promise<ProjectState>;
 }
 
-export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
-  return request(`/projects/${projectId}/files`);
+export async function listWorkspaceFiles(projectId: string, directory?: string): Promise<WorkspaceFile[]> {
+  return request(`/projects/${projectId}/files${directory === undefined ? "" : `?directory=${encodeURIComponent(directory)}`}`);
 }
 
 export async function getWorkspaceGitChanges(projectId: string): Promise<WorkspaceGitChanges> {
@@ -1694,7 +1755,7 @@ export async function saveConnectionConfiguration(id: string, values: import("..
 export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
 }
 async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
@@ -1702,22 +1763,12 @@ async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
 }
-export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
-}
-export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);
 }
 export async function deletePluginSetup(id: string): Promise<void> {
   await request(`/plugins/setup-sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-export async function promptPluginSetup(id: string, prompt: string, model: AgentModelRef, reasoningLevel?: import("../shared/contracts.js").AgentReasoningLevel): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/prompt`, { method: "POST", body: JSON.stringify({ prompt, model, reasoningLevel }) });
-}
-export async function abortPluginSetup(id: string): Promise<void> {
-  await request(`/plugins/setup-sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
-}
-
 export async function listPluginSetups(): Promise<import("../shared/plugin-setup.js").PluginSetupSummary[]> {
   return request("/plugins/setup-sessions");
 }
@@ -1737,8 +1788,10 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);
 }
-export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
+export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupSummary> {
+  const state = await request<import("../shared/plugin-setup.js").PluginSetupSummary>(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
+  void syncPluginTheme(listPluginThemes);
+  return state;
 }
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
@@ -1790,10 +1843,38 @@ export interface PluginPanel {
   commands: string[];
   accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
+  /** For a panel of the project's own, in `.ohmygame/panels/`: whether the person allowed it. */
+  projectPanel?: import("../shared/project-panels.js").ProjectPanelState;
 }
 
 export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
+}
+
+/** Lets a project's own panel run with what it asks for now; `key` is the one it was shown with. */
+export async function allowProjectPanel(projectId: string, name: string, key: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/allow`, { method: "POST", body: JSON.stringify({ key }) });
+}
+
+/** Keeps an error a project's own panel didn't catch, where the agent can read it. */
+export async function reportProjectPanelError(projectId: string, name: string, text: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/project-panels/${encodeURIComponent(name)}/errors`, { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000) }) });
+}
+
+/** A page's `net.fetch`, made by the daemon. */
+export async function pluginNetFetch(projectId: string, plugin: string, body: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<import("../shared/plugin-ui-protocol.js").PluginUiFetchResponse> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-net/${plugin}`, { method: "POST", body: JSON.stringify(body) });
+}
+
+/** The canvas nodes of the project's active plugins, in the app's language. */
+export async function getProjectPluginCanvas(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCanvas> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-canvas?locale=${encodeURIComponent(language)}`);
+}
+
+/** A plugin preset's nodes and edges; `id` is `publisher/name:preset`. */
+export async function getProjectPluginCanvasPreset(projectId: string, id: string): Promise<import("../shared/canvas-plugin-nodes.js").CanvasPresetBoard> {
+  const [plugin = "", preset = ""] = id.split(":");
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-canvas/presets/${plugin.split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(preset)}`);
 }
 
 export async function getPluginPageValue(projectId: string, plugin: string, key: string): Promise<unknown> {
@@ -1807,6 +1888,16 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
 const pluginFilesPath = (projectId: string, plugin: string) => `/projects/${encodeURIComponent(projectId)}/plugin-files/${plugin}`;
 
 /** A plugin page's listing of its project's files. */
+/** The project's latest turns that changed files, for a page with `project.history`. */
+export async function getPluginHistory(projectId: string, plugin: string, limit?: number): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/history${limit === undefined ? "" : `?limit=${limit}`}`);
+}
+
+/** What the project's conversations used, by day and model, for a page with `project.usage`. */
+export async function getPluginUsage(projectId: string, plugin: string): Promise<unknown> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-data/${plugin}/usage`);
+}
+
 export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
   const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
   return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
@@ -1844,6 +1935,16 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 /** The plugin commands a project offers. */
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
+}
+
+/** Turns on a gamepad map in the person's pages of the project's game; null turns it off. */
+export async function setPreviewInputMap(projectId: string, map: import("../shared/preview-input.js").GamepadKeyMap | null): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/preview/input-map`, { method: "PUT", body: JSON.stringify({ map }) });
+}
+
+/** What a project's plugins add to its preview, such as devices. */
+export async function getProjectPluginPreview(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginPreview> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-preview?locale=${encodeURIComponent(language)}`);
 }
 
 /** What plugins changed in a project outside a turn, newest first. */

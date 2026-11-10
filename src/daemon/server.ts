@@ -8,6 +8,7 @@ import { loadEnvironmentFiles } from "./environment.js";
 import { NetworkSettingsService } from "./network-settings.js";
 import { requestSystemProxy } from "./system-proxy-resolver.js";
 import { ProcessPlaytestDriver } from "./playtest-driver.js";
+import { PLUGIN_INDEX_URL } from "./plugin-market.js";
 import { isLocalDebugEnabled, isLoopbackHostname } from "../shared/local-debug.js";
 import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
 
@@ -63,7 +64,8 @@ try {
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
     pluginUiDirectory: process.env.OHMYGAME_PLUGIN_UI_DIR,
-    ...(process.env.OHMYGAME_PLUGIN_INDEX_URL ? { pluginIndexUrl: process.env.OHMYGAME_PLUGIN_INDEX_URL } : {}),
+    ...(process.env.OHMYGAME_SAFE_MODE === "1" ? { pluginSafeMode: true } : {}),
+    pluginIndexUrl: process.env.OHMYGAME_PLUGIN_INDEX_URL ?? PLUGIN_INDEX_URL,
     ...(process.env.OHMYGAME_PLUGIN_UI_PORT ? { pluginUiPort: Number(process.env.OHMYGAME_PLUGIN_UI_PORT) } : {}),
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),

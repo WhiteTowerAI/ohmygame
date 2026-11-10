@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue } from "../shared/canvas-plugin-nodes.js";
 import { constants } from "node:fs";
 import {
   mkdir,
@@ -16,7 +17,9 @@ import {
   PLUGIN_MANIFEST_PATH,
   PLUGIN_SKILL_CONTENT_MAX_BYTES,
   isNewerPluginVersion,
+  type StorePlugin,
 } from "../shared/plugins.js";
+import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   agentToolName,
   pluginApiIssue,
@@ -189,6 +192,9 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
       ...(provider.models ?? []).map((model) => model.title),
     ]),
     ...(contributes.panels ?? []).map((panel) => panel.title),
+    ...(contributes.previewDevices ?? []).map((device) => device.title),
+    ...(contributes.previewFilters ?? []).flatMap((filter) => [filter.title, filter.source]),
+    ...(contributes.inputMaps ?? []).map((map) => map.title),
   ];
   const keys = new Set<string>();
   for (const text of texts) {
@@ -267,6 +273,13 @@ function checkPackage(
   contributes.providers?.forEach((provider, index) =>
     file(`/contributes/providers/${index}/icon`, provider.icon),
   );
+  contributes.canvasPresets?.forEach((preset, index) => {
+    const at = `/contributes/canvasPresets/${index}/board`, bytes = files.get(preset.board);
+    if (!bytes) return issue(at, `${preset.board} is not in the package`);
+    if (bytes.length > CANVAS_PRESET_MAX_BYTES) return issue(at, `${preset.board} is larger than ${CANVAS_PRESET_MAX_BYTES / 1024} KB`);
+    const problem = canvasPresetIssue(parseJson(bytes));
+    if (problem) issue(at, `${preset.board} ${problem}`);
+  });
   contributes.panels?.forEach((panel, index) => {
     file(`/contributes/panels/${index}/entry`, panel.entry);
     file(`/contributes/panels/${index}/icon`, panel.icon);
@@ -392,6 +405,23 @@ function checkPackage(
       skills,
       toolSchemas,
     },
+  };
+}
+
+/** What a package adds, by title; tools and skills are counted. */
+export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">, text: (value: string) => string): StorePlugin["adds"] {
+  const contributes = entry.manifest.contributes ?? {};
+  const hooks = manifestHooks(entry.manifest);
+  return {
+    projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
+    panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
+    commands: (contributes.commands ?? []).map((command) => text(command.title)),
+    mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
+    modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
+    agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
+    tools: contributes.tools?.length ?? 0,
+    skills: entry.skills.length,
+    ...(hooks.length ? { hooks: [...hooks] } : {}),
   };
 }
 

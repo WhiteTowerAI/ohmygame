@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -24,7 +24,7 @@ import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audi
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
@@ -113,7 +113,12 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget> },
+  playtest?: {
+    driver: GameRuntimeAdapter;
+    resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>;
+    /** The highest frame a plugin's captureFrame takes. */
+    maxFrame?: number;
+  },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
   configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
@@ -266,7 +271,8 @@ export function createAgentTools(
         details: { webSearch: { provider: result.provider, providerName: result.providerName, ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}) } },
       };
     },
-  })] : []), defineTool({
+  })] : []), ...(project.type === "plugin" ? [] : [defineTool({
+    // The Plugin Builder's own projects hand a draft over with plugin_manage instead.
     name: "install_plugin",
     label: "Install Plugin",
     description: "Validate and install an OhMyGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
@@ -287,12 +293,12 @@ export function createAgentTools(
       const draft = await inspectPluginDraft(sourcePath);
       if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
-      const servers = plugin.manifest.contributes?.mcpServers?.length ?? 0;
-      const counts = [
-        plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        servers ? `${servers} MCP service${servers === 1 ? "" : "s"}` : undefined,
-      ].filter(Boolean).join(" · ") || "No components";
       const displayName = localizePluginString(plugin, plugin.manifest.displayName, "en");
+      const adds = pluginAdds(plugin, (value) => localizePluginString(plugin, value, "en"));
+      const counts = Object.entries({
+        Skill: adds.skills, panel: adds.panels.length, command: adds.commands.length, tool: adds.tools, hook: adds.hooks?.length ?? 0,
+        "MCP service": adds.mcpServers.length, "project type": adds.projectTypes.length, "model provider": adds.modelProviders.length, agent: adds.agents.length,
+      }).filter(([, count]) => count).map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`).join(" · ") || "No components";
       const next = isAppWidePlugin(plugin.manifest)
         ? "It applies by itself to every project it suits."
         : "The person turns it on in a project's Plugins sheet, which also asks them to approve what it asks for.";
@@ -301,7 +307,7 @@ export function createAgentTools(
         details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
-  }), defineTool({
+  })]), defineTool({
     name: "update_plan",
     label: "Update Plan",
     description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",
@@ -381,11 +387,11 @@ export function createAgentTools(
         const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
         const fileName = `image-${run.id}.${extension}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-          prompt: input.prompt,
+          prompt: run.prompt ?? input.prompt,
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
         return {
-          content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
+          content: [{ type: "text", text: `Generated image saved to ${relativePath}${pluginChangeNote(run)}` }],
           details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
         };
       } finally {
@@ -897,9 +903,20 @@ export function createAgentTools(
         details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
       };
     },
-  })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
+  })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full", maxFrame: playtest.maxFrame })]
     : [])];
+}
+
+/**
+ * Whether the project's game can be played through this runtime: a plugin's,
+ * which is only made for a type that declares it, or the web runtime for a
+ * project with a web game.
+ */
+export function offersGameUse(project: ProjectState, driver: GameRuntimeAdapter): boolean {
+  if (driver.capabilities.runtime === "plugin") return true;
+  return (driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project))
+    && (project.type !== "general" || supportsWebPreview(project));
 }
 
 /** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */
@@ -907,8 +924,10 @@ export const CANCEL_GENERATION = Symbol("cancel generation");
 
 /** The nodes whose output a node's generation uses: its reference images, a video's references and a 3D source. */
 function nodeReferences(data: unknown): string[] {
-  const { images, references, source } = (data ?? {}) as Record<string, unknown>;
-  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source]
+  const { images, references, source, inputs } = (data ?? {}) as Record<string, unknown>;
+  // A plugin node's inputs, by input id.
+  const pluginInputs = inputs && typeof inputs === "object" ? Object.values(inputs).flatMap((value) => Array.isArray(value) ? value : []) : [];
+  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source, ...pluginInputs]
     .flatMap((reference) => reference && typeof reference === "object" && (reference as { type?: unknown }).type === "node" && typeof (reference as { nodeId?: unknown }).nodeId === "string" ? [(reference as { nodeId: string }).nodeId] : []);
 }
 
@@ -920,4 +939,11 @@ function findAnimationAction(library: readonly Model3DAnimationAction[], name: s
   const words = wanted.split(/\s+/).filter(Boolean);
   const suggestions = library.filter((action) => words.some((word) => action.name.toLowerCase().includes(word))).slice(0, 8).map((action) => action.name);
   throw new Error(`Unknown animation "${name}".${suggestions.length ? ` Similar names: ${suggestions.join(", ")}.` : ""}`);
+}
+
+/** Tells the agent which plugins changed an image's request before it was generated, and to what. */
+export function pluginChangeNote(run: Pick<ToolRun, "prompt" | "pluginChanges">): string {
+  if (!run.pluginChanges?.length) return "";
+  const who = run.pluginChanges.map((change) => `${change.plugin} ${change.version} (${change.fields.join(", ")})`).join("; ");
+  return `\nPlugins in this project changed the request before it was generated: ${who}.${run.pluginChanges.some((change) => change.fields.includes("prompt")) ? ` The prompt used was: ${run.prompt}` : ""}`;
 }

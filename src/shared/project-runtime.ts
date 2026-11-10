@@ -5,7 +5,7 @@ import {
 } from "./contracts.js";
 
 export function isProjectType(value: unknown): value is ProjectType {
-  return PROJECT_TYPE_IDS.some((type) => type === value);
+  return value === "plugin" || PROJECT_TYPE_IDS.some((type) => type === value);
 }
 
 /** These workspaces can use the platform's Web runtime when configured. */
@@ -74,7 +74,7 @@ export function projectFileTypeFor(type: string): string {
 
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
   const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
-  return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;
+  return (compatible as readonly ProjectType[]).includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;
 }
 
 export function webPreviewSettingsChanged(

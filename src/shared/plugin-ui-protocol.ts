@@ -74,6 +74,9 @@ export const PLUGIN_UI_METHODS = [
   "files.createFolder",
   "files.move",
   "files.delete",
+  "history.list",
+  "usage.get",
+  "net.fetch",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -92,11 +95,14 @@ export type PluginUiReply =
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
   | { event: "visibility"; visible: boolean }
-  | { event: "files" }
+  /** Something may have changed the project's files; `paths` names them when the app knows, and `truncated` says there were more. */
+  | { event: "files"; paths?: string[]; truncated?: boolean }
   /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
   | { event: "progress"; command: string; message: string }
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
-  | { event: "command"; command: string; result?: unknown; error?: string };
+  | { event: "command"; command: string; result?: unknown; error?: string }
+  /** Asks whether the page still answers; the bridge replies `pong` by itself. */
+  | { event: "ping" };
 
 export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
 export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
@@ -115,13 +121,60 @@ export interface PluginUiCapabilities {
   "project.selection"?: boolean;
   composer?: boolean;
   "project.files"?: "read" | "write";
+  "project.history"?: boolean;
+  "project.usage"?: boolean;
+  /** Hosts the page may reach over HTTPS with `net.fetch`; only project panels have it so far. */
+  net?: string[];
+}
+
+/** What `net.fetch` sends, and the most it brings back. */
+export const PLUGIN_UI_FETCH_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] as const;
+export const PLUGIN_UI_FETCH_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+export const PLUGIN_UI_FETCH_TIMEOUT_MS = 30_000;
+
+/** A `net.fetch` answer: the body as text, and only the headers a page can use. */
+export interface PluginUiFetchResponse {
+  status: number;
+  statusText: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/** The host of an `https:` address, or undefined for anything else. */
+export function fetchHost(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2000) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port ? url.hostname : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer">> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "project.history" | "project.usage">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
+  "history.list": "project.history",
+  "usage.get": "project.usage",
 };
+
+/** Most attachments one `composer.fill` adds. */
+export const PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX = 10;
+/** Most turns `history.list` returns. */
+export const PLUGIN_UI_HISTORY_MAX = 100;
+
+/** A file a page puts in the composer. */
+export interface PluginUiAttachment {
+  name: string;
+  data: string | Blob;
+  /** Its media type, such as `image/png`; read from `data` or the name when left out. */
+  type?: string;
+}
+
+/** A file name a page gave: a name, not a path. */
+const attachmentName = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.length <= 200 && !/[\\/\0]/.test(value);
 
 /** How much of `project.files` a method needs; writing covers reading. */
 const FILE_NEEDS: Partial<Record<PluginUiMethod, "read" | "write">> = {
@@ -172,8 +225,25 @@ export function readPluginUiRequest(
       if (typeof p.key !== "string" || !STORAGE_KEY.test(p.key)) return fail("storage keys are 1-100 letters, digits, dots, dashes or underscores");
       if (!("value" in p)) return fail("storage.set needs a value; null removes the key");
       break;
-    case "composer.fill":
-      if (typeof p.text !== "string" || p.text.length > 20_000) return fail("composer.fill needs text of at most 20,000 characters");
+    case "composer.fill": {
+      if (p.text !== undefined && (typeof p.text !== "string" || p.text.length > 20_000)) return fail("composer.fill's text is at most 20,000 characters");
+      const attachments = p.attachments;
+      if (attachments !== undefined) {
+        if (!Array.isArray(attachments) || attachments.length > PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX)
+          return fail(`composer.fill's attachments are a list of at most ${PLUGIN_UI_COMPOSER_ATTACHMENTS_MAX} files`);
+        for (const item of attachments as unknown[]) {
+          const file = item as Record<string, unknown> | null;
+          if (!file || typeof file !== "object" || !attachmentName(file.name)) return fail("each attachment needs a file name, without slashes, of at most 200 characters");
+          if (typeof file.data !== "string" && !(typeof Blob !== "undefined" && file.data instanceof Blob)) return fail("each attachment's data is a string or a Blob");
+          if (file.type !== undefined && (typeof file.type !== "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(file.type))) return fail("an attachment's type is a media type, such as image/png");
+        }
+      }
+      if (!(typeof p.text === "string" && p.text.length) && !(Array.isArray(attachments) && attachments.length)) return fail("composer.fill needs text, attachments, or both");
+      break;
+    }
+    case "history.list":
+      if (p.limit !== undefined && (!Number.isInteger(p.limit) || (p.limit as number) < 1 || (p.limit as number) > PLUGIN_UI_HISTORY_MAX))
+        return fail(`history.list's limit is a whole number from 1 to ${PLUGIN_UI_HISTORY_MAX}`);
       break;
     case "command.run":
       if (typeof p.command !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(p.command)) return fail("command.run needs one of the plugin's command ids");
@@ -204,6 +274,14 @@ export function readPluginUiRequest(
     case "files.move":
       if (!filePath(p.from) || !filePath(p.to)) return fail("files.move needs from and to, paths in the project");
       break;
+    case "net.fetch":
+      if (!fetchHost(p.url)) return fail("net.fetch needs an https: address of at most 2,000 characters, without a port or user name");
+      if (p.method !== undefined && !(PLUGIN_UI_FETCH_METHODS as readonly unknown[]).includes(p.method)) return fail(`net.fetch's method is one of ${PLUGIN_UI_FETCH_METHODS.join(", ")}`);
+      if (p.headers !== undefined && (!p.headers || typeof p.headers !== "object" || Array.isArray(p.headers) || Object.keys(p.headers).length > 30
+        || !Object.entries(p.headers).every(([name, value]) => /^[A-Za-z0-9-]{1,100}$/.test(name) && typeof value === "string" && value.length <= 4000 && !/[\r\n]/.test(value))))
+        return fail("net.fetch's headers are at most 30 names with text values");
+      if (p.body !== undefined && typeof p.body !== "string") return fail("net.fetch's body is text");
+      break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };
 }
@@ -217,6 +295,10 @@ export function pluginUiRefusal(
   if (files) {
     const allowed = capabilities["project.files"];
     return allowed === "write" || allowed === files ? undefined : `${method} needs the project.files capability set to ${files}`;
+  }
+  if (method === "net.fetch") {
+    // Checked again, with the address, where the request is made.
+    return capabilities.net?.length ? undefined : "net.fetch needs the net capability";
   }
   const needed = NEEDS[method];
   return needed && capabilities[needed] !== true
@@ -296,3 +378,7 @@ export function accentTokens(
     return { "--omg-accent": wanted, "--omg-on-accent": contrast(brand, WHITE) >= contrast(brand, BLACK) ? "#ffffff" : "#000000" };
   return { "--omg-accent": tokens["--color-accent"] ?? "", "--omg-on-accent": tokens["--color-on-accent"] ?? "" };
 }
+
+/** The changed paths a page hears about: not hidden ones, which pages can't use. */
+export const pageFilePaths = (paths: readonly string[]): string[] =>
+  paths.filter((path) => !path.split("/").some((part) => part.startsWith(".")));

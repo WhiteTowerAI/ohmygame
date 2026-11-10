@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
 import { createGameUseTool, previewUrl } from "../src/daemon/playtest-tools.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseCapabilities, type PlaytestRequest, type PlaytestResult, type PlaytestSnapshot } from "../src/shared/playtest.js";
 
@@ -46,6 +47,24 @@ class FakeDriver implements GameRuntimeAdapter {
     if (request.operation === "recordStart") return { operation: "recordStart", sessionId: request.sessionId, maxSeconds: 60 };
     if (request.operation === "recordStop") return { operation: "recordStop", sessionId: request.sessionId, recording: { assetId: "asset-1", name: "Agent playtest.mp4", duration: 12, bytes: 1000 } };
     if (request.operation === "close" || request.operation === "closeAll") return { operation: request.operation };
+    if (request.operation === "captureFrame") {
+      return {
+        operation: "captureFrame",
+        capture: {
+          sessionId: request.sessionId,
+          mediaType: "image/jpeg",
+          data: Buffer.from("jpeg").toString("base64"),
+          width: 1568,
+          height: 882,
+          source: "fresh-run",
+          frame: request.frame + 180,
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          notes: "Frame was still loading; a later one was kept.",
+          analysis: { sampledPixels: 100, opaqueRatio: 1, luminanceMean: 80, luminanceVariance: 12, likelyBlank: false },
+        },
+      };
+    }
     return { operation: request.operation, snapshot };
   }
 }
@@ -57,6 +76,56 @@ describe("game use tool", () => {
     expect(tool.parameters.type).toBe("object");
     expect(tool.parameters).not.toHaveProperty("anyOf");
     expect(tool.parameters.required).toContain("operation");
+  });
+
+  const operations = (tool: ReturnType<typeof createGameUseTool>) =>
+    (tool.parameters.properties.operation as unknown as { anyOf: { const: string }[] }).anyOf.map((item) => item.const);
+
+  it("offers the web runtime its tool as before and an outside agent's catalog every operation", () => {
+    const web = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    expect(operations(web)).toEqual(["open", "inspect", "act", "capture", "recordStart", "recordStop", "close"]);
+    expect(web.parameters.properties).not.toHaveProperty("frame");
+    const catalog = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }), { catalog: true });
+    expect(operations(catalog)).toContain("captureFrame");
+    expect(catalog.parameters.properties.frame).toMatchObject({ minimum: 1, maximum: 100_000 });
+  });
+
+  it("offers a plugin's runtime only what it declares, and refuses the rest before asking it", async () => {
+    const driver = new FakeDriver(pluginGameCapabilities({ operations: ["captureFrame"], maxFrame: 600 }));
+    const tool = createGameUseTool(driver, async () => ({ runtime: "plugin", provider: "ohmygame/maker:maker", projectPath: "/game" }), { maxFrame: 600 });
+    expect(operations(tool)).toEqual(["open", "captureFrame", "close"]);
+    expect(tool.parameters.properties.frame).toMatchObject({ minimum: 1, maximum: 600 });
+    expect(tool.parameters.properties).not.toHaveProperty("actions");
+    expect(tool.parameters.properties).not.toHaveProperty("path");
+    expect(tool.promptGuidelines?.join(" ")).toContain("runs the game again from its start");
+    for (const operation of ["capture", "inspect", "act", "recordStart"] as const)
+      await expect(tool.execute(operation, { operation, sessionId: "session-1" }, undefined, undefined, {} as never)).rejects.toThrow(/does not (support|record)/);
+    await expect(tool.execute("frameless", { operation: "captureFrame", sessionId: "session-1" }, undefined, undefined, {} as never)).rejects.toThrow("frame is required");
+    expect(driver.requests).toHaveLength(0);
+
+    // A plugin's game opens at its own size unless asked for another.
+    await tool.execute("open", { operation: "open" }, undefined, undefined, {} as never);
+    expect(driver.requests[0]).toEqual({ operation: "open", target: { runtime: "plugin", provider: "ohmygame/maker:maker", projectPath: "/game" } });
+    const result = await tool.execute("frame", { operation: "captureFrame", sessionId: "session-1", frame: 120 }, undefined, undefined, {} as never);
+    expect(driver.requests[1]).toEqual({ operation: "captureFrame", sessionId: "session-1", frame: 120 });
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
+      source: "fresh-run",
+      frame: 300,
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      notes: expect.stringContaining("still loading"),
+    });
+    expect(result.content[1]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
+  });
+
+  it("offers a plugin's input as clicks at a point, without the web runtime's bridge", () => {
+    const driver = new FakeDriver(pluginGameCapabilities({ operations: ["act", "capture"], input: ["pointer", "keyboard"] }));
+    const tool = createGameUseTool(driver, async () => ({ runtime: "plugin", provider: "a/b:c", projectPath: "/game" }));
+    expect(operations(tool)).toEqual(["open", "act", "capture", "close"]);
+    const actions = (tool.parameters.properties.actions as unknown as { items: { anyOf: { properties: { type: { const: string }; target?: { properties: object } } }[] } }).items.anyOf;
+    expect(actions.map((action) => action.properties.type.const)).toEqual(["click", "press", "wait"]);
+    expect(Object.keys(actions[0]!.properties.target!.properties)).toEqual(["x", "y"]);
+    expect(tool.parameters.properties).not.toHaveProperty("frame");
   });
 
   it("starts the current preview and opens a project-local route", async () => {

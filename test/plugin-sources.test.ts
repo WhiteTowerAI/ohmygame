@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractTarball } from "../src/daemon/archive-extraction.js";
 import { PluginMarketError, type MarketRelease } from "../src/daemon/plugin-market.js";
+import { PluginDevelopment } from "../src/daemon/plugin-development.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
 
@@ -240,12 +241,12 @@ describe("PluginSources", () => {
       await close();
     });
 
-    it("tries the other registry when one doesn't have it, and records the one that did", async () => {
+    it("tries the other registry when one doesn't have it, and keeps the one chosen", async () => {
       const { sources, requested, close } = await setup({}, { [onNpm]: bytes }, vouched());
       const preview = await sources.inspect(pinned, "en");
       expect(requested).toEqual([onMirror, onNpm]);
-      expect(preview.source).toMatchObject({ registry: "npmjs", version: "1.0.0" });
-      expect(preview.origin).toMatchObject({ registry: "npmjs" });
+      expect(preview.source).toMatchObject({ registry: "npmmirror", version: "1.0.0" });
+      expect(preview.origin).toMatchObject({ registry: "npmmirror" });
       await close();
     });
 
@@ -320,6 +321,32 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("adds from another registry by its address, and looks there for updates", async () => {
+    const bytes = tgz(...pluginEntries("package/"));
+    const registry = "https://registry.example.com/npm";
+    const latest = { version: "1.0.0" };
+    const metadata = (host: string) => () => Response.json({ "dist-tags": { latest: latest.version }, versions: { [latest.version]: { dist: { tarball: `${host}/@acme/maker/-/maker-${latest.version}.tgz`, integrity: integrity(bytes) } } } });
+    const own = await setup({ [`${registry}/@acme%2Fmaker`]: metadata("https://registry.example.com/npm") }, { "https://registry.example.com/npm/@acme/maker/-/maker-1.0.0.tgz": bytes });
+    const preview = await own.sources.inspect({ ...npm, registry }, "en");
+    expect(preview.origin).toEqual({ type: "npm", package: "@acme/maker", version: "1.0.0", registry });
+    await own.sources.install(preview.source!, preview.digest);
+    latest.version = "1.1.0";
+    expect(await own.sources.updates()).toEqual([{ id: "acme/maker", version: "1.1.0", source: { type: "npm", name: "@acme/maker", registry, version: "1.1.0" } }]);
+    await own.close();
+    // Its packages come from its own host or npm's, nowhere else.
+    latest.version = "1.0.0";
+    const elsewhere = await setup({ [`${registry}/@acme%2Fmaker`]: metadata("https://evil.example") });
+    await expect(elsewhere.sources.inspect({ ...npm, registry }, "en")).rejects.toThrow("doesn't download from registry.example.com");
+    await elsewhere.close();
+    // One that wants a sign-in, or an address that isn't HTTPS, isn't used.
+    const closed = await setup({ [`${registry}/@acme%2Fmaker`]: () => new Response("", { status: 401 }) });
+    await expect(closed.sources.inspect({ ...npm, registry }, "en")).rejects.toThrow("wants you to sign in");
+    await expect(closed.sources.inspect({ ...npm, registry: "http://registry.example.com" as typeof registry }, "en")).rejects.toThrow("isn't an npm registry OhMyGame can use");
+    await expect(closed.sources.inspect({ ...npm, registry: `${registry}/` as typeof registry }, "en")).rejects.toThrow("isn't an npm registry OhMyGame can use");
+    expect(closed.requested.some((url) => url.startsWith("http://"))).toBe(false);
+    await closed.close();
+  });
+
   it("refuses a package whose bytes, host, checksum or version don't line up", async () => {
     const bytes = tgz(...pluginEntries("package/"));
     const tampered = npmPackage("@acme/maker", bytes, { checksum: integrity(Buffer.from("other")) });
@@ -331,6 +358,14 @@ describe("PluginSources", () => {
     await expect(hosted.sources.inspect(npm, "en")).rejects.toThrow("doesn't download from npmjs");
     expect(hosted.requested.some((url) => url.includes("evil.example"))).toBe(false);
     await hosted.close();
+    // A mirror lists a version it hasn't copied yet with npm's address, which is as good.
+    const copying = npmPackage("@acme/maker", bytes);
+    const mirror = await setup({ "https://registry.npmmirror.com/@acme%2Fmaker": copying.routes["https://registry.npmjs.org/@acme%2Fmaker"]! }, copying.files);
+    const fromMirror = await mirror.sources.inspect({ ...npm, registry: "npmmirror" }, "en");
+    await mirror.sources.install(fromMirror.source!, fromMirror.digest);
+    // It still came from the mirror the person chose, which is where its updates are looked for.
+    expect(await mirror.sources.origin("acme/maker", "1.0.0")).toMatchObject({ registry: "npmmirror" });
+    await mirror.close();
     const unchecked = npmPackage("@acme/maker", bytes, { checksum: "" });
     const noSum = await setup(unchecked.routes, unchecked.files);
     await expect(noSum.sources.inspect(npm, "en")).rejects.toThrow("no SHA-512");
@@ -382,7 +417,7 @@ describe("PluginSources", () => {
     const { sources, close } = await setup({
       "https://api.github.com/repos/acme/maker/git/ref/heads/release/1.0": () => Response.json({ object: { type: "commit", sha: commit } }),
     }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
-    expect((await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/release/1.0" }, "en")).origin).toEqual({ type: "github", repository: "acme/maker", commit });
+    expect((await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/release/1.0" }, "en")).origin).toEqual({ type: "github", repository: "acme/maker", commit, ref: "release/1.0" });
     await close();
   });
 
@@ -395,7 +430,7 @@ describe("PluginSources", () => {
       [`${base}/git/tags/${tagObject}`]: () => Response.json({ object: { type: "commit", sha: commit } }),
     }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
     const preview = await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/v1.0" }, "en");
-    expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit });
+    expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit, ref: "v1.0" });
     await close();
   });
 
@@ -446,6 +481,24 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("adds only what npm would publish from a folder", async () => {
+    const { sources, services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    await writeFile(path.join(folder, "package.json"), JSON.stringify({ name: "@acme/maker", version: "1.0.0", files: [".ohmygame-plugin", "skills"] }));
+    await mkdir(path.join(folder, "node_modules", ".bin"), { recursive: true });
+    await writeFile(path.join(folder, "node_modules", "dependency.js"), "");
+    if (process.platform !== "win32") await symlink("../dependency.js", path.join(folder, "node_modules", ".bin", "tool"));
+    await mkdir(path.join(folder, ".git"));
+    await writeFile(path.join(folder, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(folder, "notes.md"), "Not published");
+    await writeFile(path.join(folder, "skills", "make", "draft.md.orig"), "");
+    const source = { type: "directory", path: folder } as const;
+    await sources.install(source, (await sources.inspect(source, "en")).digest);
+    const { root } = services.index.get("acme/maker")!;
+    expect((await readdir(root, { recursive: true })).map((file) => file.split(path.sep).join("/")).sort()).toEqual([".ohmygame-plugin", ".ohmygame-plugin/plugin.json", "package.json", "skills", "skills/make", "skills/make/SKILL.md"]);
+    await close();
+  });
+
   it("installs the folder that was reviewed, not what it became", async () => {
     const { sources, services, directory, close } = await setup();
     const folder = await folderPackage(directory);
@@ -472,26 +525,123 @@ describe("PluginSources", () => {
     await close();
   });
 
+  describe("in development", () => {
+    const develop = (folder: string) => ({ type: "directory", path: folder, development: true }) as const;
+
+    it("adds the folder again in place, without a review, and only as the same plugin", async () => {
+      const { sources, services, directory, close } = await setup();
+      const folder = await folderPackage(directory);
+      const preview = await sources.inspect(develop(folder), "en");
+      expect(preview.origin).toEqual({ type: "development", folder: await realpath(folder) });
+      await sources.install(develop(folder), preview.digest);
+      expect(await sources.developmentFolders()).toEqual(new Map([["acme/maker", await realpath(folder)]]));
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(false);
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(true);
+      const entry = services.index.get("acme/maker", "1.0.0")!;
+      expect(entry.digest).not.toBe(preview.digest);
+      expect(await readFile(path.join(entry.root, "skills", "make", "SKILL.md"), "utf8")).toContain("Then check it.");
+      // A new version keeps the old one for the projects that name it.
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker", "1.1.0", { capabilities: { native: true }, entrypoints: { native: "./index.mjs" } }));
+      await writeFile(path.join(folder, "index.mjs"), "export function activate() {}\n");
+      expect(await sources.refreshDevelopment("acme/maker")).toBe(true);
+      expect(services.index.versions("acme/maker").map((item) => item.version).sort()).toEqual(["1.0.0", "1.1.0"]);
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/other"));
+      await expect(sources.refreshDevelopment("acme/maker")).rejects.toThrow("now holds acme/other");
+      await close();
+    });
+
+    it("can't develop a plugin installed from elsewhere, even with the same contents", async () => {
+      const bytes = tgz(...pluginEntries("package/"));
+      const pack = npmPackage("@acme/maker", bytes);
+      const { sources, directory, close } = await setup(pack.routes, pack.files);
+      const preview = await sources.inspect(npm, "en");
+      await sources.install(preview.source!, preview.digest);
+      const folder = await folderPackage(directory);
+      await expect(sources.inspect(develop(folder), "en")).rejects.toThrow("already installed from npm");
+      // Nor from a second folder once one is in development.
+      await close();
+      const other = await setup();
+      const first = await folderPackage(other.directory);
+      await other.sources.install(develop(first), (await other.sources.inspect(develop(first), "en")).digest);
+      const second = path.join(other.directory, "second");
+      await cp(first, second, { recursive: true });
+      await expect(other.sources.inspect(develop(second), "en")).rejects.toThrow("in development");
+      await other.close();
+    });
+
+    it("watches the folder, restarts the plugin's hosts after a change, and says why one can't be added", async () => {
+      const { sources, services, directory, close } = await setup();
+      const folder = await folderPackage(directory);
+      await sources.install(develop(folder), (await sources.inspect(develop(folder), "en")).digest);
+      const reload = vi.spyOn(services.native, "reload");
+      const development = new PluginDevelopment(services, sources, { settleMs: 20 });
+      await development.sync();
+      const before = services.index.get("acme/maker")!.digest;
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Then check it.\n`);
+      await vi.waitFor(() => expect(services.index.get("acme/maker")!.digest).not.toBe(before), { timeout: 5000 });
+      await development.settled();
+      expect(reload).toHaveBeenCalledWith("acme/maker");
+      // What npm leaves out, such as node_modules, changes nothing.
+      reload.mockClear();
+      await mkdir(path.join(folder, "node_modules"), { recursive: true });
+      await writeFile(path.join(folder, "node_modules", "x.js"), "");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await development.settled();
+      expect(reload).not.toHaveBeenCalled();
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), "{");
+      await vi.waitFor(() => expect(development.error("acme/maker")).toContain("isn't a valid plugin"), { timeout: 5000 });
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker"));
+      await vi.waitFor(() => expect(development.error("acme/maker")).toBeUndefined(), { timeout: 5000 });
+      await services.uninstall("acme/maker");
+      await development.sync();
+      await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Again.\n`);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(services.index.get("acme/maker")).toBeUndefined();
+      expect((await readFile(path.join(folder, "skills", "make", "SKILL.md"), "utf8"))).toContain("Again.");
+      await development.close();
+      await close();
+    });
+  });
+
   it("keeps an installed plugin's approvals and settings from a package of another source", async () => {
     const commit = "c".repeat(40);
     const github = gitHubBranch("evil/maker", commit);
     const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
-    const { sources, services, directory, close } = await setup({ ...pack.routes, ...github }, {
+    // Another registry can publish under any scope, so it's a source of its own.
+    const evilRegistry = "https://registry.evil.example";
+    const evilBytes = tgz(...pluginEntries("package/", "acme/maker", "1.1.0"));
+    const { sources, services, directory, close } = await setup({
+      ...pack.routes,
+      ...github,
+      [`${evilRegistry}/@acme%2Fmaker`]: () => Response.json({ "dist-tags": { latest: "1.1.0" }, versions: { "1.1.0": { dist: { tarball: `${evilRegistry}/@acme/maker/-/maker-1.1.0.tgz`, integrity: integrity(evilBytes) } } } }),
+    }, {
       ...pack.files,
       [`https://codeload.github.com/evil/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/", "acme/maker", "1.1.0")),
+      [`${evilRegistry}/@acme/maker/-/maker-1.1.0.tgz`]: evilBytes,
     });
     const preview = await sources.inspect(npm, "en");
     await sources.install(preview.source!, preview.digest);
 
     const message = "already installed from npm (@acme/maker)";
     await expect(sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en")).rejects.toThrow(message);
+    await expect(sources.inspect({ ...npm, registry: evilRegistry }, "en")).rejects.toThrow(message);
     await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "2.0.0")), "en")).rejects.toThrow(message);
     await expect(sources.inspect({ type: "directory", path: await folderPackage(directory, "2.0.0") }, "en")).rejects.toThrow(message);
 
-    // Uninstalling clears what it held, so the plugin can then come from anywhere.
-    await services.uninstall("acme/maker");
+    // What's kept at uninstall goes back to the same source only; a package from elsewhere that takes the id starts empty.
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    expect(await readFile(kept, "utf8")).toBe("s3cret");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
     const elsewhere = await sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en");
     expect(elsewhere.installedVersions).toEqual([]);
+    await sources.install(elsewhere.source!, elsewhere.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
     await close();
   });
 
@@ -527,6 +677,55 @@ describe("PluginSources", () => {
     await add(second);
     // It only adds Skills, so the new version takes over from the old.
     expect(services.index.versions("acme/maker").map((entry) => entry.version)).toEqual(["1.1.0"]);
+    await close();
+  });
+
+  it("finds newer packages where plugins came from, and asks again only for what a new version adds", async () => {
+    const bytes = tgz(...pluginEntries("package/", "acme/maker", "1.0.0", { capabilities: { network: ["api.example.com"] }, contributes: { mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } }));
+    const npmFirst = npmPackage("@acme/maker", bytes);
+    const commit = "a".repeat(40);
+    const newer = "b".repeat(40);
+    const branch = "https://api.github.com/repos/acme/tiles/git/ref/heads/stable";
+    let branchAt = commit;
+    const latest = { version: "1.0.0" };
+    const { services, sources, close } = await setup({
+      ...npmFirst.routes,
+      "https://registry.npmjs.org/@acme%2Fmaker": () => Response.json({ "dist-tags": { latest: latest.version }, versions: { "1.0.0": { dist: { tarball: Object.keys(npmFirst.files)[0], integrity: integrity(bytes) } } } }),
+      [branch]: () => Response.json({ object: { type: "commit", sha: branchAt } }),
+    }, {
+      ...npmFirst.files,
+      [`https://codeload.github.com/acme/tiles/tar.gz/${commit}`]: tgz(...pluginEntries("tiles/", "acme/tiles")),
+    }, {
+      // The market knows only the version it blocked.
+      release: async (name, version) => {
+        if (version === "1.2.0") throw new PluginMarketError(`${name} ${version} was blocked: steals keys`);
+        return undefined;
+      },
+    });
+    const preview = await sources.inspect(npm, "en");
+    // Nothing is installed yet, so there is nothing to compare with.
+    expect(preview.newAsks).toBeUndefined();
+    await sources.install(preview.source!, preview.digest);
+    const tiles = { type: "github", url: "https://github.com/acme/tiles/tree/stable" } as const;
+    await sources.install((await sources.inspect(tiles, "en")).source!, (await sources.inspect(tiles, "en")).digest);
+    // A package from this computer has nowhere to look.
+    const local = tgz(...pluginEntries("package/", "acme/local"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    expect(await sources.updates()).toEqual([]);
+
+    latest.version = "1.1.0";
+    branchAt = newer;
+    expect(await sources.updates()).toEqual([
+      { id: "acme/maker", version: "1.1.0", source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.1.0" } },
+      { id: "acme/tiles", commit: newer, source: { type: "github", url: "https://github.com/acme/tiles/tree/stable", commit: newer } },
+    ].sort((a, b) => a.id.localeCompare(b.id)));
+    // A version the market blocked would only be refused, so it isn't offered.
+    latest.version = "1.2.0";
+    expect((await sources.updates()).map((update) => update.id)).toEqual(["acme/tiles"]);
+    // With a version installed, the review says what isn't allowed yet; once allowed, nothing is new.
+    expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual(["network:api.example.com"]);
+    await services.consent("acme/maker", ["network:api.example.com"]);
+    expect((await sources.inspect({ ...npm, version: "1.0.0" }, "en")).newAsks).toEqual([]);
     await close();
   });
 
@@ -567,6 +766,24 @@ describe("PluginSources", () => {
     await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
     expect(await sources.origin("acme/maker", "1.0.0")).toBeUndefined();
     await expect(sources.inspect(npm, "en")).rejects.toThrow("another package on this computer");
+    await close();
+  });
+
+  it("hands what a package from this computer kept to no source that had the id before it", async () => {
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, close } = await setup(pack.routes, pack.files);
+    const preview = await sources.inspect(npm, "en");
+    await sources.install(preview.source!, preview.digest);
+    await services.uninstall("acme/maker");
+    const local = tgz(...pluginEntries("package/", "acme/maker", "2.0.0"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    const kept = path.join(services.dataFolder("acme/maker"), "token");
+    await mkdir(path.dirname(kept), { recursive: true });
+    await writeFile(kept, "local");
+    await services.uninstall("acme/maker", undefined, { keepData: true });
+    const again = await sources.inspect(npm, "en");
+    await sources.install(again.source!, again.digest);
+    await expect(readFile(kept, "utf8")).rejects.toThrow();
     await close();
   });
 

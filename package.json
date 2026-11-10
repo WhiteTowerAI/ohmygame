@@ -1,6 +1,6 @@
 {
   "name": "ohmygame",
-  "version": "0.0.0-beta.5.4",
+  "version": "0.0.0-beta.5.5",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "license": "Apache-2.0",
@@ -40,6 +40,7 @@
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
     "plugin:check": "node --import tsx scripts/plugin-check.ts",
+    "plugin-packages:build": "node --import tsx scripts/build-plugin-packages.ts",
     "plugin-ui:regression": "node --import tsx scripts/plugin-ui-regression.ts",
     "voices:doubao": "bun scripts/sync-doubao-voices.ts",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
@@ -86,6 +87,7 @@
     "jsonc-parser": "3.3.1",
     "lexical": "0.52.0",
     "mediabunny": "1.61.3",
+    "npm-packlist": "10.0.4",
     "pi-mcp-adapter": "2.27.0",
     "sharp": "^0.35.5",
     "typebox": "1.3.27",

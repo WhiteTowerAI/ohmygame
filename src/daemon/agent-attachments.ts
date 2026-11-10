@@ -7,8 +7,9 @@ import path from "node:path";
 import type { ConversationAttachment, PromptAttachment, PromptImage, ProjectState } from "../shared/contracts.js";
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FILES } from "../shared/file-transfer.js";
 import { sniffImageType } from "./image-format.js";
+import { AGENT_ATTACHMENTS_DIRECTORY } from "../shared/project-layout.js";
 
-const ATTACHMENTS_DIRECTORY = ".data/agent-attachments";
+const ATTACHMENTS_DIRECTORY = AGENT_ATTACHMENTS_DIRECTORY;
 const FILES_DIRECTORY = "files";
 const METADATA_DIRECTORY = "metadata";
 const STAGING_DIRECTORY = ".staging";

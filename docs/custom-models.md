@@ -232,7 +232,7 @@ use the saved choices and do not rediscover or re-enable image models.
 The unified model definitions, uses, visibility and media defaults live in the
 daemon's `model-visibility.json`, including native 3D versions and preset overrides.
 Only language model definitions are projected to
-Pi's `models.json`. Project overrides are stored in each project's `project.json`. Existing JSONC comments and unrelated SDK fields are preserved.
+Pi's `models.json`. Project overrides are stored in each project's `.ohmygame/settings.json`. Existing JSONC comments and unrelated SDK fields are preserved.
 Credentials remain in the existing credential store and are not copied into model
 definitions or returned in settings responses.
 

@@ -39,6 +39,8 @@ const FIELD_TYPES = new Set(["text", "secret", "path", "boolean", "select"]);
 
 export class PluginValues {
   #values: Stored = {};
+  /** The file holds values in a form this version can't read, such as a newer version's, so writing would lose them. */
+  #unreadable = false;
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly file: string) {}
@@ -52,8 +54,10 @@ export class PluginValues {
       throw error;
     }
     const value = JSON.parse(text) as { version?: unknown; plugins?: unknown };
-    if (value.version !== 1 || !value.plugins || typeof value.plugins !== "object")
+    if (value.version !== 1 || !value.plugins || typeof value.plugins !== "object") {
+      this.#unreadable = true;
       return;
+    }
     const plugins: Stored = {};
     for (const [id, fields] of Object.entries(value.plugins as Record<string, unknown>)) {
       if (!fields || typeof fields !== "object") continue;
@@ -88,6 +92,16 @@ export class PluginValues {
       : undefined;
   }
 
+  /**
+   * A secret field's value, for the app's own use, such as the key of a
+   * model provider the plugin adds. The plugin's code never gets it this way.
+   */
+  secret(entry: PluginIndexEntry, name: string): string | undefined {
+    const field = entry.manifest.configuration?.[name];
+    const value = field?.type === "secret" ? this.#value(entry, name, field) : undefined;
+    return typeof value === "string" && value ? value : undefined;
+  }
+
   /** Whether the person set a field, rather than it falling back to its default. */
   isSet(entry: PluginIndexEntry, name: string): boolean {
     const field = entry.manifest.configuration?.[name];
@@ -114,6 +128,7 @@ export class PluginValues {
     entry: PluginIndexEntry,
     changes: Record<string, string | boolean | null>,
   ): Promise<void> {
+    if (this.#unreadable) throw new PluginConfigurationError(`Plugin settings in ${this.file} were saved by a newer OhMyGame or are damaged. Update OhMyGame, or fix or remove the file.`);
     const fields = entry.manifest.configuration ?? {};
     for (const [name, value] of Object.entries(changes)) {
       const field = fields[name];
@@ -146,8 +161,20 @@ export class PluginValues {
     });
   }
 
+  /** A plugin's saved secrets, so what is shown of its log leaves them out. */
+  secrets(id: string): string[] {
+    return Object.values(this.#values[id] ?? {}).flatMap((stored) => stored.type === "secret" && typeof stored.value === "string" ? [stored.value] : []);
+  }
+
+  /** How many values are saved for a plugin, for what uninstalling it removes. */
+  count(id: string): number {
+    return Object.keys(this.#values[id] ?? {}).length;
+  }
+
   /** Removes a plugin's values, as when its last version is uninstalled. */
   forget(id: string): Promise<void> {
+    // Values it can't read stay as they are rather than be lost with the rest of the file.
+    if (this.#unreadable) return Promise.resolve();
     return this.#write((values) => {
       const { [id]: _removed, ...rest } = values;
       return rest;

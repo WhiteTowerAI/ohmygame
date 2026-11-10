@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import type {
-  AccountRuntimeId,
-  AgentRuntimeId,
+import {
+  isBuiltInAgentRuntimeId,
+  type AccountRuntimeId,
+  type AgentRuntimeId,
+  type BuiltInAgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 import { EXTERNAL_MCP_DISABLED_ENV } from "../../shared/external-mcp.js";
 
@@ -65,7 +67,7 @@ const SHARED = new Set([
  * value OhMyGame was launched with only reflects whichever account a terminal
  * or account switcher had selected at that moment.
  */
-const RUNTIME_KEEP: Record<AgentRuntimeId, readonly string[]> = {
+const RUNTIME_KEEP: Record<BuiltInAgentRuntimeId, readonly string[]> = {
   "claude-code-cli": ["CLAUDE_CODE_OAUTH_TOKEN"],
   "codex-cli": [],
   "opencode-cli": ["OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG"],
@@ -78,7 +80,10 @@ export function agentEnvironment(
   source: NodeJS.ProcessEnv = process.env,
   shellPath?: string,
 ): Record<string, string> {
-  const keep = new Set([...SHARED, ...RUNTIME_KEEP[runtime]]);
+  const keep = new Set([
+    ...SHARED,
+    ...(isBuiltInAgentRuntimeId(runtime) ? RUNTIME_KEEP[runtime] : []),
+  ]);
   const result: Record<string, string> = {};
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined) continue;

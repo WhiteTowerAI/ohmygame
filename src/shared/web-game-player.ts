@@ -1,4 +1,5 @@
 import type { GameRecordingBridge } from "./game-recording.js";
+import type { PreviewColorFilter } from "./preview-filter.js";
 
 export interface WebGamePlayerRequest {
   path: string;
@@ -22,6 +23,7 @@ export interface DesktopWebGamePreviewBridge {
   attach(projectId: string, attachment: string, url: string, layout: WebGamePreviewLayout): Promise<void>;
   layout(projectId: string, attachment: string, layout: WebGamePreviewLayout): Promise<void>;
   detach(projectId: string, attachment: string): Promise<void>;
+  /** The game's current frame as JPEG, which encodes several times faster than PNG. */
   capture(projectId: string): Promise<Uint8Array>;
 }
 
@@ -34,6 +36,8 @@ export interface WebGamePlayerBridge {
   close(projectId: string): Promise<void>;
   /** Follows a restarted development server without resetting a running game otherwise. */
   refresh(projectId: string, reload?: boolean): Promise<void>;
+  /** The colour filter over the person's game, in Preview and Play; null clears it. Absent outside the desktop app. */
+  setFilter?(projectId: string, filter: PreviewColorFilter | null): Promise<void>;
   onState(listener: (state: WebGamePlayerState) => void): () => void;
 }
 

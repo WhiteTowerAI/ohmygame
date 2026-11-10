@@ -31,9 +31,9 @@ export type AppRoute =
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
   /** `adds` opens the marketplace filtered to plugins that add that. */
-  | { page: "plugins"; pluginId?: string; adds?: PluginContribution }
+  | { page: "plugins"; pluginId?: string; adds?: PluginContribution; tab?: PluginsTab }
   | { page: "settings"; section: SettingsSection; agent?: string }
-  | { page: "plugin-builder"; sessionId: string }
+  | { page: "plugin-builder"; sessionId: string; conversationId?: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
   | { page: "thumbnail"; projectId: string; nodeId: string }
@@ -41,12 +41,14 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
-  const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})$/.exec(hash);
-  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1] };
+  const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})(?:\/conversations\/([^/]+))?$/.exec(hash);
+  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1], ...(builderMatch[2] ? { conversationId: decodeURIComponent(builderMatch[2]) } : {}) };
   const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
   if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
     return { page: "plugins", adds: browseMatch[1] as PluginContribution };
   }
+  const tabMatch = /^#\/plugins\?tab=(installed|discover|mine)$/.exec(hash);
+  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] as PluginsTab };
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -58,7 +60,7 @@ export function parseAppRoute(hash: string): AppRoute {
   const settingsMatch = /^#\/settings(?:\/(general|account|billing|appearance|notifications|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   // Every agent, OhMyGame's own included, has its own settings page.
-  const agentMatch = /^#\/settings\/agents\/([a-z0-9-]+)$/.exec(hash);
+  const agentMatch = /^#\/settings\/agents\/([a-z0-9.-]+)$/.exec(hash);
   if (agentMatch?.[1]) return { page: "settings", section: "agents", agent: agentMatch[1] };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
@@ -151,13 +153,20 @@ export function pluginHash(pluginId?: string): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
 }
 
+/** The Plugins page's tabs: what others made, what there is to get, and what is the person's own. */
+export type PluginsTab = "installed" | "discover" | "mine";
+
+export function pluginsTabHash(tab: PluginsTab): string {
+  return `#/plugins?tab=${tab}`;
+}
+
 /** The marketplace, showing the plugins that add `adds`. */
 export function pluginBrowseHash(adds: PluginContribution): string {
   return `#/plugins?adds=${adds}`;
 }
 
-export function pluginBuilderHash(sessionId: string): string {
-  return `#/plugins/builder/${encodeURIComponent(sessionId)}`;
+export function pluginBuilderHash(sessionId: string, conversationId?: string): string {
+  return `#/plugins/builder/${encodeURIComponent(sessionId)}${conversationId ? `/conversations/${encodeURIComponent(conversationId)}` : ""}`;
 }
 
 export function projectHash(projectId: string, view?: "design"): string {

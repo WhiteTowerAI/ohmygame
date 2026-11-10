@@ -7,5 +7,5 @@
     "sourceMap": true,
     "customConditions": []
   },
-  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/shared/**/*.ts", "src/story-web/**/*.ts"]
+  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/shared/**/*.ts", "src/story-web/**/*.ts", "src/types/**/*.d.ts"]
 }

@@ -209,8 +209,10 @@ bound project does not have returns an error that says why.
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
-`game_use` lists the full web game input; a story project's own tool accepts
-the subset its player supports.
+`game_use` lists every operation and input any runtime takes. A project's own
+tool accepts the subset its runtime supports: a story's player has no
+`setSeed` or `step`, and a plugin's game, such as a TapTap Maker project's,
+has only what its type declares, such as `captureFrame`.
 
 Not offered: Pi's file and shell tools (`read`, `write`, `edit`, `bash`,
 `grep`, `find`, `ls`, `recall_image`), which the client has; `questionnaire`

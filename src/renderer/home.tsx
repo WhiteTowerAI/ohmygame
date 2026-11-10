@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { FilePlus, Import, LoaderCircle, RefreshCw } from "./icons.js";
+import { FilePlus, FolderOpen, LoaderCircle, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { listProjects, waitForRuntime } from "./api.js";
@@ -55,7 +55,7 @@ interface CreateRequest {
 
 // Home is where every project starts: the prompt creates the project at once,
 // with the prompt as its first message, and opens the new-project dialog only
-// when something needs the person; Start blank and Import folder open it.
+// when something needs the person; Start blank and Choose project open it.
 export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -147,7 +147,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
               starts={<>
                 <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-                {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+                {canImportFolder ? <Button variant="ghost" size="sm" icon={<FolderOpen size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
               </>}
             />
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
