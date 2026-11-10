@@ -36,11 +36,9 @@ Use `generate_image`, `generate_video`, `generate_3d_asset`,
 - Results name the saved file's workspace-relative path. Read the file with
   your own tools to check it before using it in the game.
 - Use `generate_audio` for scene prompts combining dialogue, ambience and music.
-  References use Library asset IDs and stable `@AudioN` aliases: up to three
-  audio references (each at most 30 seconds and 10 MB; a Speaker ID counts as
-  one), or one image on its own. Choose a compatible model and request subtitles when
-  game dialogue needs word timing. Keep the returned audio JSON and SRT/VTT
-  companions beside the audio in the project.
+  Pick a model whose capabilities cover the request; a model that sets
+  `requiresVoice` needs a voice from its provider. Keep the returned audio JSON
+  companion beside the audio in the project.
 
 Generation can take minutes. A tool that is not done within about 45 seconds
 returns a job ID: call `wait_job` with it until the job finishes. Never start
