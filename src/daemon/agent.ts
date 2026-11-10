@@ -398,7 +398,7 @@ interface AgentManagerOptions {
   onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
-  activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
+  activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession, conversationId: string) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
   /** Told once a run's turns are closed: how the run ended and the files its turns changed. */
@@ -1257,7 +1257,7 @@ export class AgentManager {
         return "cancelled";
       }
 
-      const activeTools = this.options.activeToolNames?.(project, active.mode, managed.session) ?? BASE_TOOL_NAMES;
+      const activeTools = this.options.activeToolNames?.(project, active.mode, managed.session, conversation.summary.id) ?? BASE_TOOL_NAMES;
       managed.session.setActiveToolsByName?.(managed.session.getAllTools?.().some((tool) => tool.name === "recall_image")
         ? [...new Set([...activeTools, "recall_image"])] : activeTools);
       appendPromptDetails(managed.session.sessionManager, active, prompt);
@@ -3149,6 +3149,8 @@ export async function createPiSession(
   mcp?: { factory: ExtensionFactory; host: PluginMcpHost },
   responsesTransport?: (provider: string) => ResponsesTransportMode,
   snapshotBeforeMessage?: () => Promise<string>,
+  /** Added after the project's own instructions, such as a team role's persona. */
+  extraInstructions: readonly string[] = [],
 ): Promise<CodingSession> {
   let checkpointFailure: { cause: unknown } | undefined;
   let stopForCheckpointFailure: () => void = () => {};
@@ -3176,7 +3178,7 @@ export async function createPiSession(
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
     resolvePluginSkills,
-    appendSystemPrompt: appendSystemPromptForProject(project),
+    appendSystemPrompt: [...appendSystemPromptForProject(project), ...extraInstructions],
     mcpFactory: mcp?.factory,
     checkpointFactory: guardedCheckpoints,
   });

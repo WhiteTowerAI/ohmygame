@@ -5,6 +5,9 @@ import { GameTuning, GameTuningError } from "./game-tuning.js";
 import type { GameTuningScalar } from "../shared/game-tuning.js";
 import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
+import { OrchestratorSupervisor } from "./orchestrator.js";
+import { registerOrchestratorRoutes } from "./orchestrator-routes.js";
+import { createOrchestratorTools } from "./orchestrator-tools.js";
 import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
 import { createCanvasWatches } from "./canvas-watch.js";
@@ -53,7 +56,7 @@ import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
-import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { appendSystemPromptForProject, rolePersonaInstructions } from "./agent-prompts.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -976,6 +979,49 @@ export function createApp(options: AppOptions = {}) {
     return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
+  /** Runs a project's team of role conversations on top of the ordinary agent stack. */
+  const orchestrator = new OrchestratorSupervisor({
+    events,
+    createConversation: async (project, title, model) => {
+      const stored = await conversations.create(project, model);
+      // As a conversation the person starts: a coding agent signed in to an account uses its default profile.
+      if (isAccountRuntimeId(model.provider)) conversations.setAccountProfile(project, stored, model.provider, agentRuntimes.settings.get(model.provider).defaultProfileId ?? "system");
+      const renamed = await conversations.rename(project, stored.summary.id, title);
+      if (renamed) publishConversationRenamed(renamed);
+      return stored.summary.id;
+    },
+    prompt: async (project, conversationId, text) => {
+      const stored = await conversations.get(project, conversationId);
+      if (!stored) throw new Error("The conversation for this role is gone");
+      const turn = agents.prompt(project, stored, text);
+      // A message queued behind a running turn settles later; its failure is the conversation's to show.
+      void turn.result?.catch(() => {});
+      void projects.touch(project.id).catch((cause: unknown) => app.log.warn({ err: cause }, "failed to record project activity"));
+      return { turnId: turn.turnId };
+    },
+    cancel: (projectId, conversationId, turnId) => agents.cancel(projectId, conversationId, turnId),
+    archiveConversation: async (project, conversationId) => {
+      await conversations.archive(project, conversationId);
+    },
+    now: () => new Date().toISOString(),
+  });
+  /** The team tools, only for a conversation a team role owns. */
+  const orchestratorTools = (project: ProjectState, conversation: StoredConversation) => {
+    const role = orchestrator.roleFor(project.id, conversation.summary.id);
+    if (!role) return [];
+    return createOrchestratorTools({
+      projectId: project.id,
+      conversationId: conversation.summary.id,
+      roleId: role.config.id,
+      capability: role.config.capability,
+      roster: () => orchestrator.roster(project.id),
+      deliver: (projectId, conversationId, toRoleId, text) => orchestrator.deliver(projectId, conversationId, toRoleId, text),
+      completeGoal: (projectId, conversationId, summary) => orchestrator.completeGoal(projectId, conversationId, summary),
+    });
+  };
+  /** What a conversation's team role adds to its agent's instructions; nothing for an ordinary conversation. */
+  const roleInstructions = (project: ProjectState, conversation: StoredConversation) =>
+    rolePersonaInstructions(orchestrator.personaFor(project.id, conversation.summary.id));
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
@@ -993,7 +1039,7 @@ export function createApp(options: AppOptions = {}) {
       playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
-    ), ...await pluginSetup.agentTools(project)];
+    ), ...orchestratorTools(project, conversation), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
@@ -1081,7 +1127,7 @@ export function createApp(options: AppOptions = {}) {
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
-      instructions: appendSystemPromptForProject(project).join("\n\n"),
+      instructions: [...appendSystemPromptForProject(project), ...roleInstructions(project, conversation)].join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
@@ -1168,12 +1214,16 @@ export function createApp(options: AppOptions = {}) {
         Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginMcpHost.extension(effectiveMcp, { guard: projectMcpGuard(project, effectiveMcp) }), host: pluginMcpHost } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
+        roleInstructions(project, conversation),
       );
     }),
-    activeToolNames: (project, mode, session) => {
+    activeToolNames: (project, mode, session, conversationId) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
+      const role = orchestrator.roleFor(project.id, conversationId);
+      // An advisor gets the read-only set whatever its plan mode, so it can never write beside the writer.
+      return projectPiToolNames(role?.config.capability === "advisor" ? "planning" : mode, TOOL_IDS, registered, webSearch.enabled(), Boolean(role));
     },
+    isWriterConversation: (projectId, conversationId) => orchestrator.isWriterConversation(projectId, conversationId),
     onLimitChange: (projectId, conversationId, limitReached) => limitContinuations.changed(projectId, conversationId, limitReached),
     onRunFinished: async (project, conversationId) => {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
@@ -1186,11 +1236,14 @@ export function createApp(options: AppOptions = {}) {
       void previews.automatic(project, true).catch(() => {});
       void pruneCheckpoints(project);
     },
-    onTurnEnded: (project, end) => void pluginHooks.notify(project.workspacePath, "turn.completed", {
-      conversationId: end.conversationId,
-      status: end.status,
-      changes: end.changes.slice(0, HOOK_CHANGES_MAX).map(({ path, kind }) => ({ path, kind })),
-    }),
+    onTurnEnded: (project, end) => {
+      void pluginHooks.notify(project.workspacePath, "turn.completed", {
+        conversationId: end.conversationId,
+        status: end.status,
+        changes: end.changes.slice(0, HOOK_CHANGES_MAX).map(({ path, kind }) => ({ path, kind })),
+      });
+      void orchestrator.turnEnded(project, end).catch((err: unknown) => app.log.warn({ err, projectId: project.id }, "Could not continue the team"));
+    },
   });
   const invalidatePluginSessions = () => {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
@@ -1366,6 +1419,8 @@ export function createApp(options: AppOptions = {}) {
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
     await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
+    // A team's advisors must be known before any of their conversations can take a turn.
+    await orchestrator.loadAll(projects.list()).catch((err) => app.log.warn({ err }, "Could not load the projects' teams"));
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
     void syncPluginAgents();
@@ -2176,6 +2231,7 @@ export function createApp(options: AppOptions = {}) {
     snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
+  registerOrchestratorRoutes(app, { projects, orchestrator });
   registerStoryWebRoutes(app, {
     projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
@@ -2907,6 +2963,8 @@ export function createApp(options: AppOptions = {}) {
       agentPlaytests.delete(key);
     }
     closePluginGame(project.id);
+    await orchestrator.stop(project.id);
+    orchestrator.forget(project.id);
     await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
     await canvasStore.waitForProject(project.id);
@@ -4619,6 +4677,7 @@ export function createApp(options: AppOptions = {}) {
     await canvasStore.close();
     await tools.close();
     modelAuth.close();
+    await orchestrator.close();
     await agents.close();
     await agentRuntimes.close();
     setPluginAgentDefinitions([]);
