@@ -319,12 +319,15 @@ client.finishRound([winnerId]); // the first page to report decides
   the service, so nothing changes for players who cannot connect (often office or
   mobile IPv4 networks). Players see each other's network addresses: turn it on
   only for fast-paced owner games. `client.peers` shows, by playerId,
-  `"connecting"`, `"open"` or `"failed"`.
+  `"connecting"`, `"open"` or `"failed"`. States arrive sooner, not evenly: draw
+  other players as below either way.
 
 ### Drawing other players smoothly
 
-Other players' positions arrive at most once a tick. Drawing each as it arrives
-makes them jump; feed them to a `Smoother` and draw what it gives each frame:
+Other players' positions arrive at most once a tick (`client.tickMs`), and not
+evenly: two can come almost together, then none for two ticks. Drawing each as it
+arrives, or sliding toward each over a fixed time, makes them stop and jump; feed
+them to a `Smoother` and draw what it gives each frame:
 
 ```ts
 import { Smoother } from "./ohmygame/multiplayer.js";
@@ -340,6 +343,10 @@ const others = new Smoother({ intervalMs: client.tickMs });
   `angles: ["a"]` turns angle fields the short way round.
 - Call `others.retain(ids)` with the players still in the room. Draw the local
   player from its own state, not through the Smoother.
+- For movement in steps, such as a snake on a grid, queue each step a player's
+  state reports and play the queue at the game's step rate, one step behind the
+  newest; play faster while more than three wait, and on a large jump, such as a
+  respawn, empty it and draw the new state at once.
 
 ## Errors
 

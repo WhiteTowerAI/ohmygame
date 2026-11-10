@@ -94,9 +94,15 @@ describe("multiplayer workspace integration", () => {
         await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
       ).toContain("never import.meta.env.DEV");
       // Owner games learn the SDK's own direct connections, not a WebRTC stack of their own.
-      expect(
-        await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
-      ).toContain("createMultiplayerClient(game, callbacks, { p2p: true })");
+      const projectGuide = await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8");
+      expect(projectGuide).toContain("createMultiplayerClient(game, callbacks, { p2p: true })");
+      // The guide written into a project and the SDK's agent guide teach the same client
+      // features: the desktop agent reads only the first, other coding agents the second.
+      const sdkGuide = await readFile(path.join(process.cwd(), "packages/sdk/AGENT_GUIDE.md"), "utf8");
+      for (const feature of ["Smoother", "client.tickMs", "p2p", "client.peers", "setState", "updateShared", "emit(", "finishRound", "quickPlay", "sendInput", "sendAction", "onHost", "reconnect()", "inviteCode"]) {
+        expect(projectGuide, `project guide mentions ${feature}`).toContain(feature);
+        expect(sdkGuide, `AGENT_GUIDE.md mentions ${feature}`).toContain(feature);
+      }
 
       // After a restart the local service may listen elsewhere; only files still declaring the old address move.
       expect(await readWorkspaceMultiplayer(project)).toEqual(config);
