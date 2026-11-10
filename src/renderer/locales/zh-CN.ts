@@ -3922,6 +3922,8 @@ const zhCN: typeof en = {
     clip: "动画片段",
     play: "播放动画",
     pause: "暂停动画",
+    playAction: "播放",
+    pauseAction: "暂停",
   },
   markdown: {
     openInCode: "在代码中打开 {{path}}",

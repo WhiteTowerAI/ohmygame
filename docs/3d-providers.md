@@ -19,9 +19,9 @@ its server catalog; signing in does not enable additional upstream operations.
 3D previews in chat, the Asset Canvas, and asset dialogs start as still models
 and never turn on their own. In chat and asset dialogs, drag a model to see
 another side; on the Asset Canvas, where dragging moves the node, open the
-model with **View** first. A model with animation clips shows **Play animation**
-under it, with a clip picker when it has several; **Pause animation** holds the
-current frame. A model without clips has no controls. Requested playback pauses
+model with **View** first. A model with animation clips shows **Play** in a row
+under it, with a clip picker when it has several; **Pause** holds the current
+frame. A model without clips has no controls. Requested playback pauses
 outside the viewport or while the page is hidden, and resumes when visible again.
 Library and asset-browser thumbnails stay still; open the asset to play it.
 Models load when they enter the viewport, two at a time, because parsing one and

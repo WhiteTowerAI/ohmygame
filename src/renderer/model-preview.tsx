@@ -1,7 +1,7 @@
 import { LoaderCircle, Pause, Play } from "./icons.js";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
-import { IconButton } from "./ui/button.js";
+import { Button } from "./ui/button.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
 
 type ModelViewerElement = HTMLElement & {
@@ -185,9 +185,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         // A model with nothing to play is a still: it gets no controls.
         // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.
         <div className="model-preview-controls nodrag nowheel">
-          <IconButton size="sm" label={t(playing ? "modelPreview.pause" : "modelPreview.play")} active={playing} onClick={() => setPlaying((value) => !value)}>
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </IconButton>
+          <Button size="sm" icon={playing ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />} aria-label={t(playing ? "modelPreview.pause" : "modelPreview.play")} title={t(playing ? "modelPreview.pause" : "modelPreview.play")} aria-pressed={playing || undefined} onClick={() => setPlaying((value) => !value)}>
+            {t(playing ? "modelPreview.pauseAction" : "modelPreview.playAction")}
+          </Button>
           {clips.length > 1 ? <select
             className="model-preview-clips"
             aria-label={t("modelPreview.clip")}

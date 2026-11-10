@@ -3996,6 +3996,8 @@ const en = {
     clip: "Animation clip",
     play: "Play animation",
     pause: "Pause animation",
+    playAction: "Play",
+    pauseAction: "Pause",
   },
   markdown: {
     openInCode: "Open {{path}} in Code",
