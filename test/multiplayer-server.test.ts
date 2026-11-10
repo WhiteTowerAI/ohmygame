@@ -146,7 +146,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     // Realtime ticks arrive as changes to the snapshot before, as the SDK applies them.
     room.onMessage("snapshot.delta", (value: SnapshotDelta) => {
       if (result.snapshot?.sequence === value.base)
-        result.snapshot = { ...result.snapshot, sequence: value.sequence, serverTime: value.serverTime, state: applyStateChanges(result.snapshot.state, value.changes) };
+        result.snapshot = { ...result.snapshot, sequence: value.sequence, serverTime: value.serverTime, state: applyStateChanges(result.snapshot.state, value.changes), acks: value.acks };
     });
     room.onMessage("ready", (value) => {
       result.ready = value;
@@ -920,6 +920,8 @@ export default defineGame({
     // Every tick that moved the explorer sent a snapshot, and no event beside it.
     expect(snapshots).toBeGreaterThan(20);
     expect(events).not.toContain("state.updated");
+    // Each tick says which of the explorer's inputs it read, for the page to replay the rest.
+    await wait(() => expect(explorer.snapshot!.acks![0]).toBeGreaterThan(20));
     // Walking through the centre or into the edge finishes nothing.
     expect(explorer.snapshot!.state.phase).toBe("playing");
     const friend = player(deployment);

@@ -1052,7 +1052,8 @@ export class MultiplayerClient<Game = unknown> {
         state = undefined;
       }
       if (state) {
-        this.receiveSnapshot({ ...base, sequence: value.sequence, serverTime: value.serverTime, state });
+        const { acks: _acks, ...rest } = base;
+        this.receiveSnapshot({ ...rest, sequence: value.sequence, serverTime: value.serverTime, state, ...(value.acks ? { acks: value.acks } : {}) });
         return;
       }
     }

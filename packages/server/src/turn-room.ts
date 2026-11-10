@@ -782,7 +782,13 @@ export class GameRoom extends Room {
       this.tickMs / 1000,
       actions,
     );
-    if (sameJson(state, this.record.snapshot.state)) return;
+    // Each seat's newest input is the one this tick read: a page that predicts its own
+    // player replays the inputs after it. A tick that only moved an ack still goes out, or
+    // a page pushing against a wall would keep inputs it can never drop.
+    const acks = state.players.map((player) => this.lastInputId.get(player.playerId) ?? -1);
+    // A snapshot from anything but a tick carries no acks; it counts as none read.
+    const acked = this.record.snapshot.acks ?? this.record.snapshot.state.players.map(() => -1);
+    if (sameJson(state, this.record.snapshot.state) && sameJson(acks, acked)) return;
     // Realtime games close on service restart, so only the terminal state needs a disk write.
     this.commit(
       state,
@@ -792,7 +798,7 @@ export class GameRoom extends Room {
       state.phase === "finished",
       true,
       this.record.members,
-      { tick: true },
+      { tick: true, acks },
     );
   }
   /** Whether enough seats are connected for the rules to play a round. */
@@ -1181,8 +1187,11 @@ export class GameRoom extends Room {
     persist = true,
     active = true,
     members = this.record.members,
-    /** views and fromHost: a hosting player's answer. tick: a realtime tick, which the snapshot alone reports. */
-    host: { views?: HostViews; fromHost?: boolean; tick?: boolean } = {},
+    /**
+     * views and fromHost: a hosting player's answer. tick: a realtime tick, which the snapshot
+     * alone reports; acks: the inputId each seat's tick read, in seat order.
+     */
+    host: { views?: HostViews; fromHost?: boolean; tick?: boolean; acks?: number[] } = {},
   ): void {
     const now = Date.now();
     const previous = this.record.snapshot;
@@ -1198,14 +1207,17 @@ export class GameRoom extends Room {
       this.finishedAt = now;
       void this.recordResult(state, now);
     }
+    // Acks belong to the seats of the tick that read them; any other change leaves them out.
+    const { acks: _acks, ...kept } = this.record.snapshot;
     const record: StoredRoom = {
       ...this.record,
       members,
       snapshot: {
-        ...this.record.snapshot,
+        ...kept,
         sequence: this.record.snapshot.sequence + 1,
         state,
         serverTime: new Date(now).toISOString(),
+        ...(host.acks ? { acks: host.acks } : {}),
       },
       updatedAt: active ? now : this.record.updatedAt,
       ...(host.views ? { views: host.views } : {}),
@@ -1223,6 +1235,7 @@ export class GameRoom extends Room {
         base: previous.sequence,
         serverTime: record.snapshot.serverTime,
         changes: stateChanges(previous.state, record.snapshot.state),
+        ...(host.acks ? { acks: host.acks } : {}),
       };
       this.broadcast("snapshot.delta", delta);
     } else if (this.sharedSnapshot) this.broadcast("snapshot", record.snapshot);

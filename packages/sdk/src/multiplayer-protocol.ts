@@ -373,6 +373,12 @@ export interface MultiplayerSnapshot {
   sequence: number;
   state: MultiplayerGameState;
   serverTime: string;
+  /**
+   * A realtime room the service runs, on its ticks: for each seat in state.players, the
+   * inputId of the newest input the tick read, or -1. A page that predicts its own player
+   * replays its inputs after this one.
+   */
+  acks?: number[];
 }
 export interface PublicMultiplayerRoom {
   roomId: string;
@@ -493,7 +499,8 @@ export function isMultiplayerSnapshot(
     !["turn-based", "realtime"].includes(String(value.mode)) ||
     !isSequence(value.sequence) ||
     !isServerTime(value.serverTime) ||
-    !isRecord(value.state)
+    !isRecord(value.state) ||
+    (value.acks !== undefined && !isAcks(value.acks))
   )
     return false;
   const state = value.state;
@@ -723,6 +730,12 @@ export interface SnapshotDelta {
   base: number;
   serverTime: string;
   changes: StateChange[];
+  /** As MultiplayerSnapshot.acks, for this tick. */
+  acks?: number[];
+}
+
+function isAcks(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((ack) => Number.isInteger(ack) && ack >= -1);
 }
 
 export function isSnapshotDelta(value: unknown): value is SnapshotDelta {
@@ -732,6 +745,7 @@ export function isSnapshotDelta(value: unknown): value is SnapshotDelta {
     isSequence(value.sequence) &&
     isSequence(value.base) &&
     isServerTime(value.serverTime) &&
+    (value.acks === undefined || isAcks(value.acks)) &&
     Array.isArray(value.changes) &&
     value.changes.every(
       (change) =>

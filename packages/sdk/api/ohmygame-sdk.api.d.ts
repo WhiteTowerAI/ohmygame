@@ -1130,6 +1130,12 @@ export interface MultiplayerSnapshot {
     sequence: number;
     state: MultiplayerGameState;
     serverTime: string;
+    /**
+     * A realtime room the service runs, on its ticks: for each seat in state.players, the
+     * inputId of the newest input the tick read, or -1. A page that predicts its own player
+     * replays its inputs after this one.
+     */
+    acks?: number[];
 }
 export interface PublicMultiplayerRoom {
     roomId: string;
@@ -1297,6 +1303,8 @@ export interface SnapshotDelta {
     base: number;
     serverTime: string;
     changes: StateChange[];
+    /** As MultiplayerSnapshot.acks, for this tick. */
+    acks?: number[];
 }
 export declare function isSnapshotDelta(value: unknown): value is SnapshotDelta;
 /**

@@ -168,5 +168,7 @@ describe("multiplayer protocol", () => {
     for (const changes of [[["x", 1]], [[[-1], 1]], [[["x"], 1, 2]], [[[{ key: 1 }], 1]], "x"])
       expect(isSnapshotDelta({ ...delta, changes })).toBe(false);
     expect(isSnapshotDelta({ ...delta, base: undefined })).toBe(false);
+    expect(isSnapshotDelta({ ...delta, acks: [4, -1] })).toBe(true);
+    expect(isSnapshotDelta({ ...delta, acks: [-2] })).toBe(false);
   });
 });

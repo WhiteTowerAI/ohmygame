@@ -321,7 +321,9 @@ const rules = defineRealtimeGame({
   An array whose length changed, or whose item changes would be longer than it,
   goes whole. The page applies the changes to the snapshot they follow and asks
   for a whole one (`snapshot.request`) when it holds another, as after a missed
-  tick; `onSnapshot` always gets whole snapshots. Rules with `playerView` get a
+  tick; `onSnapshot` always gets whole snapshots. In a room whose rules the
+  service runs, each tick also carries `acks`: for each seat in
+  `state.players`, the `inputId` of the newest input that tick read, or -1. Rules with `playerView` get a
   whole snapshot each tick, since each seat's differs. `G` should hold game data
   only. Ticks raise no room event (`onEvent`); events report seats taken and
   given up, round starts and finishes. The page draws other players between snapshots,
