@@ -38,7 +38,17 @@ export function DoubaoVoiceSample({
   voiceId?: string;
   className?: string;
 }) {
-  const url = findVolcengineTtsVoice(voiceId)?.trialUrl;
+  return <VoiceSample url={findVolcengineTtsVoice(voiceId)?.trialUrl} className={className} />;
+}
+
+/** Plays a provider's hosted voice sample; it spends no generation quota. */
+export function VoiceSample({
+  url,
+  className,
+}: {
+  url?: string;
+  className?: string;
+}) {
   const audio = useRef<HTMLAudioElement>(undefined);
   const [playing, setPlaying] = useState(false);
   useEffect(

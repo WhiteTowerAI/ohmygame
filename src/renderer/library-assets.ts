@@ -1,6 +1,7 @@
 import type { LibraryAsset as StoredLibraryAsset, LibraryAssetOrigin, LibraryAssetProject } from "../shared/contracts.js";
 import type { BrowsableAsset, MediaFilter } from "./asset-browser.js";
 import { listLibraryAssets, waitForRuntime } from "./api.js";
+import { inAssetPeriod, type AssetPeriod } from "./asset-sort.js";
 
 export interface LibraryAsset extends StoredLibraryAsset, BrowsableAsset { assetId: string; path: string }
 
@@ -8,9 +9,10 @@ export interface LibraryAssetFilters {
   origin?: "all" | "saved" | LibraryAssetOrigin;
   projectId?: string;
   includeReferences?: boolean;
+  period?: AssetPeriod;
 }
 
-export function filterLibraryAssets(assets: readonly LibraryAsset[], media: MediaFilter, query: string, filters: LibraryAssetFilters = {}): LibraryAsset[] {
+export function filterLibraryAssets(assets: readonly LibraryAsset[], media: MediaFilter, query: string, filters: LibraryAssetFilters = {}, now = Date.now()): LibraryAsset[] {
   const normalized = query.trim().toLowerCase();
   const origin = filters.origin ?? "saved";
   return assets.filter((asset) => (
@@ -18,6 +20,7 @@ export function filterLibraryAssets(assets: readonly LibraryAsset[], media: Medi
     (filters.includeReferences || !(asset.referenceOnly ?? asset.purpose === "reference")) &&
     (origin === "saved" ? (asset.saved ?? asset.origin !== "workspace") : origin === "all" || (asset.origin ?? "unknown") === origin) &&
     (!filters.projectId || (filters.projectId === "unassigned" ? !asset.projects?.length : asset.projects?.some((project) => project.id === filters.projectId))) &&
+    inAssetPeriod(asset, filters.period, now) &&
     (!normalized || `${asset.path} ${asset.prompt ?? ""} ${asset.projectName ?? ""} ${asset.projects?.map((project) => project.name).join(" ") ?? ""}`.toLowerCase().includes(normalized))
   ));
 }

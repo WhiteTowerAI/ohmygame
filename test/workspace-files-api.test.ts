@@ -40,7 +40,7 @@ describe("project file management", () => {
     expect(children.json()).toContainEqual({ path: "场景/deep", size: 0, directory: true });
     expect(children.json()).toContainEqual(expect.objectContaining({ path: "场景/hero.png", size: 5, origin: "generated", prompt: "Hero", mediaType: "image" }));
     expect((await app.inject({ method: "GET", url: base })).json()).toContainEqual({ path: "场景/deep/game.ts", size: 6 });
-    for (const directory of ["..", ".ohmygame", "C:\\Windows", "场景/hero.png"]) {
+    for (const directory of ["..", ".ohmygame/local", "C:\\Windows", "场景/hero.png"]) {
       expect((await app.inject({ method: "GET", url: `${base}?directory=${encodeURIComponent(directory)}` })).statusCode).toBe(400);
     }
     expect((await app.inject({ method: "GET", url: `${base}?directory=missing` })).statusCode).toBe(404);
@@ -154,6 +154,15 @@ describe("project file management", () => {
         expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(entry)}` })).statusCode).toBe(400);
         expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(entry)}`, payload: { name: "new.ts" } })).statusCode).toBe(400);
       }
+      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame", name: "new.txt", kind: "file" } })).statusCode).toBe(400);
+      // The project's panels show in the file browser, and change there like any other file.
+      await mkdir(path.join(project.workspacePath, ".ohmygame", "panels", "board"), { recursive: true });
+      const created = await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels/board", name: "index.html", kind: "file" } });
+      expect(created.statusCode, created.body).toBe(201);
+      // A panel may be called canvas, which only the project's own Canvas folder is kept for.
+      expect((await app.inject({ method: "POST", url: base, payload: { parent: ".ohmygame/panels", name: "canvas", kind: "folder" } })).statusCode).toBe(201);
+      expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(".ohmygame/panels/board/index.html")}` })).statusCode).toBe(204);
+      expect((await app.inject({ method: "PATCH", url: `${base}?path=${encodeURIComponent(".ohmygame/panels")}`, payload: { name: "pages" } })).statusCode).toBe(400);
       expect((await app.inject({ method: "POST", url: base, payload: { parent: "linked", name: "new.txt", kind: "file" } })).statusCode).toBe(400);
       expect((await app.inject({ method: "POST", url: base, payload: { name: "../escape", kind: "file" } })).statusCode).toBe(400);
       expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside");

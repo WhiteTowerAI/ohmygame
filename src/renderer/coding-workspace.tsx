@@ -5,7 +5,6 @@ import {
   Gamepad2,
   MoreHorizontal,
   MousePointer2,
-  RotateCcw,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -34,9 +33,10 @@ import {
   SlidersHorizontal,
   Palette,
   Smartphone,
+  Server,
   Tablet,
+  Terminal,
   Trash2,
-  Wrench,
   X,
   type IconComponent,
 } from "./icons.js";
@@ -49,27 +49,30 @@ import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
+import { isProjectDataPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
-import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { AssetThumbnail, WorkspaceAssetDialog, assetSortDetail, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { sortAssets, type AssetSort } from "./asset-sort.js";
 import { useNearViewport } from "./asset-gallery.js";
-import { ProjectAssetFilterRow } from "./library-filters.js";
+import { AssetSortSelect, ProjectAssetFilterRow, useAssetSort } from "./library-filters.js";
 import "./library.css";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
-import { ProjectSettingsDialog } from "./project-settings-dialog.js";
+import { ProjectPreviewSettings } from "./project-preview-settings.js";
+import type { ProjectSettingsSlot } from "./project-settings.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { panelTitle } from "./workspace-layout.js";
+import { gamePanelAddable, panelTitle } from "./workspace-layout.js";
 import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
@@ -123,6 +126,10 @@ interface CodingWorkspaceProps {
   previewFilters?: readonly ProjectPreviewFilter[];
   /** The gamepad maps the project's plugins add. */
   inputMaps?: readonly ProjectInputMap[];
+  /** Present while the project's settings show this workspace's tab. */
+  settingsSlot?: ProjectSettingsSlot;
+  /** Opens the project's settings on this workspace's tab. */
+  onOpenSettings?: () => void;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -169,6 +176,8 @@ export function CodingWorkspace({
   previewDevices = NO_DEVICES,
   previewFilters = NO_FILTERS,
   inputMaps = NO_INPUT_MAPS,
+  settingsSlot,
+  onOpenSettings,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -216,7 +225,6 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
   ));
@@ -390,13 +398,6 @@ export function CodingWorkspace({
     onClick={playGame}
   >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
   const recordButton = supportsPreview && project ? <GameRecordButton projectId={project.id} gameRunning={player.open || preview?.status === "ready"} /> : null;
-  const settingsButton = project && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
-    className="icon-button pane-header-action"
-    type="button"
-    aria-label={t("projectSettings.title")}
-    data-tooltip={t("projectSettings.title")}
-    onClick={() => setProjectSettingsOpen(true)}
-  ><Wrench size={14} /></button> : null;
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setCodeFileRequest({ path, id: ++codeRequestId.current });
@@ -427,7 +428,7 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
-          onOpenSettings={() => setProjectSettingsOpen(true)}
+          onLogs={() => setLogsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
           onRestart={() => onRestart()}
@@ -447,7 +448,7 @@ export function CodingWorkspace({
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
-              onRetry={() => onRestart()} onSettings={() => setProjectSettingsOpen(true)}
+              onRetry={() => onRestart()} onSettings={onOpenSettings}
             />
             </ErrorBoundary>
             {picking ? <span className="preview-pick-hint" role="status">{t("workspace.pickHint")}</span> : null}
@@ -455,6 +456,10 @@ export function CodingWorkspace({
           </div>
         ) : null}
       </>,
+    } : project && gamePanelAddable(project) ? {
+      // Added by the person to a General project: the switch is in Project settings.
+      body: <Empty icon={<Globe2 size={20} />} title={t("workspace.webPreviewOff")} description={t("workspace.webPreviewOffHint")}
+        action={onOpenSettings ? <Button onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : undefined} />,
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
@@ -470,7 +475,7 @@ export function CodingWorkspace({
       /></Suspense>,
     } : undefined,
     code: {
-      toolbar: <><div className="code-toolbar" ref={setCodeToolbar} />{settingsButton}</>,
+      toolbar: <div className="code-toolbar" ref={setCodeToolbar} />,
       body: project ? <WorkspaceCodeView
         key={project.id}
         toolbarTarget={codeToolbar}
@@ -482,7 +487,6 @@ export function CodingWorkspace({
       /> : null,
     },
     assets: {
-      toolbar: settingsButton,
       body: <AssetsView
         key={project?.id}
         projectId={project?.id}
@@ -527,18 +531,17 @@ export function CodingWorkspace({
       {placed}
       {topPlay}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
-      {project && projectSettingsOpen ? <ProjectSettingsDialog
+      {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}
-        previewUrl={currentPreviewUrl}
         previewActions={supportsPreview ? {
-          onRestart: (reinstall) => onRestart(undefined, reinstall),
+          onReinstall: () => onRestart(undefined, true),
           onStop: onStop ? () => { void player.close().catch(() => {}).then(onStop); } : undefined,
-          onLogs: () => { setProjectSettingsOpen(false); setLogsOpen(true); },
         } : undefined}
-        onClose={() => setProjectSettingsOpen(false)}
+        onClose={settingsSlot.onClose}
+        onBusyChange={settingsSlot.onBusyChange}
         onSaved={(updated) => onProjectUpdated?.(updated)}
-      /> : null}
+      />, settingsSlot.node) : null}
     </>
   );
 }
@@ -564,7 +567,7 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
-  onOpenSettings,
+  onLogs,
   onNavigate,
   onRefresh,
   onRestart,
@@ -593,7 +596,7 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
-  onOpenSettings: () => void;
+  onLogs: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
   onRestart: () => void;
@@ -619,9 +622,8 @@ function PreviewControls({
       <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
-        { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        "separator",
-        { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings },
+        { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
       ]} />
     </div>
   );
@@ -1861,18 +1863,20 @@ export function AssetsView({
   const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
-  const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  const [sort, setSort] = useAssetSort("ohmygame:project-assets-sort");
+  // OhMyGame's own folder holds no assets; the project's panels show in Code.
+  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);
-  const visibleAssets = useMemo(() => mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), [narrowed, mediaFilter]);
+  const visibleAssets = useMemo(() => sortAssets(mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), sort), [narrowed, mediaFilter, sort]);
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
-  const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
+  const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all" || (filters.period ?? "all") !== "all";
   const resetFilters = () => { setQuery(""); setFilters({}); };
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
   return (
     <div className="assets-view">
       <div className="assets-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
@@ -1884,9 +1888,10 @@ export function AssetsView({
         <span className="library-filter-spacer" />
         <ProjectAssetFilterRow assets={assets} filters={filters} onChange={setFilters} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
+        <AssetSortSelect value={sort} onChange={setSort} />
       </div>
       {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
-        <ProjectAssetTile key={asset.path} asset={asset} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
+        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
       ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
@@ -1900,11 +1905,12 @@ export function AssetsView({
 const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
 
 /** A project asset as a Library tile: its kind and where it came from below the preview. */
-function ProjectAssetTile({ asset, selected, onOpen }: { asset: BrowsableAsset; selected: boolean; onOpen: () => void }) {
+function ProjectAssetTile({ asset, sort, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; selected: boolean; onOpen: () => void }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
   const extension = fileExtension(asset.path).slice(1).toUpperCase();
+  const detail = assetSortDetail(asset, sort);
   return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
-    meta={`${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
+    meta={`${detail ? `${detail} · ` : ""}${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
     preview={asset.mediaType === "audio"
       ? <span className="library-file-mark"><CategoryMark category="audio" size={22} />{extension ? <small>{extension}</small> : null}</span>
       : <AssetThumbnail asset={asset} visible={visible} />} />;

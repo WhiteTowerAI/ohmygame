@@ -34,6 +34,7 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
     const file = `canvas/boards/${entry.id}.json`, inspected = await inspect(file, () => inspectCanvasBoard(workspace, entry.id)), detail = inspected?.detail;
     if (!detail) { if (!issues.some((issue) => issue.file === file)) issues.push({ file, message: "Board file is missing" }); continue; }
     for (const message of inspected.issues) issues.push({ file: `canvas/editor/${entry.id}.json`, message });
+    for (const message of inspected.boardIssues) issues.push({ file, message });
     for (const node of detail.board.nodes) if (node.type === "document" && !documentIds.has(node.data.documentId)) issues.push({ file, message: `Node ${node.id}: unknown document ${node.data.documentId}` });
     for (const node of detail.board.nodes) if (node.type === "table" && !tableIds.has(node.data.tableId)) issues.push({ file, message: `Node ${node.id}: unknown table ${node.data.tableId}` });
     for (const node of detail.board.nodes) if (node.type === "file") await resolveWorkspaceEntry(workspace, node.data.path).catch((cause: unknown) => issues.push({ file, message: `Node ${node.id}: file ${node.data.path}: ${cause instanceof Error ? cause.message : String(cause)}` }));
@@ -43,7 +44,7 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
       if (node.type === "plugin") continue;
       const outputId = "assetId" in node.data ? node.data.assetId : undefined;
       const output = outputId ? assets.get(outputId) : undefined;
-      const expected = node.type === "asset" ? node.data.mediaType : node.type === "model-3d" || node.type === "animate-3d" ? "model" : node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene" ? "audio" : node.type;
+      const expected = node.type === "asset" ? node.data.mediaType : node.type === "model-3d" || node.type === "animate-3d" ? "model" : node.type;
       if (output && output.mediaType !== expected) issues.push({ file, message: `Node ${node.id}: output asset must be ${expected}, found ${output.mediaType}` });
       const references = node.type === "model-3d" ? [...node.data.images, ...(node.data.source ? [node.data.source] : [])] : node.type === "image" ? node.data.images : node.type === "video" || node.type === "text" || node.type === "document" ? node.data.references ?? [] : node.type === "animate-3d" && node.data.source ? [node.data.source] : [];
       for (const reference of references) {

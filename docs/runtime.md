@@ -336,6 +336,12 @@ the workspace to Code if Preview was selected. The switch survives reload and
 duplication. Native Electron, Tauri and Godot scripts are not treated as Web
 servers. Web Game keeps its existing preview behavior.
 
+With the switch off, a General Game project opens without the Game panel, and
+the **+** menu and the command menu still list it. Added there, it stays for that project
+until the project is opened again, and says the preview is off, with a button
+to **Project settings**. A plugin type whose game runs outside OhMyGame
+(`preview: "native"`) has no Game panel to add.
+
 Web publishing is independent of the switch: it validates a static `index.html`
 or the configured build's static output. Native engines use their own tools or
 Connections; General Game does not install an engine or initialize a Web wrapper.
@@ -600,16 +606,27 @@ Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
 a game or the application shows its error page. Back and Forward lead the
 sidebar and the project rail.
-The top bar holds the project's name as its menu (**Rename
-project…**, **Open in folder** in the desktop app, **Export project**,
-**Plugins…**, and a return to the entry page), **Play** while the Game panel
-isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
-not have and Godot and plugin projects show disabled. It publishes to the
+The top bar holds the project's name as its menu (**Project settings…**,
+**Plugins…**, **Open in folder** in the desktop app, **Export project** and the
+plugins' own commands), the record button only while the game runs, **Play** while the Game
+panel isn't on screen, which shows it, and the **Publish** menu, which an asset
+canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
 without the upload size limit, to host elsewhere. Leaving through the rail or
 the project's menu, and either export, saves the open design first.
 
-The return item goes back to the page the project was opened from. The
+Actions for the whole project stay in the top bar and its menu; a panel's
+toolbar holds only what acts on that panel, and no action repeats across panels.
+
+**Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
+for every project's name and appearance. Web games and General projects add
+**Preview**, and interactive stories add **Screen**: the workspace renders that
+tab into a slot in the dialog. The tabs stay mounted, so an unsaved Preview form survives moving
+between them, and the dialog stays open while a tab saves. The Plugin Builder
+has its own top bar and no project settings.
+
+The rail's Back, and the return button of a project's error page, go back to the
+page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
 project link opened without an entry page returns to Projects. The Projects URL
 preserves its type filter, search (`q`), and name sorting (`sort=name`) when
@@ -669,7 +686,7 @@ type, narrowed to those the prompt's plugins support. The prompt
 box's type menu adds the enabled plugins that set up their own projects, such
 as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
-Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
+Game Studio, Godot and the engine and mini-game plugins); their
 mentions lead the first message in the order chosen. **Ideas**, in the row under
 the box with **Blank project** and **Choose project**, lists a few prompts for
 the type that fill the box. The former studio pages are gone; their
@@ -696,7 +713,9 @@ to open the workspace root; file reads and writes still require a file path.
 Below the top bar a project is a set of panels in four areas: left, middle,
 right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
 drags to another area or to an empty edge, its right-click menu moves or
-closes it, and an area's **+** reopens a closed panel there. Area edges drag to
+closes it, and an area's **+** reopens a closed panel there; it shows only while
+a panel is closed. A tab's right-click menu also restores the default layout.
+Area edges drag to
 resize. A moved or closed panel keeps its state, such as the open file, the
 design canvas or a running game, until the project closes: a closed panel's
 view waits hidden in the page, and views move with `moveBefore`, which keeps an
@@ -758,9 +777,8 @@ same documents as nodes, so the two share one copy: an edit in either shows in t
 other and saves once. Neither loads the documents, which creates the project's
 `canvas/` folder, until one of them has opened.
 
-**Layout and panels** in the top bar applies a preset (Default; Art and Code
-bring Canvas or Code forward where a project has them) and turns each panel
-on or off. The arrangement is kept once in local storage
+The command menu applies the presets: Default, and Art and Code, which bring
+Canvas or Code forward where a project has them. The arrangement is kept once in local storage
 (`ohmygame-workspace-layout`) and fitted to each project's panels, so moving
 the chat to the right holds in every project. A change keeps other types'
 panels where they were; a panel the layout never knew opens where the default
@@ -884,8 +902,8 @@ in the `--project-cover-*` variables in `src/renderer/styles.css`.
 
 ![Stable default project covers](assets/project-placeholders.webp)
 
-**Appearance…** in the project menu, also at the top of project settings,
-changes how a project looks. Changes apply at once and are kept in
+**General** in the project settings renames the project, saved as the settings
+close, and changes how it looks. Appearance changes apply at once and are kept in
 `appearance` in `.ohmygame/settings.json`:
 
 - `icon` and `tone` replace the icon and background the ID picks. The icons are

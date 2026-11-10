@@ -27,7 +27,7 @@ vi.mock("../src/renderer/project-shell.js", async () => {
         {props.workspace.rail}
         <header className="project-top"><span ref={setTop} /></header>
         <div className="workspace-panel" ref={node => { if (node && !node.contains(panel.body)) node.append(panel.toolbar, panel.body); }} />
-        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), layoutMenu: [], top, panel }) : null}
+        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), top, panel }) : null}
       </div>;
     },
   };
@@ -168,6 +168,9 @@ describe("Plugin Builder removal controls", () => {
 
   it("honors cancellation and changes the installed view back to an installable draft after uninstalling", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    await choose("Export as a package…");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Export Review as a package");
+    await answer("Cancel");
     await choose("Uninstall plugin");
     await answer("Cancel");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
@@ -175,6 +178,7 @@ describe("Plugin Builder removal controls", () => {
     await answer("Uninstall");
     expect(requests).toContain(`DELETE /plugin-store/${storeId}/0.1.0`);
     expect(await menuEntry("Uninstall plugin")).toBeUndefined();
+    expect(await menuEntry("Export as a package…")).toBeUndefined();
     expect(await menuEntry("Delete plugin draft")).toBeDefined();
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin");
     expect(install?.disabled).toBe(false);
@@ -249,11 +253,12 @@ describe("Plugin Builder layout", () => {
     expect([...container.querySelectorAll(".plugin-builder-overview h2")].filter(heading => heading.textContent === "Settings")).toHaveLength(1);
   });
 
-  it("warns before installing a draft that runs its own code", async () => {
+  it("lists what a draft asks for as its plugin page does, and warns when it runs its own code", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
     expect(container.querySelector(".plugin-builder-overview")?.textContent).not.toContain("It runs its own code on this computer");
     draftAsks = ["native"];
     await act(async () => button("Refresh plugin preview").click());
+    expect(container.querySelector(".plugin-builder-overview .plugin-capability-list")?.textContent).toContain("Run its own code on this computer");
     expect(container.querySelector(".plugin-builder-overview")?.textContent).toContain("It runs its own code on this computer");
   });
 

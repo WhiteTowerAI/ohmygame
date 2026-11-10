@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
+import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
 import { watch, type FSWatcher } from "node:fs";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
@@ -567,7 +568,7 @@ export class PluginServices {
     const value: unknown = JSON.parse(bytes.toString("utf8"));
     const problem = canvasPresetIssue(value);
     if (problem) throw new Error(`${preset.board} ${problem}`);
-    const board = value as Partial<CanvasPresetBoard>;
+    const board = migrateLegacyAudioNodes(value).value as Partial<CanvasPresetBoard>;
     return { nodes: board.nodes!, edges: board.edges ?? [] };
   }
 
@@ -743,6 +744,14 @@ export class PluginServices {
         capabilityGrants(result.entry.manifest),
       );
     }
+    // A plugin the app no longer brings goes too, not only an older version of
+    // one it does, wherever an earlier install of the app kept it. Only the app
+    // publishes as ohmygame/, and those it installs live in the store.
+    const current = new Set(results.flatMap((result) => result.ok ? [`${result.entry.id}@${result.entry.version}`] : []));
+    const store = path.resolve(this.packagesDirectory) + path.sep;
+    for (const entry of this.index.entries())
+      if (entry.id.startsWith("ohmygame/") && !entry.root.startsWith(store) && !current.has(`${entry.id}@${entry.version}`))
+        await this.index.verify(entry.id, entry.version);
     await this.#notify();
     return results;
   }

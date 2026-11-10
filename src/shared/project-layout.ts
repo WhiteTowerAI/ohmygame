@@ -16,6 +16,11 @@ export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 
 /** The project's own panels, one folder each; see `project-panels.ts`. */
 export const PROJECT_PANELS_DIRECTORY = ".ohmygame/panels";
+
+/** Whether a workspace path is in OhMyGame's own folder, which is never a project asset. */
+export function isProjectDataPath(relativePath: string): boolean {
+  return relativePath === PROJECT_DATA_DIRECTORY || relativePath.startsWith(`${PROJECT_DATA_DIRECTORY}/`);
+}
 /** What each project panel's page failed with lately, for the agent to read. */
 export const PROJECT_PANEL_ERRORS_DIRECTORY = ".ohmygame/local/panel-errors";
 

@@ -136,7 +136,7 @@ it("opens the browser window during the click and waits for persistence before s
       .click(),
   );
   await act(async () => {
-    container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
+    document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
     expect(open).toHaveBeenCalledExactlyOnceWith("", "ohmygame-playtest");
   });
   expect(update).toHaveBeenCalledOnce();
@@ -226,6 +226,42 @@ it("closes the Scene workbench and brings the story forward when Playtest asks f
   expect(nodes.story.body.querySelector('[aria-label="Scene workbench"]')).toBeNull();
   expect(onShow).toHaveBeenCalledExactlyOnceWith("story");
   expect(onStoryMapShown).toHaveBeenCalledOnce();
+});
+
+it("puts Play in the project's top bar, as a game does, and keeps the story toolbar for its settings", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  const nodes = storyNodes();
+  const play = document.createElement("span");
+  await renderEditor({ panels: { nodes, visible: new Set<StoryView>(["story"]), onShow: vi.fn(), play } });
+  const button = play.querySelector<HTMLButtonElement>('button[aria-label="Playtest"]');
+  expect(button?.textContent).toBe("Play");
+  expect(play.querySelector('button[aria-label="Playtest actions"]')).not.toBeNull();
+  expect(nodes.story.toolbar.querySelector('button[aria-label="Playtest"]')).toBeNull();
+  // The project's settings are in the top bar, so the Story panel has nothing of its own there.
+  expect(nodes.story.toolbar.querySelector('button[aria-label="Project settings"]')).toBeNull();
+});
+
+it("offers Playtest from the open Scene in the top bar's menu, not in the Workbench", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  const nodes = storyNodes();
+  const play = document.createElement("span");
+  await renderEditor({ panels: { nodes, visible: new Set<StoryView>(["story"]), onShow: vi.fn(), play } });
+  const menuItems = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).map((item) => item.textContent);
+  const actions = play.querySelector<HTMLButtonElement>('button[aria-label="Playtest actions"]')!;
+  await act(async () => actions.click());
+  expect(menuItems()).not.toContain("Playtest from this Scene");
+  await act(async () => actions.click());
+  const openScene = Array.from(nodes.story.body.querySelectorAll("button")).find((button) => button.textContent === "Open Scene")!;
+  await act(async () => openScene.click());
+  expect(nodes.story.body.querySelector('button[aria-label="Playtest"]')).toBeNull();
+  const playtest = playtestWindow();
+  vi.spyOn(window, "open").mockReturnValue(playtest as unknown as Window);
+  await act(async () => actions.click());
+  const fromScene = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent === "Playtest from this Scene")!;
+  await act(async () => fromScene.click());
+  expect(takePlaytestRequest("p")).toEqual({ action: "start", start: { nodeId: "start" } });
 });
 
 it("keeps the view a story saved while its panels decide what shows", async () => {

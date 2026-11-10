@@ -467,8 +467,13 @@ project, whatever its file says.
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
 same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled.
+removed, later releases included. One the app stops bringing is listed in
+`RETIRED` there: the copy it installed is uninstalled once, and a version
+installed apart is kept. Bundled plugins are indexed from `plugins/`
+and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
+index from there, outside the store, is dropped if its folder is gone, which
+covers a plugin the app stopped bringing and one an earlier install kept
+elsewhere.
 
 ## Model providers
 
@@ -569,7 +574,8 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
-- **Export as a package…** on a personal plugin's page
+- **Export as a package…** on a personal plugin's page, and in its Plugin
+  Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
   `package.json`, README and publish workflow a new package gets from the
@@ -599,6 +605,9 @@ like `@ohmygame/plugin-ui`:
   both locales, a README, a GitHub Actions workflow that publishes with
   provenance, and any of a Skill, a panel with a command, native code with a
   tool, a local MCP server and a project type. Every combination passes `check`.
+- Each package carries the app's `LICENSE` and a README, and each bundle a
+  `THIRD_PARTY_LICENSES.md` with the license of every package bundled into it;
+  the build fails for a bundled package without a license file.
 - **Examples** in `packages/plugin-examples/`, one for each part, made from the
   template under the publisher `example`.
 
@@ -614,7 +623,9 @@ Tests compare it with `npm pack --dry-run` where npm is installed.
 package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
 each one into a temporary folder and never runs anything in it, so npm's install
 scripts don't apply. The person reviews what it does, then adds it: adding reads
-the source again and refuses a package whose digest isn't the one reviewed.
+the source again and refuses a package whose digest isn't the one reviewed. The
+review lists what it asks for and what it adds, the same `pluginAdds` rows as
+the plugin's page.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
@@ -840,7 +851,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   blur, on disconnect and when the map changes. A game that reads the gamepad
   itself stops the map, so the same input doesn't arrive twice. The events
   aren't trusted ones, so a game that checks `isTrusted` ignores them.
-- **Plugin changes…** in the project menu lists `GET
+- **Change history**, in the project's **Plugins…** sheet, lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It
@@ -1071,8 +1082,10 @@ A project can hold panels of its own, without a plugin: each is a folder in
 `panel.json` and its page (`src/shared/project-panels.ts`,
 `src/daemon/project-panels.ts`). They travel with the project, in its
 [snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. A project
-shows at most 12, each of at most 500 files and folders.
+project's agent can write and change them like any other file. The Code
+panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
+shows, and Assets leaves them out. A project shows at most 12, each of at most
+500 files and folders.
 
 ```json
 {
@@ -1188,8 +1201,8 @@ project, or only in the project types a connection is limited to.
 
 Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
-Three.js World and the Beta workflows below), applies to every project it suits;
+like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
 project. See [TapTap Maker](#taptap-maker)

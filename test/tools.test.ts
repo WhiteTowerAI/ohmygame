@@ -1,5 +1,5 @@
 import { TEST_GLB } from "./model3d-fixture.js";
-import { access, mkdtemp, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,9 +20,20 @@ describe("tool runner", () => {
     const runner = new ToolRunner(await temporaryData(), fakeGenerator(), undefined, undefined, undefined, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
     await runner.load();
     for (const removed of [{ references: [{ type: "audio" as const, assetId: "rain" }] }, { referenceAssetId: "rain" }, { subtitles: true }]) {
-      await expect(runner.run("generate-music", { prompt: "quiet music", instrumental: true, ...removed })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(runner.run("generate-audio", { prompt: "quiet music", instrumental: true, ...removed })).rejects.toMatchObject({ statusCode: 400 });
     }
     expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("lists audio jobs saved by the per-kind tools as generate-audio", async () => {
+    const dataDirectory = await temporaryData();
+    await mkdir(path.join(dataDirectory, "tools"), { recursive: true });
+    await writeFile(path.join(dataDirectory, "tools", "jobs.json"), JSON.stringify([
+      { id: "old", toolId: "generate-sound-effect", status: "failed", title: "Rain", error: "Busy", createdAt: "2026-11-01T00:00:00.000Z", input: { prompt: "Rain", negativePrompt: "thunder" } },
+    ]));
+    const runner = new ToolRunner(dataDirectory, fakeGenerator());
+    await runner.load();
+    expect(runner.jobs()).toEqual([expect.objectContaining({ id: "old", toolId: "generate-audio" })]);
   });
 
   it("runs Image to 3D and persists its GLB output", async () => {
@@ -194,11 +205,11 @@ describe("tool runner", () => {
     const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, undefined, library, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
     await runner.load();
 
-    const run = await runner.run("generate-speech", { text: "  Welcome, traveler  ", voiceId: "narrator", model });
+    const run = await runner.run("generate-audio", { prompt: "  Welcome, traveler  ", voiceId: "narrator", model });
 
-    expect(generate).toHaveBeenCalledWith({ operation: "speech", text: "  Welcome, traveler  ", voiceId: "narrator", model }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "  Welcome, traveler  ", voiceId: "narrator", model }, undefined);
     expect(run).toMatchObject({
-      toolId: "generate-speech",
+      toolId: "generate-audio",
       model,
       files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", assetId: expect.any(String) }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
     });

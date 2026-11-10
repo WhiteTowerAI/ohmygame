@@ -112,7 +112,9 @@ export interface ModelProviderSummary {
 
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video" | "audio";
-export type MediaModelUsage = "image" | "3d" | "video";
+/** What a default model is for: a kind of media, with audio split by what it makes, since most audio models make one kind. */
+export const MEDIA_MODEL_USAGES = ["image", "video", "3d", "speech", "sound-effect", "music"] as const;
+export type MediaModelUsage = (typeof MEDIA_MODEL_USAGES)[number];
 /** Missing entries inherit the global default for that kind of generation. */
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
@@ -518,7 +520,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "audio" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group" | "plugin";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -623,38 +625,15 @@ export type AssetCanvasNode = (
     referenceMentions?: Record<string, AssetCanvasReference>;
     assetId?: string;
   } }
-  | { id: string; type: "speech"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
-    /** Script text to synthesize; also accepts a linked text/document node as promptSource. */
-    text: string;
-    promptSource?: AssetCanvasTextReference;
-    model?: ModelRef;
-    /** Speaker ID; uses the provider's configured default voice when omitted. */
-    voiceId?: string;
-    /** Speech rate in provider units (Volcengine speech_rate: -50..100, 0 = normal). */
-    speed?: number;
-    assetId?: string;
-  } }
-  | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
+  | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioSettings & {
+    /** The words a model that reads text speaks, or a description of the audio; a linked Text or Document node adds to it. */
     prompt: string;
     promptSource?: AssetCanvasTextReference;
     model?: ModelRef;
     durationSeconds?: number;
     loop?: boolean;
-    negativePrompt?: string;
+    instrumental?: boolean;
     assetId?: string;
-  } }
-  | { id: string; type: "music"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
-    prompt: string;
-    promptSource?: AssetCanvasTextReference;
-    model?: ModelRef;
-    instrumental: boolean;
-    lyrics?: string;
-    durationSeconds?: number;
-    loop?: boolean;
-    assetId?: string;
-  } }
-  | { id: string; type: "audio-scene"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
-    prompt: string; promptSource?: AssetCanvasTextReference; model?: ModelRef; durationSeconds?: number; assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
     operation?: Exclude<Model3DOperation, "animate">;
@@ -1101,6 +1080,8 @@ export interface WorkspaceFile {
   size: number;
   directory?: true;
   mediaType?: "image" | "video" | "audio" | "model";
+  /** When a media file last changed; set in the complete listing, not a single directory's. */
+  modifiedAt?: string;
   prompt?: string;
   previewPath?: string;
   libraryAssetId?: string;
@@ -1277,7 +1258,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-speech", "generate-sound-effect", "generate-music", "generate-audio"] as const;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-audio"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1347,7 +1328,7 @@ export interface RunAnimate3DToolRequest {
 }
 
 export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
-  | import("./audio.js").RunSpeechToolRequest | import("./audio.js").RunSoundEffectToolRequest | import("./audio.js").RunMusicToolRequest | import("./audio.js").RunSceneAudioToolRequest;
+  | import("./audio.js").AudioGenerationRequest;
 
 export interface ToolRunFile {
   role?: "audio" | "subtitles" | "metadata";
