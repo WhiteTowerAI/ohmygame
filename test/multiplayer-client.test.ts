@@ -141,6 +141,63 @@ describe("multiplayer connection failures", () => {
     client.dispose();
   });
 
+  it("sends a changed input at once, within an allowance that keeps an input changing every frame near one send a tick", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
+    try {
+      const transport = new Client(manifest.serverUrl);
+      const send = vi.fn();
+      const room = {
+        roomId: "room-1",
+        reconnectionToken: "token",
+        reconnection: { enabled: true },
+        onMessage: () => {},
+        onDrop: () => {},
+        onReconnect: () => {},
+        onError: () => {},
+        onLeave: () => {},
+        send,
+        removeAllListeners: () => {},
+        leave: vi.fn(async () => {}),
+      } as unknown as Room;
+      vi.spyOn(transport, "create").mockResolvedValue(room);
+      const client = new MultiplayerClient({
+        manifest: { ...manifest, mode: "realtime", adapterId: "arena" },
+        transport,
+        identity: { getToken: async () => "account-token" },
+      });
+      await client.createRoom();
+      const inputs = () => send.mock.calls.filter(([type]) => type === "input").map(([, value]) => ({ at: performance.now(), value }));
+      const sentAt: number[] = [];
+      send.mockImplementation((type: string) => type === "input" && sentAt.push(performance.now()));
+      const frames = (ms: number, input: (frame: number) => Record<string, number>) => {
+        for (let frame = 0; frame * 16 < ms; frame++) {
+          client.sendInput(input(frame));
+          vi.advanceTimersByTime(16);
+        }
+      };
+      const start = performance.now();
+      frames(330, () => ({ x: 1, y: 0 }));
+      // Held: at once, then once a tick.
+      expect(sentAt.map((at) => at - start)).toEqual([0, 50, 100, 150, 200, 250, 300]);
+      sentAt.length = 0;
+      const pressed = performance.now();
+      frames(16, () => ({ x: 0, y: 1 }));
+      // A new direction 36 ms after the last send does not wait for the one due at 350.
+      expect(pressed - start).toBe(336);
+      expect(sentAt[0]).toBe(pressed);
+      expect(inputs().at(-1)!.value).toMatchObject({ x: 0, y: 1 });
+
+      sentAt.length = 0;
+      // An analog input that changes every frame for two seconds.
+      frames(2000, (frame) => ({ x: Math.sin(frame / 10), y: 0 }));
+      expect(sentAt.length).toBeGreaterThanOrEqual(39);
+      expect(sentAt.length).toBeLessThanOrEqual(40 + 2 * 4 + 2);
+      client.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("requires explicit local configuration and rejects unsupported endpoints", () => {
     expect(
       () =>

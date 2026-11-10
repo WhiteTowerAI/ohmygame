@@ -8,6 +8,7 @@ import {
   isMultiplayerSnapshot,
   isTurnCommand,
   isRecord,
+  sameJson,
   isTurnCommandResult,
   LOCKSTEP_ADAPTER_ID,
   MULTIPLAYER_ROOM_LIMIT_CODE,
@@ -44,6 +45,14 @@ import { OwnerSession } from "./owner.js";
 import { PING_INTERVAL_MS, TickClock, TickPacer } from "./pacing.js";
 
 export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
+
+/**
+ * Inputs that change send early, before the next tick's send, at most this often on average
+ * and this many at once. With one send a tick that stays well inside the service's limit of
+ * twice the tick rate in messages a second, even for an input that changes every frame.
+ */
+const EARLY_SENDS_PER_SECOND = 4;
+const EARLY_SENDS_BURST = 2;
 
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
@@ -155,6 +164,11 @@ export class MultiplayerClient<Game = unknown> {
     return true;
   });
   private pingTimer?: ReturnType<typeof setInterval>;
+  /** The input the page last sent, so a change can go out before the next tick's send. */
+  private sentInput?: RealtimeInput;
+  /** Early sends left: a few a second, so an input that changes every frame cannot double the messages. */
+  private earlySends = EARLY_SENDS_BURST;
+  private earlySendsAt = 0;
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
   private aloneSince?: number;
@@ -393,9 +407,10 @@ export class MultiplayerClient<Game = unknown> {
   /**
    * Sends what the player is doing now in a realtime game, in the shape the rules read,
    * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
-   * at most once per service tick, timed to reach the service just before its tick, and
-   * keeps going out while the game keeps calling, so a held key stays fresh. Sending
-   * faster would only be discarded, and a flood closes the connection. Throws
+   * about once per service tick, timed to reach the service just before its tick, and
+   * keeps going out while the game keeps calling, so a held key stays fresh. A changed
+   * input, such as a key just pressed, goes out at once, a few times a second at most.
+   * Sending faster would only be discarded, and a flood closes the connection. Throws
    * invalid_option for an input that is not plain JSON of at most
    * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
    */
@@ -407,7 +422,17 @@ export class MultiplayerClient<Game = unknown> {
       );
     if (!this.room || this.status !== "connected") return;
     this.latestInput = input;
-    this.inputPacer.wake();
+    // A changed input, such as a key just pressed, goes out now rather than at the next
+    // tick's send, as long as the early-send allowance lasts.
+    if (this.inputPacer.running && !sameJson(input, this.sentInput) && this.earlySend() && this.inputPacer.hurry()) this.earlySends--;
+    else this.inputPacer.wake();
+  }
+  /** Whether an early send is allowed now; refills EARLY_SENDS_PER_SECOND, up to EARLY_SENDS_BURST. */
+  private earlySend(): boolean {
+    const now = performance.now();
+    this.earlySends = Math.min(EARLY_SENDS_BURST, this.earlySends + ((now - this.earlySendsAt) * EARLY_SENDS_PER_SECOND) / 1000);
+    this.earlySendsAt = now;
+    return this.earlySends >= 1;
   }
   /**
    * Sends something the player does once in a realtime game, such as { fire: true }, in
@@ -495,6 +520,7 @@ export class MultiplayerClient<Game = unknown> {
     const input = this.latestInput;
     this.latestInput = undefined;
     if (!input || !this.room || this.status !== "connected") return;
+    this.sentInput = input;
     const local = this.localLoop();
     if (local) {
       try {
@@ -633,6 +659,7 @@ export class MultiplayerClient<Game = unknown> {
   private stopInput(): void {
     this.inputPacer.stop();
     this.latestInput = undefined;
+    this.sentInput = undefined;
     clearInterval(this.pingTimer);
     this.pingTimer = undefined;
     this.tickClock.reset();

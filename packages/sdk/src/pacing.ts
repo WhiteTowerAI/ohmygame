@@ -98,6 +98,17 @@ export class TickPacer {
     else this.schedule();
   }
 
+  /**
+   * Sends now even while running, unless the last send was under half a tick ago: for a
+   * change that should not wait for the next tick's send. Says whether it sent.
+   */
+  hurry(): boolean {
+    if (clock() - this.lastSent < this.tickMs() / 2) return false;
+    clearTimeout(this.timer);
+    this.fire();
+    return true;
+  }
+
   /** Something went out by another way, such as a resync, and counts toward the pace. */
   sent(): void {
     this.lastSent = clock();

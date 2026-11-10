@@ -173,7 +173,11 @@ service tick, which the service reports when the player joins, and keeps resendi
 it while the game keeps calling. In a room whose rules the service runs it times
 those sends to reach the service just before its tick, from when snapshots arrive
 and the round trip it measures every two seconds (`ping`, answered with `pong`);
-until it knows both, it sends once a tick from the first send. The room passes the rules only inputs from the
+until it knows both, it sends once a tick from the first send. An input that
+differs from the last one sent, such as a key just pressed, goes out at once
+instead of at the next tick's send, unless a send went out under half a tick
+ago; these early sends are limited to four a second (two at once), so an input
+that changes every frame still sends about once a tick. The room passes the rules only inputs from the
 last five ticks (at least 250 ms), so a player who stops sending stops steering.
 A realtime connection may send twice the tick rate in messages a second, and at
 least 40; beyond that it is closed with code 4002. The room releases that seat

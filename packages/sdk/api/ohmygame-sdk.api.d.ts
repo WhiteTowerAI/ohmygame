@@ -650,6 +650,11 @@ export declare class MultiplayerClient<Game = unknown> {
     private readonly tickClock;
     private readonly inputPacer;
     private pingTimer?;
+    /** The input the page last sent, so a change can go out before the next tick's send. */
+    private sentInput?;
+    /** Early sends left: a few a second, so an input that changes every frame cannot double the messages. */
+    private earlySends;
+    private earlySendsAt;
     private displayName?;
     private mergeTimer?;
     private aloneSince?;
@@ -710,13 +715,16 @@ export declare class MultiplayerClient<Game = unknown> {
     /**
      * Sends what the player is doing now in a realtime game, in the shape the rules read,
      * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
-     * at most once per service tick, timed to reach the service just before its tick, and
-     * keeps going out while the game keeps calling, so a held key stays fresh. Sending
-     * faster would only be discarded, and a flood closes the connection. Throws
+     * about once per service tick, timed to reach the service just before its tick, and
+     * keeps going out while the game keeps calling, so a held key stays fresh. A changed
+     * input, such as a key just pressed, goes out at once, a few times a second at most.
+     * Sending faster would only be discarded, and a flood closes the connection. Throws
      * invalid_option for an input that is not plain JSON of at most
      * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
      */
     sendInput(input: ClientInput<Game>): void;
+    /** Whether an early send is allowed now; refills EARLY_SENDS_PER_SECOND, up to EARLY_SENDS_BURST. */
+    private earlySend;
     /**
      * Sends something the player does once in a realtime game, such as { fire: true }, in
      * the shape the rules' action function reads. The rules read it in exactly one tick, so
