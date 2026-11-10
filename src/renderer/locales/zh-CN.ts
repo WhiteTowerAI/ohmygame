@@ -1527,6 +1527,9 @@ const zhCN: typeof en = {
     expand: "展开 {{name}}",
     loadingAssets: "正在加载素材",
     noMedia: "没有媒体素材",
+    webPreviewOff: "网页预览已关闭",
+    webPreviewOffHint: "在项目设置里打开后，可以在这里试玩网页版本，OhMyGame 会在每轮对话后启动游戏的开发服务器。用原生引擎做的项目可以一直关着。",
+    openProjectSettings: "打开项目设置",
     processStopped: "预览进程已停止。",
     phase: {
       checking: "正在检查环境",

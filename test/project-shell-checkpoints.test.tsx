@@ -447,6 +447,13 @@ describe("project shell layout", () => {
     expect(document.querySelector(".project-settings")).toBeNull();
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
+
+    // The game panel can still be added from the + menu, in front, where it says how to turn the preview on.
+    await act(async () => container.querySelector<HTMLButtonElement>(".dock-area-center .dock-add")!.click());
+    await act(async () => menuItem("Game").click());
+    await settle();
+    expect(tabs("center")).toEqual(["Code", "Design", "Canvas", "Assets", "*Game"]);
+    expect(container.querySelector(".project-top-play")).toBeNull();
   });
 });
 
