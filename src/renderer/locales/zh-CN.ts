@@ -3354,6 +3354,8 @@ const zhCN: typeof en = {
       soundEffectHint: "在画布上生成音效",
       music: "音乐",
       musicHint: "在画布上生成音乐",
+      threeD: "3D",
+      threeDHint: "3D 模型和角色动画",
       model3d: "3D 模型",
       model3dHint: "在画布上生成 3D 模型",
       animate3d: "3D 动画",

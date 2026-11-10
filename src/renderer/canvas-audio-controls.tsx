@@ -178,7 +178,9 @@ export function CanvasAudioControls({
 }) {
   const [customVoice, setCustomVoice] = useState(false);
   const caps = model?.capabilities,
-    tts = Boolean(caps?.supportsSpeechOptions);
+    tts = Boolean(caps?.supportsSpeechOptions),
+    // Speed and language shape spoken delivery; sound-effect and music-only models ignore them.
+    speaks = !caps || caps.operations.includes("speech") || caps.operations.includes("audio-scene");
   const preset = findVolcengineTtsVoice(value.voiceId);
   const usesCustomVoice =
     customVoice ||
@@ -309,7 +311,7 @@ export function CanvasAudioControls({
           </>
         ) : null}
         <div className="audio-control-adjustments">
-          {control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed"))}
+          {speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
           {caps?.supportsPitch
             ? control("pitch", -12, 12, t("audioStudio.pitch"))
             : null}
@@ -329,7 +331,7 @@ export function CanvasAudioControls({
             />
           </label>
         ) : null}
-        <label>
+        {speaks ? <label>
           {t("audioStudio.language")}
           <select
             value={value.language ?? ""}
@@ -344,7 +346,7 @@ export function CanvasAudioControls({
               </option>
             ))}
           </select>
-        </label>
+        </label> : null}
         <label>
           {t("audioStudio.format")}
           <select

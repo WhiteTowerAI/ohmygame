@@ -3419,6 +3419,8 @@ const en = {
       soundEffectHint: "Generate a sound effect on canvas",
       music: "Music",
       musicHint: "Generate a music track on canvas",
+      threeD: "3D",
+      threeDHint: "3D models and character animation",
       model3d: "Model 3D",
       model3dHint: "Generate a 3D model on canvas",
       animate3d: "Animate 3D",

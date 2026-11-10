@@ -8,6 +8,7 @@ import {
 } from "../src/renderer/canvas-audio-controls.js";
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
 import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
+import { ELEVENLABS_MODELS } from "../src/daemon/elevenlabs-audio-provider.js";
 import {
   type AudioCanvasSettings,
 } from "../src/shared/audio.js";
@@ -123,4 +124,22 @@ it("ignores legacy references and subtitles when checking current model options"
   expect(audioSettingsIssue({ subtitles: true, audioReferences: [{ id: "Image1", type: "image", source: { type: "library", assetId: "portrait" } }], voiceId: "voice" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeUndefined();
   expect(audioSettingsIssue({ output: { format: "mp3", sampleRate: 40000 } }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
   expect(audioSettingsIssue({ ssml: "<speak>Hello</speak>" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
+});
+
+it("lists account voices and limits speed for models that speak, and hides both for sound-only models", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ voices: [{ id: "aria", name: "Aria" }], nextPageToken: "next" }));
+  vi.stubGlobal("fetch", fetch);
+  const speech = ELEVENLABS_MODELS.find((model) => model.id === "eleven_v4")!;
+  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={speech} listsVoices onChange={vi.fn()} />));
+  await act(async () => { await Promise.resolve(); });
+  const options = Array.from(host.querySelectorAll("select")[0]!.options).map((option) => option.value);
+  expect(options).toEqual(["", "saved", "aria"]);
+  expect(String(fetch.mock.calls[0]![0])).toContain("/audio-providers/elevenlabs/voices");
+  const speed = host.querySelector<HTMLInputElement>(".audio-control-adjustments input")!;
+  expect([speed.min, speed.max]).toEqual(["-30", "20"]);
+
+  const effect = ELEVENLABS_MODELS.find((model) => model.id === "eleven_text_to_sound_v2")!;
+  await act(async () => root.render(<CanvasAudioControls value={{}} model={effect} onChange={vi.fn()} />));
+  expect(host.querySelector(".audio-control-adjustments input")).toBeNull();
+  expect(Array.from(host.querySelectorAll("label")).some((label) => label.textContent?.startsWith("Language"))).toBe(false);
 });
