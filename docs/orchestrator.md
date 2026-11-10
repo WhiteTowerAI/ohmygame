@@ -6,8 +6,10 @@ goal is met. Open it from the **Team** button in the chat header.
 
 ## Roles
 
-A role has a name, instructions (its persona, added to that agent's system
-prompt) and a capability:
+A team has up to 20 roles (`ORCHESTRATOR_MAX_ROLES`). Advisors run at the same
+time, so a large team can mean many model requests in flight and may meet a
+provider's concurrency limits. A role has a name, instructions (its persona,
+added to that agent's system prompt) and a capability:
 
 - **Writer** — may change files. A team has at least one.
 - **Advisor** — reads the project and messages teammates. It gets the

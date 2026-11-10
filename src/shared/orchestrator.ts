@@ -2,7 +2,8 @@ import type { AgentModelRef, AgentStatus } from "./contracts.js";
 
 /** Bumped only with a migration step in orchestrator-store.ts. */
 export const ORCHESTRATOR_STORE_VERSION = 1;
-export const ORCHESTRATOR_MAX_ROLES = 8;
+/** Advisors run at the same time, so each one more can mean one more model request in flight. */
+export const ORCHESTRATOR_MAX_ROLES = 20;
 export const ORCHESTRATOR_ROLE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 
 /** A writer may change files; an advisor may only read and talk. */

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { rolePersonaInstructions } from "../src/daemon/agent-prompts.js";
 import { OrchestratorSupervisor, PING_PONG_LIMIT, type OrchestratorDeps } from "../src/daemon/orchestrator.js";
 import { RUNTIME_EVENT_TYPES, type CheckpointChangeItem, type ProjectState, type RuntimeEventData, type ThreadItem } from "../src/shared/contracts.js";
-import type { OrchestratorConfig, OrchestratorRoleConfig, OrchestratorState } from "../src/shared/orchestrator.js";
+import { ORCHESTRATOR_MAX_ROLES, type OrchestratorConfig, type OrchestratorRoleConfig, type OrchestratorState } from "../src/shared/orchestrator.js";
 
 describe("orchestrator events", () => {
   it("registers both event names", () => {
@@ -110,6 +110,13 @@ describe("orchestrator supervisor", () => {
     await expect(supervisor.configure(project, config([advisor]))).rejects.toThrow("write files");
     await expect(supervisor.configure(project, config([{ ...writer, id: "Not A Slug" }]))).rejects.toThrow("not a valid role id");
     await expect(supervisor.configure(project, config([writer, writer]))).rejects.toThrow("both called");
+  });
+
+  it("takes a team of up to twenty roles", async () => {
+    const { supervisor, project } = await harness();
+    const advisors = (count: number) => Array.from({ length: count }, (_, at) => ({ ...advisor, id: `critic-${at + 1}`, name: `Critic ${at + 1}` }));
+    expect((await supervisor.configure(project, config([writer, ...advisors(ORCHESTRATOR_MAX_ROLES - 1)]))).roles).toHaveLength(20);
+    await expect(supervisor.configure(project, config([writer, ...advisors(ORCHESTRATOR_MAX_ROLES)]))).rejects.toThrow("at most 20 roles");
   });
 
   it("names the writer of a conversation and leaves an ordinary conversation writable", async () => {

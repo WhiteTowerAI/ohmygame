@@ -60,6 +60,12 @@ describe("orchestrator routes", () => {
     expect((await save({ goal: "g", roles: [{ ...programmer, id: "Not A Slug" }] })).statusCode).toBe(400);
   });
 
+  it("accepts twenty roles and refuses twenty-one", async () => {
+    const roles = (count: number) => [programmer, ...Array.from({ length: count - 1 }, (_, at) => ({ ...programmer, id: `critic-${at + 1}`, name: `Critic ${at + 1}`, capability: "advisor" }))];
+    expect((await save({ goal: "g", roles: roles(20) })).statusCode).toBe(200);
+    expect((await save({ goal: "g", roles: roles(21) })).statusCode).toBe(400);
+  });
+
   it("refuses to start a team that was never set up", async () => {
     expect((await app.inject({ method: "POST", url: "/projects/project-1/orchestrator/start" })).statusCode).toBe(400);
   });
