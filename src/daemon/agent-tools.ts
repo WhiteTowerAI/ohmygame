@@ -624,7 +624,7 @@ export function createAgentTools(
     name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
     description: [
       "Generate speech, a sound effect, music, or audio that mixes them, and save it with its metadata companion into the current project.",
-      "Set kind to what you need and OhMyGame picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
+      "Set kind to what you need and OhMyGame uses the default model set for that kind, or else picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
       "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
       "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
     ].join(" "),

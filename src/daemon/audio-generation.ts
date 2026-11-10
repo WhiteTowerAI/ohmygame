@@ -48,9 +48,14 @@ export interface AudioGenerator {
 }
 
 export class ProviderAudio implements AudioGenerator {
-  constructor(private readonly adapters: readonly AudioProviderAdapter[]) {}
+  constructor(
+    private readonly adapters: readonly AudioProviderAdapter[],
+    /** The global default model for each kind. */
+    private readonly defaults: () => Partial<Record<AudioKind, ModelRef>> = () => ({}),
+  ) {}
 
   catalog(): AudioModelCatalog {
+    const defaultModels = this.defaults();
     const providers = this.adapters.map((adapter) => {
       const configured = adapter.configured();
       const enabled = adapter.enabled();
@@ -75,14 +80,25 @@ export class ProviderAudio implements AudioGenerator {
         .filter((adapter) => adapter.configured() && adapter.enabled())
         .flatMap((adapter) => adapter.models()),
       providers,
+      ...(Object.keys(defaultModels).length ? { defaultModels } : {}),
     };
   }
 
-  /** The requested model, or else the first ready one that makes `kind`, preferring models that read text for speech. */
-  resolveModel(requested?: ModelRef, kind?: AudioKind): AudioModel | undefined {
+  /**
+   * The requested model; or else the project's default for the kind, then the global one, skipping a default
+   * that isn't ready; or else the first ready model that makes the kind, preferring models that read text for
+   * speech. Without a kind, the speech defaults apply, as they do to a new audio node.
+   */
+  resolveModel(requested?: ModelRef, kind?: AudioKind, projectDefaults?: Partial<Record<AudioKind, ModelRef>>): AudioModel | undefined {
     const models = this.catalog().models.filter((model) => model.capabilities.produces.length);
     if (requested) return models.find((model) => sameModel(model, currentAudioModel(requested)));
     const fitting = kind ? models.filter((model) => model.capabilities.produces.includes(kind)) : models;
+    const defaultKind = kind ?? "speech";
+    const preferred = [projectDefaults?.[defaultKind], this.defaults()[defaultKind]];
+    for (const model of preferred) {
+      const ready = model && fitting.find((candidate) => sameModel(candidate, model));
+      if (ready) return ready;
+    }
     return (kind === "speech" ? fitting.find((model) => model.capabilities.readsText) : undefined) ?? fitting[0];
   }
 

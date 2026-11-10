@@ -347,7 +347,7 @@ const en = {
       modelsHint: "New conversations start on the model you used last; each conversation can switch in its model picker.",
       chatModel: "Chat model",
       chatModelHint: "{{count}} models from your providers",
-      mediaDefaults: "Image, video and 3D defaults",
+      mediaDefaults: "Image, video, 3D and audio defaults",
       mediaDefaultsHint: "Set in Providers",
       skillsAndTools: "Skills and tools",
       pluginSkills: "Skills from plugins",
@@ -360,7 +360,7 @@ const en = {
     },
     providers: {
       back: "Back to Providers",
-      defaultsHint: "What the canvas and the agent use to make images, video and 3D unless you pick another.",
+      defaultsHint: "What the canvas and the agent use to make images, video, 3D and audio unless you pick another.",
       chatModel: "Chat model",
       chatModelHint: "Chosen in Agents.",
       chatModelCurrent: "Chosen in Agents · now {{model}}",
@@ -1101,6 +1101,14 @@ const en = {
     globalDefaults: "Global generation defaults",
     title: "Default models",
     saving: "Saving",
+    usage: {
+      image: "Image",
+      video: "Video",
+      "3d": "3D",
+      speech: "Speech",
+      "sound-effect": "Sound effects",
+      music: "Music",
+    },
   },
   responsesTransport: {
     label: "Responses connection settings",

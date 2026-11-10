@@ -140,6 +140,8 @@ export interface AudioProviderCatalogStatus {
 export interface AudioModelCatalog {
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
+  /** The global default for each kind; the agent and new audio nodes use it when no model is named. */
+  defaultModels?: Partial<Record<AudioKind, ModelRef>>;
 }
 
 export interface AudioMetadata {

@@ -347,7 +347,7 @@ const zhCN: typeof en = {
       modelsHint: "新对话沿用上次用的模型，每个对话都能在模型选择器里再换。",
       chatModel: "对话模型",
       chatModelHint: "来自服务商的 {{count}} 个模型",
-      mediaDefaults: "图片、视频和 3D 默认模型",
+      mediaDefaults: "图片、视频、3D 和音频默认模型",
       mediaDefaultsHint: "在服务商里设置",
       skillsAndTools: "技能和工具",
       pluginSkills: "插件里的技能",
@@ -360,7 +360,7 @@ const zhCN: typeof en = {
     },
     providers: {
       back: "回到服务商",
-      defaultsHint: "画布和 agent 出图、出视频、做 3D 时默认用的模型，每次都还可以再换。",
+      defaultsHint: "画布和 agent 出图、出视频、做 3D 和音频时默认用的模型，每次都还可以再换。",
       chatModel: "对话模型",
       chatModelHint: "在智能体里选。",
       chatModelCurrent: "在智能体里选 · 现在是 {{model}}",
@@ -1084,6 +1084,14 @@ const zhCN: typeof en = {
     globalDefaults: "全局生成默认设置",
     title: "默认模型",
     saving: "正在保存",
+    usage: {
+      image: "图片",
+      video: "视频",
+      "3d": "3D",
+      speech: "配音",
+      "sound-effect": "音效",
+      music: "音乐",
+    },
   },
   responsesTransport: {
     label: "Responses 连接设置",
