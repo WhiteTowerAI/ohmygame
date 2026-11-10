@@ -7,6 +7,9 @@ import {
   isTurnCommandResult,
   normalizeDisplayName,
   sameJson,
+  applyStateChanges,
+  isSnapshotDelta,
+  stateChanges,
 } from "@ohmygame/sdk/protocol";
 
 const manifest = {
@@ -118,5 +121,52 @@ describe("multiplayer protocol", () => {
     expect(sameJson([1, 2], { 0: 1, 1: 2 })).toBe(false);
     expect(sameJson({ players: [{ x: 1 }] }, { players: [{ x: 1.5 }] })).toBe(false);
     expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);
+  });
+  it("sends a tick as what changed, and rebuilds the state from it", () => {
+    const seat = (id: string, x: number) => ({ playerId: id, displayName: id, connected: true, x, y: 50 });
+    const before = {
+      phase: "playing",
+      players: [seat("a", 1), seat("b", 2)],
+      game: { snake: [{ x: 3, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 1 }], score: { a: 1 }, gone: true, kept: { deep: [1, 2] } },
+    };
+    const after = {
+      phase: "playing",
+      players: [seat("a", 1.5), seat("b", 2)],
+      game: { snake: [{ x: 4, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 1 }], score: { a: 1, b: 0 }, kept: before.game.kept, maybe: undefined },
+    };
+    const changes = stateChanges(before, after);
+    expect(changes).toEqual([
+      [["players", 0, "x"], 1.5],
+      // Every cell of the snake moved: the whole array is smaller than each change.
+      [["game", "snake"], after.game.snake],
+      [["game", "score", "b"], 0],
+      [["game", "gone"]],
+    ]);
+    const rebuilt = applyStateChanges(before, changes);
+    expect(sameJson(rebuilt, after)).toBe(true);
+    // Only what changed is copied, and the state it started from is left alone.
+    expect(rebuilt.players[1]).toBe(before.players[1]);
+    expect(rebuilt.game.kept).toBe(before.game.kept);
+    expect(before.players[0]!.x).toBe(1);
+    expect(stateChanges(before, structuredClone(before))).toEqual([]);
+    // Everyone moving still sends each seat's position, not every seat whole.
+    const seats = ["a", "b", "c", "d"].map((id, index) => seat(id, index));
+    expect(stateChanges({ players: seats }, { players: seats.map((p) => ({ ...p, x: p.x + 0.6 })) })).toHaveLength(4);
+    expect(applyStateChanges(before, [[[], { phase: "lobby" }]])).toEqual({ phase: "lobby" });
+  });
+
+  it("applies a key named __proto__ as data, never to the prototype", () => {
+    const rebuilt = applyStateChanges({ game: {} } as Record<string, unknown>, [[["game", "__proto__", "polluted"], true]]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.hasOwn(rebuilt.game as object, "__proto__")).toBe(true);
+    expect(sameJson(stateChanges({}, JSON.parse('{"__proto__":{"x":1}}')), [[["__proto__"], { x: 1 }]])).toBe(true);
+  });
+
+  it("reads a tick's changes only in the shape the service sends them", () => {
+    const delta = { roomId: "r", sequence: 3, base: 2, serverTime: new Date().toISOString(), changes: [[["players", 0, "x"], 1], [["gone"]]] };
+    expect(isSnapshotDelta(delta)).toBe(true);
+    for (const changes of [[["x", 1]], [[[-1], 1]], [[["x"], 1, 2]], [[[{ key: 1 }], 1]], "x"])
+      expect(isSnapshotDelta({ ...delta, changes })).toBe(false);
+    expect(isSnapshotDelta({ ...delta, base: undefined })).toBe(false);
   });
 });

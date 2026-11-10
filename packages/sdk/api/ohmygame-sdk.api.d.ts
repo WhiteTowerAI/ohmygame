@@ -641,6 +641,8 @@ export declare class MultiplayerClient<Game = unknown> {
     /** The service's latest snapshot, which a hosting player's own ticks build on. */
     private fromService?;
     private lastEventSequence;
+    /** Whether a whole snapshot is on its way, so a tick's changes that do not fit wait for it. */
+    private awaitingSnapshot;
     /** Whether this connection has already reported a snapshot it could not read. */
     private reportedUnreadable;
     private generation;
@@ -807,6 +809,12 @@ export declare class MultiplayerClient<Game = unknown> {
     private bindHost;
     private bind;
     private receiveSnapshot;
+    /**
+     * A realtime tick as the changes since the snapshot before. Applied to the snapshot this
+     * page holds when that is the one they follow; otherwise the page asks for a whole one,
+     * once, and drops changes until it arrives.
+     */
+    private receiveDelta;
     private joinOptions;
     private token;
     private resolveRoom;
@@ -1274,6 +1282,35 @@ export declare function isOwnerSharedUpdate(value: unknown): value is OwnerShare
  * change expects, and a realtime room's whole state with the last one every tick.
  */
 export declare function sameJson(left: unknown, right: unknown): boolean;
+/** Where a change applies: the keys and array indexes from the room state down. */
+export type StatePath = (string | number)[];
+/** [path, value] sets the value there; [path] alone removes it. An empty path replaces the whole state. */
+export type StateChange = [path: StatePath] | [path: StatePath, value: unknown];
+/**
+ * A realtime tick's snapshot as what changed since the one before (`base`), which every
+ * connection that shares the room's view has. The page applies it to the snapshot it holds
+ * whose sequence is `base`, and asks for a whole one (`snapshot.request`) when it holds another.
+ */
+export interface SnapshotDelta {
+    roomId: string;
+    sequence: number;
+    base: number;
+    serverTime: string;
+    changes: StateChange[];
+}
+export declare function isSnapshotDelta(value: unknown): value is SnapshotDelta;
+/**
+ * The changes that turn one JSON state into another, as JSON sees them. Records are compared
+ * key by key and same-length arrays index by index, such as a room's seats. An array whose
+ * length changed is sent whole, and so is one whose item changes would be longer than it,
+ * such as a snake's body moving one cell.
+ */
+export declare function stateChanges(before: unknown, after: unknown): StateChange[];
+/**
+ * The state with the changes applied. Only the objects along a changed path are copied; the
+ * rest is shared with `state`, which is left as it was.
+ */
+export declare function applyStateChanges<T>(state: T, changes: readonly StateChange[]): T;
 
 // rules.d.ts
 /**

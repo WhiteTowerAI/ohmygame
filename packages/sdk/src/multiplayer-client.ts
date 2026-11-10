@@ -9,6 +9,8 @@ import {
   isTurnCommand,
   isRecord,
   sameJson,
+  applyStateChanges,
+  isSnapshotDelta,
   isTurnCommandResult,
   LOCKSTEP_ADAPTER_ID,
   MULTIPLAYER_ROOM_LIMIT_CODE,
@@ -151,6 +153,8 @@ export class MultiplayerClient<Game = unknown> {
   /** The service's latest snapshot, which a hosting player's own ticks build on. */
   private fromService?: MultiplayerSnapshot;
   private lastEventSequence = -1;
+  /** Whether a whole snapshot is on its way, so a tick's changes that do not fit wait for it. */
+  private awaitingSnapshot = false;
   /** Whether this connection has already reported a snapshot it could not read. */
   private reportedUnreadable = false;
   private generation = 0;
@@ -793,6 +797,7 @@ export class MultiplayerClient<Game = unknown> {
       this.bind(room);
       this.persist();
       this.setStatus("connected");
+      this.awaitingSnapshot = true;
       room.send("sync");
       this.startPinging();
       this.scheduleMerge();
@@ -880,6 +885,7 @@ export class MultiplayerClient<Game = unknown> {
     this.bindHost(room);
     // Each player gets their own snapshot, so rules can keep a hand or a role private.
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
+    room.onMessage("snapshot.delta", (value: unknown) => this.receiveDelta(value));
     room.onMessage("lockstep.sync", (value: unknown) => this.lockstep?.runner.sync(value));
     room.onMessage("lockstep.frame", (value: unknown) => this.lockstep?.runner.receive(value));
     room.onMessage("pong", (value: unknown) => {
@@ -952,6 +958,7 @@ export class MultiplayerClient<Game = unknown> {
         this.inputId = 0;
         this.persist();
         this.setStatus("connected");
+        this.awaitingSnapshot = true;
         room.send("sync");
         this.startPinging();
       });
@@ -1004,6 +1011,7 @@ export class MultiplayerClient<Game = unknown> {
       return;
     }
     if (value.sequence < (this.fromService?.sequence ?? -1)) return;
+    this.awaitingSnapshot = false;
     // A realtime room the service runs sends its snapshots on its tick.
     if (this.pacesToServiceTick() && !this.owner && value.state.phase === "playing") this.tickClock.arrived();
     this.fromService = value;
@@ -1027,6 +1035,30 @@ export class MultiplayerClient<Game = unknown> {
     if (first)
       for (const command of this.saved?.pending ?? [])
         this.room?.send("command", command);
+  }
+  /**
+   * A realtime tick as the changes since the snapshot before. Applied to the snapshot this
+   * page holds when that is the one they follow; otherwise the page asks for a whole one,
+   * once, and drops changes until it arrives.
+   */
+  private receiveDelta(value: unknown): void {
+    const base = this.fromService;
+    if (!isSnapshotDelta(value) || value.roomId !== this.room?.roomId) return;
+    if (base && value.base === base.sequence) {
+      let state: MultiplayerSnapshot["state"] | undefined;
+      try {
+        state = applyStateChanges(base.state, value.changes);
+      } catch {
+        state = undefined;
+      }
+      if (state) {
+        this.receiveSnapshot({ ...base, sequence: value.sequence, serverTime: value.serverTime, state });
+        return;
+      }
+    }
+    if (value.sequence <= (base?.sequence ?? -1) || this.awaitingSnapshot) return;
+    this.awaitingSnapshot = true;
+    this.room.send("snapshot.request");
   }
   private joinOptions(options: {
     displayName?: string;

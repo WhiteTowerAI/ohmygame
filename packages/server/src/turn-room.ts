@@ -15,6 +15,8 @@ import {
   OWNER_SHARED_MAX_KEYS,
   OWNER_STATE_MAX_LENGTH,
   sameJson,
+  stateChanges,
+  type SnapshotDelta,
   normalizeDisplayName,
   REALTIME_ACTIONS_PER_TICK,
   TICK_MS_RANGE,
@@ -282,6 +284,10 @@ export class GameRoom extends Room {
       if (client.sessionId === this.hostSession)
         client.send("host", { active: true, state: this.record.snapshot.state, tickMs: this.services.adapter.tickMs });
       this.assignHost();
+    });
+    // A page that missed a tick's changes, or has none to apply them to, asks for the whole room.
+    this.onMessage("snapshot.request", (client) => {
+      client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
     });
     this.onMessage("host.reply", (client, value: unknown) => this.hostReply(client, value));
     this.onMessage("host.state", (client, value: unknown) => this.hostState(client, value));
@@ -1179,6 +1185,7 @@ export class GameRoom extends Room {
     host: { views?: HostViews; fromHost?: boolean; tick?: boolean } = {},
   ): void {
     const now = Date.now();
+    const previous = this.record.snapshot;
     if (this.lockstepRound) {
       if (state.phase !== "playing") this.lockstepRound = undefined;
       else this.lockstepSeats(state.players);
@@ -1207,8 +1214,18 @@ export class GameRoom extends Room {
     this.record = record;
     // A closed room must not be offered to quick play or a merging player before it disposes.
     if (state.phase === "closed" && !this.locked) void this.lock();
-    // Without per-seat views every connection sees the same snapshot: encode it once.
-    if (this.sharedSnapshot) this.broadcast("snapshot", record.snapshot);
+    // Without per-seat views every connection sees the same snapshot: encode it once. A
+    // realtime tick sends only what changed since the snapshot before, which they all hold.
+    if (this.sharedSnapshot && host.tick) {
+      const delta: SnapshotDelta = {
+        roomId: record.snapshot.roomId,
+        sequence: record.snapshot.sequence,
+        base: previous.sequence,
+        serverTime: record.snapshot.serverTime,
+        changes: stateChanges(previous.state, record.snapshot.state),
+      };
+      this.broadcast("snapshot.delta", delta);
+    } else if (this.sharedSnapshot) this.broadcast("snapshot", record.snapshot);
     else
       for (const client of this.clients)
         client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));

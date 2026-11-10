@@ -126,6 +126,63 @@ describe("multiplayer connection failures", () => {
     client.dispose();
   });
 
+  it("applies a tick's changes to the snapshot they follow, and asks once for a whole one when they do not", async () => {
+    const transport = new Client(manifest.serverUrl);
+    const handlers = new Map<string, (value: unknown) => void>();
+    const send = vi.fn();
+    const room = {
+      roomId: "room-1",
+      reconnectionToken: "token",
+      reconnection: { enabled: true },
+      onMessage: (type: string, handler: (value: unknown) => void) => handlers.set(type, handler),
+      onDrop: () => {},
+      onReconnect: () => {},
+      onError: () => {},
+      onLeave: () => {},
+      send,
+      removeAllListeners: () => {},
+      leave: vi.fn(async () => {}),
+    } as unknown as Room;
+    vi.spyOn(transport, "create").mockResolvedValue(room);
+    const realtime = { ...manifest, mode: "realtime" as const, adapterId: "arena" };
+    const snapshots: unknown[] = [];
+    const client = new MultiplayerClient(
+      { manifest: realtime, transport, identity: { getToken: async () => "account-token" } },
+      { onSnapshot: (snapshot) => snapshots.push(snapshot) },
+    );
+    await client.createRoom();
+    const serverTime = new Date().toISOString();
+    const delta = (base: number, x: number) => ({ roomId: "room-1", sequence: base + 1, base, serverTime, changes: [[["players", 0, "x"], x]] });
+    // Changes that arrive before the first snapshot wait for the one the join asked for.
+    handlers.get("snapshot.delta")!(delta(4, 9));
+    expect(send).not.toHaveBeenCalledWith("snapshot.request");
+    handlers.get("snapshot")!({
+      roomId: "room-1",
+      gameId: realtime.gameId,
+      deploymentId: realtime.deploymentId,
+      mode: "realtime",
+      sequence: 5,
+      serverTime,
+      state: {
+        phase: "playing", ownerId: "", currentPlayerId: "", winnerPlayerId: "", turnDeadline: 0,
+        players: [{ playerId: "a", displayName: "A", connected: true, x: 1, y: 2 }],
+      },
+    });
+    handlers.get("snapshot.delta")!(delta(5, 3));
+    expect(client.snapshot?.sequence).toBe(6);
+    expect(client.snapshot?.state.players[0]).toMatchObject({ x: 3, y: 2 });
+    expect(snapshots).toHaveLength(2);
+    // A tick went missing: ask for the whole room once, and drop changes until it comes.
+    handlers.get("snapshot.delta")!(delta(7, 5));
+    handlers.get("snapshot.delta")!(delta(8, 6));
+    expect(send.mock.calls.filter(([type]) => type === "snapshot.request")).toHaveLength(1);
+    expect(client.snapshot?.sequence).toBe(6);
+    // Changes older than the snapshot held are simply stale.
+    handlers.get("snapshot.delta")!(delta(2, 0));
+    expect(send.mock.calls.filter(([type]) => type === "snapshot.request")).toHaveLength(1);
+    client.dispose();
+  });
+
   it("accepts a realtime input only as a small plain object without inputId", () => {
     const client = new MultiplayerClient({ manifest: { ...manifest, mode: "realtime", adapterId: "arena" } });
     // Before a room is joined, a valid input is ignored rather than queued.

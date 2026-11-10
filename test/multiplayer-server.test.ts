@@ -13,9 +13,11 @@ import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "@ohmygame/games/gomoku";
 import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
 import {
+  applyStateChanges,
   multiplayerRoomType,
   type MultiplayerManifestConfig,
   type MultiplayerSnapshot,
+  type SnapshotDelta,
   type TurnCommand,
   type TurnCommandResult,
 } from "@ohmygame/sdk/protocol";
@@ -140,6 +142,11 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     room.reconnection.enabled = false;
     room.onMessage("snapshot", (value) => {
       result.snapshot = value;
+    });
+    // Realtime ticks arrive as changes to the snapshot before, as the SDK applies them.
+    room.onMessage("snapshot.delta", (value: SnapshotDelta) => {
+      if (result.snapshot?.sequence === value.base)
+        result.snapshot = { ...result.snapshot, sequence: value.sequence, serverTime: value.serverTime, state: applyStateChanges(result.snapshot.state, value.changes) };
     });
     room.onMessage("ready", (value) => {
       result.ready = value;

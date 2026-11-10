@@ -316,9 +316,15 @@ const rules = defineRealtimeGame({
   through `onError`.
 - `join` and `leave` run when a seat is taken or given up during a round, as in a
   drop-in room or when the owner removes a player. `endIf` runs after every tick.
-- Every tick that changes the state sends each player a full snapshot, so `G`
-  should hold game data only. Ticks raise no room event (`onEvent`); events
-  report seats taken and given up, round starts and finishes. The page draws other players between snapshots,
+- Every tick that changes the state sends each player what changed since the
+  snapshot before (`snapshot.delta`): the paths that changed and their values.
+  An array whose length changed, or whose item changes would be longer than it,
+  goes whole. The page applies the changes to the snapshot they follow and asks
+  for a whole one (`snapshot.request`) when it holds another, as after a missed
+  tick; `onSnapshot` always gets whole snapshots. Rules with `playerView` get a
+  whole snapshot each tick, since each seat's differs. `G` should hold game data
+  only. Ticks raise no room event (`onEvent`); events report seats taken and
+  given up, round starts and finishes. The page draws other players between snapshots,
   for example with `Smoother` (see [drawing between updates](#drawing-between-updates)).
 
 In the page, `createMultiplayerClient<typeof rules>(game)` types `client.sendInput`

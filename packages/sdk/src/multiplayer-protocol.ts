@@ -706,3 +706,117 @@ export function sameJson(left: unknown, right: unknown): boolean {
   for (const key in right) if (right[key] !== undefined) keys--;
   return keys === 0;
 }
+
+/** Where a change applies: the keys and array indexes from the room state down. */
+export type StatePath = (string | number)[];
+/** [path, value] sets the value there; [path] alone removes it. An empty path replaces the whole state. */
+export type StateChange = [path: StatePath] | [path: StatePath, value: unknown];
+
+/**
+ * A realtime tick's snapshot as what changed since the one before (`base`), which every
+ * connection that shares the room's view has. The page applies it to the snapshot it holds
+ * whose sequence is `base`, and asks for a whole one (`snapshot.request`) when it holds another.
+ */
+export interface SnapshotDelta {
+  roomId: string;
+  sequence: number;
+  base: number;
+  serverTime: string;
+  changes: StateChange[];
+}
+
+export function isSnapshotDelta(value: unknown): value is SnapshotDelta {
+  return (
+    isRecord(value) &&
+    typeof value.roomId === "string" &&
+    isSequence(value.sequence) &&
+    isSequence(value.base) &&
+    isServerTime(value.serverTime) &&
+    Array.isArray(value.changes) &&
+    value.changes.every(
+      (change) =>
+        Array.isArray(change) &&
+        (change.length === 1 || change.length === 2) &&
+        Array.isArray(change[0]) &&
+        change[0].every((key: unknown) => typeof key === "string" || (typeof key === "number" && Number.isInteger(key) && key >= 0)),
+    )
+  );
+}
+
+/**
+ * The changes that turn one JSON state into another, as JSON sees them. Records are compared
+ * key by key and same-length arrays index by index, such as a room's seats. An array whose
+ * length changed is sent whole, and so is one whose item changes would be longer than it,
+ * such as a snake's body moving one cell.
+ */
+export function stateChanges(before: unknown, after: unknown): StateChange[] {
+  const changes: StateChange[] = [];
+  collectChanges(before, after, [], changes);
+  return changes;
+}
+
+/** `path` is a stack the walk pushes keys onto and pops; a change copies it. */
+function collectChanges(before: unknown, after: unknown, path: StatePath, changes: StateChange[]): void {
+  if (before === after) return;
+  if (isRecord(before) && isRecord(after)) {
+    for (const key in after) {
+      const value = after[key];
+      if (value === undefined) continue;
+      path.push(key);
+      if (before[key] === undefined || !Object.hasOwn(before, key)) changes.push([[...path], value]);
+      else collectChanges(before[key], value, path, changes);
+      path.pop();
+    }
+    for (const key in before)
+      if (before[key] !== undefined && (after[key] === undefined || !Object.hasOwn(after, key))) changes.push([[...path, key]]);
+    return;
+  }
+  if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+    const items: StateChange[] = [];
+    for (let index = 0; index < after.length; index++) {
+      path.push(index);
+      collectChanges(before[index], after[index], path, items);
+      path.pop();
+    }
+    // Whichever is smaller: the items' changes, or the array whole.
+    if (items.length > 1 && JSON.stringify(after).length < JSON.stringify(items).length) changes.push([[...path], after]);
+    else for (const item of items) changes.push(item);
+    return;
+  }
+  if (!sameJson(before, after)) changes.push([[...path], after]);
+}
+
+/**
+ * The state with the changes applied. Only the objects along a changed path are copied; the
+ * rest is shared with `state`, which is left as it was.
+ */
+export function applyStateChanges<T>(state: T, changes: readonly StateChange[]): T {
+  const copied = new WeakSet<object>();
+  let root: unknown = state;
+  for (const change of changes) {
+    const [path] = change;
+    if (path.length === 0) {
+      root = change.length === 2 ? change[1] : undefined;
+      continue;
+    }
+    root = changeAt(root, path, 0, change, copied);
+  }
+  return root as T;
+}
+
+function changeAt(node: unknown, path: StatePath, depth: number, change: StateChange, copied: WeakSet<object>): unknown {
+  const key = path[depth]!;
+  const container: Record<string | number, unknown> | unknown[] =
+    Array.isArray(node) ? (copied.has(node) ? node : [...node])
+    : isRecord(node) ? (copied.has(node) ? node : { ...node })
+    : typeof key === "number" ? [] : {};
+  copied.add(container);
+  const last = depth === path.length - 1;
+  const value = last ? change[1] : changeAt((container as Record<string, unknown>)[key], path, depth + 1, change, copied);
+  if (last && change.length === 1) {
+    if (Array.isArray(container) && typeof key === "number") container.splice(key, 1);
+    else delete (container as Record<string, unknown>)[key];
+  } else if (key === "__proto__") Object.defineProperty(container, key, { value, writable: true, enumerable: true, configurable: true });
+  else (container as Record<string | number, unknown>)[key] = value;
+  return container;
+}
