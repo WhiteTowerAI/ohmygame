@@ -278,24 +278,10 @@ export class GameRoom extends Room {
       mode: config.mode,
     });
     store.save(this.record);
+    // A page that lost track of the room, such as a lockstep page out of step, asks for all of it again.
     this.onMessage("sync", (client) => {
-      const playerId = this.controls.get(client.sessionId);
-      client.send("ready", {
-        playerId,
-        ...this.tickInfo(),
-        inviteCode:
-          playerId && (this.dropIn || playerId === this.record.snapshot.state.ownerId)
-            ? this.inviteCode || undefined
-            : undefined,
-      });
-      this.sendLockstep(client);
-      this.sendOwner(client);
-      client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
-      if (!this.hosted) return;
-      // A host that reconnected stopped running the rules when it dropped; it resumes here.
-      if (client.sessionId === this.hostSession)
-        client.send("host", { active: true, state: this.record.snapshot.state, tickMs: this.services.adapter.tickMs });
-      this.assignHost();
+      this.welcome(client);
+      if (this.hosted) this.assignHost();
     });
     // A page that missed a tick's changes, or has none to apply them to, asks for the whole room.
     this.onMessage("snapshot.request", (client) => {
@@ -415,16 +401,7 @@ export class GameRoom extends Room {
       true,
       members,
     );
-    // A player who arrives during a lockstep or owner round catches up before the room's state shows it.
-    this.sendLockstep(client);
-    this.sendOwner(client);
-    client.send("ready", {
-      playerId,
-      ...this.tickInfo(),
-      // Anyone in a drop-in room can invite a friend to it.
-      inviteCode: ownerCreating || this.dropIn ? this.inviteCode : undefined,
-    });
-    client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
+    this.welcome(client);
     // The new connection is not among the room's clients until onJoin returns.
     if (this.hosted) this.clock.setTimeout(() => this.assignHost(), 0);
   }
@@ -464,10 +441,32 @@ export class GameRoom extends Room {
     this.validateIdentity(client);
     this.lastInputId.delete(this.controls.get(client.sessionId)!);
     this.connected(client, true);
+    this.welcome(client);
+  }
+  /**
+   * Everything a page needs once it is in the room, the same whether it joined, came back
+   * on its reconnection token or asked with "sync": its player, the round so far and the
+   * room. Pages ask for nothing after joining, so a hosting page that comes back resumes
+   * running the rules from here too.
+   */
+  private welcome(client: Client): void {
+    const playerId = this.controls.get(client.sessionId);
+    // A player who arrives during a lockstep or owner round catches up before the room's state shows it.
     this.sendLockstep(client);
     this.sendOwner(client);
-    client.send("ready", { playerId: this.controls.get(client.sessionId), ...this.tickInfo() });
-    client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
+    client.send("ready", {
+      playerId,
+      ...this.tickInfo(),
+      // Anyone in a drop-in room can invite a friend to it; elsewhere the owner can.
+      inviteCode:
+        playerId && (this.dropIn || playerId === this.record.snapshot.state.ownerId)
+          ? this.inviteCode || undefined
+          : undefined,
+    });
+    client.send("snapshot", this.snapshotFor(playerId));
+    // A host that reconnected stopped running the rules when it dropped.
+    if (this.hosted && client.sessionId === this.hostSession)
+      client.send("host", { active: true, state: this.record.snapshot.state, tickMs: this.services.adapter.tickMs });
   }
   onLeave(client: Client): void {
     const id = this.controls.get(client.sessionId);

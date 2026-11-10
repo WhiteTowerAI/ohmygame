@@ -908,8 +908,8 @@ export class MultiplayerClient<Game = unknown> {
       this.bind(room);
       this.persist();
       this.setStatus("connected");
+      // The service sends this player's seat and the room once the join completes.
       this.awaitingSnapshot = true;
-      room.send("sync");
       this.startPinging();
       this.scheduleMerge();
     } catch (cause) {
@@ -1073,8 +1073,8 @@ export class MultiplayerClient<Game = unknown> {
         this.prediction?.reset();
         this.persist();
         this.setStatus("connected");
+        // As after a join, the service sends the seat and the room by itself.
         this.awaitingSnapshot = true;
-        room.send("sync");
         this.startPinging();
       });
     });

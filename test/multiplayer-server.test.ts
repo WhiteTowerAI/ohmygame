@@ -1138,7 +1138,10 @@ export default defineGame({
       const [gomoku, stones] = await Promise.all([runtime.configure("local-board", "gomoku"), runtime.configure("local-stones", "stones")]);
       expect(gomoku.serverUrl).toBe(stones.serverUrl);
       expect(await runtime.configure("local-board", "gomoku")).toEqual(gomoku);
-      const owner = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+      const readies: Array<string | undefined> = [];
+      const owner = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+        onReady: (_playerId, inviteCode) => readies.push(inviteCode),
+      });
       const guestStorage = memoryStorage();
       const guestIdentityStorage = memoryStorage();
       const guest = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: guestStorage, identityStorage: guestIdentityStorage });
@@ -1153,6 +1156,8 @@ export default defineGame({
       await wait(() => expect(guest.playerId).toBeTruthy());
       expect(guest.playerId).not.toBe(owner.playerId);
       expect(guestRequests()).toBe(2);
+      // The service tells the owner its seat and invitation once, unasked.
+      expect(readies).toEqual([owner.roomCode]);
       // Guest sessions, invitations and matchmaking all go without cookies, so a browser
       // sends them over one connection instead of opening a second for matchmaking.
       const toService = fetched.mock.calls.filter(([url]) => String(url instanceof Request ? url.url : url).startsWith(gomoku.serverUrl));
@@ -1463,12 +1468,24 @@ export default defineRealtimeGame({
       });
       expect(refused).toMatchObject({ accepted: false, error: { code: "not_your_turn", message: "It is another player's turn." } });
 
-      // The host leaves mid-match: the guest takes over the rules and play goes on.
+      // The host's connection drops: the guest's page takes over the rules at once, and the
+      // owner, back on its own, plays on in the same seat without asking for the room.
+      (owner as unknown as { room: Room }).room.connection.close(4010);
+      await wait(() => expect(guest.hosting).toBe(true));
+      expect(hosting).toEqual([true, false]);
+      await wait(() => expect(owner.status).toBe("connected"));
+      await wait(() => expect(owner.snapshot?.state.players.every((player) => player.connected)).toBe(true));
+      guest.moves.pass();
+      await wait(() => expect(owner.snapshot?.state.currentPlayerId).toBe(owner.playerId));
+      owner.moves.pass();
+      await wait(() => expect(guest.snapshot!.state.game).toMatchObject({ turns: 3 }));
+
+      // The owner leaves mid-match: the guest keeps the rules and play goes on.
       await owner.leave();
       await wait(() => expect(guest.hosting).toBe(true));
       await wait(() => expect(guest.snapshot!.state.hostPlayerId).toBe(guest.playerId));
       guest.moves.pass();
-      await wait(() => expect(guest.snapshot!.state.game).toMatchObject({ turns: 2 }));
+      await wait(() => expect(guest.snapshot!.state.game).toMatchObject({ turns: 4 }));
       expect(seen.join("")).not.toContain(`secret-${owner.playerId}`);
       expect(hosting).toEqual([true, false]);
     } finally {
