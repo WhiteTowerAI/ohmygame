@@ -2368,6 +2368,8 @@ const zhCN: typeof en = {
     },
     generated3d: "生成的 3D 模型",
     generatedImage: "生成的图片",
+    generatedVideo: "生成的视频",
+    generating: "正在生成",
     preparing: {
       bash: "正在准备命令",
       read: "正在准备读取",

@@ -7,7 +7,8 @@ const compactionMerges = new WeakMap<Turn, WeakMap<Turn, Turn>>();
 export interface TurnDisplay {
   user?: Extract<ThreadItem, { type: "userMessage" }>;
   work: WorkDisplayItem[];
-  artifacts: Exclude<ToolArtifact, { type: "image" }>[];
+  /** What a finished turn made, shown small under its response; a running turn shows each result with the work that made it. */
+  artifacts: ToolArtifact[];
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
   working: boolean;
@@ -87,7 +88,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   return {
     user,
     work,
-    artifacts: collectArtifacts(processItems),
+    artifacts: [],
     messages: [],
     finalMessages,
     working,
@@ -106,10 +107,11 @@ function turnDurationMs(items: ThreadItem[]): number {
   return timestamps.length >= 2 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
 }
 
-function collectArtifacts(items: ThreadItem[]): TurnDisplay["artifacts"] {
+/** Each file the tools made, once, in the order it was made. */
+export function collectArtifacts(items: readonly ThreadItem[]): ToolArtifact[] {
   const seen = new Set<string>();
   return items.flatMap((item) => {
-    if ((item.type !== "dynamicToolCall" && item.type !== "mcpToolCall") || !item.artifact || item.artifact.type === "image" || seen.has(item.artifact.path)) return [];
+    if ((item.type !== "dynamicToolCall" && item.type !== "mcpToolCall") || !item.artifact || seen.has(item.artifact.path)) return [];
     seen.add(item.artifact.path);
     return [item.artifact];
   });

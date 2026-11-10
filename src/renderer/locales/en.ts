@@ -2402,6 +2402,8 @@ const en = {
     },
     generated3d: "Generated 3D model",
     generatedImage: "Generated image",
+    generatedVideo: "Generated video",
+    generating: "Generating",
     preparing: {
       bash: "Preparing command",
       read: "Preparing read",

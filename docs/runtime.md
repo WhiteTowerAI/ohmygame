@@ -741,11 +741,14 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
-Generated images appear as small thumbnails inside their tool's details
-([example](assets/chat-generated-image-details.png)),
-with the same click-to-enlarge, copy and save actions as other chat images.
-They are not repeated below the response. The files remain in the project's
-`assets/generated/` folder, and the conversation keeps their references.
+Generated images, videos and 3D models appear as small thumbnails under the
+tool calls that made them, without opening those calls. A call still running
+holds its place with a loading tile. Choosing an image shows it larger, with
+the same copy and save actions as other chat images; choosing a video or a 3D
+model opens it in a dialog, where the model can be turned and played. Once a
+turn ends its work folds away, so the same thumbnails also show under the
+response. The files remain in the project's `assets/generated/` folder, and
+the conversation keeps their references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

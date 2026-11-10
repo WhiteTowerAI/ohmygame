@@ -3,8 +3,11 @@ import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
 import { sendsMessage } from "./general-preferences.js";
 import {
+  Box,
   Check,
+  Film,
   GitBranch,
+  LoaderCircle,
   ChevronRight,
   Copy,
   DangerCircle,
@@ -23,18 +26,19 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
 import { PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
-import { useNearViewport } from "./asset-gallery.js";
+import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
+import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
@@ -288,7 +292,7 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
         ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} changes={fileChanges} />
-        : display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
+        : <ArtifactStrip projectId={projectId} artifacts={display.artifacts} />}
       {display.finalMessages.length === 0 ? fileChanges : null}
       {steeringPending ? <SteeringActivity /> : null}
     </article>
@@ -325,7 +329,7 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   return (
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
-      {artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={artifacts} /> : null}
+      <ArtifactStrip projectId={projectId} artifacts={artifacts} />
       {changes}
       {responseId ? (
         <div className="assistant-response-footer">
@@ -537,14 +541,20 @@ function WorkItems({ items, images, failed = false, activeRetryId }: { items: Tu
   return rendered;
 }
 
+/** Tools that end in one image, video or 3D file, so a running call can hold its place. */
+const GENERATING_TOOLS = new Set(["generate_image", "generate_video", "generate_3d_asset", "animate_3d_asset"]);
+
 function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: boolean }) {
+  const { projectId } = useContext(WorkspaceLinkContext);
+  const artifacts = useMemo(() => collectArtifacts(tools), [tools]);
+  const pending = tools.filter((tool) => tool.type === "dynamicToolCall" && GENERATING_TOOLS.has(tool.tool) && (tool.status === "preparing" || tool.status === "inProgress")).length;
   const runningTool = tools.findLast((tool) => tool.status === "preparing" || tool.status === "inProgress");
   const runningPresentation = runningTool ? toolPresentation(runningTool) : undefined;
   const Icon = runningPresentation?.icon ?? toolGroupIcon(tools);
   const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label) : undefined;
   const showThinking = thinking && !runningTool;
   const summaryLabel = showThinking ? t("timeline.thinking") : runningLabel ?? toolGroupSummary(tools);
-  return (
+  return (<>
     <LazyDetails className="tool-activity-group" summary={
       <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
         {showThinking ? null : <Icon size={13} aria-hidden="true" />}
@@ -555,7 +565,9 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
         {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} />)}
       </div>
     </LazyDetails>
-  );
+    {/* Outside the fold, so a result shows without opening the calls that made it. */}
+    <ArtifactStrip projectId={projectId} artifacts={artifacts} pending={pending} />
+  </>);
 }
 
 type ToolIcon = IconComponent | typeof GodotIcon;
@@ -820,7 +832,6 @@ function AgentErrorDetails({ error }: { error: ThreadItemError }) {
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
-  const { projectId } = useContext(WorkspaceLinkContext);
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
@@ -841,7 +852,6 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
   if (!expandable) return row;
   return (
     <LazyDetails className="tool-activity-details" summary={<summary>{row}</summary>}>
-      {item.artifact?.type === "image" ? <div className="tool-details"><ArtifactPreview projectId={projectId} artifact={item.artifact} /></div> : null}
       <ToolDetails item={item} />
     </LazyDetails>
   );
@@ -932,7 +942,7 @@ function ToolDetailBlock({ label, children }: { label: string; children: ReactNo
 }
 
 function hasToolDetails(item: ToolCallItem): boolean {
-  if (item.status === "failed" || item.truncated || item.artifact?.type === "image") return true;
+  if (item.status === "failed" || item.truncated) return true;
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
@@ -949,13 +959,22 @@ function formatToolValue(value: unknown): string {
   }
 }
 
-function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: TurnDisplay["artifacts"] }) {
-  return <div className="tool-artifacts">{artifacts.map((artifact) => <ArtifactPreview key={artifact.path} projectId={projectId} artifact={artifact} />)}</div>;
+/** A row of small results. Each opens whole; `pending` holds a place for every one still being made. */
+function ArtifactStrip({ projectId, artifacts, pending = 0 }: { projectId?: string; artifacts: ToolArtifact[]; pending?: number }) {
+  if (!projectId || artifacts.length + pending === 0) return null;
+  return <div className="tool-artifact-strip">
+    {artifacts.map((artifact) => <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
+    {Array.from({ length: pending }, (_, index) => <span key={index} className="tool-artifact-tile tool-artifact-pending" role="status" aria-label={t("timeline.generating")}>
+      <LoaderCircle className="spin" size={16} aria-hidden="true" />
+    </span>)}
+  </div>;
 }
 
-function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
+function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
   const [preview, setPreview] = useState<{ url: string; blob: Blob }>();
+  const [open, setOpen] = useState(false);
   const [target, visible] = useNearViewport<HTMLDivElement>();
+  const titleId = useId();
   useEffect(() => {
     if (!visible) return;
     let disposed = false;
@@ -971,12 +990,26 @@ function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact:
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [artifact.path, projectId, visible]);
-  return <div ref={target} className={artifact.type === "image" ? "tool-generated-image" : "tool-artifact-preview"}>{!preview ? null : artifact.type === "model"
-    ? <ModelPreview source={preview.url} label={t("timeline.generated3d")} minHeight={320} />
-    : artifact.type === "video"
-      ? <video className="tool-artifact-video" src={preview.url} controls preload="metadata" />
-    : <ImageGallery className="tool-generated-image-gallery" images={[{ ...preview, name: artifact.path.split("/").at(-1) }]}
-        alt={() => t("timeline.generatedImage")} />}</div>;
+  const name = artifact.path.split("/").at(-1) ?? artifact.path;
+  if (artifact.type === "image") {
+    return <div ref={target} className="tool-artifact-tile" title={name}>{preview
+      ? <ImageGallery className="tool-generated-image-gallery" images={[{ ...preview, name }]} alt={() => t("timeline.generatedImage")} />
+      : null}</div>;
+  }
+  const label = artifact.type === "model" ? t("timeline.generated3d") : t("timeline.generatedVideo");
+  const Badge = artifact.type === "model" ? Box : Film;
+  return <div ref={target} className="tool-artifact-tile" title={name}>
+    {preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
+      {artifact.type === "model"
+        // A still: the model turns and plays once it is opened.
+        ? <ModelPreview source={preview.url} label={label} minHeight={0} interactive={false} controls={false} />
+        : <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />}
+      <span className="tool-artifact-badge" aria-hidden="true"><Badge size={11} /></span>
+    </button> : null}
+    {/* In the page body: a chat column can be narrower than the window the dialog covers. */}
+    {open && preview ? createPortal(<AssetDialogShell title={name} labelledBy={titleId} footer={null} onClose={() => setOpen(false)}
+      preview={<AssetMedia type={artifact.type} url={preview.url} label={label} />} />, document.body) : null}
+  </div>;
 }
 
 function preparingToolLabel(toolName: string): string {

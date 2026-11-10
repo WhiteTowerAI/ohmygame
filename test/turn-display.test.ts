@@ -267,23 +267,15 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([compaction]);
   });
 
-  it("keeps generated images in their tool without repeating them after work", () => {
-    const generated = tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } });
-    for (const active of [true, false]) {
-      const display = projectTurnDisplay(turn([generated, answer("Done.")], active));
+  it("lists what a finished turn made once each, and leaves a running turn's results with its work", () => {
+    const image = { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } as const;
+    const model = { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } as const;
+    const items = [tool("completed", { artifact: image }), tool("completed", { artifact: model }), tool("completed", { artifact: model }), answer("Done.")];
 
-      expect(display.artifacts).toEqual([]);
-      expect(display.work[0]).toMatchObject({ kind: "tool-group", tools: [generated] });
-    }
-  });
-
-  it("projects generated models after work as artifacts", () => {
-    const display = projectTurnDisplay(turn([
-      tool("completed", { artifact: { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } }),
-      answer("Done."),
-    ], false));
-
-    expect(display.artifacts).toEqual([{ type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" }]);
+    expect(projectTurnDisplay(turn(items, false)).artifacts).toEqual([image, model]);
+    const running = projectTurnDisplay(turn(items, true));
+    expect(running.artifacts).toEqual([]);
+    expect(running.work[0]).toMatchObject({ kind: "tool-group", tools: items.slice(0, 3) });
   });
 
   it("keeps a final answer in the stable container until the turn ends", () => {
