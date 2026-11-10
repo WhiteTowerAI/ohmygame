@@ -310,7 +310,8 @@ const rules = defineRealtimeGame({
 - `join` and `leave` run when a seat is taken or given up during a round, as in a
   drop-in room or when the owner removes a player. `endIf` runs after every tick.
 - Every tick that changes the state sends each player a full snapshot, so `G`
-  should hold game data only. The page interpolates between snapshots.
+  should hold game data only. The page draws other players between snapshots,
+  for example with `Smoother` (see [drawing between updates](#drawing-between-updates)).
 
 In the page, `createMultiplayerClient<typeof rules>(game)` types `client.sendInput`
 to what `input` returns and `client.sendAction` to what `action` returns. In a room
@@ -454,6 +455,24 @@ play; use lockstep where every screen must agree.
   among the seats. Each round starts with no states and no shared data; a page
   that arrives or reconnects during one gets them all (`owner.sync`).
 - Results never reach a match leaderboard.
+
+## Drawing between updates
+
+Other players' positions reach a page at most once a tick: in realtime
+snapshots, lockstep's `client.confirmed`, and owner rooms' player states.
+`Smoother` from `@ohmygame/sdk/multiplayer` keeps each key's recent updates and
+gives the value to draw at the current time; it runs on the page only.
+`client.tickMs` is the room's tick, which a `Smoother` takes as `intervalMs`.
+
+| Mode | Draws | Cost |
+| --- | --- | --- |
+| `interpolate` (default) | `delayMs` in the past (one interval by default), between the two updates around it; when an update is late, along the last movement for at most `maxExtrapolateMs` | Others appear one interval later |
+| `extrapolate` | Ahead of the newest update along its movement, at most `maxExtrapolateMs`, eased over `smoothMs` | Overshoots a player who stops or turns |
+| `damped` | Eased toward the newest update over `smoothMs` | Trails moving players by about `smoothMs` |
+
+`snapDistance` draws a larger jump, such as a respawn, at once. Fields listed in
+`angles` are radians, eased the short way round. Only numeric fields are
+smoothed, and `retain(keys)` forgets players who left.
 
 ## Drop-in rooms
 

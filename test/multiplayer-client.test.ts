@@ -1,7 +1,7 @@
 import { Client, type Room } from "@colyseus/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
-import { createMultiplayerClient, MultiplayerClient } from "@ohmygame/sdk/multiplayer";
+import { createMultiplayerClient, MultiplayerClient, Smoother } from "@ohmygame/sdk/multiplayer";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const manifest: MultiplayerManifestConfig = {
@@ -181,5 +181,60 @@ describe("multiplayer connection failures", () => {
     await expect(client.createRoom()).rejects.toMatchObject({ code: "sign_in_required" });
     expect(create).not.toHaveBeenCalled();
     client.dispose();
+  });
+});
+
+describe("smoothing other players between updates", () => {
+  const walk = (smoother: Smoother) => {
+    // Updates every 50 ms, moving 5 units each.
+    for (const at of [0, 50, 100]) smoother.push("p", { x: at / 10, y: 1 }, at);
+  };
+
+  it("interpolates one update behind, and carries on briefly when an update is late", () => {
+    const smoother = new Smoother({ intervalMs: 50 });
+    walk(smoother);
+    expect(smoother.get("p", 125)).toEqual({ x: 7.5, y: 1 });
+    expect(smoother.get("p", 0)).toEqual({ x: 0, y: 1 });
+    // The update due at 150 is late: carry on along the last movement, at most one interval.
+    expect(smoother.get("p", 175)).toEqual({ x: 12.5, y: 1 });
+    expect(smoother.get("p", 400)).toEqual({ x: 15, y: 1 });
+    expect(smoother.get("other", 100)).toBeUndefined();
+  });
+
+  it("extrapolates ahead of the newest update, and eases toward the newest in damped mode", () => {
+    const ahead = new Smoother({ mode: "extrapolate", intervalMs: 50, smoothMs: 0 });
+    walk(ahead);
+    expect(ahead.get("p", 125)).toEqual({ x: 12.5, y: 1 });
+    expect(ahead.get("p", 500)).toEqual({ x: 15, y: 1 });
+
+    const damped = new Smoother({ mode: "damped", smoothMs: 50 });
+    damped.push("p", { x: 0 }, 0);
+    expect(damped.get("p", 0)).toEqual({ x: 0 });
+    damped.push("p", { x: 10 }, 10);
+    expect(damped.get("p", 50)!.x).toBeCloseTo(10 * (1 - Math.exp(-1)));
+    expect(damped.get("p", 1000)!.x).toBeCloseTo(10);
+  });
+
+  it("draws a teleport at once and turns angles the short way round", () => {
+    const smoother = new Smoother({ intervalMs: 50, snapDistance: 20 });
+    walk(smoother);
+    smoother.push("p", { x: 90, y: 1 }, 150);
+    expect(smoother.get("p", 160)).toEqual({ x: 90, y: 1 });
+
+    const turning = new Smoother({ intervalMs: 50, delayMs: 0, angles: ["a"] });
+    turning.push("p", { a: 3.1 }, 0);
+    turning.push("p", { a: -3.1 }, 50);
+    // Halfway from 3.1 to -3.1 the short way is pi, not 0.
+    expect(Math.abs(turning.get("p", 25)!.a!)).toBeCloseTo(Math.PI);
+  });
+
+  it("forgets players who left", () => {
+    const smoother = new Smoother();
+    smoother.push("a", { x: 1 }, 0);
+    smoother.push("b", { x: 2 }, 0);
+    smoother.retain(["b"]);
+    expect(smoother.get("a", 0)).toBeUndefined();
+    smoother.delete("b");
+    expect(smoother.get("b", 0)).toBeUndefined();
   });
 });

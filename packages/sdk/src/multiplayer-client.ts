@@ -42,6 +42,8 @@ import type { OhMyGame } from "./index.js";
 import { LockstepRunner } from "./lockstep.js";
 import { OwnerSession } from "./owner.js";
 
+export { Smoother, type SmoothingMode, type SmoothingOptions } from "./smoothing.js";
+
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
@@ -143,7 +145,7 @@ export class MultiplayerClient<Game = unknown> {
   private inputId = 0;
   private latestInput?: RealtimeInput;
   /** The room's tick, from the service; input goes out no faster. */
-  private tickMs = DEFAULT_TICK_MS;
+  private roomTickMs = DEFAULT_TICK_MS;
   private inputTimer?: ReturnType<typeof setInterval>;
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
@@ -238,6 +240,14 @@ export class MultiplayerClient<Game = unknown> {
     } catch {
       /* A broken save never prevents a new room. */
     }
+  }
+  /**
+   * The room's tick in milliseconds, as the service reports it when the player joins: how
+   * often a realtime room's snapshots, and an owner room's player states, arrive at most.
+   * Pass it to a Smoother as intervalMs.
+   */
+  get tickMs(): number {
+    return this.roomTickMs;
   }
   get status(): MultiplayerConnectionStatus {
     return this.connectionStatus;
@@ -838,7 +848,7 @@ export class MultiplayerClient<Game = unknown> {
         value.tickMs >= TICK_MS_RANGE.min &&
         value.tickMs <= TICK_MS_RANGE.max
       )
-        this.tickMs = value.tickMs;
+        this.roomTickMs = value.tickMs;
       if (typeof value.inviteCode === "string")
         this.saved.roomCode = value.inviteCode;
       this.persist();

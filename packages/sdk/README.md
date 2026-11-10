@@ -48,16 +48,16 @@ while messages may change.
 
 ## Entries
 
-| Import                             | Contents                                         |
-| ---------------------------------- | ------------------------------------------------ |
-| `@ohmygame/sdk`                  | `init`, saves, leaderboards, sign-in, errors     |
-| `@ohmygame/sdk/multiplayer`      | `createMultiplayerClient` and the room client    |
-| `@ohmygame/sdk/game`             | `defineGame` and `defineRealtimeGame` for rules  |
-| `@ohmygame/sdk/protocol`         | Multiplayer manifest and room protocol types     |
-| `@ohmygame/sdk/account-protocol` | Account settings and player types                |
-| `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types            |
-| `@ohmygame/sdk/rules`            | The rules runtime the game service runs          |
-| `@ohmygame/sdk/host`             | Rules run in the room host's browser             |
+| Import                           | Contents                                               |
+| -------------------------------- | ------------------------------------------------------ |
+| `@ohmygame/sdk`                  | `init`, saves, leaderboards, sign-in, errors           |
+| `@ohmygame/sdk/multiplayer`      | `createMultiplayerClient`, the room client, `Smoother` |
+| `@ohmygame/sdk/game`             | `defineGame` and `defineRealtimeGame` for rules        |
+| `@ohmygame/sdk/protocol`         | Multiplayer manifest and room protocol types           |
+| `@ohmygame/sdk/account-protocol` | Account settings and player types                      |
+| `@ohmygame/sdk/cloud-protocol`   | Save and leaderboard limits and types                  |
+| `@ohmygame/sdk/rules`            | The rules runtime the game service runs                |
+| `@ohmygame/sdk/host`             | Rules run in the room host's browser                   |
 
 See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md),
 [cloud saves](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md),

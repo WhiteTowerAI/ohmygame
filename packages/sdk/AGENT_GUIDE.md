@@ -171,6 +171,7 @@ if (!(await client.reconnect())) await client.createRoom({ displayName });
 | `leave()`, `dispose()`                                               | Leave the room; dispose also stops the client for good             |
 | `sendCommand(type, payload?)`                                        | `start`, `restart`, `close`, `kick` (owner only), or `action`      |
 | `status`, `playerId`, `roomCode`, `snapshot`, `hosting`, `confirmed` | Current values                                                     |
+| `tickMs`                                                             | The room's tick: how often others' updates arrive at most          |
 
 Try `reconnect()` first on page load: one browser is one player across tabs
 and refreshes. Starting: the room owner sends `client.sendCommand("start")` once
@@ -297,6 +298,26 @@ client.finishRound([winnerId]); // the first page to report decides
   on a collision it sees). Screens may differ slightly.
 - Every round starts with empty states and shared data; the round's first page
   seeds shared data (for example with `expectAbsent`).
+
+### Drawing other players smoothly
+
+Other players' positions arrive at most once a tick. Drawing each as it arrives
+makes them jump; feed them to a `Smoother` and draw what it gives each frame:
+
+```ts
+import { Smoother } from "./ohmygame/multiplayer.js";
+const others = new Smoother({ intervalMs: client.tickMs });
+// onSnapshot: for each other player, others.push(playerId, { x, y });
+// every frame: const drawn = others.get(playerId); // { x, y }, or undefined at first
+```
+
+- `mode: "interpolate"` (default) draws one update behind along the exact path.
+  `"extrapolate"` draws ahead along the last movement: sooner, but overshoots a
+  player who stops. `"damped"` eases toward the newest update.
+- `snapDistance` draws a jump larger than it, such as a respawn, at once;
+  `angles: ["a"]` turns angle fields the short way round.
+- Call `others.retain(ids)` with the players still in the room. Draw the local
+  player from its own state, not through the Smoother.
 
 ## Errors
 
