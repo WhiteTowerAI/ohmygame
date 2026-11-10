@@ -22,13 +22,13 @@ const MAX_TRANSCRIPTION_BYTES = MAX_AUDIO_BYTES;
 
 type Endpoint = "speech" | "sound" | "music" | "transcription";
 const ENDPOINTS = new Map<string, Endpoint>();
-const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat" | "executionModes">): AudioModel => (ENDPOINTS.set(id, endpoint), {
+const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat">): AudioModel => (ENDPOINTS.set(id, endpoint), {
   provider: ELEVENLABS_PROVIDER_ID,
   providerName: ELEVENLABS_PROVIDER_NAME,
   id,
   name,
   protocol: "elevenlabs-v1",
-  capabilities: { executionModes: ["synchronous"], formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, ...capabilities },
+  capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, ...capabilities },
 });
 
 /** Model ids and limits from https://elevenlabs.io/docs/models. */

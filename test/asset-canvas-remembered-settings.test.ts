@@ -98,9 +98,9 @@ describe("Asset Canvas remembered settings", () => {
 
   it("carries audio settings and defaults the model to the first one that makes audio", () => {
     const base: FlowNode = { id: "audio-1", type: "audio", position: { x: 0, y: 0 }, data: { prompt: "" } };
-    const transcriber = { provider: "audio-lab", id: "scribe", name: "Scribe", providerName: "Audio Lab", protocol: "test", capabilities: { produces: [], transcribes: true, executionModes: ["synchronous"], formats: ["mp3"] } } satisfies AudioModel;
-    const tts = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { produces: ["speech"], readsText: true, executionModes: ["streaming"], formats: ["mp3"] } } satisfies AudioModel;
-    const music = { provider: "audio-lab", id: "music", name: "Music", providerName: "Audio Lab", protocol: "test", capabilities: { produces: ["music"], executionModes: ["async-task"], formats: ["mp3"], supportsLoop: true, supportsInstrumental: true } } satisfies AudioModel;
+    const transcriber = { provider: "audio-lab", id: "scribe", name: "Scribe", providerName: "Audio Lab", protocol: "test", capabilities: { produces: [], transcribes: true, formats: ["mp3"] } } satisfies AudioModel;
+    const tts = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { produces: ["speech"], readsText: true, formats: ["mp3"] } } satisfies AudioModel;
+    const music = { provider: "audio-lab", id: "music", name: "Music", providerName: "Audio Lab", protocol: "test", capabilities: { produces: ["music"], formats: ["mp3"], supportsLoop: true, supportsInstrumental: true } } satisfies AudioModel;
     const audioModels = [transcriber, tts, music];
     const speech = nodeGenerationSettings({ type: "audio", data: { audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 } });
     expect(speech).toEqual({ audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_female_vv_uranus_bigtts", speed: 25 });

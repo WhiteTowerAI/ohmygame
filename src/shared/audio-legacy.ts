@@ -1,6 +1,8 @@
 import type { AudioKind } from "./audio.js";
 
 // compat: since beta.5.6, remove from beta.7 and 2026-12-12. The speech, sound-effect, music and audio-scene nodes and the generate-speech, generate-sound-effect and generate-music tools, merged into the audio node and generate-audio. Read from board files, browser drafts, the clipboard, plugin presets and generation history.
+// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles, which no generation uses since beta.5.0, are dropped from audio nodes as they load.
+const DROPPED = ["subtitles", "audioReferences", "audioReferenceSerial"] as const;
 
 const NODE_KINDS: Readonly<Record<string, AudioKind | null>> = { speech: "speech", "sound-effect": "sound-effect", music: "music", "audio-scene": null };
 const TOOL_KINDS: Readonly<Record<string, AudioKind>> = { "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music" };
@@ -16,7 +18,7 @@ type Data = Record<string, unknown> & { model?: { provider?: unknown }; text?: u
 
 function audioData(kind: AudioKind | null, data: Data): Record<string, unknown> {
   // Lyrics and negative prompts were never supported by a provider; the operation is now the model's.
-  const { text, lyrics: _lyrics, negativePrompt: _negative, operation: _operation, ...rest } = data;
+  const { text, lyrics: _lyrics, negativePrompt: _negative, operation: _operation, subtitles: _subtitles, audioReferences: _references, audioReferenceSerial: _serial, ...rest } = data;
   const own = typeof (kind === "speech" ? text : rest.prompt) === "string" ? String(kind === "speech" ? text : rest.prompt) : "";
   const prompt = kind && own && rest.model?.provider === "volcengine-seed-audio" ? `${SEED_AUDIO_INSTRUCTIONS[kind]}${own}` : own;
   // Audio scenes took any positive length; audio nodes start at 0.1 seconds.
@@ -24,18 +26,27 @@ function audioData(kind: AudioKind | null, data: Data): Record<string, unknown> 
   return { ...rest, prompt, ...duration };
 }
 
-/** Reads each speech, sound-effect, music or audio-scene node as an audio node. */
+type NodeRecord = { id?: unknown; type: string; data?: Data };
+const record = (node: unknown): node is NodeRecord => Boolean(node && typeof node === "object" && typeof (node as { type?: unknown }).type === "string");
+const legacyType = (node: unknown): node is NodeRecord => record(node) && node.type in NODE_KINDS;
+const droppedFields = (node: unknown): node is NodeRecord =>
+  record(node) && node.type === "audio" && Boolean(node.data && typeof node.data === "object" && DROPPED.some((key) => key in node.data!));
+
+/** Reads each speech, sound-effect, music or audio-scene node as an audio node, and drops audio references and subtitles. */
 export function migrateLegacyAudioNodes<T>(value: T): { value: T; migrated: string[] } {
   const nodes = value && typeof value === "object" ? (value as { nodes?: unknown }).nodes : undefined;
-  const legacy = (node: unknown): node is { id?: unknown; type: string; data?: Data } =>
-    Boolean(node && typeof node === "object" && typeof (node as { type?: unknown }).type === "string" && (node as { type: string }).type in NODE_KINDS);
-  if (!Array.isArray(nodes) || !nodes.some(legacy)) return { value, migrated: [] };
+  const changes = (node: unknown) => legacyType(node) || droppedFields(node);
+  if (!Array.isArray(nodes) || !nodes.some(changes)) return { value, migrated: [] };
   const migrated: string[] = [];
   return {
     value: { ...value, nodes: nodes.map((node) => {
-      if (!legacy(node)) return node;
+      if (legacyType(node)) {
+        migrated.push(String(node.id));
+        return { ...node, type: "audio", data: audioData(NODE_KINDS[node.type]!, node.data ?? {}) };
+      }
+      if (!droppedFields(node)) return node;
       migrated.push(String(node.id));
-      return { ...node, type: "audio", data: audioData(NODE_KINDS[node.type]!, node.data ?? {}) };
+      return { ...node, data: Object.fromEntries(Object.entries(node.data!).filter(([key]) => !(DROPPED as readonly string[]).includes(key))) };
     }) },
     migrated,
   };

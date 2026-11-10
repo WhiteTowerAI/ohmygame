@@ -1,4 +1,4 @@
-import type { AssetCanvasReference, ModelRef } from "./contracts.js";
+import type { ModelRef } from "./contracts.js";
 import { VOLCENGINE_TTS_VOICES } from "./doubao-voices.js";
 
 /** What a model's audio is for. It describes the model and picks one when a request names none; requests don't carry it otherwise. */
@@ -13,9 +13,6 @@ export const AUDIO_VOICE_ID_MAX_LENGTH = 256;
 export const AUDIO_PROMPT_MAX_LENGTH = 32_000;
 export const AUDIO_VOICE_ID_PATTERN = "^[A-Za-z0-9_-]+$";
 export const DOUBAO_SPEECH_PROVIDER_NAME = "Doubao Speech";
-// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles in saved canvases and assets, here and below.
-/** Kept only to validate legacy Asset Canvas reference aliases on load. */
-export const AUDIO_REFERENCE_ID_PATTERN = "^(Audio|Image)[1-9][0-9]*$";
 
 export const AUDIO_SAMPLE_RATES = [
   8_000, 16_000, 22_050, 24_000, 32_000, 40_000, 44_100, 48_000,
@@ -47,18 +44,6 @@ export interface AudioSettings {
   output?: AudioOutputSettings;
 }
 
-/** Legacy workspace fields remain readable but are omitted from generation requests. */
-export interface AudioCanvasReference {
-  id: string;
-  type: "audio" | "image";
-  source: AssetCanvasReference;
-}
-export interface AudioCanvasSettings extends AudioSettings {
-  /** Legacy canvas state; new generations and UI do not use subtitles or references. */
-  subtitles?: boolean;
-  audioReferences?: AudioCanvasReference[];
-  audioReferenceSerial?: number;
-}
 /** One request for every audio model; the model decides what the prompt means and which options apply. */
 export interface AudioGenerationRequest extends AudioSettings {
   model?: ModelRef;
@@ -79,25 +64,19 @@ export interface AudioModelCapabilities {
   readsText?: boolean;
   /** Turns audio into text. */
   transcribes?: boolean;
-  executionModes: Array<"synchronous" | "streaming" | "async-task">;
   languages?: string[];
   formats: AudioOutputFormat[];
   sampleRates?: AudioSampleRate[];
   maxTextCharacters?: number;
   maxDurationSeconds?: number;
-  maxSpeakers?: number;
   supportsSSML?: boolean;
-  supportsVoiceClone?: boolean;
-  supportsVoiceDesign?: boolean;
   supportsLoop?: boolean;
   supportsInstrumental?: boolean;
   supportsSpeaker?: boolean;
   supportsPitch?: boolean;
   supportsVolume?: boolean;
   supportsStyle?: boolean;
-  supportsVocalToggle?: boolean;
   sampleRatesByFormat?: Partial<Record<AudioOutputFormat, AudioSampleRate[]>>;
-  promptInstructionCharacters?: number;
   /** Text-to-speech request options: pronunciation, language detection, dialect, silence, section, bit rate and cloned voice models. */
   supportsSpeechOptions?: boolean;
   /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. */
@@ -171,18 +150,9 @@ export interface AudioMetadata {
   usageCharacters?: number;
 }
 
-export interface AudioWord {
-  text: string;
-  startMs: number;
-  endMs: number;
-  confidence?: number;
-}
-export interface AudioSentence extends AudioWord { words?: AudioWord[] }
-/** Legacy asset metadata remains readable; providers no longer generate this data. */
-export interface AudioSubtitles { text: string; sentences: AudioSentence[] }
+/** Assets made before beta.5.0 may also hold `subtitles`, which nothing reads. */
 export interface AudioAssetData {
   metadata?: AudioMetadata;
-  subtitles?: AudioSubtitles;
   /** What was sent. Assets made before beta.5.6 hold the older per-operation shape, with `operation` and, for speech, `text`. */
   request?: AudioGenerationRequest;
 }
@@ -223,9 +193,6 @@ export function audioExtension(mediaType: string): "mp3" | "wav" | "ogg" {
 export const AUDIO_SETTING_KEYS = ["voiceId", "voiceKind", "voiceModel", "language", "autoLanguage", "dialect", "style", "speed", "pitch", "volume", "ssml", "pronunciation", "silenceMs", "sectionId", "output"] as const;
 export function audioSettings(data: AudioSettings): AudioSettings {
   return Object.fromEntries(AUDIO_SETTING_KEYS.flatMap((key) => data[key] !== undefined ? [[key, data[key]]] : [])) as AudioSettings;
-}
-export function audioCanvasSettings(data: AudioCanvasSettings): AudioCanvasSettings {
-  return { ...audioSettings(data), ...(data.subtitles !== undefined ? { subtitles: data.subtitles } : {}), ...(data.audioReferenceSerial !== undefined ? { audioReferenceSerial: data.audioReferenceSerial } : {}), ...(data.audioReferences ? { audioReferences: data.audioReferences } : {}) };
 }
 export function audioCompanionFiles(name: string, data: AudioAssetData): Array<{ name: string; mediaType: string; role: "metadata"; text: string }> {
   const metadata = {

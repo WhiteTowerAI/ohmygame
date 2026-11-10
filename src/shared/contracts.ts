@@ -623,7 +623,7 @@ export type AssetCanvasNode = (
     referenceMentions?: Record<string, AssetCanvasReference>;
     assetId?: string;
   } }
-  | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
+  | { id: string; type: "audio"; position: AssetCanvasPosition; data: import("./audio.js").AudioSettings & {
     /** The words a model that reads text speaks, or a description of the audio; a linked Text or Document node adds to it. */
     prompt: string;
     promptSource?: AssetCanvasTextReference;

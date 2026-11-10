@@ -38,7 +38,6 @@ export const CANVAS_ASSETS_SCHEMA = Type.Object({
 export function canvasNodeAssetIds(nodes: readonly AssetCanvasNode[]): string[] {
   const ids = new Set<string>();
   for (const node of nodes) {
-    if ("audioReferences" in node.data) for (const reference of node.data.audioReferences ?? []) if (reference.source.type === "library") ids.add(reference.source.assetId);
     if ("assetId" in node.data && node.data.assetId) ids.add(node.data.assetId);
     const references = node.type === "image" || node.type === "model-3d" ? node.data.images
       : node.type === "video" ? node.data.references : node.type === "animate-3d" && node.data.source ? [node.data.source]

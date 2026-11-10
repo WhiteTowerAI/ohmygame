@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  type AudioCanvasSettings,
+  type AudioSettings,
   type AudioVoice,
   type AudioModel,
   type AudioModelCapabilities,
@@ -18,7 +18,7 @@ const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 
 /** Saved options the model cannot send; they stay on the node until cleared. */
 function hasUnsupportedOptions(
-  value: AudioCanvasSettings,
+  value: AudioSettings,
   caps: AudioModelCapabilities,
 ): boolean {
   return Boolean(
@@ -35,7 +35,7 @@ function hasUnsupportedOptions(
 }
 
 export function audioSettingsIssue(
-  value: AudioCanvasSettings,
+  value: AudioSettings,
   model?: AudioModel,
 ): string | undefined {
   if (!model) return;
@@ -169,12 +169,12 @@ export function CanvasAudioControls({
   disabled,
   onChange,
 }: {
-  value: AudioCanvasSettings;
+  value: AudioSettings;
   model?: AudioModel;
   /** The model's provider lists voices from its account instead of the built-in presets. */
   listsVoices?: boolean;
   disabled?: boolean;
-  onChange(value: Partial<AudioCanvasSettings>): void;
+  onChange(value: Partial<AudioSettings>): void;
 }) {
   const [customVoice, setCustomVoice] = useState(false);
   const caps = model?.capabilities,

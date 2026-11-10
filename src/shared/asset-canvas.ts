@@ -123,17 +123,6 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if (node.type === "video") {
       for (const reference of node.data.references) validateReference(node.id, reference, nodes, ["image", "video", "asset"]);
     }
-    if (node.type === "audio") {
-      const references = node.data.audioReferences ?? [];
-      if (new Set(references.map((reference) => reference.id)).size !== references.length) throw new Error(`Node ${node.id} has duplicate audio reference aliases`);
-      for (const reference of references) {
-        validateReference(node.id, reference.source, nodes, reference.type === "image" ? ["image", "asset"] : ["audio", "asset"]);
-        if (reference.source.type === "node") {
-          const source = nodes.get(reference.source.nodeId);
-          if (source?.type === "asset" && source.data.mediaType !== reference.type) throw new Error(`Node ${node.id} has a reference with the wrong media type`);
-        }
-      }
-    }
     if (node.type === "plugin") {
       // What each input accepts is the plugin's to say; it is checked when the node runs.
       for (const references of Object.values(node.data.inputs)) {
