@@ -504,11 +504,15 @@ play; use lockstep where every screen must agree.
 
 #### Direct connections (`p2p`)
 
-`createMultiplayerClient(ohmygame, { p2p: true })` connects an owner room's pages
+`createMultiplayerClient(game, callbacks, { p2p: true })` connects an owner room's pages
 straight to each other over WebRTC (`packages/sdk/src/peers.ts`), so states and
 messages skip the trip to the service and the wait for its tick. A test between
 two phones on 5G (China Telecom and China Mobile, both with IPv6) measured a 70 ms
 median round trip; through the service the same state took about 400 ms.
+
+Only owner deployments take the option. For any other `adapterId`, built-in or
+custom rules (`host`, `lockstep`), `createMultiplayerClient` throws `p2p is for
+owner deployments.`, so a game whose deployment changes from owner must drop it.
 
 - The service stays in the path: pages send everything to it as before, and it
   syncs late arrivals and reaches players a connection cannot. Its load grows only

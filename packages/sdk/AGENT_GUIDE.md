@@ -313,14 +313,19 @@ client.finishRound([winnerId]); // the first page to report decides
   on a collision it sees). Screens may differ slightly.
 - Every round starts with empty states and shared data; the round's first page
   seeds shared data (for example with `expectAbsent`).
-- Faster for players who can connect directly: `createMultiplayerClient(ohmygame,
-  { p2p: true })` also sends states and `emit` messages straight to other pages
+- Faster for players who can connect directly, in owner deployments only:
+  `createMultiplayerClient(game, callbacks, { p2p: true })` also sends states
+  and `emit` messages straight to other pages
   over WebRTC, without waiting for the service's tick. Everything still goes through
   the service, so nothing changes for players who cannot connect (often office or
   mobile IPv4 networks). Players see each other's network addresses: turn it on
   only for fast-paced owner games. `client.peers` shows, by playerId,
   `"connecting"`, `"open"` or `"failed"`. States arrive sooner, not evenly: draw
-  other players as below either way.
+  other players as below either way. Any deployment whose `adapterId` is not
+  `"owner"`, built-in or custom rules (`"host"`, `"lockstep"`), rejects it:
+  `createMultiplayerClient` throws `p2p is for owner deployments.` and the game
+  cannot connect. Remove `p2p` when a game's deployment changes from owner to
+  anything else.
 
 ### Drawing other players smoothly
 
