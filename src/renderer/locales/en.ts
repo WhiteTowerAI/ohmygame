@@ -115,6 +115,7 @@ const en = {
     details: "Details",
     skip: "Skip",
     copy: "Copy",
+    copyFailed: "Could not copy",
     send: "Send",
     disable: "Disable",
     enable: "Enable",

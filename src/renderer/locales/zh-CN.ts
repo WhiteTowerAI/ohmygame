@@ -116,6 +116,7 @@ const zhCN: typeof en = {
     details: "详情",
     skip: "跳过",
     copy: "复制",
+    copyFailed: "无法复制",
     send: "发送",
     disable: "停用",
     enable: "启用",

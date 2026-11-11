@@ -961,6 +961,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
   const diagnostic = preview?.diagnostics?.length
     ? preview.diagnostics.find((item) => native ? item.client === client : playerOpen ? item.source === "player" : item.client === client)
     : preview?.diagnostic;
+  const [copyFailed, setCopyFailed] = useState(false);
   const captureBlocked = useRef(false);
   captureBlocked.current = !!diagnostic || runtime.status !== "ready" || !!filter;
   const filterId = useId().replaceAll(":", "");
@@ -1050,7 +1051,11 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         <Disclosure summary={t("common.errorDetails")}><pre>{diagnostic.message}</pre></Disclosure>
         <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
-          <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message).catch(() => undefined)}>{t("workspace.copyError")}</button>
+          <button type="button" onClick={() => {
+            setCopyFailed(false);
+            navigator.clipboard.writeText(diagnostic.message).catch(() => setCopyFailed(true));
+          }}>{t("workspace.copyError")}</button>
+          {copyFailed ? <span role="status">{t("common.copyFailed")}</span> : null}
           {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
           {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</button> : null}
           {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</button> : null}

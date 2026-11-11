@@ -131,6 +131,7 @@ function pathWithinRoot(value: string, root: string): boolean {
 
 function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
   const [copiedCode, setCopiedCode] = useState<string>();
+  const [copyFailed, setCopyFailed] = useState(false);
   const code = nodeText(children).replace(/\n$/, "");
   const copied = copiedCode === code;
   const language = isValidElement<{ className?: string }>(children)
@@ -142,11 +143,12 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
       <div className="markdown-code-header">
         <span>{language ?? t("markdown.code")}</span>
         <button type="button" onClick={() => {
-          // Copying fails when the window has lost focus; the button then stays as it was.
-          void navigator.clipboard.writeText(code).then(() => setCopiedCode(code), () => undefined);
+          // Copying fails when the window has lost focus; the button then says so.
+          setCopyFailed(false);
+          navigator.clipboard.writeText(code).then(() => setCopiedCode(code), () => setCopyFailed(true));
         }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? t("common.copied") : t("common.copy")}</span>
+          <span>{copied ? t("common.copied") : copyFailed ? t("common.copyFailed") : t("common.copy")}</span>
         </button>
       </div>
       <pre>{children}</pre>
