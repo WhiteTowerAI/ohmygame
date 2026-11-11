@@ -832,6 +832,15 @@ const en = {
     testing: "Testing…",
     test: "Test connection",
     testHint: "Check api.openai.com using the current form without saving",
+    pluginFiles: {
+      title: "Plugin market images",
+      description: "Plugin icons and screenshots are read from a CDN for npm packages. Choose another if pictures don't load where you are.",
+      source: "Image source",
+      sourceLabel: "Plugin image source",
+      custom: "Custom",
+      address: "CDN address",
+      addressHint: "Serves npm packages like jsDelivr: the address, then {{example}}.",
+    },
   },
   projects: {
     recent: "Recent projects",
@@ -2721,7 +2730,6 @@ const en = {
     firstPublished: "First published",
     newPlugins: "New",
     showOnly: "Show only",
-    updatedAgo: "Updated {{time}}",
     viewAllPlugins_one: "View all {{count}} plugin",
     viewAllPlugins_other: "View all {{count}} plugins",
     showMore: "Show more ({{count}} left)",

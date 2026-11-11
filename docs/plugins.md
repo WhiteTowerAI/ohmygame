@@ -57,16 +57,15 @@ that failed).
   - Any other view is one list with its count, a **Contains** filter and an
     order: **Recommended**, **Most downloaded**, **Newest**, **Recently
     updated** or **Name**. It shows 24 cards at a time with **Show more**.
-  - A card is one button. It shows the publisher's GitHub avatar, or the
-    plugin's first letter, then its name and marks (**Installed** among them)
-    and description. Its last line has weekly downloads and how long ago its
-    newest version came out at the left, where every card has them, and the
-    publisher, cut short if long, at the right. OhMyGame's own show their
-    letter beside the seal, since its logo on every card weighed on the page.
+  - A card is one button. It shows the plugin's icon, or its first letter,
+    then its name and marks (**Installed** among them) and description. Its
+    last line has the publisher at the left, cut short if long, and the
+    version and weekly downloads at the right.
   - A card opens the plugin in a dialog over the list, from the index alone:
     its screenshots, long description, what it asks for and adds, and its
-    categories, project types, publisher, version, size, when it was updated
-    and first published, downloads and whether its source is verified. The
+    categories, project types, publisher (after their GitHub avatar), version,
+    size, when it was updated and first published, downloads and whether its
+    source is verified. The
     dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
     the listed version, or **Manage** for an installed plugin, which opens its
     page. A link to a plugin that isn't installed opens the same dialog over
@@ -338,7 +337,7 @@ was opened.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/daemon/plugin-file-mirror.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-file-settings.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -798,22 +797,29 @@ nothing is read.
   `@publisher/name` or whose version isn't exact.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
-  `beta`, a localized `longDescription`, and `images.screenshots`: up to ten
-  `{ path, caption? }` copied out of the package by the index job. A version
-  can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
+  `beta`, a localized `longDescription`, and the manifest's `icon` and
+  `screenshots` (up to ten `{ path, caption? }`), as paths in the package. A
+  version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
   facts can carry `createdAt`, its first publish, and `avatar`, the repository
-  owner's `avatar_url` from GitHub's API. The index keeps no icons: the
-  owner's avatar stands for the plugin, so the job stores nothing per plugin
-  for it. The app reads fields it doesn't know past, keeps only categories it
-  knows, and passes over an avatar that isn't
+  owner's `avatar_url` from GitHub's API. The app reads fields it doesn't know
+  past, keeps only categories it knows, and passes over a path that leaves the
+  package and an avatar that isn't
   `https://avatars.githubusercontent.com/u/<id>`.
-- **Market images.** Screenshot paths are below the index's folder on its own
-  host (`indexImage`), named by their contents, since the app keeps what it
-  read. `GET /plugin-market/images/<path>` serves only a screenshot the
-  current index lists, up to 1 MB, as a PNG, JPEG or WebP.
-  `GET /plugin-market/avatars/<id>` serves only an avatar the current index
-  gives a verified package, read from GitHub's avatar host at 96 pixels, up to
-  256 KB, without following redirects.
+- **Market images.** The index stores no pictures. Icons and screenshots are
+  read from a CDN that serves npm packages' files at
+  `<base><package>@<version>/<path>`, at the version the index lists:
+  jsDelivr by default, or unpkg or another address (HTTPS, or HTTP on this
+  computer) under Settings › Network › Plugin market images
+  (`GET`/`PUT /settings/plugin-files`, kept in `plugin-file-mirror.json`;
+  `src/daemon/plugin-file-mirror.ts`). npmmirror isn't offered: it serves the
+  files of allowlisted packages only. `GET /plugin-market/files?package=&version=&path=`
+  serves only the icon or a screenshot the current index lists for that
+  version, without following redirects: an icon up to 1 MB, checked like an
+  installed plugin's (PNG, WebP or static SVG); a screenshot up to 1 MB as a
+  PNG, JPEG or WebP. `GET /plugin-market/avatars/<id>` serves only an avatar
+  the current index gives a verified package, read from GitHub's avatar host
+  at 96 pixels, up to 256 KB, without following redirects. Avatars show only
+  in the dialog, so a card doesn't wait on GitHub.
 
 ## More manifest fields
 

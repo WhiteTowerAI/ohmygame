@@ -817,6 +817,15 @@ const zhCN: typeof en = {
     testing: "正在测试…",
     test: "测试连接",
     testHint: "使用当前表单检测 api.openai.com，不保存设置",
+    pluginFiles: {
+      title: "插件市场图片",
+      description: "插件图标和截图从 npm 包的 CDN 读取。所在地区加载不出图片时，可以换一个。",
+      source: "图片来源",
+      sourceLabel: "插件图片来源",
+      custom: "自定义",
+      address: "CDN 地址",
+      addressHint: "按 jsDelivr 的方式提供 npm 包：地址后接 {{example}}。",
+    },
   },
   projects: {
     recent: "最近的项目",
@@ -2675,7 +2684,6 @@ const zhCN: typeof en = {
     firstPublished: "首次发布",
     newPlugins: "新上架",
     showOnly: "只看",
-    updatedAgo: "{{time}}更新",
     viewAllPlugins_one: "查看全部 {{count}} 个插件",
     viewAllPlugins_other: "查看全部 {{count}} 个插件",
     showMore: "显示更多（还有 {{count}} 个）",

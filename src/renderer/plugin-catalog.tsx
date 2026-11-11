@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
 import type { MarketPlugin } from "../shared/plugins.js";
-import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
+import { readPluginMarketAvatar, readPluginMarketFile } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, Download, ExternalLink, History } from "./icons.js";
+import { Check, Download, ExternalLink } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -118,19 +118,20 @@ function publisherName(plugin: MarketPlugin): string {
 }
 
 /**
- * Images the market lists, read through the daemon, as addresses an `img` can
- * show: undefined while reading, null for one that can't be read.
+ * Files a market plugin's listed version names (its icon, its screenshots),
+ * read through the daemon from the package file mirror, as addresses an `img`
+ * can show: undefined while reading, null for one that can't be read.
  */
-function useMarketImages(paths: readonly (string | undefined)[]): (string | null | undefined)[] {
+function useMarketFiles(plugin: MarketPlugin, paths: readonly (string | undefined)[]): (string | null | undefined)[] {
   const generation = useReadyRuntimeGeneration();
   const [urls, setUrls] = useState<(string | null | undefined)[]>([]);
-  const key = paths.join("\n");
+  const key = [plugin.package, plugin.version, ...paths].join("\n");
   useEffect(() => {
     setUrls([]);
     const controller = new AbortController();
     const made: string[] = [];
     void Promise.all(paths.map((path) => path
-      ? readPluginMarketImage(path, controller.signal).then((blob) => {
+      ? readPluginMarketFile(plugin, path, controller.signal).then((blob) => {
         const url = URL.createObjectURL(blob);
         made.push(url);
         return url;
@@ -177,19 +178,23 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
   return url;
 }
 
-/**
- * Who publishes a market plugin: the GitHub avatar of a verified source's
- * owner, or else the plugin's first letter. OhMyGame's own show their letter,
- * since the seal already says whose they are and one logo on every card weighs
- * on the page. The index keeps no icons, so nothing is stored per plugin.
- */
+/** A market plugin's own icon, as an installed one's tile shows it, or its first letter. */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
-  const avatar = useMarketAvatar(isOfficialPlugin(plugin.id) ? undefined : plugin.avatar);
+  const [icon] = useMarketFiles(plugin, [plugin.icon]);
   const size = large ? 40 : 24;
-  return <span className={`plugin-tile plugin-tile-avatar${large ? " plugin-tile-large" : ""}`}>
-    {avatar ? <img src={avatar} alt="" aria-hidden="true" />
-      // While the avatar loads the tile stays empty, rather than flashing a letter.
-      : avatar === undefined ? null : <PluginMonogram id={plugin.id} name={plugin.displayName} size={size} />}
+  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
+    {icon ? <img className="plugin-icon-image" src={icon} width={size} height={size} alt="" aria-hidden="true" />
+      // While the icon loads the tile stays empty, rather than flashing a letter.
+      : plugin.icon && icon === undefined ? null : <PluginMonogram id={plugin.id} name={plugin.displayName} size={size} />}
+  </span>;
+}
+
+/** Who publishes a market plugin, after their GitHub avatar when the index has one and it can be read. */
+function Publisher({ plugin }: { plugin: MarketPlugin }): ReactNode {
+  const avatar = useMarketAvatar(plugin.avatar);
+  return <span className="plugin-publisher">
+    {avatar ? <img src={avatar} alt="" aria-hidden="true" /> : null}
+    {publisherName(plugin)}
   </span>;
 }
 
@@ -197,11 +202,10 @@ function MarketBadges({ plugin, installed = false }: { plugin: MarketPlugin; ins
   return <PluginMarks official={isOfficialPlugin(plugin.id)} marks={[plugin.beta && "beta", installed && "installed"]} />;
 }
 
-/** A plugin on the market. Opening it shows it in a dialog; Get reviews the package to add it. */
 /**
  * A plugin on the market, as a whole card that opens it in a dialog, where it
- * is added. Its numbers sit at the bottom left, where every card has them, and
- * the publisher, whose name may be long, at the right.
+ * is added. Its last line has the publisher at the left, cut short when the
+ * name is long, and the version and weekly downloads at the right.
  */
 export function MarketPluginCard({ plugin, installed = false, onOpen }: {
   plugin: MarketPlugin;
@@ -209,8 +213,6 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
   onOpen: () => void;
 }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
-  // When its newest version came out: the last time it was updated.
-  const updated = relativeDate(plugin.publishedAt);
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
       <MarketTile plugin={plugin} />
@@ -221,10 +223,12 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta plugin-card-foot">
-          {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}
-            full={t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })} /> : null}
-          {updated ? <Stat icon={<History size={12} />} text={updated} full={t("pluginCatalog.updatedAgo", { time: updated })} /> : null}
           <span className="plugin-card-author">{publisherName(plugin)}</span>
+          <span className="plugin-card-numbers">
+            <span className="plugin-card-version">v{plugin.version}</span>
+            {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}
+              full={t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })} /> : null}
+          </span>
         </span>
       </span>
     </button>
@@ -237,17 +241,6 @@ function Stat({ icon, text, full }: { icon: ReactNode; text: string; full: strin
     <span aria-hidden="true">{icon}{text}</span>
     <span className="visually-hidden">{full}</span>
   </span>;
-}
-
-/** How long ago a date was, in the largest unit that fits: "3 days ago". */
-export function relativeDate(value: string | undefined, now = Date.now()): string | undefined {
-  const time = value ? Date.parse(value) : Number.NaN;
-  if (Number.isNaN(time)) return undefined;
-  const days = Math.round((time - now) / (24 * 60 * 60_000));
-  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
-  if (days > -30) return format.format(Math.min(0, days), "day");
-  if (days > -365) return format.format(Math.round(days / 30), "month");
-  return format.format(Math.round(days / 365), "year");
 }
 
 /**
@@ -359,7 +352,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   };
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
-  const shots = useMarketImages((plugin.screenshots ?? []).map((shot) => shot.path));
+  const shots = useMarketFiles(plugin, (plugin.screenshots ?? []).map((shot) => shot.path));
   return <Dialog open size="lg" onClose={onClose}
     title={<span className="plugin-dialog-title">{plugin.displayName}<MarketBadges plugin={plugin} installed={installed} /></span>}>
     <div className="plugin-dialog">
@@ -368,7 +361,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
         <div className="plugin-dialog-summary">
           <p>{plugin.description}</p>
           <span className="plugins-meta">
-            <span>{publisherName(plugin)}</span>
+            <Publisher plugin={plugin} />
             {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
           </span>
         </div>

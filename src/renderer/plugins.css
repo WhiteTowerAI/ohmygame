@@ -364,10 +364,18 @@
   gap: 3px;
 }
 
-/* a market plugin's publisher: their avatar fills the tile */
-.plugin-tile-avatar > img {
-  width: 100%;
-  height: 100%;
+/* a market plugin's publisher, after their avatar */
+.plugin-publisher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plugin-publisher > img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   object-fit: cover;
 }
 
@@ -509,7 +517,7 @@
   font-size: var(--text-xs);
 }
 
-/* a market card's last line: its numbers on the left, the publisher at the right */
+/* a market card's last line: the publisher on the left, cut short when long; the version and downloads at the right */
 .plugin-card-foot {
   flex-wrap: nowrap;
   min-width: 0;
@@ -517,8 +525,23 @@
 
 .plugin-card-author {
   min-width: 0;
-  margin-left: auto;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-card-numbers {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.plugin-card-version {
+  max-width: 9em;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -19,6 +19,7 @@ import type { PluginTheme } from "../shared/plugins.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
+import { PluginFileSettings } from "./plugin-file-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readNotificationSettings, setNotificationSettings, useNotificationPermission, type NotificationSettings as NotificationPreferences } from "./agent-notifications.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
@@ -93,7 +94,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} onOpenChatModel={() => onSectionChange("agents", OHMYGAME_AGENT)} /> : null}
           {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
-          {section === "network" ? <NetworkSettingsPanel /> : null}
+          {section === "network" ? <><NetworkSettingsPanel /><PluginFileSettings /></> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}

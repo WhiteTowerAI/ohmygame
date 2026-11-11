@@ -131,6 +131,7 @@ import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
+import { PluginFileMirror } from "./plugin-file-mirror.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
@@ -1362,7 +1363,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(), pluginFileMirror.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -1541,8 +1542,10 @@ export function createApp(options: AppOptions = {}) {
       };
     }));
   });
+  const pluginFileMirror = new PluginFileMirror(dataDirectory);
   const pluginMarket = new PluginMarket({
     url: options.pluginIndexUrl,
+    mirror: () => pluginFileMirror.get(),
     directory: path.dirname(pluginServices.packagesDirectory),
     ...(options.pluginSourceNetwork ? { fetch: options.pluginSourceNetwork.fetch } : {}),
     ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
@@ -1588,8 +1591,13 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
-  app.get<{ Params: { "*": string } }>("/plugin-market/images/*", async (request, reply) => {
-    const image = await pluginMarket.image(request.params["*"]).catch(() => undefined);
+  app.get<{ Querystring: { package: string; version: string; path: string } }>("/plugin-market/files", {
+    schema: { querystring: { type: "object", required: ["package", "version", "path"], additionalProperties: false, properties: {
+      package: { type: "string", maxLength: 214 }, version: { type: "string", maxLength: 256 }, path: { type: "string", maxLength: 500 },
+    } } },
+  }, async (request, reply) => {
+    const { package: name, version, path: file } = request.query;
+    const image = await pluginMarket.file(name, version, file).catch(() => undefined);
     if (!image) return reply.code(404).send({ error: "Image not found" });
     return reply
       .header("Cache-Control", "private, max-age=86400, immutable")
@@ -2220,6 +2228,13 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
       throw cause;
     }
+  });
+  app.get("/settings/plugin-files", async () => ({ base: pluginFileMirror.get() }));
+  app.put<{ Body: { base: string } }>("/settings/plugin-files", {
+    schema: { body: { type: "object", required: ["base"], additionalProperties: false, properties: { base: { type: "string", minLength: 1, maxLength: 500 } } } },
+  }, async (request, reply) => {
+    try { return { base: await pluginFileMirror.set(request.body.base) }; }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.get("/settings/network", async () => networkSettings.get());
   app.put<{ Body: NetworkSettings }>("/settings/network", { schema: networkSettingsSchema }, async (request, reply) => {

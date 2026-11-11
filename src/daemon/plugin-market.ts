@@ -3,9 +3,12 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { DEFAULT_PLUGIN_FILE_MIRROR, isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
+import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { sniffImageType } from "./image-format.js";
+import { packageFilePath, pluginFileUrl } from "./plugin-file-mirror.js";
+import { validatePluginIconImage } from "./plugin-icons.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
@@ -21,13 +24,12 @@ const INDEX_MAX_BYTES = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** The index job runs every 30 minutes. */
 const REFRESH_MS = 30 * 60_000;
-/** A plugin's screenshots are each at most 1 MB in its package. */
-const IMAGE_MAX_BYTES = 1024 * 1024;
 /** GitHub serves an avatar at 96 pixels in a few kilobytes. */
 const AVATAR_MAX_BYTES = 256 * 1024;
 const AVATAR = /^https:\/\/avatars\.githubusercontent\.com\/u\/([0-9]{1,12})(?:\?v=[0-9]{1,4})?$/;
 const DAY_MS = 24 * 60 * 60_000;
-const IMAGE_CACHE_LIMIT = 64;
+/** About a page of cards' icons, and a few plugins' screenshots. */
+const IMAGE_CACHE_LIMIT = 128;
 const RETRY_MS = 2 * 60_000;
 
 /** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
@@ -61,10 +63,9 @@ const IndexedVersion = Type.Object({
     appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
     beta: Type.Optional(Type.Boolean()),
     longDescription: Type.Optional(Localized),
-    /** Screenshots the index job copied out of the package, by path from the index's folder. */
-    images: Type.Optional(Type.Object({
-      screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
-    })),
+    /** The manifest's icon and screenshots, by their paths in the package; the app reads them from a CDN for npm packages. */
+    icon: Type.Optional(Type.String({ maxLength: 500 })),
+    screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
   })),
 });
 const PackageFacts = Type.Object({
@@ -133,6 +134,8 @@ export interface PluginMarketOptions {
   now?: () => number;
   /** Replaces npm's keys, for tests. */
   keys?: Record<string, { key: string; expires?: string }>;
+  /** The CDN icons and screenshots are read from, as `PluginFileMirror` holds it. */
+  mirror?: () => string;
 }
 
 export class PluginMarket {
@@ -141,6 +144,7 @@ export class PluginMarket {
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
   readonly #keys: Map<string, { key: KeyObject; expires?: number }>;
+  readonly #mirror: () => string;
   #index: { digest: string; data: MarketIndex } | undefined;
   #checkedAt: number | undefined;
   /** The last try failed, so what's shown may be old. */
@@ -156,6 +160,7 @@ export class PluginMarket {
     this.#fetch = options.fetch ?? ((...request) => fetch(...request));
     this.#now = options.now ?? Date.now;
     this.#keys = new Map(Object.entries(options.keys ?? NPM_KEYS).map(([keyid, item]) => [keyid, readKey(item)]));
+    this.#mirror = options.mirror ?? (() => DEFAULT_PLUGIN_FILE_MIRROR);
   }
 
   /** What Browse shows, in `locale`. Reserved publishers are left out, as they can't be added. */
@@ -179,12 +184,13 @@ export class PluginMarket {
       const plugin = version.plugin!;
       const facts = index.packages[version.package];
       const text = (values: Record<string, string>) => values[language] ?? values.en ?? "";
-      const image = (file: string | undefined) => (file && indexImage(this.#url!, file) ? file : undefined);
+      const file = (value: string | undefined) => (value && packageFilePath(value) ? value : undefined);
       // The repository is proven to be the package's, so its owner's face is the publisher's.
       const avatar = facts?.sourceVerified ? facts.avatar && AVATAR.exec(facts.avatar)?.[1] : undefined;
-      const screenshots = (plugin.images?.screenshots ?? []).flatMap((shot) => {
+      const icon = file(plugin.icon);
+      const screenshots = (plugin.screenshots ?? []).flatMap((shot) => {
         const caption = shot.caption && text(shot.caption);
-        return image(shot.path) ? [{ path: shot.path, ...(caption ? { caption } : {}) }] : [];
+        return file(shot.path) ? [{ path: shot.path, ...(caption ? { caption } : {}) }] : [];
       });
       const categories = plugin.categories?.filter((category): category is PluginCategory => (PLUGIN_CATEGORIES as readonly string[]).includes(category));
       const longDescription = plugin.longDescription && text(plugin.longDescription);
@@ -200,6 +206,7 @@ export class PluginMarket {
         ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
         ...(plugin.beta ? { beta: true } : {}),
         ...(longDescription ? { longDescription } : {}),
+        ...(icon ? { icon } : {}),
         ...(avatar ? { avatar } : {}),
         ...(screenshots.length ? { screenshots } : {}),
         ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
@@ -232,16 +239,26 @@ export class PluginMarket {
   }
 
   /**
-   * A screenshot the index lists for a plugin, read through the daemon so it
-   * uses the app's network settings. Only the newest index's, each checked to
-   * be a PNG, JPEG or WebP; they're named by their contents, so one read is kept.
+   * The icon or a screenshot the newest index lists for a version of a
+   * package, read from the package file mirror at that version, through the
+   * daemon so it uses the app's network settings. An icon is checked as the
+   * installed plugin's would be; a screenshot must be a PNG, JPEG or WebP. A
+   * version's files never change, so one read is kept.
    */
-  async image(file: string): Promise<MarketImage | undefined> {
+  async file(name: string, version: string, file: string): Promise<MarketImage | undefined> {
     const index = this.#url ? await this.#current() : undefined;
-    const url = index && indexImage(this.#url!, file);
-    if (!url || !index.versions.some(({ plugin }) => plugin?.images?.screenshots?.some((shot) => shot.path === file))) return undefined;
-    // Not followed elsewhere: the image has to come from the index's host.
-    return this.#picture(`image:${file}`, url, IMAGE_MAX_BYTES);
+    const plugin = index?.versions.find((item) => item.package === name && item.version === version)?.plugin;
+    const icon = plugin?.icon === file;
+    if (!plugin || !NPM_PLUGIN_PACKAGE.test(name) || !isPluginVersion(version) || (!icon && !plugin.screenshots?.some((shot) => shot.path === file))) return undefined;
+    const base = this.#mirror();
+    const url = pluginFileUrl(base, name, version, file);
+    if (!url) return undefined;
+    // An icon is the type its name says, as an installed plugin's must be.
+    const expected = icon ? PLUGIN_ICON_MEDIA_TYPES[file.slice(file.lastIndexOf(".") + 1).toLowerCase() as keyof typeof PLUGIN_ICON_MEDIA_TYPES] : undefined;
+    if (icon && !expected) return undefined;
+    // Not followed elsewhere: the file has to come from the chosen CDN.
+    return this.#picture(`${icon ? "icon" : "screenshot"}:${url}`, url, icon ? PLUGIN_ICON_MAX_BYTES : PLUGIN_SCREENSHOT_MAX_BYTES,
+      icon ? (bytes) => validatePluginIconImage(bytes, expected) : undefined);
   }
 
   /**
@@ -257,10 +274,11 @@ export class PluginMarket {
     return this.#picture(`avatar:${id}`, `https://avatars.githubusercontent.com/u/${id}?s=96`, AVATAR_MAX_BYTES);
   }
 
-  #picture(key: string, url: string, maxBytes: number): Promise<MarketImage> {
+  #picture(key: string, url: string, maxBytes: number, check?: (bytes: Buffer) => Promise<MarketImage>): Promise<MarketImage> {
     let read = this.#images.get(key);
     if (!read) {
       read = this.#read(url, maxBytes, "error").then((bytes) => {
+        if (check) return check(bytes);
         const mediaType = sniffImageType(bytes);
         if (!mediaType) throw new Error("The image isn't a PNG, JPEG or WebP");
         return { bytes, mediaType, revision: sha256(bytes) };
@@ -425,16 +443,4 @@ async function readLimited(response: Response, maxBytes: number): Promise<Buffer
     chunks.push(Buffer.from(next.value));
   }
   return Buffer.concat(chunks);
-}
-
-/**
- * An image the index lists, as an address on the index's own host: it is a
- * path below the index's folder there, so an index can't point the app at
- * someone else's server. The index's own address is HTTPS, or HTTP on this
- * computer (`isIndexUrl`), and so is the image's.
- */
-export function indexImage(indexUrl: string, file: string): string | undefined {
-  if (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(file) || file.split("/").some((part) => part === "." || part === "..")) return undefined;
-  const url = new URL(file, indexUrl);
-  return url.origin === new URL(indexUrl).origin ? url.href : undefined;
 }

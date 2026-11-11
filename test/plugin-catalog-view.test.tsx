@@ -67,7 +67,7 @@ beforeEach(() => {
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
       if (route === "/plugin-market") return Response.json(market);
-      if (route === "/plugin-market/avatars/42") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
+      if (route === "/plugin-market/avatars/42" || route === "/plugin-market/files") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
         const id = route.slice("/plugin-store/".length, -"/every-project".length);
         store.find((plugin) => plugin.id === id)!.everyProject = JSON.parse(String(init.body)).on;
@@ -289,7 +289,7 @@ describe("plugin catalog browsing", () => {
       market = { status: "ready", blocked: [], plugins: [
         listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400, repository: "https://github.com/acme/popular" }), listed("owned"),
         listed("official", { id: "ohmygame/official", package: "@ohmygame/official", avatar: "42" }),
-        listed("avatar", { sourceVerified: true, avatar: "42" }),
+        listed("avatar", { sourceVerified: true, avatar: "42", icon: "./icon.png" }),
       ] };
       const opened: Array<string | undefined> = [];
       await act(async () => root.render(<PluginsSettings onPluginChange={(id) => opened.push(id)} onTryPlugin={async () => {}} />));
@@ -302,21 +302,25 @@ describe("plugin catalog browsing", () => {
       expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
       expect(card("Market owned").querySelector(".ui-badge")?.textContent).toBe("Installed");
       expect(card("Market popular").textContent).toContain("3.4K a week");
-      // The publisher is last, after the numbers.
-      expect(card("Market popular").querySelector(".plugin-card-foot")?.lastElementChild?.textContent).toBe("@acme");
+      // The publisher comes first on the last line, before the version and downloads.
+      expect(card("Market popular").querySelector(".plugin-card-foot")?.firstElementChild?.textContent).toBe("@acme");
+      expect(card("Market popular").querySelector(".plugin-card-numbers")?.textContent).toContain("v1.0.0");
       // Official is the one mark; a verified source is in the plugin's information instead.
       expect(card("Market official").querySelector('[aria-label="Official"]')).toBeTruthy();
       expect(card("Market popular").querySelector('[aria-label="Official"]')).toBeNull();
       expect(card("Market popular").querySelector('[aria-label="Source verified"]')).toBeNull();
-      // Without an icon in the index, a card shows the plugin's first letter, in the same colour each time.
+      // Without an icon, a card shows the plugin's first letter, in the same colour each time.
       const letter = card("Market popular").querySelector<HTMLElement>(".plugin-monogram")!;
       expect(letter.textContent).toBe("M");
       expect(letter.style.getPropertyValue("--monogram-hue")).toMatch(/^var\(--hue-[a-z]+\)$/);
       expect(card("Market official").textContent).toContain("OhMyGame");
-      // A verified publisher shows their GitHub avatar; OhMyGame's own show their letter beside the seal.
+      // With one, its own icon, read from the package file mirror; a publisher's avatar is only in the dialog.
       await vi.waitFor(() => expect(card("Market avatar").querySelector(".plugin-tile img")).toBeTruthy());
       expect(card("Market official").querySelector(".plugin-tile img")).toBeNull();
       expect(card("Market official").querySelector(".plugin-monogram")?.textContent).toBe("M");
+      await act(async () => card("Market avatar").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      await vi.waitFor(() => expect(dialog()?.querySelector(".plugin-publisher img")).toBeTruthy());
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
       // A card opens the plugin in a dialog, without leaving Discover.
       await act(async () => card("Market popular").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
       expect(opened).toEqual([]);

@@ -1,9 +1,10 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { indexImage, marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { normalizePluginFileMirror, PluginFileMirror, pluginFileUrl } from "../src/daemon/plugin-file-mirror.js";
 import type { MarketPlugin } from "../src/shared/plugins.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
@@ -56,10 +57,13 @@ function server(body: unknown) {
   return { fetcher, reads, state };
 }
 
-async function market(body: unknown, options: { now?: () => number; directory?: string; fetcher?: typeof fetch } = {}) {
+async function market(body: unknown, options: { now?: () => number; directory?: string; fetcher?: typeof fetch; mirror?: () => string } = {}) {
   const { fetcher, reads, state } = server(body);
   return {
-    market: new PluginMarket({ url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: { test: { key: KEY } }, ...(options.now ? { now: options.now } : {}) }),
+    market: new PluginMarket({
+      url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: { test: { key: KEY } },
+      ...(options.now ? { now: options.now } : {}), ...(options.mirror ? { mirror: options.mirror } : {}),
+    }),
     reads,
     state,
   };
@@ -212,43 +216,69 @@ describe("PluginMarket listing", () => {
       longDescription: { en: "Long", "zh-CN": "长" },
       // An index field from a later schema is passed over.
       rating: 5,
-      images: { icon: "assets/icon.svg", screenshots: [
-        { path: "assets/one.png", caption: { en: "One", "zh-CN": "一" } },
+      icon: "./assets/icon.svg",
+      screenshots: [
+        { path: "./assets/one.png", caption: { en: "One", "zh-CN": "一" } },
         { path: "../elsewhere.png" }, { path: "https://evil.example/x.png" }, { path: "assets/two.webp" },
-      ] },
+      ],
     } })] }));
     const [plugin] = (await subject.listing("zh-CN")).plugins;
     expect(plugin).toMatchObject({
       categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长",
-      screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
+      icon: "./assets/icon.svg",
+      screenshots: [{ path: "./assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
     });
     expect(plugin).not.toHaveProperty("rating");
-    // Icons aren't kept in the index any more; the publisher's avatar stands for the plugin.
-    expect(plugin).not.toHaveProperty("icon");
   });
 
-  it("reads only the screenshots its index lists, from the index's host, checking each is a picture", async () => {
+  it("reads only the icon and screenshots its index lists for a version, from the package file mirror, checking each", async () => {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
-    const { market: subject, reads, state } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
-      ...version("@a/b", "1.0.0", "a/b").plugin,
-      images: { icon: "assets/old-icon.png", screenshots: [{ path: "assets/icon.png" }, { path: "assets/page.png" }, { path: "assets/script.svg" }] },
-    } })] }));
-    state.files["https://plugins.example.com/plugins/assets/icon.png"] = png;
-    state.files["https://plugins.example.com/plugins/assets/old-icon.png"] = png;
-    state.files["https://plugins.example.com/plugins/assets/page.png"] = Buffer.from("<html></html>");
-    state.files["https://plugins.example.com/plugins/assets/script.svg"] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
-    state.files["https://plugins.example.com/plugins/assets/other.png"] = png;
-    expect(await subject.image("assets/icon.png")).toMatchObject({ mediaType: "image/png", bytes: png });
-    // Kept once read: they're named by what's in them.
-    await subject.image("assets/icon.png");
-    expect(reads.filter((url) => url.endsWith("icon.png"))).toHaveLength(1);
-    await expect(subject.image("assets/page.png")).rejects.toThrow();
-    await expect(subject.image("assets/script.svg")).rejects.toThrow();
-    expect(await subject.image("assets/other.png")).toBeUndefined();
-    expect(await subject.image("assets/old-icon.png")).toBeUndefined();
-    expect(reads.some((url) => url.endsWith("other.png"))).toBe(false);
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M0 0h32v32H0z"/></svg>');
+    const plugin = (icon: string, screenshots: string[]) => ({ plugin: { ...version("@a/b", "1.0.0", "a/b").plugin, icon, screenshots: screenshots.map((path) => ({ path })) } });
+    const { market: subject, reads, state } = await market(index({ versions: [
+      version("@a/b", "1.0.0", "a/b", plugin("./icon.svg", ["./shots/one.png", "./shots/page.png", "./shots/script.svg"])),
+      version("@a/c", "1.0.0", "a/c", plugin("./bad.svg", [])),
+      version("@a/d", "1.0.0", "a/d", plugin("./icon.png", [])),
+    ] }));
+    const cdn = "https://cdn.jsdelivr.net/npm/";
+    state.files[`${cdn}@a/b@1.0.0/icon.svg`] = svg;
+    state.files[`${cdn}@a/b@1.0.0/shots/one.png`] = png;
+    state.files[`${cdn}@a/b@1.0.0/shots/page.png`] = Buffer.from("<html></html>");
+    state.files[`${cdn}@a/b@1.0.0/shots/script.svg`] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0Z"/></svg>');
+    state.files[`${cdn}@a/b@1.0.0/other.png`] = png;
+    state.files[`${cdn}@a/c@1.0.0/bad.svg`] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    expect(await subject.file("@a/b", "1.0.0", "./icon.svg")).toMatchObject({ mediaType: "image/svg+xml", bytes: svg });
+    expect(await subject.file("@a/b", "1.0.0", "./shots/one.png")).toMatchObject({ mediaType: "image/png", bytes: png });
+    // Kept once read: a version's files don't change.
+    await subject.file("@a/b", "1.0.0", "./shots/one.png");
+    expect(reads.filter((url) => url.endsWith("one.png"))).toHaveLength(1);
+    // A screenshot is a PNG, JPEG or WebP; an icon is checked as an installed one's is.
+    await expect(subject.file("@a/b", "1.0.0", "./shots/page.png")).rejects.toThrow();
+    await expect(subject.file("@a/b", "1.0.0", "./shots/script.svg")).rejects.toThrow();
+    await expect(subject.file("@a/c", "1.0.0", "./bad.svg")).rejects.toThrow();
+    // An icon is the type its name says.
+    state.files[`${cdn}@a/d@1.0.0/icon.png`] = svg;
+    await expect(subject.file("@a/d", "1.0.0", "./icon.png")).rejects.toThrow();
+    // Nothing the index doesn't list for that version.
+    expect(await subject.file("@a/b", "1.0.0", "./other.png")).toBeUndefined();
+    expect(await subject.file("@a/b", "0.9.0", "./icon.svg")).toBeUndefined();
+    expect(await subject.file("@a/c", "1.0.0", "./icon.svg")).toBeUndefined();
+    expect(reads.some((url) => url.endsWith("other.png") || url.includes("0.9.0"))).toBe(false);
     // A redirect could lead anywhere, so it isn't followed.
     expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("reads files from the mirror the person chose", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    let mirror = "https://unpkg.com/";
+    const { market: subject, state } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", {
+      plugin: { ...version("@a/b", "1.0.0", "a/b").plugin, screenshots: [{ path: "./one.png" }] },
+    })] }), { mirror: () => mirror });
+    state.files["https://unpkg.com/@a/b@1.0.0/one.png"] = png;
+    expect(await subject.file("@a/b", "1.0.0", "./one.png")).toMatchObject({ bytes: png });
+    mirror = "https://mirror.example/npm/";
+    state.files["https://mirror.example/npm/@a/b@1.0.0/one.png"] = png;
+    expect(await subject.file("@a/b", "1.0.0", "./one.png")).toMatchObject({ bytes: png });
   });
 
   it("reads a verified publisher's GitHub avatar, from GitHub's avatar host only", async () => {
@@ -283,12 +313,38 @@ describe("PluginMarket listing", () => {
     expect(await subject.avatar("42")).toBeUndefined();
   });
 
-  it("keeps an index's images below its own folder on its own host", () => {
-    expect(indexImage(URL_INDEX, "assets/a.png")).toBe("https://plugins.example.com/plugins/assets/a.png");
-    expect(indexImage("http://127.0.0.1:4000/plugins/index.json", "a.png")).toBe("http://127.0.0.1:4000/plugins/a.png");
-    for (const file of ["../a.png", "assets/../../a.png", "./a.png", "/a.png", "//evil.example/a.png", "https://evil.example/a.png", "a\\b.png", "", "a b.png"]) {
-      expect(indexImage(URL_INDEX, file)).toBeUndefined();
+  it("keeps a package's files below the package on the mirror", () => {
+    const cdn = "https://cdn.jsdelivr.net/npm/";
+    expect(pluginFileUrl(cdn, "@a/b", "1.0.0-beta.1", "./assets/a b.png")).toBe(`${cdn}@a/b@1.0.0-beta.1/assets/a%20b.png`);
+    expect(pluginFileUrl(cdn, "@a/b", "1.0.0", "a.png")).toBe(`${cdn}@a/b@1.0.0/a.png`);
+    for (const file of ["../a.png", "./assets/../../a.png", "/a.png", "//evil.example/a.png", "https://evil.example/a.png", "a\\b.png", "", "./", "a.png?x", "a%2e%2e/b.png"]) {
+      expect(pluginFileUrl(cdn, "@a/b", "1.0.0", file)).toBeUndefined();
     }
+  });
+
+  it("keeps the chosen mirror, and leaves a file it can't read as it is", async () => {
+    const directory = await temporary();
+    const mirror = new PluginFileMirror(directory);
+    await mirror.load();
+    expect(mirror.get()).toBe("https://cdn.jsdelivr.net/npm/");
+    await mirror.set("https://unpkg.com");
+    const again = new PluginFileMirror(directory);
+    await again.load();
+    expect(again.get()).toBe("https://unpkg.com/");
+    const file = path.join(directory, "plugin-file-mirror.json");
+    await writeFile(file, JSON.stringify({ version: 2, bases: ["https://a.example/"] }));
+    const newer = new PluginFileMirror(directory);
+    await newer.load();
+    expect(newer.get()).toBe("https://cdn.jsdelivr.net/npm/");
+    await expect(newer.set("https://unpkg.com/")).rejects.toThrow();
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 2, bases: ["https://a.example/"] });
+  });
+
+  it("takes a mirror over HTTPS, or plain HTTP on this computer, as a base address", () => {
+    expect(normalizePluginFileMirror(" https://cdn.example/npm ")).toBe("https://cdn.example/npm/");
+    expect(normalizePluginFileMirror("http://127.0.0.1:4000/npm/")).toBe("http://127.0.0.1:4000/npm/");
+    for (const value of ["http://cdn.example/npm/", "ftp://cdn.example/", "cdn.example/npm/", "https://cdn.example/npm/?a=1", "https://cdn.example/npm?", "https://cdn.example/npm#", "https://user:pass@cdn.example/", "https://cdn.example/#x"])
+      expect(() => normalizePluginFileMirror(value)).toThrow();
   });
 
   it("stops reading an answer larger than allowed", async () => {
