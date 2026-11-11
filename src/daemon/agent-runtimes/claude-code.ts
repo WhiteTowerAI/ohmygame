@@ -17,6 +17,7 @@ import type {
 } from "./native-session.js";
 import { AgentProcess, processFailure } from "./process.js";
 import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
+import { GENERATION_TOOL_NAMES } from "../agent-tools.js";
 import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 import {
   BridgeResults,
@@ -658,7 +659,9 @@ export class ClaudeCodeDriver implements NativeDriver {
         (call, outcome) => this.#results.record(call.callId, outcome),
         turn.signal,
       );
-      return { mcp_response: answer ?? { jsonrpc: "2.0", result: {}, id: 0 } };
+      return {
+        mcp_response: mayRunTogether(answer) ?? { jsonrpc: "2.0", result: {}, id: 0 },
+      };
     }
     if (request.subtype === "can_use_tool") {
       const input = record(request.input) ?? {};
@@ -746,6 +749,33 @@ const PRE_TOOL_HOOK = "ohmygame-pre-tool";
 
 type ClaudePermissionMode =
   (typeof AGENT_PERMISSION_MODES)["claude-code-cli"][number];
+
+/**
+ * Marks the generation tools in a tool listing as ones Claude Code may run at
+ * once. It runs an MCP tool beside others only when the tool says it is
+ * read-only, and otherwise one at a time: eight sounds wait behind three
+ * animations that take minutes each. These tools are not read-only; the hint
+ * is the only switch there is. Claude Code's own plan mode also lets a
+ * read-only tool through, which OhMyGame never uses: planning runs in default
+ * mode, where the bridge refuses these tools itself.
+ */
+function mayRunTogether(
+  answer: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const tools = record(answer?.result)?.tools;
+  if (!answer || !Array.isArray(tools)) return answer;
+  return {
+    ...answer,
+    result: {
+      ...record(answer.result),
+      tools: tools.map((tool: { name?: unknown }) =>
+        typeof tool.name === "string" && GENERATION_TOOL_NAMES.has(tool.name)
+          ? { ...tool, annotations: { readOnlyHint: true } }
+          : tool,
+      ),
+    },
+  };
+}
 
 /** Claude Code's file-changing tools, which a planning turn refuses whatever the person's rules allow. */
 const CLAUDE_CHANGE_TOOLS = new Set([

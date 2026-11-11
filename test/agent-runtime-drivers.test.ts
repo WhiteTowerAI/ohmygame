@@ -990,6 +990,19 @@ describe("Claude Code adapter", () => {
           result: { content: [{ type: "text", text: "echo x" }] },
         },
       });
+      // Claude Code runs an MCP tool beside others only if it is marked read-only.
+      const listed = await ask(cli, {
+        subtype: "mcp_message",
+        server_name: "ohmygame",
+        message: { jsonrpc: "2.0", id: 8, method: "tools/list" },
+      });
+      expect(
+        (listed.mcp_response as { result: { tools: Array<{ name: string; annotations?: unknown }> } }).result.tools
+          .map((tool) => [tool.name, tool.annotations]),
+      ).toEqual([
+        ["echo_tool", undefined],
+        ["generate_audio", { readOnlyHint: true }],
+      ]);
       cli.send({
         type: "user",
         parent_tool_use_id: null,
@@ -1054,6 +1067,14 @@ describe("Claude Code adapter", () => {
       });
     });
     const driverContext = await context();
+    const tool = (name: string) => defineTool({
+      name,
+      label: name,
+      description: "Echo a value",
+      parameters: Type.Object({ value: Type.String() }),
+      execute: async (_id, input) => ({ content: [{ type: "text", text: `echo ${input.value}` }], details: { artifact: { type: "image", path: "art.png", mediaType: "image/png" } } }),
+    });
+    driverContext.bridge = new ToolBridge([tool("echo_tool"), tool("generate_audio")] as never);
     const driver = new ClaudeCodeDriver(driverContext);
     cleanup.push(() => driver.dispose());
     const recorded = recordingSink();

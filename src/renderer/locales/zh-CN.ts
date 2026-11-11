@@ -2379,6 +2379,7 @@ const zhCN: typeof en = {
       tool: "正在准备",
       other: "正在准备 {{tool}}",
     },
+    queued: "排队中：{{tool}}",
     group: {
       edit: "编辑文件",
       read: "读取文件",
