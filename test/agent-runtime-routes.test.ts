@@ -187,7 +187,7 @@ describe("coding agent routes", () => {
     expect(await call("POST", `${base}/turns`, { prompt: "Hello" })).toMatchObject({ status: 202 });
     await vi.waitFor(async () => expect(JSON.stringify((await call<ConversationDetail>("GET", base)).body)).toContain("ACP reply"), { timeout: 10_000 });
 
-    expect((await call("PUT", "/plugin-store/acme/fake-acp/enabled", { enabled: false })).status).toBe(204);
+    expect((await call("PUT", "/plugin-store/acme/fake-acp/every-project", { on: false })).status).toBe(204);
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.some((agent) => agent.id === id)).toBe(false),
     );

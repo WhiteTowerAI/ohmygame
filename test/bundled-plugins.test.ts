@@ -47,7 +47,8 @@ describe("bundled plugins", () => {
         ["wechat-minigame", "wechat-minigame"],
       ] as const) {
         // Off in every project until the person turns it on there, but not stopped.
-        expect(services.grants.plugin(`ohmygame/${name}`), name).toBeUndefined();
+        // Allowed with the app, yet off until the person turns it on.
+        expect(services.grants.plugin(`ohmygame/${name}`)?.everyProject, name).toBeUndefined();
         expect(services.onInEveryProject(`ohmygame/${name}`), name).toBe(false);
         expect(skillNames(services, `ohmygame/${name}`)).toEqual([skill]);
         expect(names(services, `ohmygame/${name}`)).toEqual(name === "aseprite" || name === "tiled"

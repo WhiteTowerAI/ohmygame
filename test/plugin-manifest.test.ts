@@ -1321,10 +1321,10 @@ describe("plugin releases", () => {
       expect(path.relative(services.packagesDirectory, entry.root)).toBe(path.join("ohmygame", "blender", entry.version));
       expect(services.grants.plugin("ohmygame/blender")).toEqual({ enabled: true, allowed: [] });
       // Installing the same version again replaces it, and a choice to turn it off stays.
-      await services.setEnabled("ohmygame/blender", false);
+      await services.setEveryProject("ohmygame/blender", false);
       await services.installManaged(source);
       expect(services.index.versions("ohmygame/blender")).toHaveLength(1);
-      expect(services.grants.plugin("ohmygame/blender")?.enabled).toBe(false);
+      expect(services.grants.plugin("ohmygame/blender")?.everyProject).toBe(false);
       await mkdir(path.join(dir, "empty"));
       await expect(services.installManaged(path.join(dir, "empty"))).rejects.toThrow("Not a valid plugin");
       // A copy that can't take over leaves the one in use in place.
@@ -1342,7 +1342,7 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own plugins and allows what they ask for, except one that starts off", async () => {
+  it("indexes the app's own plugins and allows what they ask for, keeping off one that starts off", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
     try {
@@ -1352,20 +1352,16 @@ describe("plugin releases", () => {
       expect(services.index.entries().map((entry) => entry.id)).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]));
       // One that only adds Skills asks for nothing, so it is simply on.
       expect(services.grants.plugin("ohmygame/game-studio")).toEqual({ enabled: true, allowed: [] });
-      // One that starts off allows nothing yet: it asks when the person first turns it on.
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toBeUndefined();
+      // One that starts off is allowed too, and stays off until the person turns it on.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: expect.arrayContaining(["native"]) });
       expect(services.onInEveryProject("ohmygame/taptap-maker")).toBe(false);
-      await services.consent("ohmygame/taptap-maker", ["native"]);
-      await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: ["native"] });
-      // Turning one on in every project, without allowing it, allows nothing at the next start either.
       await services.setEveryProject("ohmygame/unreal-engine", true);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/unreal-engine")).toEqual({ enabled: true, allowed: [], everyProject: true });
-      // A plugin the person stopped everywhere stays stopped.
-      await services.setEnabled("ohmygame/godot", false);
+      expect(services.grants.plugin("ohmygame/unreal-engine")).toMatchObject({ enabled: true, everyProject: true });
+      // One the person turned off in every project stays off at the next start.
+      await services.setEveryProject("ohmygame/godot", false);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/godot")?.enabled).toBe(false);
+      expect(services.onInEveryProject("ohmygame/godot")).toBe(false);
     } finally {
       await services.close();
     }

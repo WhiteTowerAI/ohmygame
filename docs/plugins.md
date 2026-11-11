@@ -33,10 +33,8 @@ picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
   **Contains** filter narrows them to what they add; **Skills** lists each of
   their Skills on its own instead.
   Each card says whether the plugin is on in every project or in chosen ones,
-  and its switch changes that without moving the card. Turning on one that
-  asks for more than was allowed asks first, saying it will run in every
-  project it suits. One stopped everywhere from its page says **Disabled** and
-  has no switch.
+  and its switch changes that without moving the card. Turning one on is
+  what allows it: there is no second prompt.
 - **Discover** lists the [plugin market](#the-plugin-market)'s plugins: up to
   four **Featured** ones with their first screenshot, then **All plugins**. Once
   the market lists more than twelve, each category with at least two gets its
@@ -63,10 +61,9 @@ plugin stays on. **Manage all plugins** opens the Plugins page.
 
 A plugin's page has **About** (the long description and Try it prompts),
 **Skills**, and **Settings** tabs, beside a **Management** card with the
-**Every project** switch, **Disable everywhere** (which stops it in every
-project, whatever they say, until **Enable**), version, source, and actions. A
-Try it prompt turns the plugin on in the project it starts in, mentions it,
-and waits until what the plugin asks for is allowed.
+**Every project** switch, version, source, and actions. A plugin that stopped
+after crashing shows **Restart** there. A Try it prompt turns the plugin on in
+the project it starts in and mentions it.
 
 ## Files
 
@@ -104,9 +101,11 @@ and waits until what the plugin asks for is allowed.
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
   - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
-  - `grants.json`: per plugin what the person allowed, whether it is stopped
-    everywhere (`enabled`) and their choice for every project
-    (`everyProject`), and what each project folder allows (by real path);
+  - `grants.json` (`schema` 2): per plugin what the person allowed and their
+    choice for every project (`everyProject`), and which plugins each project
+    folder allows (by real path). Schema 1 is upgraded where it loads: a
+    plugin stopped everywhere becomes off in every project, and what the
+    installed plugins ask for is allowed, since adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
@@ -222,8 +221,8 @@ prompt used.
   **Copy log**.
 - **Quarantine.** A plugin blamed for three host crashes or hangs within
   five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
-  page and card say it stopped, and it stays so until it is turned on again
-  or the app restarts.
+  page and card say it stopped, and it stays so until **Restart** on its page
+  (`POST /plugin-store/:publisher/:name/restart`) or the app restarts.
 - **A panel that stops answering.** While a page with the bridge shows, the
   app pings it every five seconds and the bridge answers by itself. After
   fifteen seconds without an answer the app offers to wait, reload the
@@ -411,9 +410,9 @@ was opened.
   are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
   `POST /plugin-store/releases`,
-  `POST /plugin-store/:publisher/:name/consent`,
-  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`),
-  `PUT /plugin-store/:publisher/:name/enabled` (stops it everywhere),
+  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`, which allows
+  what it asks for when turning it on),
+  `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
 - A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
@@ -428,9 +427,8 @@ was opened.
   from the every-project choice, and turning one on allows it for the
   folder. A project without `ohmygame.json`, from before every project had
   one, gets one the first time it needs one, typed `general`, or its own core
-  type. Turning on one never
-  allowed asks first in the app, then posts the consent. The type's plugin
-  can't be turned off.
+  type. Turning one on allows what it asks for. The type's plugin can't be
+  turned off.
 - A plugin's page reads `GET /plugin-store/plugins`: its icon, long
   description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
   Skill contents and folder come through their own routes
@@ -448,19 +446,17 @@ was opened.
   `not-applicable`, so it doesn't run.
 - Mentions: `@` offers the plugins that suit the project, marking those off
   there (`off`) with what they ask for that isn't allowed yet (`asks`).
-  Picking one that is off turns it on in the project first, asking for
-  consent if needed; a prompt that mentions a plugin not on in its project
-  gets a 409.
+  Picking one that is off turns it on in the project first; a prompt that
+  mentions a plugin not on in its project gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
   from `GET /project-types` (with what each type's plugin `asks` for), then
   a link to the plugins that add types (`#/plugins?adds=projectType`). There
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
-  except those that add types, which are picked as the type. Mentioning one
-  that is off asks for its consent, if needed. The new-project dialog then
-  turns on the mentioned plugins that are off and work in the type it
-  creates, going by the prompt and type it ends with, and lists there what
-  creating allows for any whose consent Home didn't ask for.
+  except those that add types, which are picked as the type. The new-project
+  dialog turns on the mentioned plugins that are off and work in the type it
+  creates, going by the prompt and type it ends with. It shows itself only
+  when the types failed to load or the type it would create isn't Home's.
 
 ## Plugins for every project
 
@@ -474,13 +470,12 @@ plugin itself in `ohmygame.json`.
 
 `resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
 plugins from the plugins its `ohmygame.json` names, then those on in every
-project that it suits and doesn't turn off, at their newest version. Turning
-one that asks for anything on in every project shows what it asks for and that
-it will run in each of those projects; the person's consent, once, is all it
-needs, with no approval per folder. A bundled plugin that starts off is never
-allowed at startup, only by that consent.
-A plugin a project's file names needs that approval too, unless it only adds
-Skills, since the file may come from someone else. `PluginServices.everyProject`
+project that it suits and doesn't turn off, at their newest version. Adding a
+plugin or turning it on, in every project or in one, allows what it asks for;
+a bundled plugin is allowed when the app installs it. A plugin on in every
+project needs no approval per folder. One that only a project's file turns on
+needs **Allow** once for that folder, unless it only adds Skills, since
+the file may come from someone else. `PluginServices.everyProject`
 and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
@@ -488,8 +483,6 @@ then the others by id. They have no per-Skill switches. Mentions keep
 `plugin://web-game-studio@ohmygame` names a bundled one.
 
 A project that names an older version keeps running it, in place of the newest.
-**Disable everywhere** on a plugin's page (`enabled: false`) stops it in every
-project, whatever its file says.
 
 `src/daemon/preinstalled-plugins.ts` installs the versions in
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
@@ -592,9 +585,9 @@ as any package is checked.
 - Installing from the builder allows what the plugin asks for, since the person
   reviewed it and chose Install; a draft with native code shows the
   `NativeCodeWarning` first. `install_plugin`, which the agent calls in a
-  game conversation, allows nothing: the person turns such a plugin on in a
-  project's Plugins sheet, which asks them to approve it. A plugin that only
-  adds Skills asks for nothing and applies right away.
+  game conversation, allows nothing: what it asks for is allowed when the
+  person turns it on. A plugin that only adds Skills asks for nothing and
+  applies right away.
 - A new version of a plugin that only adds Skills replaces its older versions.
   Any other keeps them for the projects that name them.
 - A draft has no settings of its own; they are saved for the installed plugin.
@@ -672,10 +665,9 @@ the plugin's page.
   where a mirror points a version it hasn't copied yet; either way it has to
   match the registry's SHA-512. The origin stays the registry chosen, even when a
   market version came from npm instead, so updates are looked for there.
-- A package allows nothing when it's added. What it asks for waits for the person
-  to approve it, on its page or when they turn it on in a project's Plugins sheet.
-  One that only adds Skills asks for nothing, so it applies right away and replaces
-  its older versions.
+- Adding a package allows what its review showed it asks for, and turns it on in
+  every project unless the person chose otherwise before. One that only adds
+  Skills asks for nothing; it replaces its older versions.
 - A package joins an installed plugin only from the same source: the same npm
   scope or GitHub repository. npm and npmmirror count as one source; another
   registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from

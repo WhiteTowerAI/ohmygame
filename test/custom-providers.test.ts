@@ -643,7 +643,7 @@ describe("plugin model providers", () => {
     expect((await providers(app)).find((provider) => provider.id === hosted)).toMatchObject({ configured: false });
     expect(runtime.getProvider(hosted)).toBeUndefined();
 
-    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/enabled", payload: { enabled: false } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/nim/every-project", payload: { on: false } })).statusCode).toBe(204);
     expect((await providers(app)).some((provider) => provider.plugin)).toBe(false);
     expect(runtime.getProvider(open)).toBeUndefined();
   });

@@ -824,11 +824,6 @@ export async function turnOnProjectPlugin(projectId: string, id: string): Promis
   return undefined;
 }
 
-/** Allows what a plugin asks for, as the person agreed in the app. */
-export async function consentToPlugin(id: string, allowed: string[]): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
-}
-
 /** Installed plugins, one row per version. */
 /** Themes of the plugins the person has on, for Settings › Appearance. */
 export async function listPluginThemes(): Promise<import("../shared/plugins.js").PluginTheme[]> {
@@ -839,15 +834,18 @@ export async function listStorePlugins(): Promise<import("../shared/plugins.js")
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }
 
-/** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+/**
+ * Turns a plugin on or off in every project it suits, which allows what it
+ * asks for; projects that set it themselves keep that. Its themes follow it.
+ */
 export async function setStorePluginEveryProject(id: string, on: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/every-project`, { method: "PUT", body: JSON.stringify({ on }) });
+  void syncPluginTheme(listPluginThemes, on ? undefined : id);
 }
 
-/** The switch that stops a plugin everywhere, whatever projects say. */
-export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
-  void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
+/** Starts a plugin again after it stopped from crashing too often. */
+export async function restartStorePlugin(id: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/restart`, { method: "POST" });
 }
 
 /** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */

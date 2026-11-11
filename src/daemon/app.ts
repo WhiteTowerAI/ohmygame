@@ -1488,7 +1488,8 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = pluginServices.index.get(id);
-      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false) return [];
+      // Themes are the app's, so they follow the plugin's switch for every project.
+      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false || !pluginServices.onInEveryProject(id)) return [];
       return (entry.manifest.contributes?.themes ?? []).map((theme) => ({
         id: `${id}:${theme.id}`,
         plugin: id,
@@ -1650,18 +1651,7 @@ export function createApp(options: AppOptions = {}) {
         directory: pluginServices.packagesDirectory,
         download: downloadRelease,
       });
-      // What it asks for still needs the person's consent.
       return { id: entry.id, version: entry.version, capabilities: capabilityGrants(entry.manifest) };
-    } catch (cause) {
-      return storeReply(reply, cause);
-    }
-  });
-  app.post<{ Params: { publisher: string; name: string }; Body: { allowed: string[] } }>("/plugin-store/:publisher/:name/consent", {
-    schema: { body: { type: "object", required: ["allowed"], additionalProperties: false, properties: { allowed: { type: "array", maxItems: 100, items: { type: "string", maxLength: 300 } } } } },
-  }, async (request, reply) => {
-    try {
-      await pluginServices.consent(`${request.params.publisher}/${request.params.name}`, request.body.allowed);
-      return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
     }
@@ -1676,11 +1666,10 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
-  app.put<{ Params: { publisher: string; name: string }; Body: { enabled: boolean } }>("/plugin-store/:publisher/:name/enabled", {
-    schema: { body: { type: "object", required: ["enabled"], additionalProperties: false, properties: { enabled: { type: "boolean" } } } },
-  }, async (request, reply) => {
+  // Starts a plugin again after it stopped from crashing too often.
+  app.post<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/restart", async (request, reply) => {
     try {
-      await pluginServices.setEnabled(`${request.params.publisher}/${request.params.name}`, request.body.enabled);
+      await pluginServices.restart(`${request.params.publisher}/${request.params.name}`);
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);

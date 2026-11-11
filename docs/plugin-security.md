@@ -31,15 +31,17 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
-Community plugins may carry native code. The add review and a project's
-Plugins sheet say so plainly, and nothing native runs until the person
-approves `native` for that plugin.
+Community plugins may carry native code. The add review says so plainly,
+and nothing native runs until the person adds or turns on that plugin.
 
 ## What the person approves
 
-Adding a package allows nothing (`PluginGrants`). What the manifest asks for
-(`capabilityGrants`) waits until the person approves it on the plugin's page
-or when they turn it on in a project:
+Adding a plugin, after its review, or turning it on is the person's approval:
+what the manifest asks for (`capabilityGrants`) is allowed then
+(`PluginGrants`), with no second prompt. A plugin the agent installed with
+`install_plugin` is allowed nothing until the person turns it on. A project's
+file can turn on a plugin the person never turned on for every project, so a
+project from someone else asks for **Allow** once for its folder:
 
 | Grant | Allows |
 | --- | --- |
@@ -59,8 +61,8 @@ What was allowed stays with the app's data for that project, so a project that
 comes from someone else asks again.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
-An update asks again only for what the new version adds (`newAsks`). Uninstalling
-a plugin's last version forgets what was allowed.
+An update the person adds allows what the new version adds (`newAsks`), shown
+in its review. Uninstalling a plugin's last version forgets what was allowed.
 
 ## Who can publish what
 
@@ -108,7 +110,8 @@ a plugin's last version forgets what was allowed.
 ## When something goes wrong
 
 A plugin blamed for three host crashes or hangs within five minutes is
-quarantined; a panel that stops answering can be reloaded or turned off; and
+quarantined until **Restart**; a panel that stops answering can be reloaded or
+turned off; and
 safe mode starts the app with every plugin off. See
 [When a plugin misbehaves](plugins.md#when-a-plugin-misbehaves).
 

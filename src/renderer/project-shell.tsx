@@ -63,9 +63,9 @@ import {
   branchConversation,
   getConversation,
   getConversationContextUsage,
-  consentToPlugin,
   getConversationCapabilities,
   turnOnProjectPlugin,
+  setProjectPlugin,
   getCheckpointChanges,
   getCheckpointFile,
   getProject,
@@ -110,7 +110,6 @@ import {
   pluginNetFetch,
   reportPluginPanelError,
   reportProjectPanelError,
-  setStorePluginEnabled,
   undoProjectPluginChange,
   type PluginPanel,
   skipLimitResume,
@@ -121,7 +120,6 @@ import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
@@ -457,15 +455,9 @@ export function ProjectShell({
     return () => { disposed = true; };
   }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision]);
 
-  // A plugin mentioned while it is off here is turned on first, once the person allows what it asks for.
-  const [pluginConsent, setPluginConsent] = useState<{ plugin: ConversationCapabilities["plugins"][number]; answer: (allowed: boolean) => void }>();
+  // A plugin mentioned while it is off here is turned on first; mentioning it is turning it on, which allows it.
   async function turnOnMentionedPlugin(plugin: ConversationCapabilities["plugins"][number]): Promise<boolean> {
     if (agentBusy) throw new Error(t("projectPlugins.busy"));
-    if (plugin.asks?.length) {
-      const allowed = await new Promise<boolean>((answer) => setPluginConsent({ plugin, answer }));
-      if (!allowed) return false;
-      await consentToPlugin(plugin.id, plugin.asks);
-    }
     const blocked = await turnOnProjectPlugin(projectId, plugin.id);
     if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
     setCapabilitiesRevision((value) => value + 1);
@@ -1274,9 +1266,9 @@ export function ProjectShell({
       return { error };
     }
   }
-  /** Turns a plugin off everywhere, as from a panel that stopped responding. */
+  /** Turns a plugin off in this project, as from a panel that stopped responding. */
   function turnPluginOff(plugin: string): void {
-    void setStorePluginEnabled(plugin, false).then(
+    void setProjectPlugin(projectId, plugin, false).then(
       () => setCapabilitiesRevision((value) => value + 1),
       (cause: unknown) => toast({ title: plugin, description: errorMessage(cause), tone: "danger" }),
     );
@@ -1597,9 +1589,6 @@ export function ProjectShell({
     </Dialog> : null}
     {pluginLog ? <PluginLogDialog plugin={pluginLog} displayName={pluginLog} onClose={() => setPluginLog(undefined)}
       onChanged={() => setCapabilitiesRevision((value) => value + 1)} /> : null}
-    {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
-      onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
-      onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
     {project && settingsTab ? <ProjectSettings project={project} initialTab={settingsTab} workspaceTab={workspaceSettingsTab} workspaceRef={setSettingsNode} busy={settingsBusy}
       onRename={(name) => void renameTo(name)} onClose={closeSettings} /> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}

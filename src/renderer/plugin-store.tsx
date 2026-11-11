@@ -4,7 +4,7 @@ import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { appliesToLabels, categoryLabel, isOfficialPlugin, OfficialMark, PluginScreenshots } from "./plugin-catalog.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
@@ -12,7 +12,7 @@ import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
 import { ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
-import { PluginCapabilityList, PluginConsentDialog } from "./plugin-consent-dialog.js";
+import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -42,14 +42,8 @@ export function groupStorePlugins(rows: readonly StorePlugin[]): StorePluginGrou
   return [...groups.values()];
 }
 
-/** Not stopped everywhere from its page. */
+/** Not held off by safe mode, the only thing that stops a plugin everywhere. */
 export const storePluginEnabled = (plugin: StorePlugin) => plugin.grants?.enabled !== false;
-
-/** What it asks for that the person hasn't allowed yet. */
-export function storePluginMissing(plugin: StorePlugin): string[] {
-  const allowed = new Set(plugin.grants?.allowed ?? []);
-  return plugin.capabilities.filter((capability) => !allowed.has(capability));
-}
 
 export function storePluginSearchText(plugin: StorePlugin): string {
   return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
@@ -74,24 +68,21 @@ function newProjectType(plugin: StorePlugin): ProjectType | undefined {
 }
 
 /**
- * The switch that turns a plugin on or off in every project it suits. Turning
- * on one that asks for anything says so first, since it then runs in each of
- * those projects, and allows what wasn't allowed yet.
+ * A plugin's one switch: on in every project it suits, which allows what it
+ * asks for, as its review said when it was added. A project can still turn it
+ * on or off for itself.
  */
 export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   toggle: (plugin: StorePlugin, on: boolean) => void;
   busy?: string;
   error?: string;
-  dialog: ReactNode;
 } {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
-  const [asking, setAsking] = useState<StorePlugin>();
-  async function set(plugin: StorePlugin, on: boolean, missing: readonly string[] = []): Promise<void> {
+  async function set(plugin: StorePlugin, on: boolean): Promise<void> {
     setBusy(plugin.id);
     setError(undefined);
     try {
-      if (missing.length) await consentToPlugin(plugin.id, [...missing]);
       await setStorePluginEveryProject(plugin.id, on);
       await onChanged();
     } catch (cause) {
@@ -102,19 +93,10 @@ export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   }
   return {
     toggle: (plugin, on) => {
-      if (busy) return;
-      if (on && plugin.capabilities.length) setAsking(plugin);
-      else void set(plugin, on);
+      if (!busy) void set(plugin, on);
     },
     ...(busy ? { busy } : {}),
     ...(error ? { error } : {}),
-    dialog: asking ? <PluginConsentDialog name={asking.displayName} capabilities={asking.capabilities} everyProject
-      onCancel={() => setAsking(undefined)}
-      onAllow={() => {
-        const plugin = asking;
-        setAsking(undefined);
-        void set(plugin, true, storePluginMissing(plugin));
-      }} /> : null,
   };
 }
 
@@ -181,7 +163,6 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
           <span className="plugin-card-name">{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {plugin.origin?.type === "development" ? <Badge tone={plugin.developmentError ? "danger" : "outline"}>{t("plugins.inDevelopment")}</Badge> : null}
-          {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
           {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
           {enabled && plugin.quarantined ? <Badge tone="danger">{t("pluginLog.stoppedBadge")}</Badge> : null}
           {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
@@ -241,7 +222,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const [logOpen, setLogOpen] = useState(false);
   const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
-  const missing = storePluginMissing(plugin);
   const update = marketUpdate(plugin, market);
   const fromSource = sourceUpdate(plugin, market, updates);
   const blocks = marketBlocks(versions, market);
@@ -269,7 +249,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     },
     onTry: onTry ?? (async () => {}),
   });
-  const canTry = Boolean(onTry) && enabled && !missing.length;
+  // Trying it turns it on in the project, which allows it.
+  const canTry = Boolean(onTry) && enabled;
   const firstExample = plugin.examples[0];
   const browse = (action: () => Promise<void> | undefined) => {
     setError(undefined);
@@ -297,8 +278,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     }
   }
 
-  const toggle = (on: boolean) => void act("enabled", () => setStorePluginEnabled(plugin.id, on));
-  const allow = () => void act("consent", () => consentToPlugin(plugin.id, plugin.capabilities));
+  const restart = () => void act("restart", () => restartStorePlugin(plugin.id));
   const remove = (version: StorePlugin, keepData: boolean) => {
     setRemoving(undefined);
     void act(`remove:${version.version}`, async () => {
@@ -330,13 +310,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && plugin.quarantined ? <Alert tone="danger" title={t("pluginLog.quarantined")} action={<>
       <Button size="sm" variant="ghost" onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
-      <Button size="sm" disabled={!!busy} onClick={() => toggle(true)}>{t("pluginLog.turnOnAgain")}</Button>
+      <Button size="sm" disabled={!!busy} onClick={restart}>{t("pluginLog.turnOnAgain")}</Button>
     </>}>{t("pluginLog.quarantinedHint")}</Alert> : null}
-    {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
-      <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
-    }>
-      {t("pluginStore.consentHint")} {missing.map((capability, index) => <span key={capability}>{index ? ", " : ""}<code>{capability}</code></span>)}
-    </Alert> : null}
 
     <InstalledScreenshots plugin={plugin} />
     <div className="plugin-layout">
@@ -350,7 +325,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
             <h2>{t("plugins.tryIt")}</h2>
             <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}
               onClick={() => tryIt.open(example)}>{example}</button>)}</div>
-            {onTry && !canTry ? <p className="plugins-note" role="status">{enabled ? t("pluginStore.allowToTry") : t("plugins.enableToTry")}</p> : null}
+            {onTry && !canTry ? <p className="plugins-note" role="status">{t("plugins.enableToTry")}</p> : null}
           </section> : null}
           {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
             <h2>{t("pluginStore.adds")}</h2>
@@ -380,13 +355,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
               <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
             </dd>
           </> : null}
-          <dt>{t("plugins.status")}</dt>
-          <dd className="plugin-state">
-            <span>{enabled ? t("common.enabled") : t("common.disabled")}</span>
-            <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => toggle(!enabled)}>
-              {enabled ? t("pluginStore.disableEverywhere") : t("common.enable")}
-            </Button>
-          </dd>
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
@@ -437,7 +405,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     {logOpen ? <PluginLogDialog plugin={plugin.id} displayName={plugin.displayName} onClose={() => setLogOpen(false)} onChanged={() => void onChanged()} /> : null}
     {removing ? <UninstallDialog plugin={plugin} version={removing} onCancel={() => setRemoving(undefined)}
       onUninstall={(keepData) => remove(removing, keepData)} /> : null}
-    {everyProject.dialog}
   </div>;
 }
 

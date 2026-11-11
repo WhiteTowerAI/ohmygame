@@ -265,7 +265,6 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
             {t(`pluginBuilder.starter.${id}.label`)}</Button>)}
         </div>} />}
     </div>, view.panel.body)}
-    {everyProject.dialog}
     {exporting && stored ? <PluginExportDialog plugin={stored.plugin} onClose={() => setExporting(false)} /> : null}
     {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)}
       onSave={async change => {
