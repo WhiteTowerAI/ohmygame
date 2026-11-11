@@ -146,12 +146,15 @@ function useMarketImages(paths: readonly (string | undefined)[]): (string | null
 
 /** Avatars by GitHub id, read once a run: many plugins share a publisher. */
 const avatars = new Map<string, Promise<string | null>>();
+const AVATAR_CACHE_LIMIT = 200;
 
 function useMarketAvatar(id: string | undefined): string | null | undefined {
   const generation = useReadyRuntimeGeneration();
   const [url, setUrl] = useState<string | null | undefined>(id ? undefined : null);
   useEffect(() => {
     if (!id) return setUrl(null);
+    // Not the last publisher's face while this one's loads.
+    setUrl(undefined);
     let read = avatars.get(id);
     if (!read) {
       read = readPluginMarketAvatar(id).then((blob) => URL.createObjectURL(blob), () => {
@@ -160,6 +163,11 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
         return null;
       });
       avatars.set(id, read);
+      if (avatars.size > AVATAR_CACHE_LIMIT) {
+        const [oldest, old] = avatars.entries().next().value!;
+        avatars.delete(oldest);
+        void old.then((made) => { if (made) URL.revokeObjectURL(made); });
+      }
     }
     let live = true;
     void read.then((next) => { if (live) setUrl(next); });
