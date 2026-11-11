@@ -13986,15 +13986,14 @@ summary.work-summary:hover {
 .story-audio-controls > .canvas-chip.is-wide > span { flex: 1 1 auto; }
 .story-audio-controls > .canvas-chip.is-wide > svg:last-child { margin-left: auto; }
 .story-audio-controls .audio-quick-voice {
-  min-width: 108px;
+  min-width: 84px;
   max-width: 140px;
-  flex: 0 1 120px;
+  flex: 0 1 112px;
   padding-right: 4px;
   position: relative;
 }
 .story-audio-controls .audio-quick-voice,
 .story-audio-controls .audio-quick-speed { gap: 4px; }
-.story-audio-controls .audio-quick-voice > span { flex: 0 0 auto; }
 .story-audio-controls .audio-quick-voice select,
 .story-audio-controls .audio-quick-speed select {
   min-width: 0;
@@ -14044,6 +14043,7 @@ summary.work-summary:hover {
 .story-audio-controls .audio-quick-speed-popover > span { white-space: nowrap; }
 .story-audio-controls .audio-quick-speed-popover output { text-align: right; font-variant-numeric: tabular-nums; }
 .story-media-controls .audio-quick-voice .audio-icon-button { width: 22px; height: 22px; flex: 0 0 22px; margin-left: 1px; padding: 0; border: 0; border-radius: 50%; background: var(--settings-row-surface-emphasis); color: var(--text-secondary); box-shadow: none; }
+.audio-icon-button[data-state="failed"], .settings-voice-sample[data-state="failed"] { color: var(--color-danger); }
 /* Account controls reuse the compact model rows and composer menu. */
 .agent-account-profiles .provider-model-copy > small:not(.provider-model-default) { font-family: inherit; font-size: 11px; }
 .agent-account-profiles .agent-usage-inline { flex: 0 1 auto; justify-content: flex-end; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type AudioSettings,
   type AudioVoice,
@@ -136,8 +136,7 @@ function ProviderVoicePicker({
   // A saved voice outside the loaded page stays selectable by id.
   const missing = value && !voices.some((voice) => voice.id === value);
   if (compact) return (
-    <div className="canvas-chip audio-quick-voice">
-      <span>{t("assetCanvas.voice.label")}</span>
+    <div className="canvas-chip audio-quick-voice" title={t("assetCanvas.voice.label")}>
       <select aria-label={t("assetCanvas.voice.label")} value={value ?? ""} disabled={loading} onChange={(event) => onChange(event.target.value || undefined)}>
         <option value="">{t("assetCanvas.voice.choose")}</option>
         {missing ? <option value={value}>{value}</option> : null}
@@ -186,13 +185,31 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
   onChange(value: Partial<AudioSettings>): void;
 }) {
   const [speedOpen, setSpeedOpen] = useState(false);
+  const speedMenu = useRef<HTMLDivElement>(null);
+  // Like a menu, the slider closes on a press anywhere else or on Escape.
+  useEffect(() => {
+    if (!speedOpen) return;
+    const press = (event: PointerEvent) => {
+      if (!speedMenu.current?.contains(event.target as Node)) setSpeedOpen(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSpeedOpen(false);
+    };
+    // Capture, since the canvas stops presses on its nodes and background from bubbling.
+    document.addEventListener("pointerdown", press, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", press, true);
+      document.removeEventListener("keydown", key);
+    };
+  }, [speedOpen]);
   const caps = model?.capabilities;
   const speaks = Boolean(caps?.produces.includes("speech"));
   const min = caps?.speedRange?.[0] ?? -50, max = caps?.speedRange?.[1] ?? 100;
+  const speedLabel = `${(1 + (value.speed ?? 0) / 100).toFixed(1)}×`;
   return <>
     {caps?.supportsSpeaker && listsVoices && model ? <ProviderVoicePicker compact provider={model.provider} value={value.voiceId} onChange={(voiceId) => onChange({ voiceId, voiceKind: undefined, voiceModel: undefined })} /> : null}
-    {caps?.supportsSpeaker && !listsVoices ? <div className="canvas-chip audio-quick-voice">
-      <span>{t("assetCanvas.voice.label")}</span>
+    {caps?.supportsSpeaker && !listsVoices ? <div className="canvas-chip audio-quick-voice" title={t("assetCanvas.voice.label")}>
       <select aria-label={t("assetCanvas.voice.label")} value={value.voiceId ?? ""} disabled={disabled} onChange={(event) => onChange({ voiceId: event.target.value || undefined, voiceKind: "preset", voiceModel: undefined })}>
         <option value="">{t("assetCanvas.voice.default")}</option>
         <DoubaoVoiceOptions />
@@ -200,9 +217,9 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
       <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
       <DoubaoVoiceSample voiceId={value.voiceId} className="audio-icon-button" />
     </div> : null}
-    {speaks ? <div className="audio-quick-speed-menu nodrag nowheel">
-      <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
-        <span>{t("audioStudio.speed")} · {(1 + (value.speed ?? 0) / 100).toFixed(1)}×</span>
+    {speaks ? <div ref={speedMenu} className="audio-quick-speed-menu nodrag nowheel">
+      <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} title={t("audioStudio.speed")} aria-label={`${t("audioStudio.speed")} ${speedLabel}`} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
+        <span>{speedLabel}</span>
         <ChevronDown size={12} aria-hidden="true" />
       </button>
       {speedOpen ? <div className="audio-quick-speed-popover">
@@ -217,7 +234,7 @@ export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, 
           disabled={disabled}
           onChange={(event) => onChange({ speed: Number(event.target.value) })}
         />
-        <output>{(1 + (value.speed ?? 0) / 100).toFixed(1)}×</output>
+        <output>{speedLabel}</output>
       </div> : null}
     </div> : null}
   </>;

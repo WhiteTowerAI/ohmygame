@@ -378,7 +378,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           onChange={selectModel}
         />
         {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
-        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><span>{t("audioStudio.duration")}</span><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
+        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental === true}
