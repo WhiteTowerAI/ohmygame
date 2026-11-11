@@ -45,22 +45,26 @@ export function MinePlugins({ plugins, query, onOpenPlugin }: {
       .catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
   }, [generation]);
-  // Newest first, so each plugin's first workspace is its newest.
-  const byPlugin = new Map<string, PluginSetupSummary[]>();
-  for (const session of sessions ?? []) if (session.pluginId) byPlugin.set(session.pluginId, [...byPlugin.get(session.pluginId) ?? [], session]);
-  const items = [
-    ...(sessions ?? []).filter(session => !session.pluginId || byPlugin.get(session.pluginId)![0] === session)
-      .map(session => ({ key: session.id, session, group: plugins.find(group => group.plugin.id === session.pluginId),
-        earlier: session.pluginId ? byPlugin.get(session.pluginId)!.slice(1) : [] })),
-    ...plugins.filter(group => !byPlugin.has(group.plugin.id)).map(group => ({ key: group.plugin.id, session: undefined, group, earlier: [] })),
-  ].filter(({ session, group }) => (group ? storePluginSearchText(group.plugin) : workspaceTitle(session!.title).toLowerCase()).includes(query));
+  // A card per plugin, from its newest workspace (the list is newest first) or, with none, the plugin alone.
+  type Item = { key: string; session?: PluginSetupSummary; group?: StorePluginGroup; earlier: PluginSetupSummary[] };
+  const items: Item[] = [];
+  const byPlugin = new Map<string, Item>();
+  for (const session of sessions ?? []) {
+    const item = session.pluginId ? byPlugin.get(session.pluginId) : undefined;
+    if (item) { item.earlier.push(session); continue; }
+    const next = { key: session.id, session, group: plugins.find(group => group.plugin.id === session.pluginId), earlier: [] };
+    items.push(next);
+    if (session.pluginId) byPlugin.set(session.pluginId, next);
+  }
+  for (const group of plugins) if (!byPlugin.has(group.plugin.id)) items.push({ key: group.plugin.id, group, earlier: [] });
+  const shown = items.filter(({ session, group }) => (group ? storePluginSearchText(group.plugin) : workspaceTitle(session!.title).toLowerCase()).includes(query));
   // The plugins show even if the workspaces couldn't be read, or one couldn't be deleted.
   const alert = error ? <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} /> : null;
-  if ((!sessions && !error) || !items.length) return alert;
+  if ((!sessions && !error) || !shown.length) return alert;
   return <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
-    <h2>{t("plugins.minePlugins")}<span className="plugins-count">{items.length}</span></h2>
+    <h2>{t("plugins.minePlugins")}<span className="plugins-count">{shown.length}</span></h2>
     {alert}
-    <div className="plugins-grid">{items.map(item => <MinePluginCard key={item.key} session={item.session} group={item.group} earlier={item.earlier} onOpenPlugin={onOpenPlugin}
+    <div className="plugins-grid">{shown.map(item => <MinePluginCard key={item.key} session={item.session} group={item.group} earlier={item.earlier} onOpenPlugin={onOpenPlugin}
       onDeleted={() => { setError(undefined); setSessions(current => current?.filter(session => session.id !== item.session?.id)); }}
       onError={cause => setError(message(cause))} />)}</div>
   </section>;
@@ -94,33 +98,32 @@ function MinePluginCard({ session, group, earlier, onOpenPlugin, onDeleted, onEr
   // A plugin made with AI whose workspace was deleted gets a new one; one from a folder opens its page.
   const open = () => {
     if (session) window.location.hash = pluginBuilderHash(session.id);
-    else if (plugin && !developed) void openPluginBuilder(plugin.id, "edit").catch(onError);
-    else if (plugin) onOpenPlugin(plugin.id);
+    else if (developed) onOpenPlugin(plugin.id);
+    else if (plugin) void openPluginBuilder(plugin.id).catch(onError);
   };
+  // Its page is in the menu unless a click opens it already.
+  const pageInMenu = plugin && !(developed && !session);
   const status = working ? t("pluginMine.status.working")
     : developed ? t("plugins.inDevelopment")
     : plugin ? t("pluginMine.status.installed", { version: plugin.version })
-    : t(session?.status === "ready" ? "pluginMine.status.draft" : "pluginMine.status.idle");
+    : t(session?.status === "idle" ? "pluginMine.status.idle" : "pluginMine.status.draft");
   const date = (time: number) => new Date(time).toLocaleDateString(language, { month: "short", day: "numeric" });
   const updated = session ? date(session.updatedAt) : undefined;
-  const menu: MenuEntry[] = [
-    // One from a folder opens its page already.
-    ...(plugin && (session || !developed) ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => onOpenPlugin(plugin.id) }] : []),
+  const opens: MenuEntry[] = [
+    ...(pageInMenu ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => onOpenPlugin(plugin.id) }] : []),
     ...earlier.map(other => ({ label: t("pluginMine.openEarlier", { date: date(other.updatedAt) }), icon: <Sparkles size={14} />,
       onSelect: () => { window.location.hash = pluginBuilderHash(other.id); } })),
-    ...(session ? [
-      ...(plugin && (session || !developed) || earlier.length ? ["separator" as const] : []),
-      { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },
-    ] : []),
   ];
-  return <article className="plugin-card plugin-mine-card">
+  const menu: MenuEntry[] = session ? [...opens, ...(opens.length ? ["separator" as const] : []),
+    { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) }] : opens;
+  return <article className="plugin-card">
     <button type="button" className="plugin-card-link" onClick={open}>
       <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} />
-        : session && !plugin ? <PluginGlyph plugin={session} size={24} setupId={session.id} name={name} />
-        : <PluginGlyph plugin={plugin ?? session!} size={24} name={name} />}</span>
+        : plugin ? <PluginGlyph plugin={plugin} size={24} name={name} />
+        : <PluginGlyph plugin={session!} size={24} setupId={session!.id} name={name} />}</span>
       <span className="plugin-card-text">
         <strong><span className="plugin-card-name">{name}</span></strong>
-        <small>{plugin?.description || t(session?.pluginId === undefined && session?.status !== "ready" ? "pluginMine.startHint" : "pluginMine.draftHint")}</small>
+        <small>{plugin ? plugin.description : t(session!.status === "idle" ? "pluginMine.startHint" : "pluginMine.draftHint")}</small>
         <span className="plugins-meta">
           <span>{status}</span>
           {updated ? <span>{t("pluginMine.edited", { date: updated })}</span> : null}

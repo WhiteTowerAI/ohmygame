@@ -443,13 +443,12 @@ async function readLimited(response: Response, maxBytes: number): Promise<Buffer
 }
 
 /**
- * An image the index lists, as an address on the index's own host: it is a
- * path below the index's folder there, so an index can't point the app at
+ * An image the index lists, as an address below the index's folder on its own
+ * host: plain names, no `.` or `..`, so an index can't point the app at
  * someone else's server. The index's own address is HTTPS, or HTTP on this
  * computer (`isIndexUrl`), and so is the image's.
  */
 export function indexImage(indexUrl: string, file: string): string | undefined {
   if (file.length > 500 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(file) || file.split("/").some((part) => part === "." || part === "..")) return undefined;
-  const url = new URL(file, indexUrl);
-  return url.origin === new URL(indexUrl).origin ? url.href : undefined;
+  return new URL(file, indexUrl).href;
 }

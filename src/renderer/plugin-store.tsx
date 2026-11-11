@@ -405,7 +405,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
         </div>
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
-          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
           {personal ? <Button icon={<Upload size={14} />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
           {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}

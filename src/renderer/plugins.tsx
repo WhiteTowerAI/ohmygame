@@ -116,8 +116,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
 
   const normalizedQuery = query.trim().toLowerCase();
   const groups = groupStorePlugins(store);
-  const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
-    .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
+  const byName = (left: StorePluginGroup, right: StorePluginGroup) => left.plugin.displayName.localeCompare(right.plugin.displayName);
+  const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery)).sort(byName);
   const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
     onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
   // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
@@ -236,8 +236,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       </span>
       <Button variant="primary" icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
     </div>
-    <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin)).sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName))}
-      query={normalizedQuery} onOpenPlugin={onPluginChange} />
+    <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin)).sort(byName)} query={normalizedQuery} onOpenPlugin={onPluginChange} />
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
