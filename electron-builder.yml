@@ -34,6 +34,13 @@ files:
   - "!node_modules/typebox/build/**/*.mjs"
   # recheck falls back without its Java backend, which cannot run from the ASAR.
   - "!node_modules/recheck-jar/**"
+  # The app never opens rooms itself: games get the browser SDK from
+  # dist/multiplayer-sdk/resources.json. PostgreSQL is only for the hosted game service.
+  - "!node_modules/@colyseus/sdk/**"
+  - "!node_modules/pg/**"
+  - "!node_modules/pg-*/**"
+  - "!node_modules/pgpass/**"
+  - "!node_modules/postgres-*/**"
   - from: .runtime/typebox
     to: node_modules/typebox/build
 
