@@ -1667,6 +1667,8 @@ const zhCN: typeof en = {
   },
   library: {
     title: "素材库",
+    sources: "素材来源",
+    localTab: "本地",
     loading: "正在加载素材",
     noMatch: "没有符合筛选条件的素材",
     none: "还没有媒体素材",

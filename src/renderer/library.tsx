@@ -30,6 +30,8 @@ interface LibraryPageProps {
 }
 
 type Kind = LibraryAsset["mediaType"];
+/** Where the page browses: the person's own media, for now; sources such as plugins come later. */
+type LibrarySource = "local";
 /** Kinds in the order the tabs list them; each kind is also its category hue. */
 const KINDS: readonly Kind[] = ["image", "video", "audio", "model"];
 
@@ -56,6 +58,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [actionError, setActionError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState<LibrarySource>("local");
   const [period, setPeriod] = useState<AssetPeriod>("all");
   const [sort, setSort] = useAssetSort("ohmygame:library-sort");
   const [selectedId, setSelectedId] = useState<string>();
@@ -197,7 +200,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           setDropActive(false);
           void upload([...event.dataTransfer.files]);
         }}>
-      <SidebarPageHeader title={t("library.title")} actions={<>
+      <SidebarPageHeader title={t("library.title")} actions={<div className="library-toolbar">
         <div className="library-page-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("library.searchPlaceholder")} /></div>
         {uploadButton}
         <input ref={fileInput} type="file" multiple hidden accept={UPLOAD_ACCEPT} onChange={(event) => {
@@ -205,9 +208,13 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           event.currentTarget.value = "";
           void upload(files);
         }} />
-      </>} />
+      </div>} />
+      <Tabs<LibrarySource> variant="pills" label={t("library.sources")} value={source} onChange={setSource} tabs={[
+        { value: "local", label: t("library.localTab") },
+      ]} />
+      <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
       <div className="library-filter-row">
-        <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
+        <Tabs variant="underline" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
           ...KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
         ]} />
@@ -229,6 +236,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           </ContextMenu>)}</div>}
 
       {phase === "ready" ? page.next : null}
+      </div>
       <Sheet open={Boolean(selected) && !dialog} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
         footer={selected ? <>
           <IconButton label={t("library.remove")} onClick={() => openDialog({ kind: "remove", asset: selected })}><Trash2 size={16} /></IconButton>

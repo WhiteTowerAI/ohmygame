@@ -1686,6 +1686,8 @@ const en = {
   },
   library: {
     title: "Library",
+    sources: "Library sources",
+    localTab: "Local",
     loading: "Loading assets",
     noMatch: "No assets match these filters",
     none: "No media assets yet",

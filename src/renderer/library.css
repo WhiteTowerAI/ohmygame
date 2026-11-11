@@ -1,7 +1,9 @@
 /* The Library page. Layout pieces only; the controls are ui components. */
 
 .library-page-search {
-  width: min(280px, 100%);
+  width: 260px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .library-page-search .ui-input {
@@ -267,7 +269,22 @@
 /* Files dropped anywhere on the page upload to the Library. */
 .library-drop-region {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
   min-height: calc(100dvh - 80px);
+}
+
+/* Header, source tabs and panel are spaced as on the Plugins page. */
+.library-drop-region > .sidebar-page-header {
+  padding-bottom: 0;
+}
+
+.library-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .library-drop-overlay {

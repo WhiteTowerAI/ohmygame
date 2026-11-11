@@ -111,6 +111,10 @@ it("sorts the list, shows the value it sorts by, and keeps the sort through a fi
 });
 
 it("shows only what was put in the Library, with where it is used, and filters by kind and search", async () => {
+  // The person's own media is the Local source, laid out as the Plugins page lays out its tabs.
+  const sources = document.querySelector('[role=tablist][aria-label="Library sources"]')!;
+  expect([...sources.querySelectorAll("[role=tab]")].map((item) => item.textContent)).toEqual(["Local"]);
+  expect(document.querySelector('[role=tabpanel][aria-label="Local"] .library-tiles')).not.toBeNull();
   expect(tiles()).toEqual(["hero.webp", "intro.mp4", "theme.mp3"]);
   const meta = [...document.querySelectorAll(".ui-media-meta")].map((item) => item.textContent);
   expect(meta.map((item) => item?.replace(/^[^·]+ · /, ""))).toEqual(["2 projects", "Forest", "Uploaded"]);
