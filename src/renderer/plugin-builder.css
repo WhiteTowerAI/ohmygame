@@ -24,8 +24,15 @@
 /* the Overview panel: the plugin as its page will read */
 .plugin-builder-panel {
   height: 100%;
-  padding: var(--space-5);
+  padding: var(--space-6);
   overflow-y: auto;
+}
+
+/* With no draft yet, the start prompt sits in the middle, as an empty panel's
+   does; below an error it follows the error instead of overflowing the panel. */
+.plugin-builder-panel > .ui-empty:only-child {
+  min-height: 100%;
+  justify-content: center;
 }
 
 .plugin-builder-starters {

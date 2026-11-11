@@ -20,6 +20,11 @@
   flex: 1;
 }
 
+/* Stays at the right edge when a narrow panel wraps the row. */
+.library-filter-sort {
+  margin-left: auto;
+}
+
 .library-page-error,
 .library-page-dialog-error {
   margin: 0 0 var(--space-3);

@@ -51,9 +51,11 @@ describe("game record button", () => {
     expect(host.querySelector(".preview-record-button")).toBeNull();
   });
 
-  it("can't start until the game runs", async () => {
+  it("shows only once the game runs", async () => {
     const host = await render(<GameRecordButton projectId="p" gameRunning={false} />);
-    expect(host.querySelector<HTMLButtonElement>(".preview-record-button")!.disabled).toBe(true);
+    expect(host.querySelector(".preview-record-button")).toBeNull();
+    await act(async () => { roots.at(-1)!.render(<GameRecordButton projectId="p" gameRunning />); });
+    expect(host.querySelector<HTMLButtonElement>(".preview-record-button")!.disabled).toBe(false);
   });
 
   it("starts, shows the time, stops, and shows that it is saving", async () => {

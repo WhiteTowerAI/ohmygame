@@ -5,8 +5,37 @@ import { libraryAssetProjects, type LibraryAsset, type LibraryAssetFilters } fro
 import type { LibraryAssetProject } from "../shared/contracts.js";
 import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAssetFilters, BrowsableAsset } from "./asset-browser.js";
+import { ASSET_SORTS, type AssetPeriod, type AssetSort } from "./asset-sort.js";
 import { t } from "./i18n.js";
 import { Checkbox, Select } from "./ui/index.js";
+
+/** The order a list was last sorted in on this device. */
+export function useAssetSort(storageKey: string): readonly [AssetSort, (sort: AssetSort) => void] {
+  const [sort, setSort] = useState<AssetSort>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey) as AssetSort | null;
+      return stored && ASSET_SORTS.includes(stored) ? stored : "newest";
+    } catch { return "newest"; }
+  });
+  const choose = (next: AssetSort) => {
+    setSort(next);
+    try { localStorage.setItem(storageKey, next); } catch { /* Sorting still works without storage. */ }
+  };
+  return [sort, choose] as const;
+}
+
+export function AssetSortSelect({ value, onChange }: { value: AssetSort; onChange: (sort: AssetSort) => void }) {
+  return <span className="library-filter-sort"><Select size="sm" label={t("libraryFilters.sort")} value={value} onChange={onChange} options={ASSET_SORTS.map((sort) => ({ value: sort, label: t(`libraryFilters.sortBy.${sort}`) }))} /></span>;
+}
+
+function AssetPeriodSelect({ label, value = "all", onChange }: { label: string; value?: AssetPeriod; onChange: (period: AssetPeriod) => void }) {
+  return <Select size="sm" label={label} value={value} onChange={onChange} options={[
+    { value: "all", label: t("libraryFilters.anyTime") },
+    { value: "today", label: t("libraryFilters.today") },
+    { value: "week", label: t("libraryFilters.pastWeek") },
+    { value: "month", label: t("libraryFilters.pastMonth") },
+  ]} />;
+}
 
 export function LibraryCollectionFilters({ assets, filters, onChange, defaultIncludeReferences = false, defaultProjectId, defaultProject }: {
   assets: readonly LibraryAsset[];
@@ -31,7 +60,7 @@ export function LibraryCollectionFilters({ assets, filters, onChange, defaultInc
   </AssetFilterPopover>;
 }
 
-/** The Library page's source, project and reference filters, in the row beside the kind tabs. */
+/** The Library page's source, project, time and reference filters, in the row beside the kind tabs. */
 export function LibraryFilterRow({ assets, filters, onChange }: {
   assets: readonly LibraryAsset[];
   filters: LibraryAssetFilters;
@@ -41,11 +70,12 @@ export function LibraryFilterRow({ assets, filters, onChange }: {
   return <>
     <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "saved"} onChange={(origin) => onChange({ ...filters, origin })} options={librarySourceOptions()} />
     <Select size="sm" label={t("libraryFilters.project")} value={filters.projectId || ALL_PROJECTS} onChange={(projectId) => onChange({ ...filters, projectId: projectId === ALL_PROJECTS ? "" : projectId })} options={libraryProjectOptions(projects, ALL_PROJECTS)} />
+    <AssetPeriodSelect label={t("libraryFilters.added")} value={filters.period} onChange={(period) => onChange({ ...filters, period })} />
     <Checkbox label={t("libraryFilters.includeReferences")} checked={filters.includeReferences ?? false} onChange={(includeReferences) => onChange({ ...filters, includeReferences })} />
   </>;
 }
 
-/** A project's Assets panel source and use filters, in the row beside the kind tabs, as on the Library page. */
+/** A project's Assets panel source, use and time filters, in the row beside the kind tabs, as on the Library page. */
 export function ProjectAssetFilterRow({ assets, filters, onChange }: {
   assets: readonly BrowsableAsset[];
   filters: ProjectAssetFilters;
@@ -64,12 +94,13 @@ export function ProjectAssetFilterRow({ assets, filters, onChange }: {
       { value: "asset", label: t("libraryFilters.assets") },
       { value: "reference", label: t("libraryFilters.references") },
     ]} />
+    <AssetPeriodSelect label={t("libraryFilters.modified")} value={filters.period} onChange={(period) => onChange({ ...filters, period })} />
   </>;
 }
 
 /** Whether `filters` narrow the Library page past its default (saved assets from every project). */
 export function libraryFiltersActive(filters: LibraryAssetFilters): boolean {
-  return (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || Boolean(filters.includeReferences);
+  return (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || Boolean(filters.includeReferences) || (filters.period ?? "all") !== "all";
 }
 
 /** Select options need a value; project ids are UUIDs, so this cannot collide. */

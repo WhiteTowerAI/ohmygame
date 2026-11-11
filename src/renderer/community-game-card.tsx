@@ -8,7 +8,7 @@ import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
 import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
-import { Button } from "./ui/index.js";
+import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
 import "./community.css";
 
@@ -17,13 +17,16 @@ export function GameGrid<T extends CommunityGame>({
   onOpen,
   accessToken,
   onStatsChange,
+  keepPageAs,
 }: {
   games: T[];
   onOpen: (game: T) => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
+  /** Keeps how many cards were shown, for a page that restores its scroll. */
+  keepPageAs?: string;
 }) {
-  const page = useListPage(games.length);
+  const page = useListPage(games.length, keepPageAs);
   return (
     <><div className="community-grid">
       {games.slice(0, page.limit).map((game) => (
@@ -36,6 +39,21 @@ export function GameGrid<T extends CommunityGame>({
         />
       ))}
     </div>{page.next}</>
+  );
+}
+
+/** Cards' shapes while the first list loads, so the grid doesn't jump when it arrives. */
+export function GameGridSkeleton({ label, count = 8 }: { label: string; count?: number }) {
+  return (
+    <div className="community-grid" aria-busy="true" aria-label={label}>
+      {Array.from({ length: count }, (_, index) => (
+        <div className="community-card community-card-skeleton" key={index}>
+          <Skeleton height="auto" radius={10} />
+          <Skeleton width="62%" height={14} />
+          <Skeleton width="38%" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -53,7 +71,7 @@ export function GameTile({
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   const [tile, visible] = useNearViewport<HTMLElement>();
-  const coverUrl = useGameCover(visible ? game : undefined, accessToken);
+  const coverUrl = useGameCover(game, accessToken, visible);
   return (
     <article ref={tile} className="community-card">
       {coverUrl ? (
@@ -267,9 +285,12 @@ export function GameStats({
   );
 }
 
+/** `near` gates only daemon reads; a hosted cover is a plain image the browser
+ * loads lazily and keeps cached, so a list shown again has its covers at once. */
 export function useGameCover(
   game: CommunityGame | undefined,
   accessToken?: string,
+  near = true,
 ): string | undefined {
   const [url, setUrl] = useState<string>();
   // Hosted covers live on the play domain's edge cache, like the games themselves;
@@ -280,7 +301,7 @@ export function useGameCover(
     let active = true;
     let objectUrl: string | undefined;
     setUrl(undefined);
-    if (!game?.coverUrl || direct) return;
+    if (!game?.coverUrl || direct || !near) return;
     void getExploreGameCover(game.id, game.deploymentId, accessToken)
       .then((cover) => {
         if (!active || !cover) return;
@@ -292,7 +313,7 @@ export function useGameCover(
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken, direct]);
+  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken, direct, near]);
   return direct ?? url;
 }
 

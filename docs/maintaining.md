@@ -135,7 +135,9 @@ For an urgent released-version fix, start a `fix/<short-name>` branch from
 carry the plugin API version, `PLUGIN_HOST_API_VERSION` in
 `src/shared/plugin-manifest.ts`, and a test keeps their `version` equal to it.
 When a release raises that version, publish all three from that release's
-commit, signed in to npm as a member of the `@ohmygame` organization:
+commit once the release is out, since a plugin they make needs its plugin API.
+Sign in to npm as a member of the `@ohmygame` organization, and check each
+package's files with `npm pack --dry-run` first:
 
 ```sh
 (cd packages/plugin-ui && npm publish --access public)

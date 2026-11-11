@@ -46,10 +46,11 @@ const onOpenProject = vi.fn();
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
+  localStorage.clear();
   assets = [
-    { id: "hero", name: "hero.webp", size: 2048, mediaType: "image", contentType: "image/webp", createdAt: "2026-10-01T00:00:00Z", origin: "generated", prompt: "Ancient forest shrine", width: 640, height: 480, projects: [forest, city], referenceOnly: false },
+    { id: "hero", name: "hero.webp", size: 2048, mediaType: "image", contentType: "image/webp", createdAt: "2026-10-03T00:00:00Z", origin: "generated", prompt: "Ancient forest shrine", width: 640, height: 480, projects: [forest, city], referenceOnly: false },
     { id: "intro", name: "intro.mp4", size: 4096, mediaType: "video", contentType: "video/mp4", createdAt: "2026-10-02T00:00:00Z", origin: "uploaded", duration: 3, projects: [forest], referenceOnly: false },
-    { id: "theme", name: "theme.mp3", size: 1024, mediaType: "audio", contentType: "audio/mpeg", createdAt: "2026-10-03T00:00:00Z", origin: "generated", projects: [], referenceOnly: false },
+    { id: "theme", name: "theme.mp3", size: 1024, mediaType: "audio", contentType: "audio/mpeg", createdAt: "2026-10-01T00:00:00Z", origin: "generated", projects: [], referenceOnly: false },
   ];
   references = { hero: [{ id: "forest", name: "Forest" }, { id: "city", name: "City" }] } as unknown as Record<string, LibraryAssetReference[]>;
   container = document.createElement("div");
@@ -69,6 +70,10 @@ const tiles = () => [...document.querySelectorAll(".ui-media-name-text")].map((n
 const tab = (name: RegExp) => [...document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((item) => name.test(item.textContent ?? ""))!;
 const button = (name: string, scope: ParentNode = document) => [...scope.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === name || item.getAttribute("aria-label") === name)!;
 const click = (element: Element) => act(async () => { (element as HTMLElement).click(); });
+const choose = async (label: string, option: string) => {
+  await click(document.querySelector(`[aria-label="${label}"]`)!);
+  await click([...document.querySelectorAll("[role=option]")].find((item) => item.textContent === option)!);
+};
 const openTile = (name: string) => click([...document.querySelectorAll(".ui-media")].find((tile) => tile.textContent?.includes(name))!);
 
 it("shows a recording saved while the page is open", async () => {
@@ -88,10 +93,23 @@ it("shows a recording saved while the page is open", async () => {
   }
 });
 
+it("sorts the list, shows the value it sorts by, and keeps the sort through a filter reset", async () => {
+  await choose("Sort assets", "Largest first");
+  expect(tiles()).toEqual(["intro.mp4", "hero.webp", "theme.mp3"]);
+  expect(document.querySelector(".ui-media-meta")?.textContent).toBe("4.0 KB · Forest · Uploaded");
+  expect(localStorage.getItem("ohmygame:library-sort")).toBe("largest");
+
+  await choose("Date added", "Today");
+  expect(tiles()).toEqual([]);
+  await click(button("Reset filters"));
+  expect(tiles()).toEqual(["intro.mp4", "hero.webp", "theme.mp3"]);
+  expect(document.querySelector('[aria-label="Sort assets"]')?.textContent).toContain("Largest first");
+});
+
 it("shows every asset as a tile with where it is used and where it came from, and filters by kind and search", async () => {
   expect(tiles()).toEqual(["hero.webp", "intro.mp4", "theme.mp3"]);
   const meta = [...document.querySelectorAll(".ui-media-meta")].map((item) => item.textContent);
-  expect(meta).toEqual(["2 projects · Generated", "Forest · Uploaded", "No project · Generated"]);
+  expect(meta.map((item) => item?.replace(/^[^·]+ · /, ""))).toEqual(["2 projects · Generated", "Forest · Uploaded", "No project · Generated"]);
   expect(document.querySelector(".ui-media-badge")?.textContent).toBe("0:03");
   expect(tab(/^All assets/).textContent).toBe("All assets3");
   expect(tab(/^Videos/).textContent).toBe("Videos1");

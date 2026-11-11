@@ -4,8 +4,8 @@ Web Game and newly created General Game projects have browser preview enabled,
 except projects that select a plugin external preview.
 New General projects open on Canvas; prompt-based creation also keeps chat open.
 Existing General projects keep their saved switch, and older projects without a
-switch remain disabled. **Project settings**, available from Canvas, Code and
-Preview, controls Web preview, Play and Web playtesting. Canvas's separate
+switch remain disabled. The **Preview** tab of **Project settings**, in the
+project menu, controls Web preview, Play and Web playtesting. Canvas's separate
 **Default models** button controls generation models. Neither setting selects
 or installs a game engine.
 
@@ -145,7 +145,7 @@ Page reload and server restart are separate controls. The Game panel's toolbar
 leads with the preview's address, like a browser's: a dot for the preview's state
 (running, starting, failed or not started), the current page, which opens the page
 picker, and reload. The device, element picking, **AI playtest** and a **More**
-menu (open in browser, restart the preview, project settings) follow;
+menu (open in browser, restart the preview service, preview logs) follow;
 in a narrow panel the address shrinks to its dot, the page picker's chevron and
 reload.
 The project's top bar keeps **Play** in the same place across views. For Web
@@ -249,7 +249,8 @@ lets `game_use` use its game through the plugin; see
 ## Recording a game
 
 The desktop app records a running game to a video in the Library, where the
-trimmer can cut it down. The record button sits beside Play in the top bar, and
+trimmer can cut it down. The record button sits beside Play in the top bar while
+the game runs, and
 {Cmd or Ctrl}+Shift+R starts and stops it with the game in focus. In the Play
 window, which has no toolbar, the title shows a dot while it records.
 

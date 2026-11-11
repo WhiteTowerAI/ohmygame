@@ -189,7 +189,7 @@ describe("PluginSources", () => {
     const { services, sources, close } = await setup(routes, files);
     const preview = await sources.inspect(npm, "en");
     expect(preview).toMatchObject({
-      id: "acme/maker", version: "1.0.0", displayName: "Maker", appWide: false, asks: ["network:api.example.com"], skills: 1, mcpServers: ["API"], installedVersions: [],
+      id: "acme/maker", version: "1.0.0", displayName: "Maker", appWide: false, asks: ["network:api.example.com"], adds: { mcpServers: ["API"], skills: 1 }, installedVersions: [],
       source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.0.0" },
       origin: { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" },
     });
@@ -379,20 +379,58 @@ describe("PluginSources", () => {
     await missing.close();
   });
 
-  it("keeps the app's and the builder's publishers for themselves", async () => {
-    for (const id of ["ohmygame/maker", "personal/maker"]) {
-      const publisher = id.split("/")[0]!;
-      const pack = npmPackage(`@${publisher}/maker`, tgz(...pluginEntries("package/", id)));
-      const { sources, services, directory, close } = await setup(pack.routes, pack.files);
-      await expect(sources.inspect({ type: "npm", name: `@${publisher}/maker`, registry: "npmjs" }, "en")).rejects.toThrow("can't use the publisher");
+  it("keeps the builder's publisher for itself, and OhMyGame's for its npm scope and folders in development", async () => {
+    // personal/ comes only from the Plugin Builder.
+    const personal = npmPackage("@personal/maker", tgz(...pluginEntries("package/", "personal/maker")));
+    const builder = await setup(personal.routes, personal.files);
+    await expect(builder.sources.inspect({ type: "npm", name: "@personal/maker", registry: "npmjs" }, "en")).rejects.toThrow("can't use the publisher");
+    await builder.close();
+
+    // ohmygame/ from npm, where only OhMyGame can publish to @ohmygame, or its mirror.
+    const official = npmPackage("@ohmygame/maker", tgz(...pluginEntries("package/", "ohmygame/maker")));
+    const { sources, services, directory, close } = await setup(official.routes, official.files);
+    const preview = await sources.inspect({ type: "npm", name: "@ohmygame/maker", registry: "npmjs" }, "en");
+    expect(preview.id).toBe("ohmygame/maker");
+    expect((await sources.install(preview.source!, preview.digest)).id).toBe("ohmygame/maker");
+    expect(services.index.get("ohmygame/maker")?.root).toContain(path.join("plugin-store", "packages", "ohmygame", "maker"));
+
+    // Not from a file, a folder or GitHub, where any package can claim it, nor through installAdded without an origin.
+    for (const id of ["ohmygame/other", "personal/other"]) {
       await expect(sources.inspectFile(tgz(...pluginEntries("package/", id)), "en")).rejects.toThrow("can't use the publisher");
-      const folder = path.join(directory, "folder");
+      const folder = path.join(directory, id.replace("/", "-"));
       await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
       await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest(id, "1.0.0", { contributes: {} }));
       await expect(sources.inspect({ type: "directory", path: folder }, "en")).rejects.toThrow("can't use the publisher");
       await expect(services.installAdded(folder)).rejects.toThrow("can't use the publisher");
-      await close();
     }
+    // A folder OhMyGame develops its own plugin in.
+    const developed = path.join(directory, "developed");
+    await mkdir(path.join(developed, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(developed, ".ohmygame-plugin", "plugin.json"), manifest("ohmygame/developed", "1.0.0", { contributes: {} }));
+    expect((await sources.inspect({ type: "directory", path: developed, development: true }, "en")).id).toBe("ohmygame/developed");
+    await close();
+
+    // Another registry can serve any scope, so it doesn't vouch for @ohmygame.
+    const registry = "https://registry.example.com/npm";
+    const bytes = tgz(...pluginEntries("package/", "ohmygame/maker"));
+    const other = await setup(
+      { [`${registry}/@ohmygame%2Fmaker`]: () => Response.json({ "dist-tags": { latest: "1.0.0" }, versions: { "1.0.0": { dist: { tarball: `${registry}/@ohmygame/maker/-/maker-1.0.0.tgz`, integrity: integrity(bytes) } } } }) },
+      { [`${registry}/@ohmygame/maker/-/maker-1.0.0.tgz`]: bytes },
+    );
+    await expect(other.sources.inspect({ type: "npm", name: "@ohmygame/maker", registry }, "en")).rejects.toThrow("unless they come from its npm scope");
+    await other.close();
+  });
+
+  it("doesn't let OhMyGame's npm scope stand in for a plugin the app bundles", async () => {
+    const official = npmPackage("@ohmygame/maker", tgz(...pluginEntries("package/", "ohmygame/maker", "2.0.0")), { version: "2.0.0" });
+    const { sources, services, directory, close } = await setup(official.routes, official.files);
+    const bundled = path.join(directory, "bundled");
+    await mkdir(path.join(bundled, "maker", ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(bundled, "maker", ".ohmygame-plugin", "plugin.json"), manifest("ohmygame/maker", "1.0.0", { contributes: {} }));
+    await services.addBundled(bundled);
+    expect(services.index.get("ohmygame/maker")?.version).toBe("1.0.0");
+    await expect(sources.inspect({ type: "npm", name: "@ohmygame/maker", registry: "npmjs" }, "en")).rejects.toThrow("is already installed from");
+    await close();
   });
 
   it("pins a GitHub repository to a commit and doesn't take a different package at that source", async () => {

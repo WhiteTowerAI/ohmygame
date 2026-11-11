@@ -2,7 +2,7 @@
 // brings along from other repositories (scripts/prepare-preinstalled-plugins.ts).
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PluginCategory } from "../shared/plugin-manifest.js";
+import { PLUGIN_MANIFEST_SCHEMA_URL, type PluginCategory } from "../shared/plugin-manifest.js";
 import type { ProjectType } from "../shared/contracts.js";
 import type { PluginIcon } from "../shared/plugins.js";
 import { indexPluginPackage, type PluginIndexEntry } from "./plugin-index.js";
@@ -42,7 +42,7 @@ function skillsManifest(
   const icon = face.icon?.type === "asset" ? face.icon.path : undefined;
   return {
     manifest: {
-      $schema: "https://ohmygame.dev/schema/plugin-2.json",
+      $schema: PLUGIN_MANIFEST_SCHEMA_URL,
       id,
       version: source.version ?? "0.0.0",
       engines: { "ohmygame-api": "^2.0.0" },

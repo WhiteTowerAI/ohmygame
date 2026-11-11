@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { filterLibraryAssets } from "../src/renderer/library.js";
 import type { LibraryAsset } from "../src/renderer/library-assets.js";
 import { canvasAssetDownloadName, libraryAssetProjects } from "../src/renderer/library-assets.js";
+import { inAssetPeriod, sortAssets } from "../src/renderer/asset-sort.js";
 
 const ASSETS: LibraryAsset[] = [
   { id: "hero", assetId: "hero", name: "hero.webp", path: "hero.webp", size: 10, mediaType: "image", contentType: "image/webp", createdAt: "2026-08-24T12:00:00Z", prompt: "Ancient forest shrine" },
@@ -100,5 +101,58 @@ describe("library filters", () => {
     expect(filterLibraryAssets(assets, "all", "")).toEqual([saved, generated]);
     expect(filterLibraryAssets(assets, "all", "", { origin: "workspace" })).toEqual([projectCopy, saved]);
     expect(filterLibraryAssets(assets, "all", "", { origin: "all" })).toEqual(assets);
+  });
+});
+
+describe("asset sorting", () => {
+  const dated = [
+    { path: "a/hero_10.png", size: 5, createdAt: "2026-10-02T00:00:00Z" },
+    { path: "b/hero_2.png", size: 30, modifiedAt: "2026-10-03T00:00:00Z" },
+    { path: "c/undated.png", size: 10 },
+    { path: "d/Boss.png", size: 30, createdAt: "2026-10-01T00:00:00Z" },
+  ];
+  const order = (sort: Parameters<typeof sortAssets>[1]) => sortAssets(dated, sort).map((asset) => asset.path.split("/")[0]);
+
+  it("orders by date with undated assets last in both directions", () => {
+    expect(order("newest")).toEqual(["b", "a", "d", "c"]);
+    expect(order("oldest")).toEqual(["d", "a", "b", "c"]);
+  });
+
+  it("orders by size and breaks ties by identity", () => {
+    expect(order("largest")).toEqual(["b", "d", "c", "a"]);
+    expect(order("smallest")).toEqual(["a", "c", "b", "d"]);
+  });
+
+  it("orders by file name, reading numbers as numbers and ignoring case and folders", () => {
+    expect(order("name")).toEqual(["d", "b", "a", "c"]);
+  });
+
+  it("does not reorder the list it was given", () => {
+    const before = [...dated];
+    sortAssets(dated, "largest");
+    expect(dated).toEqual(before);
+  });
+});
+
+describe("asset time filter", () => {
+  const now = new Date(2026, 10, 9, 15).getTime();
+  const at = (date: Date) => ({ path: "a.png", size: 1, createdAt: date.toISOString() });
+
+  it("starts today at local midnight", () => {
+    expect(inAssetPeriod(at(new Date(2026, 10, 9, 0, 0)), "today", now)).toBe(true);
+    expect(inAssetPeriod(at(new Date(2026, 10, 8, 23, 59)), "today", now)).toBe(false);
+  });
+
+  it("counts whole days back from now and treats an unknown date as outside", () => {
+    expect(inAssetPeriod(at(new Date(2026, 10, 3, 15)), "week", now)).toBe(true);
+    expect(inAssetPeriod(at(new Date(2026, 10, 1, 15)), "week", now)).toBe(false);
+    expect(inAssetPeriod(at(new Date(2026, 9, 20, 15)), "month", now)).toBe(true);
+    expect(inAssetPeriod({ path: "a.png", size: 1 }, "month", now)).toBe(false);
+    expect(inAssetPeriod({ path: "a.png", size: 1 }, "all", now)).toBe(true);
+  });
+
+  it("narrows the Library together with its other filters", () => {
+    const recent = { ...ASSETS[0]!, createdAt: new Date(now - 1000).toISOString() };
+    expect(filterLibraryAssets([recent, ASSETS[1]!], "all", "", { period: "week" }, now)).toEqual([recent]);
   });
 });

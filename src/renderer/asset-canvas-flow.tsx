@@ -9,7 +9,7 @@ import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
-import type { AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { AudioSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import type { ProjectCanvasNode } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
@@ -26,7 +26,7 @@ export const MEDIA_NODE_MAX_HEIGHT = 360;
 
 export const MEDIA_NODE_MIN_HEIGHT = 200;
 
-export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> & {
+export type AssetCanvasFlowData = AudioSettings & Record<string, unknown> & {
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
   panelOpen?: boolean;

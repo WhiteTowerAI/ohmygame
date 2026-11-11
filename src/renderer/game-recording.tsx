@@ -17,7 +17,7 @@ function shortcut(): string {
   return navigator.platform.toLowerCase().includes("mac") ? "\u2318\u21E7R" : "Ctrl+Shift+R";
 }
 
-/** Records the running game; absent where a game can't be recorded. */
+/** Records the running game; absent where a game can't be recorded, and until the game runs. */
 export function GameRecordButton({ projectId, gameRunning }: { projectId: string; gameRunning: boolean }) {
   const bridge = recordingBridge();
   const toast = useToast();
@@ -48,7 +48,8 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
       icon={<Square size={12} fill="currentColor" />}
       onClick={() => void bridge.stop(projectId).catch((cause: unknown) => toast({ title: t("gameRecording.failed"), description: desktopError(cause), tone: "danger" }))}>{time}</Button>;
   }
-  return <IconButton size="sm" className="preview-record-button" label={t("gameRecording.startHint", { shortcut: shortcut() })} disabled={!gameRunning || starting}
+  if (!gameRunning && !starting) return null;
+  return <IconButton size="sm" className="preview-record-button" label={t("gameRecording.startHint", { shortcut: shortcut() })} disabled={starting}
     onClick={() => {
       setStarting(true);
       void bridge.start(projectId)

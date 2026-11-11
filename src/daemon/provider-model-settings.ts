@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
+import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, MEDIA_MODEL_USAGES, type ModelRef, type ImageModel, type MediaModelDefaults, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
@@ -15,6 +15,21 @@ type CustomProviderRegistry = Record<string, {
   preset?: CustomProviderSettings["preset"]; modelConfigurationVersion?: 2; models?: CustomProviderModel[];
 }>;
 
+/** Where each default lives in the preferences file. */
+const DEFAULT_KEYS = {
+  image: "defaultImageModel",
+  video: "defaultVideoModel",
+  "3d": "defaultModel3D",
+  speech: "defaultSpeechModel",
+  "sound-effect": "defaultSoundEffectModel",
+  music: "defaultMusicModel",
+} as const satisfies Record<MediaModelUsage, string>;
+
+/** Every default's field, unset ones included so they replace an earlier value. */
+function defaultFields(defaults: MediaModelDefaults): JsonObject {
+  return Object.fromEntries(MEDIA_MODEL_USAGES.map((usage) => [DEFAULT_KEYS[usage], defaults[usage]])) as JsonObject;
+}
+
 export class ProviderModelSettingsStore {
   readonly #preferencesPath: string;
   readonly #modelsPath: string;
@@ -23,9 +38,7 @@ export class ProviderModelSettingsStore {
   #responsesTransports: Record<string, ResponsesTransportMode> = {};
   #customProviders: CustomProviderRegistry = {};
   #nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
-  #defaultImageModel?: ModelRef;
-  #defaultVideoModel?: ModelRef;
-  #defaultModel3D?: ModelRef;
+  #defaults: MediaModelDefaults = {};
   #pending: Promise<unknown> = Promise.resolve();
 
   constructor(dataDirectory: string, piAgentDirectory: string) {
@@ -36,7 +49,7 @@ export class ProviderModelSettingsStore {
   async load(): Promise<void> {
     const text = await readOptional(this.#preferencesPath);
     if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown; defaultImageModel?: unknown; defaultVideoModel?: unknown; defaultModel3D?: unknown };
+    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown } & Partial<Record<(typeof DEFAULT_KEYS)[MediaModelUsage], unknown>>;
     if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
     this.#hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
@@ -60,13 +73,11 @@ export class ProviderModelSettingsStore {
       if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
       for (const capabilities of Object.values(provider.reasoningCapabilities)) normalizeThinkingLevelMap(capabilities);
     }
-    for (const key of ["defaultImageModel", "defaultVideoModel", "defaultModel3D"] as const) {
-      const model = stored[key];
+    for (const usage of MEDIA_MODEL_USAGES) {
+      const model = stored[DEFAULT_KEYS[usage]];
       if (model === undefined) continue;
       if (!isObject(model) || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) throw new Error("Invalid default media model");
-      if (key === "defaultImageModel") this.#defaultImageModel = { provider: model.provider, id: model.id };
-      else if (key === "defaultVideoModel") this.#defaultVideoModel = { provider: model.provider, id: model.id };
-      else this.#defaultModel3D = { provider: model.provider, id: model.id };
+      this.#defaults[usage] = { provider: model.provider, id: model.id };
     }
   }
 
@@ -124,18 +135,19 @@ export class ProviderModelSettingsStore {
     return this.isCustom(model.provider) ? resolveCustomModelCapabilities(model, catalog, this.#customProviders[model.provider].reasoningCapabilities?.[model.id]) : model;
   }
 
-  defaultImageModel(): ModelRef | undefined { return this.#defaultImageModel; }
-  defaultVideoModel(): ModelRef | undefined { return this.#defaultVideoModel; }
-  defaultModel3D(): ModelRef | undefined { return this.#defaultModel3D; }
+  defaultMediaModel(usage: MediaModelUsage): ModelRef | undefined { return this.#defaults[usage]; }
+  defaultImageModel(): ModelRef | undefined { return this.#defaults.image; }
+  defaultVideoModel(): ModelRef | undefined { return this.#defaults.video; }
+  defaultModel3D(): ModelRef | undefined { return this.#defaults["3d"]; }
 
   setDefaultMediaModel(usage: MediaModelUsage, model?: ModelRef): Promise<void> {
-    const key = usage === "image" ? "defaultImageModel" : usage === "video" ? "defaultVideoModel" : "defaultModel3D";
     const selected = model ? { provider: model.provider, id: model.id } : undefined;
     return this.#enqueue(async () => {
-      await this.#writePreferences({ [key]: selected });
-      if (usage === "image") this.#defaultImageModel = selected;
-      else if (usage === "video") this.#defaultVideoModel = selected;
-      else this.#defaultModel3D = selected;
+      const defaults = { ...this.#defaults };
+      if (selected) defaults[usage] = selected;
+      else delete defaults[usage];
+      await this.#writePreferences(defaultFields(defaults));
+      this.#defaults = defaults;
     });
   }
 
@@ -284,22 +296,18 @@ export class ProviderModelSettingsStore {
       delete responsesTransports[id];
       if (isNative3DProvider(id)) delete nativeModels3D[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
-      const defaultImageModel = this.#defaultImageModel?.provider === id ? undefined : this.#defaultImageModel;
-      const defaultVideoModel = this.#defaultVideoModel?.provider === id ? undefined : this.#defaultVideoModel;
-      const defaultModel3D = this.#defaultModel3D?.provider === id ? undefined : this.#defaultModel3D;
+      const defaults = Object.fromEntries(Object.entries(this.#defaults).filter(([, model]) => model.provider !== id)) as MediaModelDefaults;
       const oldPreferences = this.#preferences();
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, defaultImageModel, defaultVideoModel, defaultModel3D });
+        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, ...defaultFields(defaults) });
         await apply();
         this.#customProviders = customProviders;
         this.#nativeModels3D = nativeModels3D;
         this.#hidden = hidden;
         this.#disabled = disabled;
         this.#responsesTransports = responsesTransports;
-        this.#defaultImageModel = defaultImageModel;
-        this.#defaultVideoModel = defaultVideoModel;
-        this.#defaultModel3D = defaultModel3D;
+        this.#defaults = defaults;
       } catch (cause) {
         if (contents !== text) await writeAtomic(this.#modelsPath, text);
         await writeAtomic(this.#preferencesPath, oldPreferences);
@@ -309,7 +317,7 @@ export class ProviderModelSettingsStore {
   }
 
   #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, responsesTransports: this.#responsesTransports, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, defaultImageModel: this.#defaultImageModel, defaultVideoModel: this.#defaultVideoModel, defaultModel3D: this.#defaultModel3D, ...overrides }, null, 2)}\n`;
+    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, responsesTransports: this.#responsesTransports, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, ...defaultFields(this.#defaults), ...overrides }, null, 2)}\n`;
   }
 
   #writePreferences(overrides: JsonObject): Promise<void> {

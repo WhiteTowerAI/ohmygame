@@ -31,8 +31,7 @@ describe("Volcengine TTS provider", () => {
 
     await expect(
       provider.generate({
-        operation: "speech",
-        text: "  你好，旅行者  ",
+        prompt: "  你好，旅行者  ",
         model: MODEL,
         voiceId: "zh_female_cancan_mars_bigtts",
         language: "zh-cn",
@@ -80,25 +79,14 @@ describe("Volcengine TTS provider", () => {
     });
   });
 
-  it("rejects unsupported operations, invalid inputs, and provider errors", async () => {
+  it("rejects invalid inputs, and provider errors", async () => {
     const provider = new VolcengineTtsProvider(
       () => "key",
       vi.fn<typeof fetch>(),
     );
     await expect(
       provider.generate({
-        operation: "sound-effect",
-        prompt: "thunder",
-        model: MODEL,
-      }),
-    ).rejects.toMatchObject({
-      statusCode: 400,
-      message: expect.stringContaining("speech generation only"),
-    });
-    await expect(
-      provider.generate({
-        operation: "speech",
-        text: " ",
+        prompt: " ",
         model: MODEL,
         voiceId: "voice",
       }),
@@ -123,8 +111,7 @@ describe("Volcengine TTS provider", () => {
       );
       await expect(
         failed.generate({
-          operation: "speech",
-          text: "hello",
+          prompt: "hello",
           model: MODEL,
           voiceId: "voice",
         }),
@@ -148,8 +135,7 @@ describe("Volcengine TTS provider", () => {
       () => "zh_female_popo_mars_bigtts",
     );
     await provider.generate({
-      operation: "speech",
-      text: "你好",
+      prompt: "你好",
       model: MODEL,
     });
     expect(
@@ -161,12 +147,12 @@ describe("Volcengine TTS provider", () => {
 describe("TTS voice controls", () => {
   it("maps speech options while ignoring unsolicited subtitle events", async () => {
     const response = () => new Response([
-      JSON.stringify({ code: 0, data: MP3.toString("base64"), sentence: { text: "Hello", words: [{ word: "Hello", startTime: 0.02, endTime: 0.2, confidence: 0.9 }] } }),
+      JSON.stringify({ code: 0, data: MP3.toString("base64"), sentence: { prompt: "Hello", words: [{ word: "Hello", startTime: 0.02, endTime: 0.2, confidence: 0.9 }] } }),
       JSON.stringify({ code: 20000000, usage: { text_words: 5 } }),
     ].join("\n"));
     const request = vi.fn<typeof fetch>().mockImplementation(async () => response());
     const provider = new VolcengineTtsProvider(() => "key", request);
-    const generated = await provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "zh_female_vv_uranus_bigtts", language: "en", autoLanguage: true, dialect: "yue", pitch: -4, volume: 30, silenceMs: 100, pronunciation: [{ word: "OMG", replacement: "oh my game" }], output: { bitRate: 32000 } });
+    const generated = await provider.generate({ model: MODEL, prompt: "Hello", voiceId: "zh_female_vv_uranus_bigtts", language: "en", autoLanguage: true, dialect: "yue", pitch: -4, volume: 30, silenceMs: 100, pronunciation: [{ word: "OMG", replacement: "oh my game" }], output: { bitRate: 32000 } });
     const params = JSON.parse(String(request.mock.calls[0]![1]!.body)).req_params;
     expect(params.audio_params).toMatchObject({ loudness_rate: 30, bit_rate: 32000 });
     expect(JSON.parse(params.additions)).toMatchObject({ post_process: { pitch: -4 }, explicit_language: "en", enable_auto_language_recognition: true, explicit_dialect: "yue", silence_duration: 100, pronunciation_dict: { tone: ["OMG/oh my game"] }, disable_default_bit_rate: true });
@@ -177,16 +163,16 @@ describe("TTS voice controls", () => {
   it("selects the cloned voice resource and rejects incompatible voice instructions", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ code: 0, data: MP3.toString("base64") })));
     const provider = new VolcengineTtsProvider(() => "key", request);
-    await provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "S_existing", voiceKind: "cloned", voiceModel: "expressive" });
+    await provider.generate({ model: MODEL, prompt: "Hello", voiceId: "S_existing", voiceKind: "cloned", voiceModel: "expressive" });
     expect(request.mock.calls[0]![1]!.headers).toMatchObject({ "X-Api-Resource-Id": "seed-icl-2.0" });
     expect(JSON.parse(String(request.mock.calls[0]![1]!.body)).req_params.model).toBe("seed-tts-2.0-expressive");
-    await expect(provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "S_existing", voiceKind: "cloned", style: "whisper" })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(provider.generate({ model: MODEL, prompt: "Hello", voiceId: "S_existing", voiceKind: "cloned", style: "whisper" })).rejects.toMatchObject({ statusCode: 400 });
     expect(request).toHaveBeenCalledTimes(1);
   });
   it("checks dialects, voice instructions and SSML against the selected preset voice", async () => {
     const request = vi.fn<typeof fetch>();
     const provider = new VolcengineTtsProvider(() => "key", request);
-    const speech = { operation: "speech", model: MODEL, text: "Hello" } as const;
+    const speech = { model: MODEL, prompt: "Hello" } as const;
     await expect(provider.generate({ ...speech, voiceId: "zh_female_sophie_uranus_bigtts", dialect: "sichuan" })).rejects.toThrow("does not support dialects");
     await expect(provider.generate({ ...speech, voiceId: "en_male_ryan_uranus_bigtts", style: "whisper" })).rejects.toThrow("does not follow voice instructions");
     await expect(provider.generate({ ...speech, voiceId: "ja_male_bv524_uranus_bigtts", ssml: "<speak>Hello</speak>" })).rejects.toThrow("Chinese and English voices");
@@ -195,17 +181,17 @@ describe("TTS voice controls", () => {
   it("rejects non-audio and noncanonical Base64, even when the stream claims success", async () => {
     for (const data of [Buffer.from("not-audio").toString("base64"), "SGVsbG8=$garbage", "@@@@"]) {
       const provider = new VolcengineTtsProvider(() => "key", vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ code: 0, data }))));
-      await expect(provider.generate({ operation: "speech", text: "Hello", voiceId: "voice", model: MODEL })).rejects.toMatchObject({ statusCode: 502 });
+      await expect(provider.generate({ prompt: "Hello", voiceId: "voice", model: MODEL })).rejects.toMatchObject({ statusCode: 502 });
     }
   });
   it("handles JSON split across arbitrary network chunks and releases failed readers", async () => {
     const raw = JSON.stringify({ code: 0, data: MP3.toString("base64") }) + "\n" + JSON.stringify({ code: 20000000 });
     const bytes = new TextEncoder().encode(raw);
     const provider = new VolcengineTtsProvider(() => "key", vi.fn<typeof fetch>().mockResolvedValue(new Response(new ReadableStream({ start(controller) { for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.subarray(i, i + 7)); controller.close(); } }))));
-    await expect(provider.generate({ operation: "speech", text: "Hello", voiceId: "voice", model: MODEL })).resolves.toMatchObject({ bytes: MP3 });
+    await expect(provider.generate({ prompt: "Hello", voiceId: "voice", model: MODEL })).resolves.toMatchObject({ bytes: MP3 });
     const cancel = vi.fn();
     const invalid = new VolcengineTtsProvider(() => "key", vi.fn<typeof fetch>().mockResolvedValue(new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("invalid\n")); }, cancel }))));
-    await expect(invalid.generate({ operation: "speech", text: "Hello", voiceId: "voice", model: MODEL })).rejects.toMatchObject({ statusCode: 502 });
+    await expect(invalid.generate({ prompt: "Hello", voiceId: "voice", model: MODEL })).rejects.toMatchObject({ statusCode: 502 });
     expect(cancel).toHaveBeenCalled();
   });
 });

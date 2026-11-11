@@ -39,7 +39,6 @@ import { NodePlayer } from "./playable-player.js";
 import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableMediaAttachment, type PlayableStroke } from "./playable-chat.js";
 import { isTextEntry } from "./editor-canvas.js";
 import { t } from "./i18n.js";
-import { PlaytestControls, type PlaytestAction, type PlaytestStart } from "./playable-playtest.js";
 import { VideoTimeline, type TimelineMedia } from "./playable-video-timeline.js";
 import type { PlayableBackdropDetails } from "../shared/playable-backdrop.js";
 import type { PlayableVideoClip } from "../shared/playable-video-clip.js";
@@ -110,9 +109,6 @@ export function PlayableNodeWorkbench({
   onRemoveBackdrop,
   onWriteVideoClip,
   backdrop,
-  onPlayFromHere,
-  onPlaytestAction,
-  playtestBusy = false,
   onChatContextChange,
 }: {
   projectId: string;
@@ -145,10 +141,6 @@ export function PlayableNodeWorkbench({
   /** Whether the Scene's background shows anything yet; unset when the editor cannot set it. */
   backdrop?: "missing" | "set";
   onWriteVideoClip?: (expected: PlayableBackdropDetails, source: string, clip?: PlayableVideoClip) => Promise<void>;
-  /** Opens a Playtest that starts at this Scene. */
-  onPlayFromHere?: (start: PlaytestStart) => void;
-  onPlaytestAction?: (action: PlaytestAction) => void;
-  playtestBusy?: boolean;
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
   /** Puts a request in the chat prompt, for when it cannot be sent now. */
   onAskAgent?: (text: string) => void;
@@ -362,12 +354,6 @@ export function PlayableNodeWorkbench({
   const videoBackground = webTrim?.details;
   const trimBlob = webTrim?.blob;
 
-  // In the header, where the canvas has Playtest.
-  const actions = <div className="story-node-editor-actions">
-    <button type="button" className="icon-button pane-header-action" title={t("sceneWorkbench.replayTitle")} aria-label={t("sceneWorkbench.replay")} disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={14} /></button>
-    {onPlayFromHere ? <PlaytestControls label={t("sceneWorkbench.playFromHere")} title={t("sceneWorkbench.playtestFromHere")} busy={playtestBusy} onOpen={() => onPlayFromHere({ nodeId: node.id })} onAction={onPlaytestAction} /> : null}
-  </div>;
-
   const previewPane = <WorkbenchPreview
     ariaLabel={t("sceneWorkbench.livePreview", { title: node.title })}
     viewport={graph.viewport}
@@ -381,6 +367,7 @@ export function PlayableNodeWorkbench({
         onTool={setTool}
         onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
         onClearStrokes={() => setStrokes([])}
+        onReplay={() => setSession((current) => current + 1)}
         {...(video && ready ? { timeline: <VideoTimeline
           media={video}
           {...(moment ? { moment: moment.time } : {})}
@@ -438,7 +425,6 @@ export function PlayableNodeWorkbench({
   return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
     <header className="pane-header story-node-editor-header window-drag-handle">
       <WorkbenchBreadcrumb label={node.title} onClose={onClose} onRename={onRename} />
-      {actions}
     </header>
     {trimming && onWriteVideoClip ? <PlayableVideoTrimDialog blob={trimming.blob} clip={trimming.details.clip} onClose={() => setTrimming(undefined)} onApply={async (clip) => {
       await onWriteVideoClip(trimming.details, trimming.source, clip);
@@ -469,7 +455,7 @@ const TOOL_HINTS: Record<Exclude<PreviewTool, "play">, string> = {
 };
 
 /** Floats over the bottom of the preview. */
-export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, media, timeline }: {
+export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, onReplay, media, timeline }: {
   tool: PreviewTool;
   disabled: boolean;
   strokes: number;
@@ -477,6 +463,8 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
   onTool: (tool: PreviewTool) => void;
   onUndoStroke: () => void;
   onClearStrokes: () => void;
+  /** Plays the Scene's preview again from the start. */
+  onReplay?: () => void;
   /** An action after the tools, such as the Media menu. */
   media?: ReactNode;
   /** The background video's timeline, above the tools. */
@@ -496,6 +484,7 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
         onClick={() => onTool(value)}
       ><Icon size={14} /><span>{label}</span></button>)}
       {media ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" />{media}</> : null}
+      {onReplay ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" /><button type="button" title={t("sceneWorkbench.replayTitle")} aria-label={t("sceneWorkbench.replay")} disabled={disabled} onClick={onReplay}><RotateCcw size={14} /></button></> : null}
       {strokes ? <>
         <span className="playable-preview-toolbar-divider" aria-hidden="true" />
         <button type="button" title={t("sceneWorkbench.undoStrokeTitle")} aria-label={t("sceneWorkbench.undoStroke")} onClick={onUndoStroke}><Undo2 size={14} /></button>

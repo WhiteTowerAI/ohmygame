@@ -38,7 +38,6 @@ export const CANVAS_ASSETS_SCHEMA = Type.Object({
 export function canvasNodeAssetIds(nodes: readonly AssetCanvasNode[]): string[] {
   const ids = new Set<string>();
   for (const node of nodes) {
-    if ("audioReferences" in node.data) for (const reference of node.data.audioReferences ?? []) if (reference.source.type === "library") ids.add(reference.source.assetId);
     if ("assetId" in node.data && node.data.assetId) ids.add(node.data.assetId);
     const references = node.type === "image" || node.type === "model-3d" ? node.data.images
       : node.type === "video" ? node.data.references : node.type === "animate-3d" && node.data.source ? [node.data.source]
@@ -57,10 +56,7 @@ export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id:
   if (node.type === "asset") return assets.find((asset) => asset.id === node.data.assetId)?.name || "Asset";
   if (node.type === "file") return node.data.path.split("/").at(-1) || "File";
   if (node.type === "text") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Text";
-  if (node.type === "speech") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Speech";
-  if (node.type === "sound-effect") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Sound effect";
-  if (node.type === "audio-scene") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Audio creation";
-  if (node.type === "music") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Music";
+  if (node.type === "audio") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Audio";
   if (node.type === "plugin") return node.data.node.slice(node.data.node.lastIndexOf(":") + 1);
   return { image: "Image", video: "Video", "model-3d": "3D model", "animate-3d": "Animation" }[node.type];
 }

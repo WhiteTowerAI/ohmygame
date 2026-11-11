@@ -2,6 +2,7 @@ import type { PluginContributions } from "./plugin-manifest.js";
 import type { AssetCanvasEdge, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument, validateAssetCanvasDocument } from "./asset-canvas.js";
 import { canvasNodeLayout } from "./canvas-node-layout.js";
+import { migrateLegacyAudioNodes } from "./audio-legacy.js";
 
 // The rules a plugin's canvas node holds its settings and inputs to, shared
 // by the node's form and the daemon that runs it.
@@ -76,10 +77,11 @@ export interface CanvasPresetBoard {
 export const CANVAS_PRESET_MAX_NODES = 200;
 export const CANVAS_PRESET_MAX_BYTES = 1024 * 1024;
 /** Nodes that stand on their own; documents, tables, files and assets name things in one project. */
-const PRESET_NODE_TYPES: ReadonlySet<string> = new Set(["text", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "group", "plugin"]);
+const PRESET_NODE_TYPES: ReadonlySet<string> = new Set(["text", "image", "video", "audio", "model-3d", "animate-3d", "group", "plugin"]);
 
 /** Why a preset file can't be added to a board, or nothing when it can. */
 export function canvasPresetIssue(value: unknown): string | undefined {
+  value = migrateLegacyAudioNodes(value).value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return "must be an object with nodes and edges";
   const { nodes, edges = [], ...rest } = value as { nodes?: unknown; edges?: unknown };
   if (Object.keys(rest).length) return `has fields other than nodes and edges: ${Object.keys(rest).join(", ")}`;

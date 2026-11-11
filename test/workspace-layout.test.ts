@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
-import { fitLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
+import { fitLayout, gamePanelAddable, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
 
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
 const GAME: WorkspacePanel[] = ["chat", "game", "design", "canvas", "code", "assets"];
@@ -21,6 +21,13 @@ describe("workspace layouts", () => {
     expect(general).toEqual(GENERAL);
     expect(tabs(presetLayout("default", general)).center).toBe("*code,design,canvas,assets");
     expect(panelsOf({ type: "godot-game" })).toEqual(general);
+    // A General project can add the game back, where it then says how to turn the preview on.
+    expect(gamePanelAddable({ type: "general" })).toBe(true);
+    expect(panelsOf({ type: "general" }, true)).toEqual(GAME);
+    for (const project of [{ type: "general", webPreviewEnabled: true }, { type: "general", pluginType: { preview: "native" } }, { type: "godot-game" }, { type: "asset-canvas" }] as never[]) {
+      expect(gamePanelAddable(project)).toBe(false);
+    }
+    expect(panelsOf({ type: "general", pluginType: { preview: "native" } } as never, true)).toEqual(GENERAL);
     expect(panelsOf({ type: "godot-game", pluginType: { preview: "web-build" } } as never)).toEqual(GAME);
     // A story opens on its Story map, not its code.
     expect(panelsOf({ type: "interactive-story" })).toEqual(STORY);

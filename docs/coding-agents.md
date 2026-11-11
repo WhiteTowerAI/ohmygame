@@ -78,8 +78,10 @@ providers of the same name; Pi has its own `opencode` provider.
 generation. Conversation pickers ask for `GET /models?runtimes=1`, which adds
 the enabled agents' models. An agent that is slow to list them is named in
 `loadingRuntimes`, and the picker asks again shortly. A new conversation in a
-project keeps the coding agent the person was using; with no model provider
-connected, the first conversation starts with the first agent that is set up.
+project keeps the coding agent the person was using. A conversation created
+without a model takes the one the picker shows: the saved default, else Pi's
+preferred model, else the first enabled agent's. One made while no model was
+available takes that model when its next message is sent.
 
 Native effort/variant strings are exposed as `nativeReasoningLevels` and stored
 separately from Pi's reasoning enum. Saving a native default keeps both model

@@ -6,6 +6,7 @@ import { AssetDialogShell, AssetMedia } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
 import { VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
+import { assetDateTime, assetShortDate, inAssetPeriod, type AssetPeriod, type AssetSort } from "./asset-sort.js";
 import { t } from "./i18n.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
@@ -13,6 +14,7 @@ export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
 export interface ProjectAssetFilters {
   origin?: "all" | LibraryAssetOrigin;
   purpose?: "all" | LibraryAssetPurpose;
+  period?: AssetPeriod;
 }
 
 export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
@@ -31,6 +33,12 @@ export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
 
 export function libraryAssetOriginLabel(origin: LibraryAssetOrigin | undefined): string {
   return t(`assets.origin.${origin ?? "unknown"}`);
+}
+
+/** What a tile shows of the value it is sorted by, so the order can be read. */
+export function assetSortDetail(asset: BrowsableAsset & { createdAt?: string }, sort: AssetSort): string | undefined {
+  if (sort === "name") return undefined;
+  return sort === "largest" || sort === "smallest" ? fileSize(asset.size) : assetShortDate(asset);
 }
 
 /** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. Thumbnails sit inside open buttons, so they carry no controls. */
@@ -106,6 +114,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
           <dl>
             <div><dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
             <div><dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd></div>
+            {asset.modifiedAt ? <div><dt>{t("libraryFilters.modified")}</dt><dd>{assetDateTime(asset)}</dd></div> : null}
             {asset.origin ? <div><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></div> : null}
             {trimmedFrom ? <div><dt>{t("assets.trimmedFrom")}</dt><dd title={trimmedFrom}>{trimmedFrom}</dd></div> : null}
             {asset.referenceOnly ? <div><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></div> : null}
@@ -121,12 +130,13 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
   />;
 }
 
-export function filterAssets<T extends BrowsableAsset>(assets: readonly T[], media: MediaFilter, query: string, filters: ProjectAssetFilters = {}): T[] {
+export function filterAssets<T extends BrowsableAsset>(assets: readonly T[], media: MediaFilter, query: string, filters: ProjectAssetFilters = {}, now = Date.now()): T[] {
   const normalizedQuery = query.trim().toLowerCase();
   return assets.filter((asset) => (
     (media === "all" || asset.mediaType === media) &&
     (!filters.origin || filters.origin === "all" || (asset.origin ?? "workspace") === filters.origin) &&
     (!filters.purpose || filters.purpose === "all" || (asset.purpose ?? "asset") === filters.purpose) &&
+    inAssetPeriod(asset, filters.period, now) &&
     (!normalizedQuery || `${asset.path} ${asset.prompt ?? ""} ${asset.projectName ?? ""}`.toLowerCase().includes(normalizedQuery))
   ));
 }

@@ -1,5 +1,4 @@
-import { useState, type FormEvent } from "react";
-import type { ProjectState } from "../shared/contracts.js";
+import { useEffect, useState, type FormEvent } from "react";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import {
   canvasFormatForViewport,
@@ -10,27 +9,31 @@ import {
 } from "../shared/canvas-formats.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
 import { LoaderCircle } from "./icons.js";
-import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
 import { Button } from "./ui/index.js";
-import { ProjectAppearanceSettings } from "./project-appearance-settings.js";
 import { t } from "./i18n.js";
 
-export function PlayableProjectSettingsDialog({
-  project,
+/** The Screen tab of an interactive story's settings. */
+export function PlayableProjectSettings({
   graph,
   onSave,
   onClose,
+  onBusyChange,
 }: {
-  project: ProjectState;
   graph: NodeGraph;
   onSave: (viewport: Viewport) => Promise<void>;
   onClose: () => void;
+  /** Saving; the settings stay open until it ends, so a failure can show. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [selection, setSelection] = useState<CanvasFormatPresetId | undefined>(
     () => canvasFormatForViewport(graph.viewport)?.id,
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  useEffect(() => {
+    onBusyChange?.(saving);
+    return () => onBusyChange?.(false);
+  }, [saving, onBusyChange]);
   const viewport = selection
     ? canvasFormatPreset(selection).viewport
     : graph.viewport;
@@ -53,14 +56,8 @@ export function PlayableProjectSettingsDialog({
   }
 
   return (
-    <ProjectSettingsDialogFrame busy={saving} onClose={onClose}>
       <form className="project-settings-form" onSubmit={(event) => void submit(event)}>
         <div className="ui-dialog-body">
-        <section className="project-settings-project" aria-label={t("projectSettings.project")}>
-          <span>{t("projectSettings.project")}</span>
-          <strong title={project.name}>{project.name}</strong>
-        </section>
-        <ProjectAppearanceSettings project={project} disabled={saving} />
         <fieldset
           className="project-settings-section"
           disabled={saving}
@@ -100,6 +97,5 @@ export function PlayableProjectSettingsDialog({
           </Button>
         </div>
       </form>
-    </ProjectSettingsDialogFrame>
   );
 }

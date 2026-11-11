@@ -18,6 +18,13 @@ interface PreinstalledPluginReceipt {
   removed: boolean;
 }
 
+// compat: since beta.5.6, remove from beta.7 and 2026-12-07. Plugins the app
+// used to bring along, by their lock file id. A copy it installed that the
+// person didn't remove goes too; a receipt doesn't name the plugin itself.
+const RETIRED: Readonly<Record<string, string>> = {
+  "98d626d2-8e51-42a9-adfe-a3a1e19372c9": "ohmygame/img2threejs",
+};
+
 interface PreinstalledPluginState {
   version: 1;
   plugins: Record<string, PreinstalledPluginReceipt>;
@@ -48,14 +55,27 @@ export class PreinstalledPluginManager {
   }
 
   async seed(services: PluginServices): Promise<string[]> {
-    // Starting up waits for this, and needn't wait for the store with nothing to install.
-    if (!this.#entries.length) return [];
+    const retired = Object.entries(RETIRED).filter(([pluginId]) => {
+      const receipt = this.#state.plugins[pluginId];
+      return receipt && !receipt.removed && !this.#entries.some((entry) => entry.pluginId === pluginId);
+    });
+    // Starting up waits for this, and needn't wait for the store with nothing to do.
+    if (!this.#entries.length && !retired.length) return [];
     try {
       await services.ready();
     } catch (cause) {
       return [`Could not load plugins to install the preinstalled ones: ${cause instanceof Error ? cause.message : String(cause)}`];
     }
     const errors: string[] = [];
+    for (const [pluginId, id] of retired) {
+      const receipt = this.#state.plugins[pluginId]!;
+      try {
+        if (receipt.version && services.index.get(id, receipt.version)) await services.uninstall(id, receipt.version);
+        await this.#setReceipt(pluginId, { seededReleaseId: receipt.seededReleaseId, removed: true });
+      } catch (cause) {
+        errors.push(`Could not remove retired preinstalled Plugin ${id}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
     for (const entry of this.#entries) {
       try {
         const receipt = this.#state.plugins[entry.pluginId];
