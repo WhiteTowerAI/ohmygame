@@ -26,7 +26,7 @@ export interface AudioProviderAdapter {
   defaultVoiceId?(): string | undefined;
   configured(): boolean;
   enabled(): boolean;
-  models(signal?: AbortSignal): Promise<AudioModel[]> | AudioModel[];
+  models(): AudioModel[];
   generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
@@ -38,7 +38,7 @@ export interface AudioProviderAdapter {
 }
 
 export interface AudioGenerator {
-  catalog(signal?: AbortSignal): Promise<AudioModelCatalog> | AudioModelCatalog;
+  catalog(): Promise<AudioModelCatalog> | AudioModelCatalog;
   generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
@@ -54,7 +54,7 @@ export class ProviderAudio implements AudioGenerator {
     private readonly defaults: () => Partial<Record<AudioKind, ModelRef>> = () => ({}),
   ) {}
 
-  async catalog(signal?: AbortSignal): Promise<AudioModelCatalog> {
+  catalog(): AudioModelCatalog {
     const defaultModels = this.defaults();
     const providers = this.adapters.map((adapter) => {
       const configured = adapter.configured();
@@ -76,10 +76,9 @@ export class ProviderAudio implements AudioGenerator {
       };
     });
     return {
-      models: (await Promise.all(this.adapters
+      models: this.adapters
         .filter((adapter) => adapter.configured() && adapter.enabled())
-        .map((adapter) => adapter.models(signal))))
-        .flat(),
+        .flatMap((adapter) => adapter.models()),
       providers,
       ...(Object.keys(defaultModels).length ? { defaultModels } : {}),
     };
@@ -90,8 +89,8 @@ export class ProviderAudio implements AudioGenerator {
    * that isn't ready; or else the first ready model that makes the kind, preferring models that read text for
    * speech. Without a kind, the speech defaults apply, as they do to a new audio node.
    */
-  async resolveModel(requested?: ModelRef, kind?: AudioKind, projectDefaults?: Partial<Record<AudioKind, ModelRef>>, signal?: AbortSignal): Promise<AudioModel | undefined> {
-    const models = (await this.catalog(signal)).models.filter((model) => model.capabilities.produces.length);
+  resolveModel(requested?: ModelRef, kind?: AudioKind, projectDefaults?: Partial<Record<AudioKind, ModelRef>>): AudioModel | undefined {
+    const models = this.catalog().models.filter((model) => model.capabilities.produces.length);
     if (requested) return models.find((model) => sameModel(model, currentAudioModel(requested)));
     const fitting = kind ? models.filter((model) => model.capabilities.produces.includes(kind)) : models;
     const defaultKind = kind ?? "speech";
@@ -107,7 +106,7 @@ export class ProviderAudio implements AudioGenerator {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio> {
-    const model = await this.resolveModel(input.model, input.kind, undefined, signal);
+    const model = this.resolveModel(input.model, input.kind);
     if (!model) {
       if (input.model)
         throw new AudioGenerationError("The selected audio model is unavailable", 400);
@@ -138,7 +137,7 @@ export class ProviderAudio implements AudioGenerator {
 
   /** Transcribes with the requested model, or the first ready one that can. */
   async transcribe(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription> {
-    const model = (await this.catalog(signal)).models.find((candidate) => candidate.capabilities.transcribes && (!input.model || sameModel(candidate, input.model)));
+    const model = this.catalog().models.find((candidate) => candidate.capabilities.transcribes && (!input.model || sameModel(candidate, input.model)));
     if (!model) {
       throw input.model
         ? new AudioGenerationError("The selected transcription model is unavailable", 400)

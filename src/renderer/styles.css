@@ -13878,30 +13878,6 @@ summary.work-summary:hover {
 }
 .audio-advanced-menu { position: relative; flex: 0 0 auto; }
 .audio-advanced-trigger { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; }
-.canvas-audio-options.is-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  bottom: auto;
-  z-index: 20;
-  width: min(340px, calc(100vw - 32px));
-  margin: 0;
-  padding: 10px;
-  overflow: visible;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-float);
-}
-.canvas-audio-options.is-popover.is-scrollable { max-height: min(420px, 55vh); overflow: auto; }
-.canvas-audio-options.is-popover > h3 {
-  margin: 0 0 8px;
-  padding-bottom: 7px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
 .canvas-audio-options.is-inline {
   margin: 10px -10px -10px;
   padding: 10px;
@@ -13993,12 +13969,11 @@ summary.work-summary:hover {
 .audio-provider-voices { display: grid; gap: 6px; }
 .audio-provider-voices > [role="alert"] { margin: 0; color: var(--color-danger); font-size: var(--text-xs); }
 .settings-detail-inline > .settings-voice-sample { width: 40px; min-width: 40px; padding: 0; }
-.story-media-composer:has(.canvas-audio-options:not(.is-popover)) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
-.story-media-composer:has(.canvas-audio-options.is-popover) { position: relative; z-index: 3; }
+.story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .story-media-composer:has(.audio-quick-speed-popover) { position: relative; z-index: 3; }
-.story-media-composer:has(.canvas-audio-options:not(.is-popover):not(.is-inline)) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }
+.story-media-composer:has(.canvas-audio-options:not(.is-inline)) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }
 /* The sticky footer covers what scrolls under it, so it matches the composer, which is lighter in light mode. */
-:root[data-appearance="light"] .story-media-composer:has(.canvas-audio-options:not(.is-popover):not(.is-inline)) .story-media-controls { background: var(--surface); }
+:root[data-appearance="light"] .story-media-composer:has(.canvas-audio-options:not(.is-inline)) .story-media-controls { background: var(--surface); }
 
 .story-audio-controls { flex-wrap: nowrap; gap: 6px; }
 .story-audio-controls .canvas-chip { max-width: 180px; }

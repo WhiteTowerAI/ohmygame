@@ -76,17 +76,6 @@ export function audioSettingsIssue(
   if (option) return t("audioStudio.voiceUnsupported", { option });
 }
 
-/** Whether a model has low-frequency controls worth opening from the tune menu. */
-export function audioHasAdvancedSettings(model?: AudioModel): boolean {
-  const caps = model?.capabilities;
-  if (!caps) return false;
-  const sampleRates = Object.values(caps.sampleRatesByFormat ?? {}).flat();
-  return Boolean(
-    caps.supportsSpeechOptions || caps.supportsSSML || caps.supportsPitch || caps.supportsVolume || caps.supportsStyle
-    || (caps.languages?.length ?? 0) > 0 || caps.formats.length > 1 || new Set(sampleRates).size > 1,
-  );
-}
-
 /** Voices listed from the provider's account, searched and paged on demand. */
 function ProviderVoicePicker({
   provider,
@@ -241,7 +230,6 @@ export function CanvasAudioControls({
   disabled,
   onChange,
   quick = false,
-  popover = false,
   inline = false,
 }: {
   value: AudioSettings;
@@ -252,8 +240,6 @@ export function CanvasAudioControls({
   onChange(value: Partial<AudioSettings>): void;
   /** Speaker and speed are already shown in the node's compact control row. */
   quick?: boolean;
-  /** Render directly inside the tune popover rather than in the legacy disclosure. */
-  popover?: boolean;
   /** Expand directly beneath the node controls instead of opening a floating panel. */
   inline?: boolean;
 }) {
@@ -592,7 +578,6 @@ export function CanvasAudioControls({
           </Disclosure>
         ) : null}
       </fieldset>;
-  if (popover) return <div className={`canvas-audio-options is-popover${tts ? " is-scrollable" : ""} nodrag nopan nokey`}><h3>{t("audioStudio.options")}</h3>{fields}</div>;
   if (inline) return <section className="canvas-audio-options is-inline nodrag nopan nokey"><h3>{t("audioStudio.options")}</h3>{fields}</section>;
   return <Disclosure variant="section" className="canvas-audio-options nodrag nopan nokey" summary={t("audioStudio.options")}>{fields}</Disclosure>;
 }

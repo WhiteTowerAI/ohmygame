@@ -1,31 +1,19 @@
 import { DOUBAO_SPEECH_PROVIDER_ID, type AudioKind } from "./audio.js";
 import type { ModelRef } from "./contracts.js";
 
-// compat: since beta.5.6, remove from beta.7 and 2026-12-12. The speech, sound-effect, music and audio-scene nodes and the generate-speech, generate-sound-effect and generate-music tools, merged into the audio node and generate-audio. The earlier transcription node becomes a normal Text node. Read from board files, browser drafts, the clipboard, plugin presets and generation history.
+// compat: since beta.5.6, remove from beta.7 and 2026-12-12. The speech, sound-effect, music and audio-scene nodes and the generate-speech, generate-sound-effect and generate-music tools, merged into the audio node and generate-audio. Read from board files, browser drafts, the clipboard, plugin presets and generation history.
 // compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles, which no generation uses since beta.5.0, are dropped from audio nodes as they load.
 const DROPPED = ["subtitles", "audioReferences", "audioReferenceSerial"] as const;
 // compat: since beta.5.6, remove from beta.7 and 2026-12-12. Seed Audio had its own provider ID before it became a model of Doubao Speech.
 const SEED_AUDIO_PROVIDER_ID = "volcengine-seed-audio";
-// compat: since beta.5.7, remove after 2027-03-01. ElevenLabs retired SFX v2 in favour of v3.
-const ELEVENLABS_PROVIDER_ID = "elevenlabs";
-const ELEVEN_SOUND_EFFECTS_V2 = "eleven_text_to_sound_v2";
-const ELEVEN_SOUND_EFFECTS_V3 = "eleven_text_to_sound_v3";
 
 /** A saved audio model choice under the provider that offers it now. */
 export function currentAudioModel<T extends ModelRef | undefined>(model: T): T {
-  if (model?.provider === SEED_AUDIO_PROVIDER_ID) return { ...model, provider: DOUBAO_SPEECH_PROVIDER_ID };
-  if (model?.provider === ELEVENLABS_PROVIDER_ID && model.id === ELEVEN_SOUND_EFFECTS_V2) return { ...model, id: ELEVEN_SOUND_EFFECTS_V3 };
-  return model;
+  return model?.provider === SEED_AUDIO_PROVIDER_ID ? { ...model, provider: DOUBAO_SPEECH_PROVIDER_ID } : model;
 }
-const legacyModel = (model: unknown): model is ModelRef => Boolean(
-  model && typeof model === "object" && (
-    (model as { provider?: unknown }).provider === SEED_AUDIO_PROVIDER_ID ||
-    ((model as { provider?: unknown }).provider === ELEVENLABS_PROVIDER_ID && (model as { id?: unknown }).id === ELEVEN_SOUND_EFFECTS_V2)
-  ),
-);
+const oldModel = (model: unknown): model is ModelRef => Boolean(model && typeof model === "object" && (model as { provider?: unknown }).provider === SEED_AUDIO_PROVIDER_ID);
 
 const NODE_KINDS: Readonly<Record<string, AudioKind | null>> = { speech: "speech", "sound-effect": "sound-effect", music: "music", "audio-scene": null };
-const TRANSCRIPTION_NODE = "transcription";
 const TOOL_KINDS: Readonly<Record<string, AudioKind>> = { "generate-speech": "speech", "generate-sound-effect": "sound-effect", "generate-music": "music" };
 
 /** Seed Audio used to get these ahead of the prompt; they move into it so older work sounds the same. */
@@ -44,20 +32,19 @@ function audioData(kind: AudioKind | null, data: Data): Record<string, unknown> 
   const prompt = kind && own && rest.model?.provider === SEED_AUDIO_PROVIDER_ID ? `${SEED_AUDIO_INSTRUCTIONS[kind]}${own}` : own;
   // Audio scenes took any positive length; audio nodes start at 0.1 seconds.
   const duration = typeof rest.durationSeconds === "number" && rest.durationSeconds < 0.1 ? { durationSeconds: 0.1 } : {};
-  return { ...rest, prompt, ...duration, ...(legacyModel(rest.model) ? { model: currentAudioModel(rest.model) } : {}) };
+  return { ...rest, prompt, ...duration, ...(oldModel(rest.model) ? { model: currentAudioModel(rest.model) } : {}) };
 }
 
 type NodeRecord = { id?: unknown; type: string; data?: Data };
 const record = (node: unknown): node is NodeRecord => Boolean(node && typeof node === "object" && typeof (node as { type?: unknown }).type === "string");
 const legacyType = (node: unknown): node is NodeRecord => record(node) && node.type in NODE_KINDS;
-const legacyTranscription = (node: unknown): node is NodeRecord => record(node) && node.type === TRANSCRIPTION_NODE;
 const droppedFields = (node: unknown): node is NodeRecord =>
-  record(node) && node.type === "audio" && Boolean(node.data && typeof node.data === "object" && (DROPPED.some((key) => key in node.data!) || legacyModel(node.data.model)));
+  record(node) && node.type === "audio" && Boolean(node.data && typeof node.data === "object" && (DROPPED.some((key) => key in node.data!) || oldModel(node.data.model)));
 
-/** Reads retired audio nodes in their current form, moves Seed Audio under Doubao Speech, and turns completed transcriptions into editable Text nodes with the same ID. */
+/** Reads each speech, sound-effect, music or audio-scene node as an audio node, drops audio references and subtitles, and moves Seed Audio under Doubao Speech. */
 export function migrateLegacyAudioNodes<T>(value: T): { value: T; migrated: string[] } {
   const nodes = value && typeof value === "object" ? (value as { nodes?: unknown }).nodes : undefined;
-  const changes = (node: unknown) => legacyType(node) || legacyTranscription(node) || droppedFields(node);
+  const changes = (node: unknown) => legacyType(node) || droppedFields(node);
   if (!Array.isArray(nodes) || !nodes.some(changes)) return { value, migrated: [] };
   const migrated: string[] = [];
   return {
@@ -66,14 +53,10 @@ export function migrateLegacyAudioNodes<T>(value: T): { value: T; migrated: stri
         migrated.push(String(node.id));
         return { ...node, type: "audio", data: audioData(NODE_KINDS[node.type]!, node.data ?? {}) };
       }
-      if (legacyTranscription(node)) {
-        migrated.push(String(node.id));
-        return { ...node, type: "text", data: { text: typeof node.data?.text === "string" ? node.data.text : "", instruction: "" } };
-      }
       if (!droppedFields(node)) return node;
       migrated.push(String(node.id));
       const data = Object.fromEntries(Object.entries(node.data!).filter(([key]) => !(DROPPED as readonly string[]).includes(key)));
-      return { ...node, data: legacyModel(data.model) ? { ...data, model: currentAudioModel(data.model) } : data };
+      return { ...node, data: oldModel(data.model) ? { ...data, model: currentAudioModel(data.model) } : data };
     }) },
     migrated,
   };
@@ -84,7 +67,7 @@ export function migrateLegacyAudioJob<T extends { toolId?: unknown; input?: unkn
   const kind = typeof record.toolId === "string" ? TOOL_KINDS[record.toolId] : undefined;
   if (!kind) {
     const input = record.input as { model?: unknown } | undefined;
-    return record.toolId === "generate-audio" && legacyModel(input?.model) ? { ...record, input: { ...input, model: currentAudioModel(input.model) } } : record;
+    return record.toolId === "generate-audio" && oldModel(input?.model) ? { ...record, input: { ...input, model: currentAudioModel(input.model) } } : record;
   }
   const input = record.input && typeof record.input === "object" ? { input: { ...audioData(kind, record.input as Data), kind } } : {};
   return { ...record, toolId: "generate-audio", ...input };

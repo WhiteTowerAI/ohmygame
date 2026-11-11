@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   CanvasAudioControls,
-  audioHasAdvancedSettings,
   audioSettingsIssue,
 } from "../src/renderer/canvas-audio-controls.js";
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
@@ -124,11 +123,6 @@ it("checks saved settings against the current model", () => {
   expect(audioSettingsIssue({ voiceId: "voice" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeUndefined();
   expect(audioSettingsIssue({ output: { format: "mp3", sampleRate: 40000 } }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
   expect(audioSettingsIssue({ ssml: "<speak>Hello</speak>" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
-});
-
-it("only offers the tune menu when a model has adjustable low-frequency settings", () => {
-  expect(audioHasAdvancedSettings(elevenSpeech)).toBe(false);
-  expect(audioHasAdvancedSettings(VOLCENGINE_TTS_MODELS[0])).toBe(true);
 });
 
 it("lists account voices and limits speed for models that speak, and hides both for sound-only models", async () => {

@@ -21,7 +21,8 @@ const SPEED_RANGE = [-30, 20] as const;
 const MAX_TRANSCRIPTION_BYTES = MAX_AUDIO_BYTES;
 
 type Endpoint = "speech" | "sound" | "music" | "transcription";
-const model = (id: string, name: string, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat">): AudioModel => ({
+const ENDPOINTS = new Map<string, Endpoint>();
+const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<AudioModel["capabilities"], "formats" | "sampleRatesByFormat">): AudioModel => (ENDPOINTS.set(id, endpoint), {
   provider: ELEVENLABS_PROVIDER_ID,
   providerName: ELEVENLABS_PROVIDER_NAME,
   id,
@@ -30,54 +31,18 @@ const model = (id: string, name: string, capabilities: Omit<AudioModel["capabili
   capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, ...capabilities },
 });
 
-type ElevenModelRecord = { model_id?: unknown; name?: unknown; description?: unknown; can_do_text_to_speech?: unknown; maximum_text_length_per_request?: unknown };
-const MODELS_TTL_MS = 10 * 60_000;
-const RETIRED_SOUND_EFFECT_MODELS = new Set(["eleven_text_to_sound_v2"]);
-
-/** The official model list reports TTS explicitly; ElevenLabs names the two creative model families consistently. */
-function elevenModels(value: unknown, specification: unknown): AudioModel[] {
-  if (!Array.isArray(value)) throw new AudioGenerationError("ElevenLabs returned an invalid model list", 502);
-  const listed = value.flatMap((entry): AudioModel[] => {
-    if (!entry || typeof entry !== "object") return [];
-    const { model_id: rawId, name: rawName, description: rawDescription, can_do_text_to_speech: tts, maximum_text_length_per_request: limit } = entry as ElevenModelRecord;
-    const id = typeof rawId === "string" && rawId.trim() ? rawId.trim() : undefined;
-    if (!id || RETIRED_SOUND_EFFECT_MODELS.has(id)) return [];
-    const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : id;
-    const description = typeof rawDescription === "string" ? rawDescription : "";
-    if (tts === true) return [model(id, name, { produces: ["speech"], readsText: true, ...(typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0 ? { maxTextCharacters: limit } : {}), supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE })];
-    if (/(?:^|_)text_to_sound(?:_|$)|sound[ _-]?effects?/i.test(`${id} ${name} ${description}`)) return [model(id, name, { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true })];
-    if (/(?:^|_)music(?:_|$)|\bmusic\b/i.test(`${id} ${name} ${description}`)) return [model(id, name, { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true })];
-    if (/^scribe_/i.test(id)) return [model(id, name, { produces: [], transcribes: true })];
-    return [];
-  });
-  // /v1/models lists voice synthesis models. The official OpenAPI document owns
-  // the SFX and Music endpoint enums, so these are not application-maintained IDs.
-  const endpointModels = ["SFXModelId", "MusicModelID"].flatMap((schema) => openApiEnum(specification, schema).reverse())
-    .filter((id) => !RETIRED_SOUND_EFFECT_MODELS.has(id));
-  return [...listed, ...endpointModels
-    .filter((id) => !listed.some((candidate) => candidate.id === id))
-    .flatMap((id) => elevenModels([{ model_id: id, name: displayModelName(id) }], {}))];
-}
-
-function openApiEnum(value: unknown, schema: string): string[] {
-  const root = value && typeof value === "object" ? value as { components?: { schemas?: Record<string, { enum?: unknown }> } } : undefined;
-  const entries = root?.components?.schemas?.[schema]?.enum;
-  return Array.isArray(entries) ? entries.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : [];
-}
-
-function displayModelName(id: string): string {
-  return id.split("_").map((part) => part === "v" ? "v" : /^\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
-}
-
-function endpointFor(model: AudioModel): Endpoint | undefined {
-  if (model.capabilities.readsText) return "speech";
-  if (model.capabilities.produces.includes("sound-effect")) return "sound";
-  if (model.capabilities.produces.includes("music")) return "music";
-  return model.capabilities.transcribes ? "transcription" : undefined;
-}
+/** Model ids and limits from https://elevenlabs.io/docs/models. */
+export const ELEVENLABS_MODELS: readonly AudioModel[] = [
+  model("eleven_v4", "Eleven v4", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_flash_v2_5", "Eleven Flash v2.5", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 40_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_text_to_sound_v3", "Eleven Sound Effects v3", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
+  model("eleven_text_to_sound_v2", "Eleven Sound Effects v2", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
+  model("music_v2_5", "Eleven Music v2.5", "music", { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
+  model("music_v1", "Eleven Music v1", "music", { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
+  model("scribe_v2", "Scribe v2", "transcription", { produces: [], transcribes: true }),
+];
 
 export class ElevenLabsAudioProvider implements AudioProviderAdapter {
-  #catalog?: { loadedAt: number; models: Promise<AudioModel[]> };
   readonly id = ELEVENLABS_PROVIDER_ID;
   readonly name = ELEVENLABS_PROVIDER_NAME;
   constructor(
@@ -88,24 +53,11 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
 
   configured(): boolean { return Boolean(this.apiKey()); }
   enabled(): boolean { return this.enabledState(); }
-  /** Credentials or a failed lookup changed; the next request must load the current account's catalog. */
-  invalidateModels(): void { this.#catalog = undefined; }
-  async models(signal?: AbortSignal): Promise<AudioModel[]> {
-    if (!this.#catalog || Date.now() - this.#catalog.loadedAt > MODELS_TTL_MS) {
-      const entry = { loadedAt: Date.now(), models: Promise.all([
-        this.#fetch("/v1/models", { method: "GET" }, signal).then(async (response) => await response.json() as unknown),
-        this.#fetch("/openapi.json", { method: "GET" }, signal).then(async (response) => await response.json() as unknown),
-      ]).then(([listed, specification]) => elevenModels(listed, specification)) };
-      // Do not let one bad key, cancelled request, or transient network failure poison this account for the TTL.
-      entry.models.catch(() => { if (this.#catalog === entry) this.#catalog = undefined; });
-      this.#catalog = entry;
-    }
-    return (await this.#catalog.models).map((candidate) => structuredClone(candidate));
-  }
+  models(): AudioModel[] { return ELEVENLABS_MODELS.map((candidate) => structuredClone(candidate)); }
 
   async generate(input: AudioGenerationRequest, signal?: AbortSignal): Promise<GeneratedAudio> {
-    const selected = (await this.models(signal)).find((candidate) => candidate.id === input.model?.id);
-    const endpoint = selected && endpointFor(selected);
+    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id);
+    const endpoint = selected && ENDPOINTS.get(selected.id);
     if (!selected || !endpoint || endpoint === "transcription" || input.model?.provider !== this.id) throw new AudioGenerationError(`The selected ${this.name} model can't generate audio`, 400);
     if (endpoint === "speech") {
       const text = input.prompt.trim();
@@ -154,7 +106,7 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
   }
 
   async transcribe(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription> {
-    const selected = (await this.models(signal)).find((candidate) => candidate.id === input.model?.id && candidate.capabilities.transcribes);
+    const selected = ELEVENLABS_MODELS.find((candidate) => candidate.id === input.model?.id && candidate.capabilities.transcribes);
     if (!selected) throw new AudioGenerationError(`The selected ${this.name} model can't transcribe`, 400);
     if (!input.bytes.length || input.bytes.length > MAX_TRANSCRIPTION_BYTES) throw new AudioGenerationError("The audio is empty or too large to transcribe", 413);
     const form = new FormData();
