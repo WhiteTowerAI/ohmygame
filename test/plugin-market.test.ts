@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { indexImage, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
 const cleanup: string[] = [];
@@ -36,11 +36,11 @@ const version = (name: string, ver: string, id: string, fields: object = {}) => 
 });
 const index = (fields: object = {}) => ({ schemaVersion: 1, versions: [], packages: {}, featured: [], ...fields });
 
-/** Serves an index as the job writes it, counting what's read. */
+/** Serves an index as the job writes it, and any other files beside it, counting what's read. */
 function server(body: unknown) {
   const reads: string[] = [];
-  const state = { body, up: true };
-  const fetcher = (async (input: string | URL) => {
+  const state = { body, up: true, files: {} as Record<string, Buffer>, redirects: [] as Array<RequestRedirect | undefined> };
+  const fetcher = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     reads.push(url);
     if (!state.up) throw new Error("offline");
@@ -48,7 +48,9 @@ function server(body: unknown) {
     const digest = createHash("sha256").update(text).digest("hex");
     if (url === URL_INDEX) return Response.json({ schemaVersion: 1, latest: `index.${digest}.json`, sha256: digest });
     if (url.endsWith(`/index.${digest}.json`)) return new Response(text);
-    return new Response("", { status: 404 });
+    const file = state.files[url];
+    if (file) state.redirects.push(init?.redirect);
+    return file ? new Response(new Uint8Array(file)) : new Response("", { status: 404 });
   }) as typeof fetch;
   return { fetcher, reads, state };
 }
@@ -176,6 +178,56 @@ describe("PluginMarket listing", () => {
     const restarted = await market(index(), { directory, fetcher: offline.fetcher, now: () => now });
     expect((await restarted.market.listing("en")).plugins).toHaveLength(1);
     await vi.waitFor(async () => expect(await restarted.market.listing("en")).toMatchObject({ status: "stale", plugins: [{ id: "a/b" }] }));
+  });
+
+  it("lists what an index says about a plugin's place and pictures, leaving out what this app doesn't know", async () => {
+    const { market: subject } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
+      ...version("@a/b", "1.0.0", "a/b").plugin,
+      categories: ["art", "hologram", "3d"], appliesTo: ["web-game"], beta: true,
+      longDescription: { en: "Long", "zh-CN": "长" },
+      // An index field from a later schema is passed over.
+      rating: 5,
+      images: { icon: "assets/icon.svg", screenshots: [
+        { path: "assets/one.png", caption: { en: "One", "zh-CN": "一" } },
+        { path: "../elsewhere.png" }, { path: "https://evil.example/x.png" }, { path: "assets/two.webp" },
+      ] },
+    } })] }));
+    const [plugin] = (await subject.listing("zh-CN")).plugins;
+    expect(plugin).toMatchObject({
+      categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长", icon: "assets/icon.svg",
+      screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
+    });
+    expect(plugin).not.toHaveProperty("rating");
+  });
+
+  it("reads only the images its index lists, from the index's host, checking each is a picture", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const { market: subject, reads, state } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
+      ...version("@a/b", "1.0.0", "a/b").plugin,
+      images: { icon: "assets/icon.png", screenshots: [{ path: "assets/page.png" }, { path: "assets/script.svg" }] },
+    } })] }));
+    state.files["https://plugins.example.com/plugins/assets/icon.png"] = png;
+    state.files["https://plugins.example.com/plugins/assets/page.png"] = Buffer.from("<html></html>");
+    state.files["https://plugins.example.com/plugins/assets/script.svg"] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    state.files["https://plugins.example.com/plugins/assets/other.png"] = png;
+    expect(await subject.image("assets/icon.png")).toMatchObject({ mediaType: "image/png", bytes: png });
+    // Kept once read: they're named by what's in them.
+    await subject.image("assets/icon.png");
+    expect(reads.filter((url) => url.endsWith("icon.png"))).toHaveLength(1);
+    await expect(subject.image("assets/page.png")).rejects.toThrow();
+    await expect(subject.image("assets/script.svg")).rejects.toThrow();
+    expect(await subject.image("assets/other.png")).toBeUndefined();
+    expect(reads.some((url) => url.endsWith("other.png"))).toBe(false);
+    // A redirect could lead anywhere, so it isn't followed.
+    expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("keeps an index's images below its own folder on its own host", () => {
+    expect(indexImage(URL_INDEX, "assets/a.png")).toBe("https://plugins.example.com/plugins/assets/a.png");
+    expect(indexImage("http://127.0.0.1:4000/plugins/index.json", "a.png")).toBe("http://127.0.0.1:4000/plugins/a.png");
+    for (const file of ["../a.png", "assets/../../a.png", "./a.png", "/a.png", "//evil.example/a.png", "https://evil.example/a.png", "a\\b.png", "", "a b.png"]) {
+      expect(indexImage(URL_INDEX, file)).toBeUndefined();
+    }
   });
 
   it("stops reading an answer larger than allowed", async () => {

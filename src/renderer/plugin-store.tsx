@@ -4,11 +4,12 @@ import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, exportStorePlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { consentToPlugin, exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginScreenshots } from "./plugin-catalog.js";
 import { formatBytes } from "./format-bytes.js";
-import { language, t } from "./i18n.js";
+import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList, PluginConsentDialog } from "./plugin-consent-dialog.js";
@@ -146,31 +147,6 @@ export function marketBlocks(versions: StorePlugin[], market: PluginMarketListin
 export function marketContributions({ adds }: MarketPlugin): PluginContribution[] {
   const counts: Partial<Record<PluginContribution, number | undefined>> = { projectType: adds.projectTypes, skills: adds.skills, mcp: adds.mcpServers };
   return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
-}
-
-/** A plugin on the market, not installed yet; opening it reviews the package. */
-export function MarketPluginCard({ plugin, installed = false, onOpen }: { plugin: MarketPlugin; installed?: boolean; onOpen: () => void }): ReactNode {
-  const compact = new Intl.NumberFormat(language, { notation: "compact" });
-  return <article className="plugin-card">
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
-      <span className="plugin-tile"><Package size={24} aria-hidden="true" /></span>
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.sourceVerified ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.sourceVerified")} /> : null}
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.package}</span>
-          {plugin.adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: plugin.adds.skills })}</span> : null}
-          {plugin.adds.mcpServers ? <span className="plugins-tag">{t("plugins.contributions.mcp")}</span> : null}
-          {plugin.stars !== undefined ? <span className="plugins-tag">★ {compact.format(plugin.stars)}</span> : null}
-          {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
-        </span>
-      </span>
-    </button>
-    <span className="plugins-installed-label">{t(installed ? "plugins.installed" : "plugins.install")}</span>
-  </article>;
 }
 
 function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
@@ -339,7 +315,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   return <div className="plugin-page">
     <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
       {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
+      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge>
+        : isOfficialPlugin(plugin.id) && plugin.origin?.type === "npm" ? <Badge tone="ink">{t("plugins.official")}</Badge> : null}
       {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
     </>}>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
@@ -361,6 +338,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       {t("pluginStore.consentHint")} {missing.map((capability, index) => <span key={capability}>{index ? ", " : ""}<code>{capability}</code></span>)}
     </Alert> : null}
 
+    <InstalledScreenshots plugin={plugin} />
     <div className="plugin-layout">
       <div className="plugin-main">
         {tabs.length > 1 ? <Tabs<StoreDetailTab> variant="pills" label={plugin.displayName} value={tab} onChange={setTab} tabs={tabs} /> : null}
@@ -411,6 +389,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           </dd>
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
+          {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
+          {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
           {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
           {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size={11} /></a> : plugin.origin.package}</dd></> : null}
@@ -459,6 +439,33 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       onUninstall={(keepData) => remove(removing, keepData)} /> : null}
     {everyProject.dialog}
   </div>;
+}
+
+/** An installed plugin's screenshots, read from its package through the daemon. */
+function InstalledScreenshots({ plugin }: { plugin: StorePlugin }): ReactNode {
+  const [urls, setUrls] = useState<(string | undefined)[]>([]);
+  const count = plugin.screenshots?.length ?? 0;
+  useEffect(() => {
+    if (!count) return setUrls([]);
+    const controller = new AbortController();
+    const made: string[] = [];
+    void Promise.all(Array.from({ length: count }, (_, index) =>
+      readPluginScreenshotImage(plugin.id, index, controller.signal).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        made.push(url);
+        return url;
+      }, () => undefined)))
+      .then((next) => { if (!controller.signal.aborted) setUrls(next); });
+    return () => {
+      controller.abort();
+      for (const url of made) URL.revokeObjectURL(url);
+    };
+  }, [plugin.id, plugin.revision, count]);
+  const shots = (plugin.screenshots ?? []).flatMap((shot, index) => {
+    const src = urls[index];
+    return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
+  });
+  return <PluginScreenshots shots={shots} />;
 }
 
 /** Names in their first order, each once with how many times it came. */

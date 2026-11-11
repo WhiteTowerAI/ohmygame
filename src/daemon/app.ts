@@ -12,7 +12,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions } from "./plugin-agents.js";
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
@@ -1330,6 +1330,12 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const entry = pluginServices.index.get(id);
     return entry?.manifest.icon ? readPluginIconAsset(entry.root, { type: "asset", path: entry.manifest.icon }) : undefined;
+  }, async (id, index) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    const screenshot = entry?.manifest.screenshots?.[index];
+    return entry && screenshot ? readPluginScreenshot(entry.root, screenshot.path) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
@@ -1518,6 +1524,7 @@ export function createApp(options: AppOptions = {}) {
         ...(entry.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
         ...(entry.manifest.longDescription ? { longDescription: text(entry.manifest.longDescription) } : {}),
         examples: (entry.manifest.examples ?? []).map(text),
+        ...(entry.manifest.screenshots ? { screenshots: entry.manifest.screenshots.map((shot) => ({ ...(shot.caption ? { caption: text(shot.caption) } : {}) })) } : {}),
         ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
         ...(entry.manifest.links?.homepage ? { homepage: entry.manifest.links.homepage } : {}),
         skills: storeSkills(entry),
@@ -1580,6 +1587,16 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
+  app.get<{ Params: { "*": string } }>("/plugin-market/images/*", async (request, reply) => {
+    const image = await pluginMarket.image(request.params["*"]).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Image not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400, immutable")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
   app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
     schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
   }, async (request, reply) => {

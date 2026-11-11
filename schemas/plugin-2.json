@@ -84,6 +84,32 @@
       "maxItems": 20,
       "uniqueItems": true
     },
+    "screenshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|jpe?g|webp)$",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true
+    },
     "categories": {
       "type": "array",
       "items": {
@@ -94,7 +120,19 @@
           },
           {
             "type": "string",
+            "const": "publishing"
+          },
+          {
+            "type": "string",
+            "const": "design"
+          },
+          {
+            "type": "string",
             "const": "art"
+          },
+          {
+            "type": "string",
+            "const": "3d"
           },
           {
             "type": "string",
@@ -102,15 +140,19 @@
           },
           {
             "type": "string",
-            "const": "publishing"
+            "const": "video"
+          },
+          {
+            "type": "string",
+            "const": "testing"
+          },
+          {
+            "type": "string",
+            "const": "agent"
           },
           {
             "type": "string",
             "const": "provider"
-          },
-          {
-            "type": "string",
-            "const": "theme"
           },
           {
             "type": "string",
@@ -119,6 +161,10 @@
           {
             "type": "string",
             "const": "integration"
+          },
+          {
+            "type": "string",
+            "const": "theme"
           }
         ]
       },

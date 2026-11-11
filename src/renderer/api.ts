@@ -1795,6 +1795,18 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
+/** An image the market lists for a plugin, by its path from the index. */
+export async function readPluginMarketImage(path: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images/${path.split("/").map(encodeURIComponent).join("/")}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+/** One of an installed plugin's screenshots, by its place in the manifest. */
+export async function readPluginScreenshotImage(pluginId: string, index: number, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(pluginId)}/screenshots/${index}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);
 }

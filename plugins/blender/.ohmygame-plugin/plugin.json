@@ -14,9 +14,7 @@
   ],
   "beta": true,
   "icon": "./assets/icon.png",
-  "categories": [
-    "art"
-  ],
+  "categories": ["3d"],
   "appliesTo": [
     "general",
     "web-game",

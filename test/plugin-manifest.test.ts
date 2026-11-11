@@ -95,6 +95,9 @@ const messages = (value: unknown) => {
     : result.issues.map((issue) => `${issue.path} ${issue.message}`);
 };
 
+/** Where the manifest says something this app leaves out. */
+const ignored = (value: unknown) => (validatePluginManifest(value).ignored ?? []).map((issue) => issue.path);
+
 describe("plugin manifest", () => {
   it("publishes a JSON Schema that matches its source", async () => {
     expect(await readFile(PLUGIN_SCHEMA_FILE, "utf8")).toBe(pluginSchemaJson());
@@ -108,7 +111,8 @@ describe("plugin manifest", () => {
     expect(messages({ ...minimal, ui: { accent: "#00d8c4" } })).toEqual([]);
     expect(messages({ ...minimal, ui: { accent: { light: "#00857a", dark: "#00D8C4" } } })).toEqual([]);
     expect(messages({ ...minimal, ui: { accent: "teal" } })).not.toEqual([]);
-    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).not.toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual([]);
+    expect(ignored({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).toEqual(["/ui/accent/dim"]);
   });
 
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
@@ -125,10 +129,24 @@ describe("plugin manifest", () => {
     expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
-  it("rejects unknown fields", () => {
-    expect(
-      messages({ ...minimal, interface: { displayName: "X" } }),
-    ).toContainEqual(expect.stringContaining("additional properties"));
+  it("leaves out fields it doesn't know, and says where", () => {
+    // A newer plugin API's field, or a typo: the plugin still loads, without it.
+    const result = validatePluginManifest({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } });
+    expect(result.ok && result.manifest).toEqual({ ...minimal, contributes: {} });
+    expect(ignored({ ...minimal, interface: { displayName: "X" }, contributes: { panelz: [] } })).toEqual(["/interface", "/contributes/panelz"]);
+    // Unknown fields don't excuse known ones that are wrong.
+    expect(messages({ ...minimal, interface: {}, displayName: 3 })).toContainEqual(expect.stringMatching(/^\/displayName /));
+    // Categories and hooks a newer app adds are left out; when none is left, so is the list.
+    expect(validatePluginManifest({ ...minimal, categories: ["art", "holograms"] })).toMatchObject({ ok: true, manifest: { categories: ["art"] } });
+    expect(validatePluginManifest({ ...minimal, categories: ["holograms"] })).toMatchObject({ ok: true, manifest: minimal });
+    expect(ignored({ ...minimal, categories: ["holograms"] })).toEqual(["/categories/0"]);
+    // A list that was empty to begin with is still wrong.
+    expect(validatePluginManifest({ ...minimal, categories: [] }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, contributes: { hooks: [] } }).ok).toBe(false);
+    // A value that could be either of two forms keeps what it doesn't know, so it still fails.
+    expect(messages({ ...minimal, contributes: { commands: [{ id: "both", title: "Both", run: { prompt: "Hi", tool: "x" } }] } })).not.toEqual([]);
+    // A record's keys are its data, not fields to leave out.
+    expect(messages({ ...minimal, configuration: { "Bad-Key": { type: "text", title: "Bad" } } })).not.toEqual([]);
     expect(messages({ ...minimal, id: "example" })).toContainEqual(
       expect.stringMatching(/^\/id /),
     );
@@ -263,8 +281,9 @@ describe("plugin manifest", () => {
       "/contributes/mcpServers/0/headers token is a secret, which needs capabilities.secrets",
     ]);
     expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }, { network: ["127.0.0.1"], secrets: true }))).toEqual([]);
-    // Adapter-only knobs aren't part of the contract.
-    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).not.toEqual([]);
+    // Adapter-only knobs aren't part of the contract, so they never reach the adapter.
+    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).toEqual([]);
+    expect(ignored(server({ url: "${config.endpoint}", auth: "oauth" }))).toEqual(["/contributes/mcpServers/0/auth"]);
   });
 
   it("closes keyed records and never throws on bad values", () => {
@@ -316,7 +335,8 @@ describe("plugin manifest", () => {
     expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);
     expect(devices([{ id: "tiny", title: "Tiny", width: 100, height: 480 }])).not.toEqual([]);
     expect(devices([{ id: "huge", title: "Huge", width: 800, height: 5000 }])).not.toEqual([]);
-    expect(devices([{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }])).not.toEqual([]);
+    expect(ignored({ ...minimal, contributes: { previewDevices: [{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }] } }))
+      .toEqual(["/contributes/previewDevices/0/frame"]);
     expect(devices([
       { id: "handheld", title: "A", width: 800, height: 480 },
       { id: "handheld", title: "B", width: 480, height: 800 },
@@ -453,8 +473,12 @@ describe("plugin manifest", () => {
       }),
     ).toEqual([
       "/contributes/themes/0/dark/--color-accent must be a colour",
-      "/contributes/themes/0/dark/--radius-md not a theme token",
     ]);
+    // A token a newer app lets themes set is left out here.
+    const radius = { ...minimal, contributes: { themes: [{ id: "round", title: "Round", dark: { "--gray-0": "#000", "--radius-md": "0" } }] } };
+    expect(ignored(radius)).toEqual(["/contributes/themes/0/dark/--radius-md"]);
+    const read = validatePluginManifest(radius);
+    expect(read.ok && read.manifest.contributes?.themes?.[0]?.dark).toEqual({ "--gray-0": "#000" });
   });
 
   it("matches the plugin API version against a manifest's range", () => {

@@ -14,23 +14,41 @@ from the [plugin market](#the-plugin-market).
 ## Browse plugins
 
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
-the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
-**Installed** has a dot when an installed plugin has an update.
+the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
+default. Tabs show no counts; **Installed** has a dot when an installed plugin
+has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
+Installed share: the category chips, sorting, cards and the market plugin page.
+
+Plugins are sorted into the [categories](#more-manifest-fields) they declare.
+A row of chips above the list offers **All** and each category something on
+the tab is in, with how many; picking one shows just those, and picking it
+again shows everything. A plugin is listed in each category it names but grouped
+under its first, and one with none is under **Other**. Search shows every match
+in one list.
 
 - **Installed** holds what others made: bundled, prepared, and added from npm or
-  GitHub. It groups them by their `categories` into **Game creation**,
-  **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
-  shows up to six cards and a **View all**. A **Category** filter narrows them
-  to what they add; **Skills** lists each of their Skills on its own instead.
-  Search shows every match in one list.
+  GitHub. Plugins with an update come first, under **Updates**, then a group
+  for each category, each with up to six cards and a **View all**. A
+  **Contains** filter narrows them to what they add; **Skills** lists each of
+  their Skills on its own instead.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning on one that
   asks for more than was allowed asks first, saying it will run in every
   project it suits. One stopped everywhere from its page says **Disabled** and
   has no switch.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins under
-  **Featured** and **On npm**, filtered by what they add. One that's installed
-  says so and opens its page.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins: up to
+  four **Featured** ones with their first screenshot, then **All plugins**. Once
+  the market lists more than twelve, each category with at least two gets its
+  own section of four with a **View all**, and the rest are under **More
+  plugins**. A narrowed list can be sorted by **Recommended** (featured, then
+  weekly downloads), **Most downloaded**, **Recently updated** or **Name**, and
+  filtered by what the plugins add. Cards mark what's installed, what's
+  `beta`, and **Official** for the `ohmygame` publisher. A card opens the
+  plugin's page; **Get** opens [Add plugin](#adding-a-plugin)'s review at the
+  listed version. A plugin that isn't installed has a page of its own, from
+  the index alone: its screenshots, long description, what it asks for and
+  adds, and its categories, project types, publisher, version, date and
+  downloads.
 - **Mine** holds what the person can edit: **Create a plugin with AI**, the
   plugins they made (`personal/<name>`) or added from this computer, then the AI
   workspaces.
@@ -63,7 +81,15 @@ and waits until what the plugin asks for is allowed.
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
   says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it.
+  app has left says its author needs to update it. That range alone decides
+  whether a plugin needs a newer app: `validatePluginManifest` leaves out a
+  field, a `categories` or `contributes.hooks` value, or a theme token this app
+  doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
+  something newer as a nice-to-have still installs on an older app, without it.
+  A value whose form can't be told apart, such as an unknown key in a choice of
+  objects, is still refused, and so are names in a map, which stay the
+  plugin's own. `ohmygame-plugin check` warns about each ignored entry, so a
+  typo doesn't go unnoticed, and the Plugin Builder treats them as errors.
 - **Project file:** `ohmygame.json` at a project's root names its type and how
   its plugins differ from the person's choice for every project
   (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
@@ -281,14 +307,14 @@ was opened.
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
-| Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -742,15 +768,31 @@ nothing is read.
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
-  release, and an open page picks up new answers every two minutes. A market card
-  shows the default icon, since the package hasn't been downloaded. The publisher
+  release, and an open page picks up new answers every two minutes. The publisher
   `personal` isn't listed, nor is anything whose name isn't
   `@publisher/name` or whose version isn't exact.
+- **What a listing shows.** Besides its name, description, grants and counts of
+  what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
+  `beta`, a localized `longDescription`, and `images`: an `icon` and up to ten
+  `screenshots` (`{ path, caption? }`), copied out of the package by the index
+  job. The app reads fields it doesn't know past, and keeps only categories it
+  knows. Image paths are below the index's folder on its own host
+  (`indexImage`), named by their contents, since the app keeps what it read.
+  The renderer gets them through `GET /plugin-market/images/<path>`, which
+  serves only an image the current index lists, up to 1 MB, as a PNG, JPEG,
+  WebP or an SVG that passes the icon checks.
 
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+on the plugin's page, and mark itself `beta`. `categories` sorts it on the
+Plugins page, grouped under the first: `engine` (engines and platforms), `publishing`,
+`design` (game design and level tools), `art`, `3d`, `audio`, `video`,
+`testing`, `agent` (coding agents), `provider` (model providers), `workflow`,
+`integration` (other apps and services) and `theme`. `screenshots` (API 2.4.0)
+lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
+an optional `caption`, shown on its page through
+`GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)
 names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
 projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in

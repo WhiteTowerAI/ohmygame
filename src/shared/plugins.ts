@@ -52,6 +52,15 @@ export interface MarketPlugin {
   asks: string[];
   /** How many of each list its manifest contributes, and how many Skills. */
   adds: Record<string, number>;
+  /** The categories this app knows, of those its manifest names. */
+  categories?: PluginCategory[];
+  /** The project types it works in; absent means every type. */
+  appliesTo?: string[];
+  beta?: boolean;
+  longDescription?: string;
+  /** Images by their path from the index, which `/plugin-market/images/<path>` reads. */
+  icon?: string;
+  screenshots?: Array<{ path: string; caption?: string }>;
   publishedAt?: string;
   repository?: string;
   /** npm's provenance names the repository, or the repository's package.json names the package. */
@@ -321,6 +330,8 @@ export interface StorePlugin {
   longDescription?: string;
   /** Prompts its page offers to try it with. */
   examples: string[];
+  /** Its screenshots in order; each reads from `/plugins/:id/screenshots/:index`. */
+  screenshots?: Array<{ caption?: string }>;
   /** The project types it works in; absent means every type. */
   appliesTo?: string[];
   homepage?: string;

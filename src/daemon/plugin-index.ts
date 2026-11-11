@@ -25,6 +25,7 @@ import {
   pluginApiIssue,
   pluginUiIssue,
   toolSchemaIssues,
+  PLUGIN_SCREENSHOT_MAX_BYTES,
   validatePluginManifest,
   type PluginContributions,
   type PluginManifestIssue,
@@ -73,9 +74,10 @@ export interface PluginIndexEntry {
   toolSchemas: Record<string, Record<string, unknown>>;
 }
 
+/** `ignored`: what the manifest says that this app leaves out; see `validatePluginManifest`. */
 export type PluginPackageResult =
-  | { ok: true; entry: PluginIndexEntry }
-  | { ok: false; issues: PluginManifestIssue[] };
+  | { ok: true; entry: PluginIndexEntry; ignored?: PluginManifestIssue[] }
+  | { ok: false; issues: PluginManifestIssue[]; ignored?: PluginManifestIssue[] };
 
 class PluginPackageError extends Error {
   constructor(
@@ -171,6 +173,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
     manifest.description,
     manifest.longDescription,
     ...(manifest.examples ?? []),
+    ...(manifest.screenshots ?? []).map((screenshot) => screenshot.caption),
     ...Object.values(manifest.configuration ?? {}).flatMap((field) => [
       field.title,
       field.description,
@@ -246,6 +249,7 @@ function checkPackage(
   const validated = validatePluginManifest(raw);
   if (!validated.ok) return validated;
   const manifest = validated.manifest;
+  const notes = validated.ignored ? { ignored: validated.ignored } : {};
   const apiIssue = pluginApiIssue(manifest);
   if (apiIssue) issues.push({ path: "/engines/ohmygame-api", ...apiIssue });
   const uiIssue = pluginUiIssue(manifest);
@@ -262,6 +266,11 @@ function checkPackage(
       issue(at, `${relative} is not a folder in the package`);
   };
   file("/icon", manifest.icon);
+  manifest.screenshots?.forEach((screenshot, index) => {
+    const at = `/screenshots/${index}/path`, bytes = files.get(screenshot.path);
+    if (!bytes) issue(at, `${screenshot.path} is not in the package`);
+    else if (bytes.length > PLUGIN_SCREENSHOT_MAX_BYTES) issue(at, `${screenshot.path} is larger than ${PLUGIN_SCREENSHOT_MAX_BYTES / 1024 / 1024} MB`);
+  });
   file("/entrypoints/native", manifest.entrypoints?.native);
   contributes.projectTypes?.forEach((type, index) => {
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
@@ -392,9 +401,10 @@ function checkPackage(
   for (const key of localizedKeys(manifest))
     if (!localeText(strings.en, key)) issue("./locales/en.json", `missing %${key}%`);
 
-  if (issues.length) return { ok: false, issues };
+  if (issues.length) return { ok: false, issues, ...notes };
   return {
     ok: true,
+    ...notes,
     entry: {
       id: manifest.id,
       version: manifest.version,

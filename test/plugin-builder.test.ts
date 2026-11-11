@@ -31,7 +31,7 @@ async function environment() {
   const setup = manager();
   const app = Fastify();
   registerPluginSetupRoutes(app, setup);
-  registerPluginIconRoutes(app, async () => undefined);
+  registerPluginIconRoutes(app, async () => undefined, async () => undefined);
   cleanup.push(() => app.close());
   return { directory, agentDir, host, services, setup, manager, app, invalidate, projects };
 }

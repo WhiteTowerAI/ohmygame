@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   PLUGIN_ICON_MEDIA_TYPES,
   PLUGIN_ICON_MAX_BYTES,
   PLUGIN_ICON_MAX_DIMENSION,
 } from "../shared/plugin-icons.js";
+import { PLUGIN_SCREENSHOT_MAX_BYTES } from "../shared/plugin-manifest.js";
 import { isPluginIcon, type PluginIcon } from "../shared/plugins.js";
 import { sniffImageType } from "./image-format.js";
 import { validatePluginSvg } from "./plugin-svg.js";
@@ -62,38 +63,65 @@ export async function validatePluginIconImage(
   return { bytes, mediaType, revision };
 }
 
+/** A regular file inside the package at `./relative`, reached without links. */
+async function packageFile(root: string, relative: string, maxBytes: number): Promise<Buffer> {
+  const packageRoot = await realpath(root);
+  let target = packageRoot;
+  for (const part of relative.slice(2).split("/")) {
+    target = path.join(target, part);
+    const info = await lstat(target);
+    if (info.isSymbolicLink())
+      throw new Error("Plugin images must not contain symbolic links");
+  }
+  const inside = path.relative(packageRoot, await realpath(target));
+  if (!inside || inside.startsWith("..") || path.isAbsolute(inside))
+    throw new Error("Plugin image must be inside its package");
+  const info = await lstat(target);
+  if (!info.isFile() || info.size > maxBytes)
+    throw new Error(`Plugin images must be files up to ${maxBytes / 1024 / 1024} MB`);
+  return readFile(target);
+}
+
 export async function readPluginIconAsset(
   root: string,
   icon: PluginIcon | undefined,
 ) {
   if (icon?.type !== "asset") return undefined;
   if (!isPluginIcon(icon)) throw new Error("Invalid plugin icon path");
-  const packageRoot = await realpath(root);
-  let target = packageRoot;
-  for (const part of icon.path.slice(2).split("/")) {
-    target = path.join(target, part);
-    const info = await lstat(target);
-    if (info.isSymbolicLink())
-      throw new Error("Plugin icons must not contain symbolic links");
-  }
-  const relative = path.relative(packageRoot, await realpath(target));
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
-    throw new Error("Plugin icon must be inside its package");
-  const info = await lstat(target);
-  if (!info.isFile() || info.size > PLUGIN_ICON_MAX_BYTES)
-    throw new Error("Choose a plugin icon file up to 1 MB");
   return validatePluginIconImage(
-    await readFile(target),
+    await packageFile(root, icon.path, PLUGIN_ICON_MAX_BYTES),
     PLUGIN_ICON_MEDIA_TYPES[
       path.extname(icon.path).slice(1) as keyof typeof PLUGIN_ICON_MEDIA_TYPES
     ],
   );
 }
 
+/** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
+export async function readPluginScreenshot(root: string, relative: string) {
+  const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
+  const mediaType = sniffImageType(bytes);
+  if (!mediaType) throw new Error("Plugin screenshots must be PNG, JPEG or WebP");
+  return { bytes, mediaType, revision: createHash("sha256").update(bytes).digest("hex") };
+}
+
 export function registerPluginIconRoutes(
   app: FastifyInstance,
   readIcon: (id: string) => ReturnType<typeof readPluginIconAsset>,
+  readScreenshot: (id: string, index: number) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined>,
 ) {
+  app.get<{ Params: { pluginId: string; index: string } }>(
+    "/plugins/:pluginId/screenshots/:index",
+    async (request, reply) => {
+      try {
+        const index = /^\d{1,2}$/.test(request.params.index) ? Number(request.params.index) : -1;
+        const image = index < 0 ? undefined : await readScreenshot(request.params.pluginId, index);
+        if (!image) return reply.code(404).send({ error: "Plugin screenshot not found" });
+        return sendImage(request.headers["if-none-match"], reply, image);
+      } catch {
+        return reply.code(404).send({ error: "Plugin screenshot not found" });
+      }
+    },
+  );
   app.get<{ Params: { pluginId: string } }>(
     "/plugins/:pluginId/icon",
     async (request, reply) => {
@@ -101,23 +129,31 @@ export function registerPluginIconRoutes(
         const image = await readIcon(request.params.pluginId);
         if (!image)
           return reply.code(404).send({ error: "Plugin icon not found" });
-        const etag = `"${image.revision}"`;
-        reply
-          .header("Cache-Control", "private, no-cache")
-          .header("ETag", etag)
-          .header("X-Content-Type-Options", "nosniff")
-          .header("Content-Security-Policy", "default-src 'none'; sandbox")
-          .type(image.mediaType);
-        if (
-          request.headers["if-none-match"]
-            ?.split(",")
-            .some((tag) => [etag, `W/${etag}`, "*"].includes(tag.trim()))
-        )
-          return reply.code(304).send();
-        return reply.send(image.bytes);
+        return sendImage(request.headers["if-none-match"], reply, image);
       } catch {
         return reply.code(404).send({ error: "Plugin icon not found" });
       }
     },
   );
+}
+
+function sendImage(
+  ifNoneMatch: string | undefined,
+  reply: FastifyReply,
+  image: { bytes: Buffer; mediaType: string; revision: string },
+) {
+  const etag = `"${image.revision}"`;
+  reply
+    .header("Cache-Control", "private, no-cache")
+    .header("ETag", etag)
+    .header("X-Content-Type-Options", "nosniff")
+    .header("Content-Security-Policy", "default-src 'none'; sandbox")
+    .type(image.mediaType);
+  if (
+    ifNoneMatch
+      ?.split(",")
+      .some((tag) => [etag, `W/${etag}`, "*"].includes(tag.trim()))
+  )
+    return reply.code(304).send();
+  return reply.send(image.bytes);
 }

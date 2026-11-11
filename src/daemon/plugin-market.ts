@@ -4,7 +4,9 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { sniffImageType } from "./image-format.js";
+import { validatePluginSvg } from "./plugin-svg.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
@@ -20,6 +22,9 @@ const INDEX_MAX_BYTES = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** The index job runs every 30 minutes. */
 const REFRESH_MS = 30 * 60_000;
+/** A plugin's icon and screenshots are each at most 1 MB in its package. */
+const IMAGE_MAX_BYTES = 1024 * 1024;
+const IMAGE_CACHE_LIMIT = 64;
 const RETRY_MS = 2 * 60_000;
 
 /** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
@@ -46,6 +51,16 @@ const IndexedVersion = Type.Object({
     description: Localized,
     grants: Type.Array(Type.String({ maxLength: 1024 })),
     adds: Type.Record(Type.String(), Type.Number()),
+    // Since index schema 1 gained them; an older index has none.
+    categories: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 10 })),
+    appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
+    beta: Type.Optional(Type.Boolean()),
+    longDescription: Type.Optional(Localized),
+    /** Images the index job copied out of the package, by path from the index's folder. */
+    images: Type.Optional(Type.Object({
+      icon: Type.Optional(Type.String({ maxLength: 500 })),
+      screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
+    })),
   })),
 });
 const PackageFacts = Type.Object({
@@ -98,6 +113,7 @@ export class PluginMarket {
   #refreshing: Promise<void> | undefined;
   /** Read once, so a slow read can't replace what a refresh brought. */
   #saved: Promise<void> | undefined;
+  #images = new Map<string, Promise<{ bytes: Buffer; mediaType: string; revision: string }>>();
 
   constructor(options: PluginMarketOptions) {
     this.#url = options.url && isIndexUrl(options.url) ? options.url : undefined;
@@ -128,6 +144,14 @@ export class PluginMarket {
       const plugin = version.plugin!;
       const facts = index.packages[version.package];
       const text = (values: Record<string, string>) => values[language] ?? values.en ?? "";
+      const image = (file: string | undefined) => (file && indexImage(this.#url!, file) ? file : undefined);
+      const icon = image(plugin.images?.icon);
+      const screenshots = (plugin.images?.screenshots ?? []).flatMap((shot) => {
+        const caption = shot.caption && text(shot.caption);
+        return image(shot.path) ? [{ path: shot.path, ...(caption ? { caption } : {}) }] : [];
+      });
+      const categories = plugin.categories?.filter((category): category is PluginCategory => (PLUGIN_CATEGORIES as readonly string[]).includes(category));
+      const longDescription = plugin.longDescription && text(plugin.longDescription);
       return {
         id: plugin.id,
         package: version.package,
@@ -136,6 +160,12 @@ export class PluginMarket {
         description: text(plugin.description),
         asks: plugin.grants,
         adds: plugin.adds,
+        ...(categories?.length ? { categories } : {}),
+        ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
+        ...(plugin.beta ? { beta: true } : {}),
+        ...(longDescription ? { longDescription } : {}),
+        ...(icon ? { icon } : {}),
+        ...(screenshots.length ? { screenshots } : {}),
         ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
         ...(facts?.repository ? { repository: facts.repository } : {}),
         sourceVerified: facts?.sourceVerified === true,
@@ -155,6 +185,31 @@ export class PluginMarket {
       return reason ? [{ package: version.package, version: version.version, reason: reason.slice("blocked: ".length) }] : [];
     });
     return { status: this.#stale ? "stale" : "ready", plugins, blocked };
+  }
+
+  /**
+   * An image the index lists for a plugin, read through the daemon so it uses
+   * the app's network settings. Only the newest index's images, each checked
+   * to be a PNG, JPEG, WebP or static SVG; they're named by their contents, so
+   * one read is kept.
+   */
+  async image(file: string): Promise<{ bytes: Buffer; mediaType: string; revision: string } | undefined> {
+    const index = this.#url ? await this.#current() : undefined;
+    const url = index && indexImage(this.#url!, file);
+    if (!url || !index.versions.some(({ plugin }) => plugin?.images?.icon === file || plugin?.images?.screenshots?.some((shot) => shot.path === file))) return undefined;
+    let read = this.#images.get(file);
+    if (!read) {
+      // Not followed elsewhere: the image has to come from the index's host.
+      read = this.#read(url, IMAGE_MAX_BYTES, "error").then((bytes) => {
+        const mediaType = sniffImageType(bytes) ?? (validatePluginSvg(bytes), "image/svg+xml");
+        return { bytes, mediaType, revision: sha256(bytes) };
+      });
+      this.#images.set(file, read);
+      // A failed read is tried again next time.
+      read.catch(() => this.#images.delete(file));
+      if (this.#images.size > IMAGE_CACHE_LIMIT) this.#images.delete(this.#images.keys().next().value!);
+    }
+    return read;
   }
 
   /**
@@ -253,8 +308,8 @@ export class PluginMarket {
     this.#checkedAt = this.#now();
   }
 
-  async #read(url: string, maxBytes: number): Promise<Buffer> {
-    const response = await this.#fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  async #read(url: string, maxBytes: number, redirect: RequestRedirect = "follow"): Promise<Buffer> {
+    const response = await this.#fetch(url, { redirect, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return readLimited(response, maxBytes);
   }
@@ -309,4 +364,16 @@ async function readLimited(response: Response, maxBytes: number): Promise<Buffer
     chunks.push(Buffer.from(next.value));
   }
   return Buffer.concat(chunks);
+}
+
+/**
+ * An image the index lists, as an address on the index's own host: it is a
+ * path below the index's folder there, so an index can't point the app at
+ * someone else's server. The index's own address is HTTPS, or HTTP on this
+ * computer (`isIndexUrl`), and so is the image's.
+ */
+export function indexImage(indexUrl: string, file: string): string | undefined {
+  if (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(file) || file.split("/").some((part) => part === "." || part === "..")) return undefined;
+  const url = new URL(file, indexUrl);
+  return url.origin === new URL(indexUrl).origin ? url.href : undefined;
 }

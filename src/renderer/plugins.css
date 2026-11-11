@@ -89,6 +89,168 @@
   gap: var(--space-2);
 }
 
+/* categories on the left, as many rows as they need; the other filters keep to the right of the first */
+.plugins-filters {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plugins-filters > .ui-filter-chips {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugins-filters-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugins-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plugins-section h2 .plugins-count {
+  margin-left: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+/* featured: a picture over the name, up to four a row */
+.plugins-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.plugin-feature-link {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.plugin-feature-link:hover {
+  background: var(--color-hover);
+}
+
+.plugin-feature-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.plugin-feature-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--color-hover);
+}
+
+.plugin-feature-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.plugin-feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.plugin-feature-text strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plugin-feature-text small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* screenshots: one row that scrolls sideways, each opening larger */
+.plugin-shots-row {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  scroll-snap-type: x proximity;
+}
+
+.plugin-shot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  scroll-snap-align: start;
+}
+
+.plugin-shot > button {
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-hover);
+  cursor: zoom-in;
+}
+
+.plugin-shot > button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.plugin-shot img {
+  display: block;
+  height: 220px;
+  width: auto;
+  max-width: 420px;
+  object-fit: cover;
+}
+
+.plugin-shot figcaption {
+  max-width: 420px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.plugin-shot-large {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+}
+
 /* cards: two a row, the switch beside the card's link */
 .plugins-grid {
   display: grid;

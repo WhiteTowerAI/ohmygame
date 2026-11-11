@@ -70,16 +70,52 @@ describe("plugin catalog API", () => {
 
     const body = JSON.stringify({ schemaVersion: 1, versions: [{
       package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
-      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {} },
+      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, images: { icon: "assets/a1.png" } },
     }], packages: {}, featured: [] });
     const digest = createHash("sha256").update(body).digest("hex");
+    const png = Buffer.from("89504e470d0a1a0a", "hex");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/index.json")
       ? Response.json({ latest: `index.${digest}.json` })
-      : new Response(body));
+      : String(input).endsWith(".png") ? new Response(png) : new Response(body));
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
     apps.push(app);
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者" }] });
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/a1.png" }] });
+    // Its images come through the app, and only those the index lists.
+    const icon = await app.inject({ method: "GET", url: "/plugin-market/images/assets/a1.png" });
+    expect(icon.statusCode).toBe(200);
+    expect(icon.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
+    expect(icon.rawPayload).toEqual(png);
+    expect((await app.inject({ method: "GET", url: "/plugin-market/images/assets/b2.png" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/plugin-market/images/..%2Fsecret.png" })).statusCode).toBe(404);
+  });
+
+  it("serves an added plugin's screenshots by their place in its manifest", async () => {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-screenshots-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(source, "shots"));
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/shots", version: "1.0.0", engines: { "ohmygame-api": "^2.4.0" }, displayName: "Shots", description: "Shots",
+      categories: ["art"], screenshots: [{ path: "./shots/one.png", caption: "The first" }, { path: "./shots/two.png" }],
+    }));
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    await writeFile(path.join(source, "shots", "one.png"), png);
+    // Named like a picture, but isn't one.
+    await writeFile(path.join(source, "shots", "two.png"), "<html></html>");
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-screenshots-data-")) });
+    apps.push(app);
+    await app.ready();
+    await addPlugin(app, source);
+    const plugin = (await app.inject({ method: "GET", url: "/plugin-store/plugins?locale=en" })).json().find((item: { id: string }) => item.id === "acme/shots");
+    expect(plugin).toMatchObject({ categories: ["art"], screenshots: [{ caption: "The first" }, {}] });
+    const id = encodeURIComponent("acme/shots");
+    const first = await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/0` });
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["content-type"]).toBe("image/png");
+    expect(first.rawPayload).toEqual(png);
+    expect((await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/0`, headers: { "if-none-match": first.headers.etag as string } })).statusCode).toBe(304);
+    for (const index of ["1", "2", "-1", "x", "100"])
+      expect((await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/${index}` })).statusCode).toBe(404);
   });
 
   it("finishes indexing the bundled plugins before it closes the plugin store", async () => {
@@ -444,8 +480,8 @@ describe("plugin catalog API", () => {
     const fields = ({ id, everyProject, beta, categories, grants }: (typeof store)[number]) => ({ id, everyProject, beta, categories, enabled: grants?.enabled !== false });
     expect(store.map(fields)).toEqual(expect.arrayContaining([
       { id: "ohmygame/aseprite", everyProject: false, beta: true, categories: ["art"], enabled: true },
-      { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["art"], enabled: true },
-      { id: "ohmygame/game-studio", everyProject: true, beta: undefined, categories: ["workflow"], enabled: true },
+      { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["3d"], enabled: true },
+      { id: "ohmygame/game-studio", everyProject: true, beta: undefined, categories: ["workflow", "design"], enabled: true },
       { id: "ohmygame/unity", everyProject: false, beta: true, categories: ["engine"], enabled: true },
       { id: "ohmygame/godot", everyProject: false, beta: true, categories: ["engine"], enabled: true },
     ]));

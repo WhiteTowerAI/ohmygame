@@ -986,6 +986,24 @@ describe("plugin check", () => {
     expect(await messages(root, "warning")).toContainEqual(expect.stringContaining("There is no package.json"));
   });
 
+  it("warns about fields this app would leave out, and checks screenshots are in the package and small", async () => {
+    const root = await plugin({ "index.html": load }, { major: 1 }, {
+      categories: ["art", "hologram"], homepage: "https://example.com",
+      screenshots: [{ path: "./shots/one.png" }, { path: "./shots/big.png" }, { path: "./shots/gone.png" }],
+    });
+    await mkdir(path.join(root, "shots"));
+    await writeFile(path.join(root, "shots", "one.png"), Buffer.from("89504e470d0a1a0a", "hex"));
+    await writeFile(path.join(root, "shots", "big.png"), Buffer.alloc(1024 * 1024 + 1));
+    expect(await messages(root, "warning")).toEqual([
+      "/categories/1 \"hologram\" isn't known to this version of OhMyGame, so it's ignored",
+      "/homepage isn't known to this version of OhMyGame, so it's ignored",
+    ]);
+    expect(await messages(root, "error")).toEqual([
+      "/screenshots/1/path ./shots/big.png is larger than 1 MB",
+      "/screenshots/2/path ./shots/gone.png is not in the package",
+    ]);
+  });
+
   it("checks only what npm would publish from a folder", async () => {
     const root = await plugin({ "index.html": load });
     await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@acme/panel", version: "1.0.0", files: [".ohmygame-plugin", "icon.svg", "panel"] }));

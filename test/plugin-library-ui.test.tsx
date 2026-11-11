@@ -91,7 +91,7 @@ function section(name: string) {
 describe("Plugin library", () => {
   it("shows beta metadata on the matching card without marking other plugins", async () => {
     plugins[0]!.beta = true;
-    await act(async () => root.render(<PluginsSettings onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    await act(async () => root.render(<PluginsSettings tab="installed" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
     const cards = [...container.querySelectorAll(".plugin-card")];
     const betaCard = cards.find(card => card.querySelector(".plugin-card-name")?.textContent === "Studio")!;
     expect(betaCard.querySelector(".ui-badge")?.textContent).toBe("Beta");
@@ -103,14 +103,15 @@ describe("Plugin library", () => {
     await act(async () =>
       root.render(
         <PluginsSettings
+          tab="installed"
           onPluginChange={() => {}}
           onTryPlugin={async () => {}}
         />,
       ),
     );
-    expect(section("Other plugins").textContent).toContain("Studio");
-    expect(section("Other plugins").textContent).toContain("Community Review");
-    expect(section("Other plugins").textContent).not.toContain("My Notes");
+    expect(section("Other").textContent).toContain("Studio");
+    expect(section("Other").textContent).toContain("Community Review");
+    expect(section("Other").textContent).not.toContain("My Notes");
     const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Turn Studio on in every project"]')!;
     await act(async () => toggle().click());
     expect(saved).toEqual({ on: false });
