@@ -1,16 +1,19 @@
 import sharp from "sharp";
+import { perfectPixel } from "./perfect-pixel.js";
 
 /**
- * Turns an image into a clean, grid-aligned pixel-art PNG. A detected grid
- * supplies the native pixel size; images without a measurable grid use a
- * predictable 128px working size instead. Both paths run the same complete
- * repair pipeline: binary alpha, downsample, palette reduction, and integral
- * nearest-neighbour enlargement.
+ * Turns generated pixel-style art into a clean, grid-aligned PNG with the
+ * perfect-pixel method: the image's own (often uneven) pixel grid is found
+ * and each cell becomes one pixel. Like the perfect-pixel web demo, very
+ * small images are enlarged and large ones reduced to 1024 pixels before the
+ * grid is measured. Alpha becomes fully transparent or opaque, and the result
+ * is enlarged with nearest-neighbour scaling back to about the source size.
  */
 
 const MAX_INPUT_PIXELS = 4_000_000;
-const WORKING_MAX_SIDE = 128;
-const MAX_PALETTE_COLOURS = 48;
+const WORKING_MAX_SIDE = 1024;
+const SMALL_SIDE = 64;
+const SMALL_TARGET = 256;
 const ALPHA_THRESHOLD = 128;
 
 export class PixelArtFixerError extends Error {
@@ -29,248 +32,121 @@ export interface PixelArtFixResult {
   height: number;
 }
 
-interface PixelDimensions {
-  width: number;
-  height: number;
-  scale: number;
-}
-
 export async function fixPixelArt(bytes: Buffer): Promise<PixelArtFixResult> {
-  const image = sharp(bytes, {
+  const source = await sharp(bytes, {
     animated: false,
     limitInputPixels: MAX_INPUT_PIXELS,
   })
     .autoOrient()
-    .ensureAlpha();
-  const { data, info } = await image
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  if (info.width * info.height > MAX_INPUT_PIXELS)
+  if (source.info.width * source.info.height > MAX_INPUT_PIXELS)
     throw new PixelArtFixerError(
       "Pixel art fixer supports images up to 4 megapixels",
       413,
     );
 
-  const source = thresholdAlpha(data);
-  const dimensions = await inferPixelDimensions(source, info.width, info.height);
-  const low = await sharp(source, {
-    raw: { width: info.width, height: info.height, channels: 4 },
+  const working = await workingImage(source.data, source.info.width, source.info.height);
+  const result = perfectPixel(working);
+  if (!result)
+    throw new PixelArtFixerError(
+      "No pixel grid was found in this image. Fix pixel art works on images drawn as pixel art.",
+    );
+  thresholdAlpha(result.data);
+  const scale = Math.max(1, Math.round(source.info.width / result.width));
+  const png = await sharp(result.data, {
+    raw: { width: result.width, height: result.height, channels: 4 },
   })
     .resize({
-      width: dimensions.width,
-      height: dimensions.height,
+      width: result.width * scale,
+      height: result.height * scale,
+      kernel: "nearest",
       fit: "fill",
-      kernel: "lanczos3",
     })
-    .ensureAlpha()
-    .raw()
-    .toBuffer();
-  const indexed = reducePalette(thresholdAlpha(low));
-  const width = dimensions.width * dimensions.scale;
-  const height = dimensions.height * dimensions.scale;
-  const png = await sharp(indexed, {
-    raw: { width: dimensions.width, height: dimensions.height, channels: 4 },
-  })
-    .resize({ width, height, kernel: "nearest", fit: "fill" })
     .png()
     .toBuffer();
-  return { bytes: png, mediaType: "image/png", width, height };
-}
-
-/** Remove semi-transparent edge colours before sampling the source image. */
-function thresholdAlpha(data: Buffer): Buffer {
-  const result = Buffer.from(data);
-  for (let at = 0; at < result.length; at += 4) {
-    if (result[at + 3]! < ALPHA_THRESHOLD) {
-      result[at] = 0;
-      result[at + 1] = 0;
-      result[at + 2] = 0;
-      result[at + 3] = 0;
-    } else result[at + 3] = 255;
-  }
-  return result;
-}
-
-async function inferPixelDimensions(
-  data: Buffer,
-  width: number,
-  height: number,
-): Promise<PixelDimensions> {
-  const probeScale = Math.min(1, 256 / Math.max(width, height));
-  const probe = await sharp(data, {
-    raw: { width, height, channels: 4 },
-  })
-    .resize({
-      width: Math.max(1, Math.round(width * probeScale)),
-      height: Math.max(1, Math.round(height * probeScale)),
-      fit: "fill",
-    })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const detectedCell = legacyCellSize(
-    probe.data,
-    probe.info.width,
-    probe.info.height,
-  );
-  const scale = detectedCell
-    ? Math.max(1, Math.round(detectedCell / probeScale))
-    : Math.max(1, Math.round(Math.max(width, height) / WORKING_MAX_SIDE));
   return {
-    width: Math.max(1, Math.round(width / scale)),
-    height: Math.max(1, Math.round(height / scale)),
-    scale,
+    bytes: png,
+    mediaType: "image/png",
+    width: result.width * scale,
+    height: result.height * scale,
   };
 }
 
 /**
- * The light-weight, phase-zero grid signal used by the earlier implementation.
- * It is only an input-size hint; failure never skips the pixel-art pipeline.
+ * The image at the size the grid is measured on: small images are enlarged by
+ * a whole number, large ones reduced so their longest side is 1024 pixels.
+ * Reduction samples the four nearest pixels, as a browser canvas does in the
+ * perfect-pixel web demo; the detected grid is sensitive to this filtering.
+ * Fully transparent pixels become black, as a canvas stores them.
  */
-function legacyCellSize(
+async function workingImage(
   data: Buffer,
   width: number,
   height: number,
-): number | undefined {
-  let best: { step: number; score: number } | undefined;
-  for (
-    let step = 2;
-    step <= Math.min(24, Math.floor(Math.min(width, height) / 3));
-    step++
-  ) {
-    let edge = 0;
-    let inside = 0;
-    let edgeCount = 0;
-    let insideCount = 0;
-    for (let y = 0; y < height; y++)
-      for (let x = 1; x < width; x++) {
-        const delta = colourDistance(
-          data,
-          (y * width + x - 1) * 4,
-          (y * width + x) * 4,
-        );
-        if (x % step === 0) {
-          edge += delta;
-          edgeCount++;
-        } else {
-          inside += delta;
-          insideCount++;
-        }
-      }
-    for (let y = 1; y < height; y++)
-      for (let x = 0; x < width; x++) {
-        const delta = colourDistance(
-          data,
-          ((y - 1) * width + x) * 4,
-          (y * width + x) * 4,
-        );
-        if (y % step === 0) {
-          edge += delta;
-          edgeCount++;
-        } else {
-          inside += delta;
-          insideCount++;
-        }
-      }
-    const candidate = {
-      step,
-      score: edge / Math.max(edgeCount, 1) - inside / Math.max(insideCount, 1),
+): Promise<{ data: Buffer; width: number; height: number }> {
+  let image: { data: Buffer; width: number; height: number } = { data: Buffer.from(data), width, height };
+  if (Math.min(width, height) < SMALL_SIDE) {
+    const factor = Math.ceil((SMALL_TARGET + 1) / Math.min(width, height));
+    image = {
+      data: await sharp(data, { raw: { width, height, channels: 4 } })
+        .resize({ width: width * factor, height: height * factor, fit: "fill", kernel: "nearest" })
+        .raw()
+        .toBuffer(),
+      width: width * factor,
+      height: height * factor,
     };
-    if (!best || candidate.score > best.score) best = candidate;
   }
-  return best && best.score > 10 ? best.step : undefined;
+  if (Math.max(image.width, image.height) > WORKING_MAX_SIDE) {
+    const factor = WORKING_MAX_SIDE / Math.max(image.width, image.height);
+    image = bilinear(image, Math.round(image.width * factor), Math.round(image.height * factor));
+  }
+  for (let at = 0; at < image.data.length; at += 4)
+    if (image.data[at + 3] === 0) image.data[at] = image.data[at + 1] = image.data[at + 2] = 0;
+  return image;
 }
 
-function colourDistance(data: Buffer, first: number, second: number): number {
-  const alphaA = data[first + 3]! / 255;
-  const alphaB = data[second + 3]! / 255;
-  return (
-    Math.abs(data[first]! * alphaA - data[second]! * alphaB) +
-    Math.abs(data[first + 1]! * alphaA - data[second + 1]! * alphaB) +
-    Math.abs(data[first + 2]! * alphaA - data[second + 2]! * alphaB) +
-    Math.abs(data[first + 3]! - data[second + 3]!)
-  );
+function bilinear(
+  source: { data: Buffer; width: number; height: number },
+  width: number,
+  height: number,
+): { data: Buffer; width: number; height: number } {
+  const data = Buffer.alloc(width * height * 4);
+  const scaleX = source.width / width;
+  const scaleY = source.height / height;
+  for (let y = 0; y < height; y++) {
+    const sourceY = Math.min(source.height - 1, Math.max(0, (y + 0.5) * scaleY - 0.5));
+    const top = Math.floor(sourceY);
+    const bottom = Math.min(source.height - 1, top + 1);
+    const weightY = sourceY - top;
+    for (let x = 0; x < width; x++) {
+      const sourceX = Math.min(source.width - 1, Math.max(0, (x + 0.5) * scaleX - 0.5));
+      const left = Math.floor(sourceX);
+      const right = Math.min(source.width - 1, left + 1);
+      const weightX = sourceX - left;
+      for (let channel = 0; channel < 4; channel++) {
+        const at = (column: number, row: number) => source.data[(row * source.width + column) * 4 + channel]!;
+        data[(y * width + x) * 4 + channel] = Math.round(
+          at(left, top) * (1 - weightX) * (1 - weightY) +
+          at(right, top) * weightX * (1 - weightY) +
+          at(left, bottom) * (1 - weightX) * weightY +
+          at(right, bottom) * weightX * weightY,
+        );
+      }
+    }
+  }
+  return { data, width, height };
 }
 
-/**
- * Build a palette from colours actually present in the image, then map each
- * opaque pixel to its nearest palette colour. It cannot create the stray
- * purple/pink hues caused by independently quantising RGB channels.
- */
-function reducePalette(data: Buffer): Buffer {
-  const bins = new Map<number, [number, number, number, number]>();
+/** Remove semi-transparent edge colours. */
+function thresholdAlpha(data: Uint8Array): void {
   for (let at = 0; at < data.length; at += 4) {
-    if (data[at + 3] === 0) continue;
-    const key =
-      ((data[at]! >> 3) << 10) |
-      ((data[at + 1]! >> 3) << 5) |
-      (data[at + 2]! >> 3);
-    const bin = bins.get(key) ?? [0, 0, 0, 0];
-    bin[0]++;
-    bin[1] += data[at]!;
-    bin[2] += data[at + 1]!;
-    bin[3] += data[at + 2]!;
-    bins.set(key, bin);
+    if (data[at + 3]! < ALPHA_THRESHOLD) {
+      data[at] = 0;
+      data[at + 1] = 0;
+      data[at + 2] = 0;
+      data[at + 3] = 0;
+    } else data[at + 3] = 255;
   }
-  const candidates = [...bins.values()]
-    .sort((left, right) => right[0] - left[0])
-    .map(([count, red, green, blue]) => ({
-      count,
-      colour: [
-      Math.round(red / count),
-      Math.round(green / count),
-      Math.round(blue / count),
-      ] as const,
-    }));
-  // Keep the common colours, then fill the remaining slots with colours that
-  // are far from the chosen palette. A pure frequency ranking discarded rare
-  // navy and gold accents in illustrations in favour of nearly identical skin
-  // and background shades, which produced an obvious hue shift.
-  const palette = candidates
-    .slice(0, Math.min(24, MAX_PALETTE_COLOURS))
-    .map((candidate) => candidate.colour);
-  while (palette.length < MAX_PALETTE_COLOURS && palette.length < candidates.length) {
-    let selected: typeof candidates[number] | undefined;
-    let bestScore = -1;
-    for (const candidate of candidates) {
-      if (palette.some((colour) => colour === candidate.colour)) continue;
-      let nearest = Number.POSITIVE_INFINITY;
-      for (const colour of palette) {
-        const distance =
-          (candidate.colour[0] - colour[0]) ** 2 +
-          (candidate.colour[1] - colour[1]) ** 2 +
-          (candidate.colour[2] - colour[2]) ** 2;
-        nearest = Math.min(nearest, distance);
-      }
-      // Frequency keeps isolated compression noise out; distance reserves
-      // palette slots for visually distinct accent colours.
-      const score = nearest * (1 + Math.log2(candidate.count + 1));
-      if (score > bestScore) {
-        selected = candidate;
-        bestScore = score;
-      }
-    }
-    if (!selected) break;
-    palette.push(selected.colour);
-  }
-  const result = Buffer.from(data);
-  if (!palette.length) return result;
-  for (let at = 0; at < result.length; at += 4) {
-    if (result[at + 3] === 0) continue;
-    let nearest = palette[0]!;
-    let distance = Number.POSITIVE_INFINITY;
-    for (const colour of palette) {
-      const next =
-        (result[at]! - colour[0]) ** 2 +
-        (result[at + 1]! - colour[1]) ** 2 +
-        (result[at + 2]! - colour[2]) ** 2;
-      if (next < distance) {
-        nearest = colour;
-        distance = next;
-      }
-    }
-    result[at] = nearest[0];
-    result[at + 1] = nearest[1];
-    result[at + 2] = nearest[2];
-  }
-  return result;
 }

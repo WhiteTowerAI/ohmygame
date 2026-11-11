@@ -3221,7 +3221,7 @@ const zhCN: typeof en = {
       "gridCustom": "其他…",
       "gridPreset": "{{count}} 宫格（{{columns}} × {{rows}}）",
       "aiImageCutoutHint": "创建图片生成节点，引用当前图片并自动生成去除背景的结果。",
-      "fixPixelArtHint": "将当前图片转为像素画：去除半透明边缘、限制调色板并对齐清晰的像素网格，生成新的 PNG 副本（不会修改原图）。",
+      "fixPixelArtHint": "识别生成的像素画里的像素网格，按每格一种颜色重新绘制并去除半透明边缘，生成新的 PNG 副本（不会修改原图）。",
       "ai-image-cutout": "AI 生图抠图",
       "image-processing": "图像处理",
       "gif-frames": "帧动画",

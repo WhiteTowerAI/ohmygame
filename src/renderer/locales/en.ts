@@ -3286,7 +3286,7 @@ const en = {
       "gridCustom": "Other…",
       "gridPreset": "{{count}} cells ({{columns}} × {{rows}})",
       "aiImageCutoutHint": "Create an image generation node that uses the selected image as a reference and generates a background-free result.",
-      "fixPixelArtHint": "Turn the selected image into pixel art: remove semi-transparent fringes, reduce its palette, and align it to a crisp pixel grid in a new PNG copy.",
+      "fixPixelArtHint": "Find the pixel grid in generated pixel art and redraw it with one color per pixel, without semi-transparent fringes, in a new PNG copy.",
       "ai-image-cutout": "AI image cutout",
       "image-processing": "Image tools",
       "gif-frames": "Frame Animation",

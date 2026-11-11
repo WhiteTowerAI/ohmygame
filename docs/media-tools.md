@@ -1,6 +1,7 @@
 # Media processing tools
 
-The image-node toolbar shows three menus: **Image tools** (AI image cutout and crop),
+The image-node toolbar shows three menus: **Image tools** (AI image cutout, crop,
+and fix pixel art),
 **Grid split**, and **Frame Animation** (GIF extraction and GIF/video composition).
 The shared catalog is `src/shared/media-tools.ts`.
 
@@ -8,6 +9,26 @@ AI image cutout creates a new image generation node, uses the selected image as
 its reference, fills a background-removal prompt, and starts the configured
 image generation model automatically. The result is written back to the new
 node through the normal canvas generation job flow.
+
+Fix pixel art runs immediately on the first selected image and creates a new
+PNG node; the original is unchanged. It uses the grid detection of
+[perfect-pixel](https://github.com/theamusing/perfectPixel) 0.1.4 (MIT),
+ported to TypeScript in `src/daemon/perfect-pixel.ts` with the settings of the
+perfect-pixel web demo, so results match what users see there. Generated pixel
+art rarely has cells of one exact size, so the cell size is estimated from the
+image's frequency spectrum (or, failing that, from the spacing of edges) and
+every grid line is then moved to the strongest edge within a third of a cell.
+Each cell takes the colour at its centre. As in the web demo, images with a
+short side under 64 pixels are first enlarged by a whole number and images
+longer than 1024 pixels are reduced to 1024 by sampling the four nearest
+pixels. The spectrum estimate is used only when cells measure 4–20 working
+pixels; otherwise edge spacing decides. Alpha becomes fully transparent or
+opaque, and the result is enlarged with nearest-neighbour scaling to about the
+source size. An image in which no grid can be found, such as a flat colour, is
+refused with an error, where the web demo would assume 8-pixel cells. Images
+that mix pixel sizes, such as a large portrait beside small sprites, have no
+single grid; the detected size can change with small differences in the input,
+and the larger pixels come out uneven.
 
 GIF extraction runs immediately and creates a node for each extracted frame.
 Crop enters selection mode directly on the original canvas image. Drag anywhere

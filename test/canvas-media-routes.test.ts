@@ -344,15 +344,16 @@ it("processes crop-image before the input node has been saved and registers a us
 });
 
 it("reconstructs a native-resolution pixel-art asset without changing its source", async () => {
-  const width = 32;
+  // 16×16 logical pixels of varied colours, each drawn 8 source pixels wide.
+  const width = 128;
   const pixels = Buffer.alloc(width * width * 4);
-  for (let y = 0; y < width; y++) for (let x = 0; x < width; x++) {
-    const at = (y * width + x) * 4;
-    pixels[at] = Math.floor(x / 8) * 60;
-    pixels[at + 1] = Math.floor(y / 8) * 60;
-    pixels[at + 2] = (Math.floor(x / 8) + Math.floor(y / 8)) * 30;
-    pixels[at + 3] = 255;
-  }
+  let state = 0x13579b;
+  const colours = Array.from({ length: 256 }, () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return [(state >>> 8) & 0xe0, (state >>> 16) & 0xe0, (state >>> 24) & 0xe0, 255];
+  });
+  for (let y = 0; y < width; y++) for (let x = 0; x < width; x++)
+    pixels.set(colours[Math.floor(y / 8) * 16 + Math.floor(x / 8)]!, (y * width + x) * 4);
   const sourceId = (await library.add("scaled-pixel-art.png", await sharp(pixels, {
     raw: { width, height: width, channels: 4 },
   }).png().toBuffer())).id;
@@ -366,7 +367,7 @@ it("reconstructs a native-resolution pixel-art asset without changing its source
   expect(result).toMatchObject({ kind: "asset", name: "pixel-art-fixed.png", mediaType: "image" });
   expect(result.assetId).not.toBe(sourceId);
   const fixedPath = (await readCanvasAssets(project.workspacePath)).assets[result.assetId]!.path;
-  expect(await sharp(path.join(project.workspacePath, fixedPath)).metadata()).toMatchObject({ width: 32, height: 32 });
+  expect(await sharp(path.join(project.workspacePath, fixedPath)).metadata()).toMatchObject({ width: 128, height: 128 });
 });
 
 it("returns every split frame as a registered canvas asset in frame order", async () => {
