@@ -28,11 +28,14 @@ describe("provider model discovery", () => {
       { id: "model-a", name: "Model A", context_length: 32_000, top_provider: { max_completion_tokens: 4_000 }, architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] }, supported_parameters: ["reasoning"], apiKey: connection.apiKey },
       { id: "model-b" }, { id: "bad id" }, { id: "model-b" },
       { id: "image-only", architecture: { output_modalities: ["image"] } },
+      // a gateway's model that chats only through another protocol
+      { id: "messages-only", supported_endpoints: ["/messages"] },
     ] }));
     const result = await discoverProviderModels(connection, request);
     expect(request.mock.calls[0]?.[0].toString()).toBe("https://gateway.example/v1/models");
     expect(request.mock.calls[0]?.[1]).toMatchObject({ headers: { authorization: `Bearer ${connection.apiKey}` }, redirect: "error" });
     expect(result.models).toHaveLength(3);
+    expect(result.models.some((model) => model.id === "messages-only")).toBe(false);
     expect(result.models[1].usages).toEqual({});
     expect(result.models[2].usages?.image?.protocol).toBe("openai-images");
     expect(result.models[0]).toMatchObject({ id: "model-a", name: "Model A", contextWindow: 32_000, maxTokens: 4_000, supportsImages: true, reasoning: true });
