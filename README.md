@@ -10,6 +10,8 @@
   <a href="https://discord.gg/TkrgvGQ2Zc"><img alt="Discord" src="https://img.shields.io/badge/discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
 </p>
 
+<p><a href="https://trendshift.io/repositories/291307?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-291307" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/291307" alt="WhiteTowerAI%2Fohmygame | Trendshift" width="250" height="55"/></a></p>
+
 <p><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
 
 <p>
