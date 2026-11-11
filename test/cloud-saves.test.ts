@@ -56,6 +56,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await service.stop();
+  // Bun keeps a closed database open until its statements are collected.
+  (globalThis as { Bun?: { gc(sync: boolean): void } }).Bun?.gc(true);
   await rm(directory, { recursive: true, force: true });
 });
 
