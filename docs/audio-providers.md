@@ -63,14 +63,14 @@ generation history and requests that still name it are read as
 official resource IDs and model names; Volcengine has no model-list API for these
 services.
 
-| Model                   | Produces                     | Prompt                             |
-| ----------------------- | ---------------------------- | ---------------------------------- |
-| TTS 2.0                 | speech                       | Spoken word for word               |
-| Seed Audio 1.0          | speech, sound effects, music | Describes voices, sounds and music |
-| Eleven v4, Flash v2.5   | speech                       | Spoken word for word               |
-| Eleven Sound Effects v2 | sound effects                | Describes the sound                |
-| Eleven Music v1         | music                        | Describes the music                |
-| Scribe v2               | (transcribes)                | —                                  |
+| Model                       | Produces                     | Prompt                             |
+| --------------------------- | ---------------------------- | ---------------------------------- |
+| TTS 2.0                     | speech                       | Spoken word for word               |
+| Seed Audio 1.0              | speech, sound effects, music | Describes voices, sounds and music |
+| Eleven v4, Flash v2.5       | speech                       | Spoken word for word               |
+| Eleven Sound Effects v3, v2 | sound effects                | Describes the sound                |
+| Eleven Music v2.5, v1       | music                        | Describes the music                |
+| Scribe v2                   | (transcribes)                | —                                  |
 
 Seed Audio mixes several speakers, effects and music from one description; this
 is not a structured per-speaker synthesis API. No adapter offers separate audio
@@ -184,9 +184,9 @@ format every plan can use.
   characters) or `eleven_flash_v2_5` (40,000). A voice is required. Language is
   reduced to its ISO 639 primary subtag as `language_code`; speed maps
   `1 + speed / 100` onto `voice_settings.speed`, clamped to 0.7…1.2.
-- Sound effects: `POST /v1/sound-generation` with `eleven_text_to_sound_v2`,
-  0.5–30 seconds and an optional `loop`.
-- Music: `POST /v1/music` with `music_v1`, 3–600 seconds as `music_length_ms`
+- Sound effects: `POST /v1/sound-generation` with `eleven_text_to_sound_v3` or
+  `eleven_text_to_sound_v2`, 0.5–30 seconds and an optional `loop`.
+- Music: `POST /v1/music` with `music_v2_5` or `music_v1`, 3–600 seconds as `music_length_ms`
   and `force_instrumental` when the node sets it.
 - Voices: `GET /v2/voices` with `page_size=100`, `search` and
   `next_page_token`. Only `https` preview URLs are passed to the renderer.

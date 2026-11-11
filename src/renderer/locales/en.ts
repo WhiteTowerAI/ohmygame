@@ -29,6 +29,7 @@ const en = {
     "sampleRate": "Sample rate",
     "bitRate": "Bit rate",
     "targetDuration": "Target duration (seconds)",
+    "duration": "Duration",
     "promptLimit": "The combined prompt is limited to {{count}} characters.",
     "needVoice": "Choose a voice or configure a default voice before generating.",
     "sectionId": "Voice continuity group",
@@ -1115,6 +1116,7 @@ const en = {
       speech: "Speech",
       "sound-effect": "Sound effects",
       music: "Music",
+      transcription: "Transcription",
     },
   },
   responsesTransport: {

@@ -2729,6 +2729,14 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
   const [toolbarHeight, setToolbarHeight] = useState(180);
   const [formOffset, setFormOffset] = useState(0);
   useLayoutEffect(() => {
+    // Audio's single transcribe action is fixed above its node. It does not
+    // need to follow the composer below, whose settings popover can otherwise
+    // trigger a ResizeObserver/MutationObserver measurement loop.
+    if (mediaType === "audio") {
+      setToolbarHeight(0);
+      setFormOffset(0);
+      return;
+    }
     const canvas = canvasElement.current;
     if (!canvas) return;
     let observed: Element[] = [];
@@ -2752,9 +2760,11 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
     mutations.observe(canvas, { childList: true, subtree: true });
     measure();
     return () => { observer.disconnect(); mutations.disconnect(); };
-  }, [canvasElement, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
+  }, [canvasElement, mediaType, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
   const screenTop = y + canvasAbsolutePosition(node, nodes).y * zoom;
-  const below = screenTop < toolbarHeight + 20;
+  // Audio exposes one shortcut (transcribe); keeping it above the node avoids
+  // colliding with the audio settings panel that expands beneath the composer.
+  const below = mediaType !== "audio" && screenTop < toolbarHeight + 20;
   return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10 + (below ? formOffset : 0)} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} /></div>
   </NodeToolbar>;

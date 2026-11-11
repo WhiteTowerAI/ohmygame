@@ -773,6 +773,12 @@ function AudioModels({ providerId }: { providerId: string }) {
     });
     return () => { active = false; };
   }, [providerId]);
+  const groups = [
+    ["speech", t("mediaDefaults.usage.speech"), (model: AudioModel) => model.capabilities.produces.includes("speech")],
+    ["sound-effect", t("mediaDefaults.usage.sound-effect"), (model: AudioModel) => model.capabilities.produces.includes("sound-effect")],
+    ["music", t("mediaDefaults.usage.music"), (model: AudioModel) => model.capabilities.produces.includes("music")],
+    ["transcription", t("mediaDefaults.usage.transcription"), (model: AudioModel) => model.capabilities.transcribes === true],
+  ] as const;
 
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>
@@ -781,17 +787,22 @@ function AudioModels({ providerId }: { providerId: string }) {
       </div>
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       {models ? (
-        <div className="provider-models-list" role="list" aria-label={t("providers.audioModels")}>
-          {models.map((model) => (
-            <div className="provider-model-row" key={model.id} role="listitem">
-              <div className="provider-model-readonly">
-                <span className="provider-model-copy">
-                  <strong title={model.name}>{model.name}</strong>
-                  <small title={model.id}>{model.id}</small>
-                </span>
-              </div>
-            </div>
-          ))}
+        <div className="provider-models-list provider-audio-models-list" role="list" aria-label={t("providers.audioModels")}>
+          {groups.map(([kind, label, matches]) => {
+            const entries = models.filter(matches);
+            if (!entries.length) return null;
+            return <section className="provider-audio-model-group" key={kind} aria-label={label}>
+              <h5>{label} <small>{entries.length}</small></h5>
+              {entries.map((model) => <div className="provider-model-row" key={model.id} role="listitem">
+                <div className="provider-model-readonly">
+                  <span className="provider-model-copy">
+                    <strong title={model.name}>{model.name}</strong>
+                    <small title={model.id}>{model.id}</small>
+                  </span>
+                </div>
+              </div>)}
+            </section>;
+          })}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
       ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
