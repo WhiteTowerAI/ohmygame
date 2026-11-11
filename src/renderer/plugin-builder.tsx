@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import { deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
-import { AppRail, RECENT_LIMIT } from "./app-sidebar.js";
+import { AppRail } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
@@ -19,6 +19,8 @@ import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, Mo
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
 import { t } from "./i18n.js";
+
+const RECENT_LIMIT = 8;
 
 /**
  * The AI workspaces under the Plugins page: each conversation that creates,

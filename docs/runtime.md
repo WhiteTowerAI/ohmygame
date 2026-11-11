@@ -595,11 +595,11 @@ first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
 
-Inside a project the sidebar becomes a rail: the logo (Home), the recent
-projects as covers, **New project** (Home), Search, the desktop update and the
-account. The open project is marked; hovering a project lists its
-conversations, newest first, and the open project's list ends with **New
-conversation**. The rail's Back and Forward lead the top bar: beside the
+Inside a project the sidebar becomes a rail: the logo (Home), the person's
+projects as covers, the list's options, **New project** (Home), Search, the
+desktop update and the account. The open project is marked; hovering a project
+lists its conversations, newest first, and the open project's list ends with
+**New conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
 Minimize, Maximize or Restore, and Close in the app's colours over the page's
@@ -633,9 +633,18 @@ preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, the five most recently edited projects (Projects lists the
-rest), and the account.
-Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
+Community, Plugins, **Quick access**, and the account.
+
+Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
+saved in browser storage). Its order is the person's: editing a project doesn't
+move it, a new project starts at the top, and dragging a project, or Alt with
+the up and down arrows, reorders it. The list's options set how many show (5,
+8, 12 or all; 8 by default), and the list scrolls when it outgrows the column.
+A project opened from past that count shows after the others until it is
+closed, or dragged into place. Home's **Recent projects** stays sorted by last
+edit.
+
+The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
 signed out, it leads with **Sign in…**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
