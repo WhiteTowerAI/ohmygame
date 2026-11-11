@@ -125,7 +125,9 @@ async function updateProjectFile(
   if (next.plugins && !Object.keys(next.plugins).length) delete next.plugins;
   const checked = validateProjectFile(next);
   if (!checked.ok) throw new Error(checked.issues.join("; "));
-  const ordered = { $schema: PROJECT_FILE_SCHEMA_URL, ...next };
+  // The schema URL is the current one, also over one an older OhMyGame wrote.
+  const { $schema: _schema, ...rest } = next;
+  const ordered = { $schema: PROJECT_FILE_SCHEMA_URL, ...rest };
   await writeAtomic(
     path.join(folder, PROJECT_FILE_NAME),
     `${JSON.stringify(ordered, null, 2)}\n`,
