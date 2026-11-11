@@ -100,7 +100,7 @@ describe("multiplayer workspace integration", () => {
       // features: the desktop agent reads only the first, other coding agents the second.
       const sdkGuide = await readFile(path.join(process.cwd(), "packages/sdk/AGENT_GUIDE.md"), "utf8");
       // Both say which deployments take p2p, with the error the SDK throws for the others.
-      for (const guide of [projectGuide, sdkGuide]) expect(guide).toContain("p2p is for owner deployments.");
+      for (const guide of [projectGuide, sdkGuide]) expect(guide).toContain("p2p is for owner deployments");
       for (const feature of ["Smoother", "client.tickMs", "p2p", "client.peers", "setState", "updateShared", "emit(", "finishRound", "quickPlay", "sendInput", "sendAction", "onHost", "reconnect()", "inviteCode"]) {
         expect(projectGuide, `project guide mentions ${feature}`).toContain(feature);
         expect(sdkGuide, `AGENT_GUIDE.md mentions ${feature}`).toContain(feature);

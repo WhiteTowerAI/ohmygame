@@ -322,9 +322,9 @@ client.finishRound([winnerId]); // the first page to report decides
   only for fast-paced owner games. `client.peers` shows, by playerId,
   `"connecting"`, `"open"` or `"failed"`. States arrive sooner, not evenly: draw
   other players as below either way. Any deployment whose `adapterId` is not
-  `"owner"`, built-in or custom rules (`"host"`, `"lockstep"`), rejects it:
-  `createMultiplayerClient` throws `p2p is for owner deployments.` and the game
-  cannot connect. Remove `p2p` when a game's deployment changes from owner to
+  `"owner"`, built-in or custom rules (`"host"`, `"lockstep"`), ignores it: the
+  game connects through the service only, and the console warns that
+  p2p is for owner deployments. Remove `p2p` when a game's deployment changes from owner to
   anything else.
 
 ### Drawing other players smoothly

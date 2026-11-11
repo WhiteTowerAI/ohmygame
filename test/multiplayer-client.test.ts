@@ -571,7 +571,13 @@ describe("owner rooms connected straight between pages", () => {
   });
 
   it("is only for owner deployments, and does nothing where the browser has no WebRTC", () => {
-    expect(() => new MultiplayerClient({ manifest, p2p: true })).toThrow("p2p is for owner deployments.");
+    // Elsewhere the option is ignored with a warning, and the game still connects through the service.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = new MultiplayerClient({ manifest, p2p: true });
+    expect(warn).toHaveBeenCalledWith("p2p is for owner deployments; this game connects through the service only.");
+    expect(client.peers).toEqual({});
+    client.dispose();
+    warn.mockRestore();
     const without = new PeerMesh({ signal: () => {}, playerId: () => "a", state: () => {}, message: () => {} });
     expect(without.available).toBe(typeof RTCPeerConnection === "function");
     without.update(["a", "b"]);

@@ -233,9 +233,12 @@ export class MultiplayerClient<Game = unknown> {
         options.connectionTimeoutMs <= 0)
     )
       throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
-    if (options.p2p !== undefined && options.p2p !== false && options.manifest.adapterId !== OWNER_ADAPTER_ID)
-      throw new OhMyGameError("invalid_option", "p2p is for owner deployments.");
-    if (options.p2p) {
+    // Only owner rooms connect pages directly. Elsewhere the option is ignored, so a game
+    // whose deployment stops being an owner one still connects through the service.
+    const p2p = options.manifest.adapterId === OWNER_ADAPTER_ID ? options.p2p : undefined;
+    if (options.p2p && !p2p)
+      console.warn("p2p is for owner deployments; this game connects through the service only.");
+    if (p2p) {
       this.mesh = new PeerMesh(
         {
           signal: (to, data) => this.room?.send("p2p.signal", { to, data }),
@@ -245,7 +248,7 @@ export class MultiplayerClient<Game = unknown> {
             if (isOwnerEmit(packet)) this.deliverMessage(from, packet.id, packet.message);
           },
         },
-        options.p2p === true ? {} : options.p2p,
+        p2p === true ? {} : p2p,
       );
     }
     if (options.manifest.adapterId === OWNER_ADAPTER_ID)

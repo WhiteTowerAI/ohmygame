@@ -515,8 +515,9 @@ two phones on 5G (China Telecom and China Mobile, both with IPv6) measured a 70 
 median round trip; through the service the same state took about 400 ms.
 
 Only owner deployments take the option. For any other `adapterId`, built-in or
-custom rules (`host`, `lockstep`), `createMultiplayerClient` throws `p2p is for
-owner deployments.`, so a game whose deployment changes from owner must drop it.
+custom rules (`host`, `lockstep`), the option is ignored with a console warning
+and the game connects through the service only, so a game whose deployment
+changes from owner keeps working; drop the option then all the same.
 
 - The service stays in the path: pages send everything to it as before, and it
   syncs late arrivals and reaches players a connection cannot. Its load grows only
