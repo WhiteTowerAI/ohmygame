@@ -7,7 +7,7 @@ import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type 
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, MarketPluginCard, MarketPluginDialog, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
+import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -47,7 +47,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [query, setQuery] = useState("");
   const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
   const [kind, setKind] = useState<PluginContribution | "all">("all");
-  const [marketCategory, setMarketCategory] = useState<CatalogFilter>("all");
+  const [marketSection, setMarketSection] = useState<MarketSection>("home");
+  const [only, setOnly] = useState<MarketOnly[]>([]);
   const [installedCategory, setInstalledCategory] = useState<CatalogFilter>("all");
   const [sort, setSort] = useState<MarketSort>("recommended");
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
@@ -55,6 +56,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     if (!initialAdds) return;
     showTab("discover");
     setAdds(initialAdds);
+    setMarketSection("all");
   }, [initialAdds]);
   function setTab(next: PluginsTab): void {
     showTab(next);
@@ -164,48 +166,57 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         .map(group => <PluginGroup key={group.category} title={categoryLabel(group.category)} cards={group.plugins.map(card)} />)}
   </>;
 
-  // Discover: the market, to get plugins from. A card opens the plugin in a dialog over the list.
+  // Discover: the market, to get plugins from, browsed from a side list as in an app store.
+  // A card opens the plugin in a dialog over the list.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
   const searched = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
-    && (adds === "all" || marketContributions(plugin).includes(adds)));
+    && (adds === "all" || marketContributions(plugin).includes(adds)) && marketOnly(plugin, only));
+  const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
   const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
   const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
     onOpen={() => setPreview(plugin.id)} onGet={() => setAdding(plugin)} />;
-  // With nothing picked and the recommended order, the market reads like a store's front page:
-  // a few rows of a few cards, however many plugins there are. Any other view is one list, shown a page at a time.
-  const browsing = !normalizedQuery && adds === "all" && marketCategory === "all" && sort === "recommended";
-  const front = browsing && listed.length > SECTIONS_FROM ? marketFront(listed) : undefined;
-  const row = (title: string, plugins: MarketPlugin[], more?: { count: number; show: () => void }) => plugins.length
+  // The overview reads like a store's front page, the same few rows however many plugins there are.
+  // Searching or filtering shows one list instead, a page at a time.
+  const narrowed = Boolean(normalizedQuery) || adds !== "all" || only.length > 0;
+  const front = marketSection === "home" && !narrowed && marketPlugins.length > SECTIONS_FROM ? marketFront(marketPlugins) : undefined;
+  const showAll = (order: MarketSort) => { setMarketSection("all"); setSort(order); };
+  const row = (title: string, plugins: MarketPlugin[], order?: MarketSort) => plugins.length
     ? <section key={title} className="plugins-section" aria-label={title}>
       <div className="plugins-section-head">
         <h2>{title}</h2>
-        {more ? <Button variant="ghost" size="sm" onClick={more.show}>{t("plugins.viewAll", { count: more.count })}</Button> : null}
+        {order ? <Button variant="ghost" size="sm" onClick={() => showAll(order)}>{t("plugins.viewAll", { count: listed.length })}</Button> : null}
       </div>
       <div className="plugins-grid">{plugins.map(marketCard)}</div>
     </section> : null;
+  const listTitle = marketSection === "home" || marketSection === "all" ? t("pluginCatalog.allPlugins") : categoryLabel(marketSection);
   const discoverTab = <>
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
-    {marketPlugins.length ? toolbar(
-      <CategoryChips items={searched.map(plugin => plugin.categories)} value={marketCategory} onChange={setMarketCategory} />,
-      kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))]),
-      <MarketSortSelect key="sort" value={sort} onChange={setSort} />,
-    ) : null}
-    {!listed.length ? null : front ? <>
-      {row(t("plugins.marketFeatured"), front.featured)}
-      {row(t("pluginCatalog.popular"), front.popular, { count: listed.length, show: () => setSort("downloads") })}
-      {row(t("pluginCatalog.sort.updated"), front.recent, { count: listed.length, show: () => setSort("updated") })}
-      {front.categories.map(group => row(categoryLabel(group.category), group.plugins, { count: group.total, show: () => setMarketCategory(group.category) }))}
-      <div className="plugins-all">
-        <Button onClick={() => setSort("name")}>{t("pluginCatalog.viewAllPlugins", { count: listed.length })}</Button>
+    {marketPlugins.length ? <div className="plugins-browse">
+      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} />
+      <div className="plugins-browse-main">
+        {front ? <>
+          {row(t("plugins.marketFeatured"), front.featured)}
+          {row(t("pluginCatalog.sort.recommended"), front.recommended, "recommended")}
+          {row(t("pluginCatalog.newPlugins"), front.new, "new")}
+          {row(t("pluginCatalog.sort.updated"), front.updated, "updated")}
+          <div className="plugins-all">
+            <Button onClick={() => showAll("recommended")}>{t("pluginCatalog.viewAllPlugins", { count: listed.length })}</Button>
+          </div>
+        </> : <section className="plugins-section" aria-label={listTitle}>
+          <div className="plugins-section-head">
+            <h2>{listTitle}<span className="plugins-count">{listed.length}</span></h2>
+            <div className="plugins-filters-end">
+              {kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))])}
+              <MarketSortSelect value={sort} onChange={setSort} />
+            </div>
+          </div>
+          {listed.length ? <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketSection}\n${only.join()}\n${sort}`} cards={listed.map(marketCard)} />
+            : <Empty title={t("plugins.noMatch")} />}
+        </section>}
       </div>
-    </>
-      : <section className="plugins-section" aria-label={browsing ? t("pluginCatalog.allPlugins") : t("pluginCatalog.results", { count: listed.length })}>
-        {browsing ? <h2>{t("pluginCatalog.allPlugins")}</h2> : <p className="plugins-note">{t("pluginCatalog.results", { count: listed.length })}</p>}
-        <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketCategory}\n${sort}`} cards={listed.map(marketCard)} />
-      </section>}
-    {listed.length ? null : <Empty title={normalizedQuery || adds !== "all" || marketCategory !== "all" ? t("plugins.noMatch") : t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+    </div> : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
     </div>} />}

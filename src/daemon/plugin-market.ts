@@ -6,7 +6,6 @@ import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
-import { validatePluginSvg } from "./plugin-svg.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
@@ -22,8 +21,12 @@ const INDEX_MAX_BYTES = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** The index job runs every 30 minutes. */
 const REFRESH_MS = 30 * 60_000;
-/** A plugin's icon and screenshots are each at most 1 MB in its package. */
+/** A plugin's screenshots are each at most 1 MB in its package. */
 const IMAGE_MAX_BYTES = 1024 * 1024;
+/** GitHub serves an avatar at 96 pixels in a few kilobytes. */
+const AVATAR_MAX_BYTES = 256 * 1024;
+const AVATAR = /^https:\/\/avatars\.githubusercontent\.com\/u\/([0-9]{1,12})(?:\?v=[0-9]{1,4})?$/;
+const DAY_MS = 24 * 60 * 60_000;
 const IMAGE_CACHE_LIMIT = 64;
 const RETRY_MS = 2 * 60_000;
 
@@ -56,9 +59,8 @@ const IndexedVersion = Type.Object({
     appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
     beta: Type.Optional(Type.Boolean()),
     longDescription: Type.Optional(Localized),
-    /** Images the index job copied out of the package, by path from the index's folder. */
+    /** Screenshots the index job copied out of the package, by path from the index's folder. */
     images: Type.Optional(Type.Object({
-      icon: Type.Optional(Type.String({ maxLength: 500 })),
       screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
     })),
   })),
@@ -68,6 +70,11 @@ const PackageFacts = Type.Object({
   sourceVerified: Type.Optional(Type.Literal(true)),
   stars: Type.Optional(Type.Integer({ minimum: 0 })),
   weeklyDownloads: Type.Optional(Type.Integer({ minimum: 0 })),
+  /** The repository owner's GitHub avatar, `avatar_url` from GitHub's API; shown only when the source is verified. */
+  // Any other address is passed over, not the whole index.
+  avatar: Type.Optional(Type.String({ maxLength: 500 })),
+  /** When the package was first published. */
+  createdAt: Type.Optional(Type.String({ maxLength: 64 })),
 });
 const MarketIndex = Type.Object({
   schemaVersion: Type.Literal(1),
@@ -77,6 +84,32 @@ const MarketIndex = Type.Object({
 });
 type MarketIndex = Static<typeof MarketIndex>;
 type IndexedVersion = Static<typeof IndexedVersion>;
+
+export interface MarketImage { bytes: Buffer; mediaType: string; revision: string }
+
+/**
+ * How well a plugin is doing, from 0 to 1, for the market's recommended
+ * order. Downloads count most, but not alone: a plugin kept up to date, with
+ * a verified source and a page that says what it does, ranks above one that
+ * was only downloaded a lot once.
+ *
+ * - 0.50 weekly downloads, and 0.15 GitHub stars, each on a log scale against
+ *   the market's most;
+ * - 0.15 how recently it was updated: full within a month, none after a year;
+ * - 0.20 its page: a verified source, a long description, screenshots and a
+ *   category, a quarter each.
+ *
+ * A beta keeps 85% of its score.
+ */
+export function marketScore(plugin: MarketPlugin, most: { downloads: number; stars: number }, now: number): number {
+  const scale = (value: number | undefined, max: number) => (max > 0 ? Math.log1p(value ?? 0) / Math.log1p(max) : 0);
+  const updated = plugin.publishedAt ? Date.parse(plugin.publishedAt) : Number.NaN;
+  const age = Number.isNaN(updated) ? Infinity : (now - updated) / DAY_MS;
+  const fresh = Math.min(1, Math.max(0, (365 - age) / (365 - 30)));
+  const page = [plugin.sourceVerified, plugin.longDescription, plugin.screenshots?.length, plugin.categories?.length].filter(Boolean).length / 4;
+  const score = 0.5 * scale(plugin.weeklyDownloads, most.downloads) + 0.15 * scale(plugin.stars, most.stars) + 0.15 * fresh + 0.2 * page;
+  return plugin.beta ? score * 0.85 : score;
+}
 
 export class PluginMarketError extends Error {
   readonly statusCode = 400;
@@ -113,7 +146,7 @@ export class PluginMarket {
   #refreshing: Promise<void> | undefined;
   /** Read once, so a slow read can't replace what a refresh brought. */
   #saved: Promise<void> | undefined;
-  #images = new Map<string, Promise<{ bytes: Buffer; mediaType: string; revision: string }>>();
+  #images = new Map<string, Promise<MarketImage>>();
 
   constructor(options: PluginMarketOptions) {
     this.#url = options.url && isIndexUrl(options.url) ? options.url : undefined;
@@ -145,7 +178,8 @@ export class PluginMarket {
       const facts = index.packages[version.package];
       const text = (values: Record<string, string>) => values[language] ?? values.en ?? "";
       const image = (file: string | undefined) => (file && indexImage(this.#url!, file) ? file : undefined);
-      const icon = image(plugin.images?.icon);
+      // The repository is proven to be the package's, so its owner's face is the publisher's.
+      const avatar = facts?.sourceVerified ? facts.avatar && AVATAR.exec(facts.avatar)?.[1] : undefined;
       const screenshots = (plugin.images?.screenshots ?? []).flatMap((shot) => {
         const caption = shot.caption && text(shot.caption);
         return image(shot.path) ? [{ path: shot.path, ...(caption ? { caption } : {}) }] : [];
@@ -164,9 +198,10 @@ export class PluginMarket {
         ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
         ...(plugin.beta ? { beta: true } : {}),
         ...(longDescription ? { longDescription } : {}),
-        ...(icon ? { icon } : {}),
+        ...(avatar ? { avatar } : {}),
         ...(screenshots.length ? { screenshots } : {}),
         ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
+        ...(facts?.createdAt ? { createdAt: facts.createdAt } : {}),
         ...(facts?.repository ? { repository: facts.repository } : {}),
         sourceVerified: facts?.sourceVerified === true,
         ...(facts?.stars !== undefined ? { stars: facts.stars } : {}),
@@ -175,10 +210,16 @@ export class PluginMarket {
       };
     });
     const featuredAt = (plugin: MarketPlugin) => index.featured.indexOf(plugin.id);
+    const most = {
+      downloads: Math.max(0, ...plugins.map((plugin) => plugin.weeklyDownloads ?? 0)),
+      stars: Math.max(0, ...plugins.map((plugin) => plugin.stars ?? 0)),
+    };
+    const now = this.#now();
+    const scores = new Map(plugins.map((plugin) => [plugin.id, marketScore(plugin, most, now)]));
     plugins.sort((a, b) =>
       Number(b.featured) - Number(a.featured) ||
       featuredAt(a) - featuredAt(b) ||
-      (b.weeklyDownloads ?? 0) - (a.weeklyDownloads ?? 0) ||
+      scores.get(b.id)! - scores.get(a.id)! ||
       a.displayName.localeCompare(b.displayName));
     const blocked = index.versions.flatMap((version) => {
       const reason = version.rejected?.find((item) => item.startsWith("blocked: "));
@@ -188,25 +229,42 @@ export class PluginMarket {
   }
 
   /**
-   * An image the index lists for a plugin, read through the daemon so it uses
-   * the app's network settings. Only the newest index's images, each checked
-   * to be a PNG, JPEG, WebP or static SVG; they're named by their contents, so
-   * one read is kept.
+   * A screenshot the index lists for a plugin, read through the daemon so it
+   * uses the app's network settings. Only the newest index's, each checked to
+   * be a PNG, JPEG or WebP; they're named by their contents, so one read is kept.
    */
-  async image(file: string): Promise<{ bytes: Buffer; mediaType: string; revision: string } | undefined> {
+  async image(file: string): Promise<MarketImage | undefined> {
     const index = this.#url ? await this.#current() : undefined;
     const url = index && indexImage(this.#url!, file);
-    if (!url || !index.versions.some(({ plugin }) => plugin?.images?.icon === file || plugin?.images?.screenshots?.some((shot) => shot.path === file))) return undefined;
-    let read = this.#images.get(file);
+    if (!url || !index.versions.some(({ plugin }) => plugin?.images?.screenshots?.some((shot) => shot.path === file))) return undefined;
+    // Not followed elsewhere: the image has to come from the index's host.
+    return this.#picture(`image:${file}`, url, IMAGE_MAX_BYTES);
+  }
+
+  /**
+   * A publisher's GitHub avatar, by GitHub's id for them. Only one the newest
+   * index gives a package whose source is verified, from GitHub's avatar host
+   * and nowhere it redirects to.
+   */
+  async avatar(id: string): Promise<MarketImage | undefined> {
+    const index = this.#url ? await this.#current() : undefined;
+    const listed = index && Object.values(index.packages).some((facts) => facts.sourceVerified && facts.avatar && AVATAR.exec(facts.avatar)?.[1] === id);
+    if (!listed) return undefined;
+    // It changes rarely, so the copy read while the app runs is kept.
+    return this.#picture(`avatar:${id}`, `https://avatars.githubusercontent.com/u/${id}?s=96`, AVATAR_MAX_BYTES);
+  }
+
+  #picture(key: string, url: string, maxBytes: number): Promise<MarketImage> {
+    let read = this.#images.get(key);
     if (!read) {
-      // Not followed elsewhere: the image has to come from the index's host.
-      read = this.#read(url, IMAGE_MAX_BYTES, "error").then((bytes) => {
-        const mediaType = sniffImageType(bytes) ?? (validatePluginSvg(bytes), "image/svg+xml");
+      read = this.#read(url, maxBytes, "error").then((bytes) => {
+        const mediaType = sniffImageType(bytes);
+        if (!mediaType) throw new Error("The image isn't a PNG, JPEG or WebP");
         return { bytes, mediaType, revision: sha256(bytes) };
       });
-      this.#images.set(file, read);
+      this.#images.set(key, read);
       // A failed read is tried again next time.
-      read.catch(() => this.#images.delete(file));
+      read.catch(() => this.#images.delete(key));
       if (this.#images.size > IMAGE_CACHE_LIMIT) this.#images.delete(this.#images.keys().next().value!);
     }
     return read;

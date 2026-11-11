@@ -88,10 +88,13 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
-- Market icons and screenshots come through the daemon, not the page: only
-  images the current index lists, from the index's own host, checked to be a
-  PNG, JPEG, WebP or a static SVG, and served with `nosniff` and a sandboxing
-  CSP. An index can't make the app read from anywhere else.
+- Market screenshots and avatars come through the daemon, not the page, checked
+  to be a PNG, JPEG or WebP and served with `nosniff` and a sandboxing CSP.
+  Screenshots are only those the current index lists, from the index's own
+  host. Avatars are only from `avatars.githubusercontent.com`, for a package
+  whose source is verified, so a package can't borrow someone else's face by
+  naming their repository. An index can't make the app read from anywhere
+  else, and no redirect is followed.
 
 ## Credentials and logs
 

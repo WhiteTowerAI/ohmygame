@@ -21,11 +21,9 @@ Installed share: the category chips, sorting, cards, the front page and the
 market plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A row of chips above the list offers **All** and each category something on
-the tab is in, without counts; picking one shows just those, and picking it
-again shows everything. A plugin is listed in each category it names but grouped
-under its first, and one with none is under **Other**. Search shows every match
-in one list. A plugin without an icon shows its first letter on a colour its id
+A plugin is listed in each category it names but grouped under its first, and
+one with none is under **Other**. Search shows every match in one list. An
+installed plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
 The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.tsx`).
@@ -36,29 +34,40 @@ only when it needs the person (**Stopped**, **Blocked**, a development build
 that failed).
 
 - **Installed** holds what others made: bundled, prepared, and added from npm or
-  GitHub. Plugins with an update come first, under **Updates**, then a group
-  for each category, each with up to six cards and a **View all**. A
+  GitHub. A row of chips offers **All** and each category something here is
+  in. Plugins with an update come first, under **Updates**, then a group for
+  each category, each with up to six cards and a **View all**. A
   **Contains** filter narrows them to what they add; **Skills** lists each of
   their Skills on its own instead.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning one on is
   what allows it: there is no second prompt.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins. With
-  nothing picked and the **Recommended** order, more than twelve read as a
-  front page of short rows, so it stays the same size however many plugins
-  there are (`marketFront`): **Featured**, **Popular** (weekly downloads),
-  **Recently updated**, then the six categories whose plugins are downloaded
-  most. Each plugin shows once, in the first row that takes it, and each row
-  has a **View all**. Any other view is one list: a category, a search, a
-  **Contains** filter, or another order (**Most downloaded**, **Recently
-  updated**, **Name**). It shows 24 cards at a time with **Show more**. A card
-  opens the plugin in a dialog over the list, from the index alone: its
-  screenshots, long description, what it asks for and adds, and its
-  categories, project types, publisher, version, date, downloads and whether
-  its source is verified. The dialog has **Get**, or **Manage** for an
-  installed plugin, which opens its page. A link to a plugin that isn't
-  installed opens the same dialog over Discover. **Get** on a card or in the
-  dialog opens [Add plugin](#adding-a-plugin)'s review at the listed version.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
+  from a side list as in an app store (`MarketRail`): **Overview**, **All
+  plugins**, each category with how many plugins it has, and two filters,
+  **Official** and **Source verified**. The counts follow the search and
+  filters, and a category nothing is in is left out. On a narrow window the
+  side list becomes a row above the cards.
+  - **Overview** with more than twelve plugins is the same few rows however
+    many there are (`marketFront`): **Featured** (picked by the index),
+    **Recommended** (the market's score, below), **New** (first published in
+    the last 90 days) and **Recently updated**. Each plugin shows once, in the
+    first row that takes it, and each row has **View all**. A search or filter
+    shows one list instead.
+  - Any other view is one list with its count, a **Contains** filter and an
+    order: **Recommended**, **Most downloaded**, **Newest**, **Recently
+    updated** or **Name**. It shows 24 cards at a time with **Show more**.
+  - A card shows the publisher's GitHub avatar, or the plugin's first letter,
+    then its name and marks, description, publisher, weekly downloads and how
+    long ago it was updated. OhMyGame's own show their letter beside the
+    seal, since its logo on every card weighed on the page.
+  - A card opens the plugin in a dialog over the list, from the index alone:
+    its screenshots, long description, what it asks for and adds, and its
+    categories, project types, publisher, version, date, downloads and whether
+    its source is verified. The dialog has **Get**, or **Manage** for an
+    installed plugin, which opens its page. A link to a plugin that isn't
+    installed opens the same dialog over Discover. **Get** on a card or in the
+    dialog opens [Add plugin](#adding-a-plugin)'s review at the listed version.
 - **Mine** holds what the person can edit: **Create a plugin with AI**, the
   plugins they made (`personal/<name>`) or added from this computer, then the AI
   workspaces.
@@ -768,8 +777,15 @@ nothing is read.
   way, even by name through Add plugin. Add plugin can still add a package the index
   doesn't list, with the registry's own checksum, as before.
 - **Source verified** means npm's provenance names the repository, or the
-  repository's `package.json` names the package. Stars show only then. Weekly
-  downloads come from npm.
+  repository's `package.json` names the package. Stars and the owner's avatar
+  show only then, since anyone can name any repository. Weekly downloads come
+  from npm.
+- **Recommended order.** Featured plugins come first, in the index's order,
+  then by `marketScore`, from 0 to 1: weekly downloads 0.5 and GitHub stars
+  0.15, each on a log scale against the market's most; how recently it was
+  updated 0.15, full within a month and none after a year; and its page 0.2, a
+  quarter each for a verified source, a long description, screenshots and a
+  category. A beta keeps 85%. So downloads count most without deciding alone.
 - **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
@@ -779,14 +795,21 @@ nothing is read.
   `@publisher/name` or whose version isn't exact.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
-  `beta`, a localized `longDescription`, and `images`: an `icon` and up to ten
-  `screenshots` (`{ path, caption? }`), copied out of the package by the index
-  job. The app reads fields it doesn't know past, and keeps only categories it
-  knows. Image paths are below the index's folder on its own host
-  (`indexImage`), named by their contents, since the app keeps what it read.
-  The renderer gets them through `GET /plugin-market/images/<path>`, which
-  serves only an image the current index lists, up to 1 MB, as a PNG, JPEG,
-  WebP or an SVG that passes the icon checks.
+  `beta`, a localized `longDescription`, and `images.screenshots`: up to ten
+  `{ path, caption? }` copied out of the package by the index job. A package's
+  facts can carry `createdAt`, its first publish, and `avatar`, the repository
+  owner's `avatar_url` from GitHub's API. The index keeps no icons: the
+  owner's avatar stands for the plugin, so the job stores nothing per plugin
+  for it. The app reads fields it doesn't know past, keeps only categories it
+  knows, and passes over an avatar that isn't
+  `https://avatars.githubusercontent.com/u/<id>`.
+- **Market images.** Screenshot paths are below the index's folder on its own
+  host (`indexImage`), named by their contents, since the app keeps what it
+  read. `GET /plugin-market/images/<path>` serves only a screenshot the
+  current index lists, up to 1 MB, as a PNG, JPEG or WebP.
+  `GET /plugin-market/avatars/<id>` serves only an avatar the current index
+  gives a verified package, read from GitHub's avatar host at 96 pixels, up to
+  256 KB, without following redirects.
 
 ## More manifest fields
 

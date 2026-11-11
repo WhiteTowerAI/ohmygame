@@ -67,6 +67,7 @@ beforeEach(() => {
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
       if (route === "/plugin-market") return Response.json(market);
+      if (route === "/plugin-market/avatars/42") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
         const id = route.slice("/plugin-store/".length, -"/every-project".length);
         store.find((plugin) => plugin.id === id)!.everyProject = JSON.parse(String(init.body)).on;
@@ -287,14 +288,15 @@ describe("plugin catalog browsing", () => {
       store.push(fromNpm("owned"));
       market = { status: "ready", blocked: [], plugins: [
         listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400, repository: "https://github.com/acme/popular" }), listed("owned"),
-        listed("official", { id: "ohmygame/official", package: "@ohmygame/official" }),
+        listed("official", { id: "ohmygame/official", package: "@ohmygame/official", avatar: "42" }),
+        listed("avatar", { sourceVerified: true, avatar: "42" }),
       ] };
       const opened: Array<string | undefined> = [];
       await act(async () => root.render(<PluginsSettings onPluginChange={(id) => opened.push(id)} onTryPlugin={async () => {}} />));
       expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Discover");
       // A small market is one list, in the recommended order: featured first.
       expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
-      expect(cards(section("All plugins"))).toEqual(["Market picked", "Market popular", "Market owned", "Market official"]);
+      expect(cards(section("All plugins"))).toEqual(["Market picked", "Market popular", "Market owned", "Market official", "Market avatar"]);
       const card = (name: string) => [...section("All plugins").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       expect(card("Market owned").querySelector(".plugins-installed-label")?.textContent).toBe("Installed");
       expect(card("Market popular").textContent).toContain("3.4K a week");
@@ -307,6 +309,10 @@ describe("plugin catalog browsing", () => {
       expect(letter.textContent).toBe("M");
       expect(letter.style.getPropertyValue("--monogram-hue")).toMatch(/^var\(--hue-[a-z]+\)$/);
       expect(card("Market official").textContent).toContain("OhMyGame");
+      // A verified publisher shows their GitHub avatar; OhMyGame's own show their letter beside the seal.
+      await vi.waitFor(() => expect(card("Market avatar").querySelector(".plugin-tile img")).toBeTruthy());
+      expect(card("Market official").querySelector(".plugin-tile img")).toBeNull();
+      expect(card("Market official").querySelector(".plugin-monogram")?.textContent).toBe("M");
       // A card opens the plugin in a dialog, without leaving Discover.
       await act(async () => card("Market popular").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
       expect(opened).toEqual([]);
@@ -321,7 +327,7 @@ describe("plugin catalog browsing", () => {
       expect(dialog()).toBeNull();
       await search("popular");
       expect(cards()).toEqual(["Market popular"]);
-      expect(container.textContent).toContain("1 plugin");
+      expect(section("All plugins").querySelector("h2")?.textContent).toBe("All plugins1");
     });
 
     it("reviews a listed plugin from Get, on its card or in its dialog, which a link opens too", async () => {
@@ -347,37 +353,55 @@ describe("plugin catalog browsing", () => {
       expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toMatch(/^Add /);
     });
 
-    it("shows a large market as rows of a few cards, each with View all", async () => {
+    const rail = async (label: string) => {
+      const item = [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((button) => button.querySelector("span:not(.plugins-rail-check)")?.textContent === label)!;
+      expect(item, label).toBeTruthy();
+      await act(async () => item.click());
+    };
+    const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60_000).toISOString();
+
+    it("shows a large market as an overview of a few rows, with categories and filters at the side", async () => {
+      // In the daemon's order: featured, then by score.
       market = { status: "ready", blocked: [], plugins: [
-        listed("hit", { featured: true, weeklyDownloads: 900 }),
-        ...["a", "b", "c", "d", "e"].map((name) => listed(`art-${name}`, { categories: ["art"], weeklyDownloads: name === "e" ? 500 : name === "d" ? 400 : undefined })),
-        ...["a", "b", "c"].map((name) => listed(`audio-${name}`, { categories: ["audio"], publishedAt: `2026-11-0${name.charCodeAt(0) - 96}T00:00:00.000Z` })),
-        ...["a", "b", "c"].map((name) => listed(`lone-${name}`, { categories: [(["theme", "agent", "video"] as const)[name.charCodeAt(0) - 97]!] })),
-        listed("none"),
+        listed("hit", { featured: true, id: "ohmygame/hit", package: "@ohmygame/hit" }),
+        ...[1, 2, 3, 4, 5, 6].map((n) => listed(`top-${n}`, { categories: ["art"], sourceVerified: n < 3 })),
+        listed("new-1", { categories: ["audio"], createdAt: daysAgo(5), publishedAt: daysAgo(5) }),
+        listed("new-2", { categories: ["audio"], createdAt: daysAgo(10), publishedAt: daysAgo(10) }),
+        listed("old", { createdAt: daysAgo(400), publishedAt: daysAgo(1) }),
+        ...[1, 2, 3].map((n) => listed(`more-${n}`, { categories: ["theme"] })),
       ] };
       await renderCatalog(undefined, "discover");
-      // Each plugin shows once, in the first row that takes it; a category with one left has no row.
+      // Each plugin shows once, in the first row that takes it; featured ones aren't recommended again.
       expect([...container.querySelectorAll(".plugins-section h2")].map((title) => title.textContent))
-        .toEqual(["Featured", "Popular", "Recently updated", "Art"]);
+        .toEqual(["Featured", "Recommended", "New", "Recently updated"]);
       expect(cards(section("Featured"))).toEqual(["Market hit"]);
-      expect(cards(section("Popular"))).toEqual(["Market art-e", "Market art-d"]);
-      expect(cards(section("Recently updated"))).toEqual(["Market audio-c", "Market audio-b", "Market audio-a"]);
-      expect(cards(section("Art"))).toEqual(["Market art-a", "Market art-b", "Market art-c"]);
+      expect(cards(section("Recommended"))).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Market top-${n}`));
+      expect(cards(section("New"))).toEqual(["Market new-1", "Market new-2"]);
+      expect(cards(section("Recently updated"))).toEqual(["Market old"]);
+      // The side list counts each category, and leaves out those nothing is in.
+      const counts = [...container.querySelectorAll(".plugins-rail-item")].map((item) => item.textContent);
+      expect(counts).toEqual(["Overview", "All plugins13", "Art6", "Audio2", "Appearance3", "Other2", "Official", "Source verified"]);
       await click("View all 13 plugins");
       expect(cards()).toHaveLength(13);
-      await pick("Sort", "Recommended");
-      await click("View all (5)");
-      expect(cards()).toHaveLength(5);
-      await pick("Sort", "Most downloaded");
-      expect(cards().slice(0, 2)).toEqual(["Market art-e", "Market art-d"]);
+      await rail("Art");
+      expect(section("Art").querySelector("h2")?.textContent).toBe("Art6");
       await pick("Sort", "Name");
-      expect(cards()).toEqual(["Market art-a", "Market art-b", "Market art-c", "Market art-d", "Market art-e"]);
+      expect(cards()).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Market top-${n}`));
+      // Filters narrow the list and the counts beside it.
+      await rail("Source verified");
+      expect(cards()).toEqual(["Market top-1", "Market top-2"]);
+      expect(container.querySelector(".plugins-rail-item[aria-pressed='true']")?.textContent).toBe("Source verified");
+      await rail("Overview");
+      // A filter shows one list, even from the overview.
+      expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
+      await rail("Source verified");
+      expect(cards(section("Featured"))).toEqual(["Market hit"]);
     });
 
     it("shows a long list a page at a time", async () => {
       market = { status: "ready", blocked: [], plugins: Array.from({ length: 30 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
       await renderCatalog(undefined, "discover");
-      await click("Art");
+      await rail("Art");
       expect(cards()).toHaveLength(24);
       await click("Show more (6 left)");
       expect(cards()).toHaveLength(30);

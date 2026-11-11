@@ -1598,6 +1598,18 @@ export function createApp(options: AppOptions = {}) {
       .type(image.mediaType)
       .send(image.bytes);
   });
+  app.get<{ Params: { id: string } }>("/plugin-market/avatars/:id", {
+    schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", pattern: "^[0-9]{1,12}$" } } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.avatar(request.params.id).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Avatar not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
   app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
     schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
   }, async (request, reply) => {

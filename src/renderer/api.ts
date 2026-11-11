@@ -1799,6 +1799,12 @@ export async function readPluginMarketImage(path: string, signal?: AbortSignal):
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
+/** A market publisher's GitHub avatar, by GitHub's id for them. */
+export async function readPluginMarketAvatar(id: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/avatars/${encodeURIComponent(id)}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 /** One of an installed plugin's screenshots, by its place in the manifest. */
 export async function readPluginScreenshotImage(pluginId: string, index: number, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(pluginId)}/screenshots/${index}`), { headers: runtimeHeaders(), signal });

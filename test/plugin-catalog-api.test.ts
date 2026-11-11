@@ -71,17 +71,17 @@ describe("plugin catalog API", () => {
 
     const body = JSON.stringify({ schemaVersion: 1, versions: [{
       package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
-      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, images: { icon: "assets/a1.png" } },
-    }], packages: {}, featured: [] });
+      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, images: { screenshots: [{ path: "assets/a1.png" }] } },
+    }], packages: { "@acme/maker": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" } }, featured: [] });
     const digest = createHash("sha256").update(body).digest("hex");
     const png = Buffer.from("89504e470d0a1a0a", "hex");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/index.json")
       ? Response.json({ latest: `index.${digest}.json` })
-      : String(input).endsWith(".png") ? new Response(png) : new Response(body));
+      : String(input).endsWith(".png") || String(input).startsWith("https://avatars.githubusercontent.com/u/42?") ? new Response(png) : new Response(body));
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
     apps.push(app);
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/a1.png" }] });
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", screenshots: [{ path: "assets/a1.png" }], avatar: "42" }] });
     // Its images come through the app, and only those the index lists.
     const icon = await app.inject({ method: "GET", url: "/plugin-market/images/assets/a1.png" });
     expect(icon.statusCode).toBe(200);
@@ -89,6 +89,12 @@ describe("plugin catalog API", () => {
     expect(icon.rawPayload).toEqual(png);
     expect((await app.inject({ method: "GET", url: "/plugin-market/images/assets/b2.png" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/plugin-market/images/..%2Fsecret.png" })).statusCode).toBe(404);
+    // So does its publisher's avatar, only by the id the index gives.
+    const avatar = await app.inject({ method: "GET", url: "/plugin-market/avatars/42" });
+    expect(avatar.statusCode).toBe(200);
+    expect(avatar.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
+    expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/43" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/..%2F42" })).statusCode).toBe(400);
   });
 
   it("serves an added plugin's screenshots by their place in its manifest", async () => {

@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { indexImage, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { indexImage, marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import type { MarketPlugin } from "../src/shared/plugins.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
 const cleanup: string[] = [];
@@ -76,7 +77,7 @@ describe("PluginMarket listing", () => {
     expect(reads).toEqual([]);
   });
 
-  it("lists each plugin's newest installable version with its facts, featured first, then by downloads", async () => {
+  it("lists each plugin's newest installable version with its facts, featured first, then by score", async () => {
     const { market: subject } = await market(index({
       versions: [
         version("@a/low", "1.0.0", "a/low"),
@@ -88,8 +89,9 @@ describe("PluginMarket listing", () => {
         version("@personal/mine", "1.0.0", "personal/mine"),
       ].map((item) => JSON.parse(JSON.stringify(item))),
       packages: {
-        "@a/top": { repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500 },
-        "@a/low": { weeklyDownloads: 5 },
+        "@a/top": { repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500, avatar: "https://avatars.githubusercontent.com/u/42?v=4", createdAt: "2025-06-01T00:00:00.000Z" },
+        // An avatar is shown only for a verified source: anyone can name any repository.
+        "@a/low": { weeklyDownloads: 5, repository: "https://github.com/famous/thing", avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
       },
       featured: ["a/picked", "a/gone"],
     }));
@@ -102,8 +104,31 @@ describe("PluginMarket listing", () => {
     expect(plugins[1]).toMatchObject({
       package: "@a/top", displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
       adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500,
+      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z",
     });
     expect(plugins[0]!.sourceVerified).toBe(false);
+    expect(plugins[2]).not.toHaveProperty("avatar");
+  });
+
+  it("scores plugins by downloads most, but also by stars, how recently they were updated and their page", () => {
+    const now = Date.parse("2026-11-11T00:00:00.000Z");
+    const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({
+      id: "a/b", package: "@a/b", version: "1.0.0", displayName: "B", description: "", asks: [], adds: {}, featured: false, sourceVerified: false, ...fields,
+    });
+    const most = { downloads: 1000, stars: 100 };
+    const score = (fields: Partial<MarketPlugin>) => marketScore(plugin(fields), most, now);
+    expect(score({})).toBe(0);
+    expect(score({ weeklyDownloads: 1000, stars: 100, publishedAt: "2026-11-01T00:00:00.000Z", sourceVerified: true, longDescription: "L", screenshots: [{ path: "a.png" }], categories: ["art"] })).toBeCloseTo(1);
+    // Downloads weigh most, on a log scale: ten times as many isn't ten times the score.
+    expect(score({ weeklyDownloads: 1000 })).toBeCloseTo(0.5);
+    expect(score({ weeklyDownloads: 100 })).toBeGreaterThan(0.3);
+    // Freshness fades from a month to a year.
+    expect(score({ publishedAt: "2026-10-20T00:00:00.000Z" })).toBeCloseTo(0.15);
+    expect(score({ publishedAt: "2025-10-01T00:00:00.000Z" })).toBe(0);
+    expect(score({ publishedAt: "not a date" })).toBe(0);
+    // A well-kept page lifts a quiet plugin over one only downloaded a little more.
+    expect(score({ weeklyDownloads: 20, sourceVerified: true, longDescription: "L", categories: ["art"] })).toBeGreaterThan(score({ weeklyDownloads: 40 }));
+    expect(score({ weeklyDownloads: 1000, beta: true })).toBeCloseTo(0.425);
   });
 
   it("shows the greatest version, whatever order they were published in", async () => {
@@ -194,19 +219,22 @@ describe("PluginMarket listing", () => {
     } })] }));
     const [plugin] = (await subject.listing("zh-CN")).plugins;
     expect(plugin).toMatchObject({
-      categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长", icon: "assets/icon.svg",
+      categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长",
       screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
     });
     expect(plugin).not.toHaveProperty("rating");
+    // Icons aren't kept in the index any more; the publisher's avatar stands for the plugin.
+    expect(plugin).not.toHaveProperty("icon");
   });
 
-  it("reads only the images its index lists, from the index's host, checking each is a picture", async () => {
+  it("reads only the screenshots its index lists, from the index's host, checking each is a picture", async () => {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
     const { market: subject, reads, state } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
       ...version("@a/b", "1.0.0", "a/b").plugin,
-      images: { icon: "assets/icon.png", screenshots: [{ path: "assets/page.png" }, { path: "assets/script.svg" }] },
+      images: { icon: "assets/old-icon.png", screenshots: [{ path: "assets/icon.png" }, { path: "assets/page.png" }, { path: "assets/script.svg" }] },
     } })] }));
     state.files["https://plugins.example.com/plugins/assets/icon.png"] = png;
+    state.files["https://plugins.example.com/plugins/assets/old-icon.png"] = png;
     state.files["https://plugins.example.com/plugins/assets/page.png"] = Buffer.from("<html></html>");
     state.files["https://plugins.example.com/plugins/assets/script.svg"] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
     state.files["https://plugins.example.com/plugins/assets/other.png"] = png;
@@ -217,9 +245,42 @@ describe("PluginMarket listing", () => {
     await expect(subject.image("assets/page.png")).rejects.toThrow();
     await expect(subject.image("assets/script.svg")).rejects.toThrow();
     expect(await subject.image("assets/other.png")).toBeUndefined();
+    expect(await subject.image("assets/old-icon.png")).toBeUndefined();
     expect(reads.some((url) => url.endsWith("other.png"))).toBe(false);
     // A redirect could lead anywhere, so it isn't followed.
     expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("reads a verified publisher's GitHub avatar, from GitHub's avatar host only", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const { market: subject, reads, state } = await market(index({
+      versions: [version("@a/b", "1.0.0", "a/b"), version("@a/c", "1.0.0", "a/c")],
+      packages: {
+        "@a/b": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" },
+        "@a/c": { avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
+      },
+    }));
+    state.files["https://avatars.githubusercontent.com/u/42?s=96"] = png;
+    state.files["https://avatars.githubusercontent.com/u/7?s=96"] = png;
+    expect(await subject.avatar("42")).toMatchObject({ mediaType: "image/png", bytes: png });
+    await subject.avatar("42");
+    expect(reads.filter((url) => url.includes("/u/42"))).toHaveLength(1);
+    // Not for an unverified source, nor for anyone the index doesn't name.
+    expect(await subject.avatar("7")).toBeUndefined();
+    expect(await subject.avatar("1")).toBeUndefined();
+    expect(reads.some((url) => url.includes("/u/7") || url.includes("/u/1?"))).toBe(false);
+    expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("passes over an avatar that isn't on GitHub's avatar host", async () => {
+    const { market: subject } = await market(index({
+      versions: [version("@a/b", "1.0.0", "a/b")],
+      packages: { "@a/b": { sourceVerified: true, avatar: "https://evil.example/u/42" } },
+    }));
+    const listing = await subject.listing("en");
+    expect(listing.status).toBe("ready");
+    expect(listing.plugins[0]).not.toHaveProperty("avatar");
+    expect(await subject.avatar("42")).toBeUndefined();
   });
 
   it("keeps an index's images below its own folder on its own host", () => {

@@ -58,10 +58,14 @@ export interface MarketPlugin {
   appliesTo?: string[];
   beta?: boolean;
   longDescription?: string;
-  /** Images by their path from the index, which `/plugin-market/images/<path>` reads. */
-  icon?: string;
+  /** Screenshots by their path from the index, which `/plugin-market/images/<path>` reads. */
   screenshots?: Array<{ path: string; caption?: string }>;
+  /** GitHub's id for the publisher, whose avatar `/plugin-market/avatars/<id>` reads; only when the source is verified. */
+  avatar?: string;
+  /** When the listed version was published. */
   publishedAt?: string;
+  /** When the package was first published. */
+  createdAt?: string;
   repository?: string;
   /** npm's provenance names the repository, or the repository's package.json names the package. */
   sourceVerified: boolean;

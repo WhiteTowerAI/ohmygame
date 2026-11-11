@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
 import type { MarketPlugin } from "../shared/plugins.js";
-import { readPluginMarketImage } from "./api.js";
+import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { ExternalLink } from "./icons.js";
+import { Check, Download, ExternalLink, History } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { PluginMarks } from "./plugin-marks.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -55,59 +55,53 @@ export function CategoryChips({ items, value, onChange }: {
     onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
 }
 
-export type MarketSort = "recommended" | "downloads" | "updated" | "name";
-const MARKET_SORTS: readonly MarketSort[] = ["recommended", "downloads", "updated", "name"];
+export type MarketSort = "recommended" | "downloads" | "new" | "updated" | "name";
+const MARKET_SORTS: readonly MarketSort[] = ["recommended", "downloads", "new", "updated", "name"];
 
-/** The market in an order; `recommended` keeps the daemon's: featured first, then by downloads. */
+/** The market in an order; `recommended` keeps the daemon's: featured first, then by its score (`marketScore`). */
 export function sortMarket(plugins: readonly MarketPlugin[], sort: MarketSort): MarketPlugin[] {
   const sorted = [...plugins];
   if (sort === "downloads") sorted.sort((a, b) => (b.weeklyDownloads ?? 0) - (a.weeklyDownloads ?? 0));
+  if (sort === "new") sorted.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   if (sort === "updated") sorted.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
   if (sort === "name") sorted.sort((a, b) => a.displayName.localeCompare(b.displayName, language));
   return sorted;
 }
 
-/** Cards in a row of the market's front page: two lines of the grid, three for Popular. */
+/** Cards in a row of the front page: two lines of the grid, three for Recommended. */
 const FRONT_ROW = 4;
-const FRONT_POPULAR = 6;
-/** Category rows on the front page; the chips above reach the rest. */
-const FRONT_CATEGORIES = 6;
+const FRONT_RECOMMENDED = 6;
+/** How long a plugin counts as new. */
+const NEW_DAYS = 90;
 
 export interface MarketFront {
   featured: MarketPlugin[];
-  popular: MarketPlugin[];
-  recent: MarketPlugin[];
-  categories: { category: PluginCategory; plugins: MarketPlugin[]; total: number }[];
+  recommended: MarketPlugin[];
+  new: MarketPlugin[];
+  updated: MarketPlugin[];
 }
 
 /**
- * The market's front page, a few cards a row however many plugins there are:
- * featured, the most downloaded, the latest updated, then the categories most
- * used. Each plugin shows once, in the first row that takes it.
+ * The market's front page, the same few rows however many plugins there are:
+ * what OhMyGame features, the best by the market's score, what's new, and
+ * what was updated last. Each plugin shows once, in the first row that takes
+ * it. Categories are in the side list, not here.
  */
-export function marketFront(plugins: readonly MarketPlugin[]): MarketFront {
+export function marketFront(plugins: readonly MarketPlugin[], now = Date.now()): MarketFront {
   const shown = new Set<string>();
   const take = (list: readonly MarketPlugin[], count: number) => {
     const picked = list.filter((plugin) => !shown.has(plugin.id)).slice(0, count);
     for (const plugin of picked) shown.add(plugin.id);
     return picked;
   };
-  const featured = take(plugins.filter((plugin) => plugin.featured), FRONT_ROW);
-  const popular = take(sortMarket(plugins.filter((plugin) => plugin.weeklyDownloads), "downloads"), FRONT_POPULAR);
-  const recent = take(sortMarket(plugins.filter((plugin) => plugin.publishedAt), "updated"), FRONT_ROW);
-  const used = (list: readonly MarketPlugin[]) => list.reduce((sum, plugin) => sum + (plugin.weeklyDownloads ?? 0), 0);
-  const categories = PLUGIN_CATEGORIES
-    .map((category) => ({ category, all: plugins.filter((plugin) => catalogSection(plugin.categories) === category) }))
-    .sort((a, b) => used(b.all) - used(a.all))
-    .flatMap(({ category, all }) => {
-      const rest = all.filter((plugin) => !shown.has(plugin.id));
-      // A row of one says less than the chip does.
-      // View all opens the category, which also lists plugins that name it second.
-      return rest.length > 1 ? [{ category, rest, total: plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length }] : [];
-    })
-    .slice(0, FRONT_CATEGORIES)
-    .map(({ category, rest, total }) => ({ category, plugins: take(sortMarket(rest, "downloads"), FRONT_ROW), total }));
-  return { featured, popular, recent, categories };
+  const since = new Date(now - NEW_DAYS * 24 * 60 * 60_000).toISOString();
+  return {
+    featured: take(plugins.filter((plugin) => plugin.featured), FRONT_ROW),
+    // By the market's score: featured ones that didn't fit above are still featured, not recommended.
+    recommended: take(plugins.filter((plugin) => !plugin.featured), FRONT_RECOMMENDED),
+    new: take(sortMarket(plugins.filter((plugin) => plugin.createdAt && plugin.createdAt >= since), "new"), FRONT_ROW),
+    updated: take(sortMarket(plugins.filter((plugin) => plugin.publishedAt), "updated"), FRONT_ROW),
+  };
 }
 
 export function MarketSortSelect({ value, onChange }: { value: MarketSort; onChange: (value: MarketSort) => void }): ReactNode {
@@ -150,14 +144,43 @@ function useMarketImages(paths: readonly (string | undefined)[]): (string | null
   return urls;
 }
 
-/** A market plugin's icon, which the index copied out of its package, or its first letter. */
+/** Avatars by GitHub id, read once a run: many plugins share a publisher. */
+const avatars = new Map<string, Promise<string | null>>();
+
+function useMarketAvatar(id: string | undefined): string | null | undefined {
+  const generation = useReadyRuntimeGeneration();
+  const [url, setUrl] = useState<string | null | undefined>(id ? undefined : null);
+  useEffect(() => {
+    if (!id) return setUrl(null);
+    let read = avatars.get(id);
+    if (!read) {
+      read = readPluginMarketAvatar(id).then((blob) => URL.createObjectURL(blob), () => {
+        // Tried again the next time a card shows it.
+        avatars.delete(id);
+        return null;
+      });
+      avatars.set(id, read);
+    }
+    let live = true;
+    void read.then((next) => { if (live) setUrl(next); });
+    return () => { live = false; };
+  }, [id, generation]);
+  return url;
+}
+
+/**
+ * Who publishes a market plugin: the GitHub avatar of a verified source's
+ * owner, or else the plugin's first letter. OhMyGame's own show their letter,
+ * since the seal already says whose they are and one logo on every card weighs
+ * on the page. The index keeps no icons, so nothing is stored per plugin.
+ */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
-  const [icon] = useMarketImages([plugin.icon]);
+  const avatar = useMarketAvatar(isOfficialPlugin(plugin.id) ? undefined : plugin.avatar);
   const size = large ? 40 : 24;
-  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
-    {icon ? <img src={icon} width={size} height={size} alt="" aria-hidden="true" className="plugin-icon-image" />
-      // While its icon loads the tile stays empty, rather than flashing a letter.
-      : icon === undefined && plugin.icon ? null : <PluginMonogram id={plugin.id} name={plugin.displayName} size={size} />}
+  return <span className={`plugin-tile plugin-tile-avatar${large ? " plugin-tile-large" : ""}`}>
+    {avatar ? <img src={avatar} alt="" aria-hidden="true" />
+      // While the avatar loads the tile stays empty, rather than flashing a letter.
+      : avatar === undefined ? null : <PluginMonogram id={plugin.id} name={plugin.displayName} size={size} />}
   </span>;
 }
 
@@ -173,7 +196,7 @@ export function MarketPluginCard({ plugin, installed = false, onOpen, onGet }: {
   onGet: () => void;
 }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
-  const section = catalogSection(plugin.categories);
+  const updated = relativeDate(plugin.publishedAt);
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
       <MarketTile plugin={plugin} />
@@ -185,14 +208,77 @@ export function MarketPluginCard({ plugin, installed = false, onOpen, onGet }: {
         <small>{plugin.description}</small>
         <span className="plugins-meta">
           <span>{publisherName(plugin)}</span>
-          {section !== "other" ? <span className="plugins-tag">{categoryLabel(section)}</span> : null}
-          {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
+          {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}
+            full={t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })} /> : null}
+          {updated ? <Stat icon={<History size={12} />} text={updated} full={t("pluginCatalog.updatedAgo", { time: updated })} /> : null}
         </span>
       </span>
     </button>
     {installed ? <span className="plugins-installed-label">{t("plugins.installed")}</span>
       : <Button size="sm" onClick={onGet} aria-label={t("pluginCatalog.getName", { name: plugin.displayName })}>{t("pluginCatalog.get")}</Button>}
   </article>;
+}
+
+/** A number after its icon; the full words are for a screen reader and the tooltip. */
+function Stat({ icon, text, full }: { icon: ReactNode; text: string; full: string }): ReactNode {
+  return <span className="plugins-stat" title={full}>
+    <span aria-hidden="true">{icon}{text}</span>
+    <span className="visually-hidden">{full}</span>
+  </span>;
+}
+
+/** How long ago a date was, in the largest unit that fits: "3 days ago". */
+export function relativeDate(value: string | undefined, now = Date.now()): string | undefined {
+  const time = value ? Date.parse(value) : Number.NaN;
+  if (Number.isNaN(time)) return undefined;
+  const days = Math.round((time - now) / (24 * 60 * 60_000));
+  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  if (days > -30) return format.format(Math.min(0, days), "day");
+  if (days > -365) return format.format(Math.round(days / 30), "month");
+  return format.format(Math.round(days / 365), "year");
+}
+
+/**
+ * Discover's side list: the front page, everything, each category with how
+ * many plugins it has, and two filters. A long market is browsed from here,
+ * as in an app store; on a narrow window it becomes a row that scrolls.
+ */
+export type MarketSection = "home" | CatalogFilter;
+export type MarketOnly = "official" | "verified";
+export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
+  (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
+
+export function MarketRail({ plugins, section, onSection, only, onOnly }: {
+  /** What the search and filters leave, to count. */
+  plugins: readonly MarketPlugin[];
+  section: MarketSection;
+  onSection: (section: MarketSection) => void;
+  only: readonly MarketOnly[];
+  onOnly: (only: MarketOnly[]) => void;
+}): ReactNode {
+  const counts = new Map(CATALOG_CATEGORIES.map((category) => [category, plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length]));
+  const item = (value: MarketSection, label: string, count?: number) =>
+    <button key={value} type="button" className="plugins-rail-item" aria-current={section === value ? "true" : undefined} onClick={() => onSection(value)}>
+      <span>{label}</span>{count !== undefined ? <span className="plugins-rail-count">{count}</span> : null}
+    </button>;
+  const filter = (value: MarketOnly, label: string) => {
+    const on = only.includes(value);
+    return <button key={value} type="button" className="plugins-rail-item" aria-pressed={on}
+      onClick={() => onOnly(on ? only.filter((item) => item !== value) : [...only, value])}>
+      <span className="plugins-rail-check" aria-hidden="true">{on ? <Check size={12} /> : null}</span>
+      <span>{label}</span>
+    </button>;
+  };
+  return <nav className="plugins-rail" aria-label={t("pluginCatalog.categoriesLabel")}>
+    {item("home", t("pluginCatalog.home"))}
+    {item("all", t("pluginCatalog.allPlugins"), plugins.length)}
+    <h3>{t("pluginCatalog.categoriesLabel")}</h3>
+    {/* Only categories something is in, so none leads to an empty list. */}
+    {CATALOG_CATEGORIES.filter((category) => category === section || counts.get(category)).map((category) => item(category, categoryLabel(category), counts.get(category)))}
+    <h3>{t("pluginCatalog.showOnly")}</h3>
+    {filter("official", t("plugins.official"))}
+    {filter("verified", t("plugins.sourceVerified"))}
+  </nav>;
 }
 
 /** Screenshots in a row that scrolls; one opens larger. */
