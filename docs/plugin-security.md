@@ -71,7 +71,10 @@ a plugin's last version forgets what was allowed.
   OhMyGame organization can publish to, and a folder in development. GitHub,
   a file, a plain folder and another registry can claim any publisher, so
   they can't use `ohmygame`. Such a package never replaces a bundled plugin
-  of the same id: it comes from another source (below).
+  of the same id: it comes from another source (below). Keep each
+  `ohmygame/` id either bundled or on npm, never both: a plugin that moves
+  between them takes a new id, since one installed from npm stays beside the
+  bundled copy and its newer version wins.
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept
