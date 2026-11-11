@@ -1744,7 +1744,7 @@ describe("daemon", () => {
 
   it("uses the default model set for each audio kind, project first, then global, then automatic", async () => {
     const generate = vi.fn(async (input: AudioGenerationRequest): Promise<GeneratedAudio> => ({ bytes: mp3Fixture(), mediaType: "audio/mpeg", model: input.model!, metadata: {} }));
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-defaults-")), audioGenerator: { catalog: () => ({ models: [], providers: [] }), generate } });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-defaults-")), audioFetch: vi.fn(async () => Response.json([{ model_id: "eleven_v4", name: "Eleven v4", can_do_text_to_speech: true }])), audioGenerator: { catalog: () => ({ models: [], providers: [] }), generate } });
     apps.push(app);
     await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
     await app.inject({ method: "PUT", url: "/settings/models/providers/elevenlabs", payload: { apiKey: "eleven-key" } });
@@ -1799,7 +1799,7 @@ describe("daemon", () => {
   });
 
   it("stores speech provider settings without exposing their keys", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")), audioFetch: vi.fn(async () => Response.json([{ model_id: "eleven_v4", name: "Eleven v4", can_do_text_to_speech: true }])) });
     apps.push(app);
 
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
@@ -1877,7 +1877,7 @@ describe("daemon", () => {
   });
 
   it("lists Doubao Speech once, with one switch for its speech synthesis and Seed Audio models", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-doubao-speech-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-doubao-speech-")), audioFetch: vi.fn(async () => Response.json([{ model_id: "eleven_v4", name: "Eleven v4", can_do_text_to_speech: true }])) });
     apps.push(app);
     await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
 

@@ -1092,6 +1092,7 @@ const zhCN: typeof en = {
       speech: "配音",
       "sound-effect": "音效",
       music: "音乐",
+      transcription: "转写",
     },
   },
   responsesTransport: {

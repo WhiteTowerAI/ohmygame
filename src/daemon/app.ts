@@ -805,7 +805,7 @@ export function createApp(options: AppOptions = {}) {
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
       if (toolId === "generate-audio") {
         const { model: explicit, kind } = input as AudioGenerationRequest;
-        const selected = providerAudio.resolveModel(explicit, kind, project?.mediaModelDefaults);
+        const selected = await providerAudio.resolveModel(explicit, kind, project?.mediaModelDefaults);
         if (!selected) {
           if (options.audioGenerator) return input;
           throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
@@ -2844,7 +2844,7 @@ export function createApp(options: AppOptions = {}) {
         const ref = request.body[kind];
         const previous = project.mediaModelDefaults?.[kind];
         if (!ref || (ref.provider === previous?.provider && ref.id === previous.id)) continue;
-        if (!providerAudio.catalog().models.some((model) => model.provider === ref.provider && model.id === ref.id && model.capabilities.produces.includes(kind))) {
+        if (!(await providerAudio.catalog()).models.some((model) => model.provider === ref.provider && model.id === ref.id && model.capabilities.produces.includes(kind))) {
           return reply.code(400).send({ error: `The selected ${kind.replace("-", " ")} model is not available` });
         }
       }
@@ -3478,10 +3478,10 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
-  app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  app.get("/audio-models/catalog", async () => await providerAudio.catalog());
   for (const kind of AUDIO_KINDS) {
     app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
-      if (!providerAudio.catalog().models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+      if (!(await providerAudio.catalog()).models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
         return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
       }
       await providerModelSettings.setDefaultMediaModel(kind, request.body);

@@ -1109,6 +1109,7 @@ const en = {
       speech: "Speech",
       "sound-effect": "Sound effects",
       music: "Music",
+      transcription: "Transcription",
     },
   },
   responsesTransport: {

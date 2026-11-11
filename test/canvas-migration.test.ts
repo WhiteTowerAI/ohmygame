@@ -149,6 +149,17 @@ describe("audio nodes saved before they were merged", () => {
     expect(currentAudioModel(old)).toEqual(current);
   });
 
+  it("moves saved Eleven Sound Effects v2 choices to v3", () => {
+    const old = { provider: "elevenlabs", id: "eleven_text_to_sound_v2" }, current = { provider: "elevenlabs", id: "eleven_text_to_sound_v3" };
+    const { value, migrated } = migrateLegacyAudioNodes({ nodes: [
+      { id: "birds", type: "audio", data: { prompt: "Birdsong", model: old } },
+    ] });
+    expect(migrated).toEqual(["birds"]);
+    expect(value.nodes[0]!.data.model).toEqual(current);
+    expect(migrateLegacyAudioJob({ id: "j", toolId: "generate-audio", input: { prompt: "Birdsong", model: old } })).toEqual({ id: "j", toolId: "generate-audio", input: { prompt: "Birdsong", model: current } });
+    expect(currentAudioModel(old)).toEqual(current);
+  });
+
   it("read per-kind tool jobs and runs as generate-audio with their kind", () => {
     expect(migrateLegacyAudioJob({ id: "j", toolId: "generate-speech", input: { text: "Hi", voiceId: "v" } })).toEqual({ id: "j", toolId: "generate-audio", input: { prompt: "Hi", voiceId: "v", kind: "speech" } });
     expect(migrateLegacyAudioJob({ id: "m", toolId: "generate-music", input: { prompt: "Theme", lyrics: "la" } })).toEqual({ id: "m", toolId: "generate-audio", input: { prompt: "Theme", kind: "music" } });

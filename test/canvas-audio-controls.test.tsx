@@ -9,8 +9,10 @@ import {
 } from "../src/renderer/canvas-audio-controls.js";
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
 import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
-import { ELEVENLABS_MODELS } from "../src/daemon/elevenlabs-audio-provider.js";
-import type { AudioSettings } from "../src/shared/audio.js";
+import type { AudioModel, AudioSettings } from "../src/shared/audio.js";
+
+const elevenSpeech: AudioModel = { provider: "elevenlabs", providerName: "ElevenLabs", id: "eleven_v4", name: "Eleven v4", protocol: "elevenlabs-v1", capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, produces: ["speech"], readsText: true, requiresVoice: true, supportsSpeaker: true, speedRange: [-30, 20] } };
+const elevenEffect: AudioModel = { provider: "elevenlabs", providerName: "ElevenLabs", id: "eleven_text_to_sound_v3", name: "Eleven Sound Effects v3", protocol: "elevenlabs-v1", capabilities: { formats: ["mp3"], sampleRatesByFormat: { mp3: [44_100] }, produces: ["sound-effect"] } };
 
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
 beforeEach(() => {
@@ -125,23 +127,20 @@ it("checks saved settings against the current model", () => {
 });
 
 it("only offers the tune menu when a model has adjustable low-frequency settings", () => {
-  const eleven = ELEVENLABS_MODELS.find((model) => model.id === "eleven_v4")!;
-  expect(audioHasAdvancedSettings(eleven)).toBe(false);
+  expect(audioHasAdvancedSettings(elevenSpeech)).toBe(false);
   expect(audioHasAdvancedSettings(VOLCENGINE_TTS_MODELS[0])).toBe(true);
 });
 
 it("lists account voices and limits speed for models that speak, and hides both for sound-only models", async () => {
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ voices: [{ id: "aria", name: "Aria" }], nextPageToken: "next" }));
   vi.stubGlobal("fetch", fetch);
-  const speech = ELEVENLABS_MODELS.find((model) => model.id === "eleven_v4")!;
-  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={speech} listsVoices onChange={vi.fn()} />));
+  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={elevenSpeech} listsVoices onChange={vi.fn()} />));
   await vi.waitFor(() => expect(Array.from(host.querySelectorAll("select")[0]!.options).map((option) => option.value)).toEqual(["", "saved", "aria"]));
   expect(String(fetch.mock.calls[0]![0])).toContain("/audio-providers/elevenlabs/voices");
   const speed = host.querySelector<HTMLInputElement>(".audio-control-adjustments input")!;
   expect([speed.min, speed.max]).toEqual(["-30", "20"]);
 
-  const effect = ELEVENLABS_MODELS.find((model) => model.id === "eleven_text_to_sound_v2")!;
-  await act(async () => root.render(<CanvasAudioControls value={{}} model={effect} onChange={vi.fn()} />));
+  await act(async () => root.render(<CanvasAudioControls value={{}} model={elevenEffect} onChange={vi.fn()} />));
   expect(host.querySelector(".audio-control-adjustments input")).toBeNull();
   expect(Array.from(host.querySelectorAll("label")).some((label) => label.textContent?.startsWith("Language"))).toBe(false);
 });
