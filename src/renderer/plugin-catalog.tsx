@@ -6,6 +6,7 @@ import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
 import { Check, Download, ExternalLink, History } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
+import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
@@ -192,18 +193,23 @@ function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: b
   </span>;
 }
 
-function MarketBadges({ plugin }: { plugin: MarketPlugin }): ReactNode {
-  return <PluginMarks official={isOfficialPlugin(plugin.id)} marks={[plugin.beta && "beta"]} />;
+function MarketBadges({ plugin, installed = false }: { plugin: MarketPlugin; installed?: boolean }): ReactNode {
+  return <PluginMarks official={isOfficialPlugin(plugin.id)} marks={[plugin.beta && "beta", installed && "installed"]} />;
 }
 
 /** A plugin on the market. Opening it shows it in a dialog; Get reviews the package to add it. */
-export function MarketPluginCard({ plugin, installed = false, onOpen, onGet }: {
+/**
+ * A plugin on the market, as a whole card that opens it in a dialog, where it
+ * is added. Its numbers sit at the bottom left, where every card has them, and
+ * the publisher, whose name may be long, at the right.
+ */
+export function MarketPluginCard({ plugin, installed = false, onOpen }: {
   plugin: MarketPlugin;
   installed?: boolean;
   onOpen: () => void;
-  onGet: () => void;
 }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
+  // When its newest version came out: the last time it was updated.
   const updated = relativeDate(plugin.publishedAt);
   return <article className="plugin-card">
     <button className="plugin-card-link" type="button" onClick={onOpen}>
@@ -211,19 +217,17 @@ export function MarketPluginCard({ plugin, installed = false, onOpen, onGet }: {
       <span className="plugin-card-text">
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
-          <MarketBadges plugin={plugin} />
+          <MarketBadges plugin={plugin} installed={installed} />
         </strong>
         <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{publisherName(plugin)}</span>
+        <span className="plugins-meta plugin-card-foot">
           {plugin.weeklyDownloads ? <Stat icon={<Download size={12} />} text={compact.format(plugin.weeklyDownloads)}
             full={t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })} /> : null}
           {updated ? <Stat icon={<History size={12} />} text={updated} full={t("pluginCatalog.updatedAgo", { time: updated })} /> : null}
+          <span className="plugin-card-author">{publisherName(plugin)}</span>
         </span>
       </span>
     </button>
-    {installed ? <span className="plugins-installed-label">{t("plugins.installed")}</span>
-      : <Button size="sm" onClick={onGet} aria-label={t("pluginCatalog.getName", { name: plugin.displayName })}>{t("pluginCatalog.get")}</Button>}
   </article>;
 }
 
@@ -349,10 +353,15 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   const rows = marketAddRows(plugin.adds);
   const categories = known(plugin.categories);
   const worksWith = appliesToLabels(plugin.appliesTo);
-  const updated = plugin.publishedAt ? new Date(plugin.publishedAt) : undefined;
+  const date = (value: string | undefined) => {
+    const time = value ? new Date(value) : undefined;
+    return time && !Number.isNaN(time.getTime()) ? time.toLocaleDateString(language) : undefined;
+  };
+  const updated = date(plugin.publishedAt);
+  const created = date(plugin.createdAt);
   const shots = useMarketImages((plugin.screenshots ?? []).map((shot) => shot.path));
   return <Dialog open size="lg" onClose={onClose}
-    title={<span className="plugin-dialog-title">{plugin.displayName}<MarketBadges plugin={plugin} /></span>}>
+    title={<span className="plugin-dialog-title">{plugin.displayName}<MarketBadges plugin={plugin} installed={installed} /></span>}>
     <div className="plugin-dialog">
       <div className="plugin-dialog-head">
         <MarketTile plugin={plugin} large />
@@ -386,7 +395,9 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
           <dd>{publisherName(plugin)}</dd>
           <dt>{t("plugins.version")}</dt>
           <dd className="plugins-mono">v{plugin.version}</dd>
-          {updated && !Number.isNaN(updated.getTime()) ? <><dt>{t("pluginCatalog.updated")}</dt><dd>{updated.toLocaleDateString(language)}</dd></> : null}
+          {plugin.size !== undefined ? <><dt>{t("pluginCatalog.size")}</dt><dd>{formatBytes(plugin.size)}</dd></> : null}
+          {updated ? <><dt>{t("pluginCatalog.updated")}</dt><dd>{updated}</dd></> : null}
+          {created && created !== updated ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
           <dt>{t("pluginStore.npmPackage")}</dt>
           <dd><a href={`https://www.npmjs.com/package/${plugin.package}`} target="_blank" rel="noreferrer">{plugin.package}<ExternalLink size={11} /></a></dd>
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>

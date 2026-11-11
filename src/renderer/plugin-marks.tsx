@@ -8,11 +8,12 @@ import { Badge } from "./ui/index.js";
 // failed development build) is red. Whether a source is verified is not a
 // mark: it is in the plugin's information.
 
-export type PluginMark = "beta" | "included" | "development" | "development-error" | "off" | "update" | "stopped" | "blocked";
+export type PluginMark = "beta" | "included" | "installed" | "development" | "development-error" | "off" | "update" | "stopped" | "blocked";
 
 const LABELS = {
   beta: "plugins.beta",
   included: "plugins.included",
+  installed: "plugins.installed",
   development: "plugins.inDevelopment",
   "development-error": "plugins.inDevelopment",
   off: "common.disabled",

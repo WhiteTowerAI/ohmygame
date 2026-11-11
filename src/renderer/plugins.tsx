@@ -175,7 +175,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
   const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
   const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
-    onOpen={() => setPreview(plugin.id)} onGet={() => setAdding(plugin)} />;
+    onOpen={() => setPreview(plugin.id)} />;
   // The overview reads like a store's front page, the same few rows however many plugins there are.
   // Searching or filtering shows one list instead, a page at a time.
   const narrowed = Boolean(normalizedQuery) || adds !== "all" || only.length > 0;

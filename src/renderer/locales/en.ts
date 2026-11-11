@@ -2717,6 +2717,8 @@ const en = {
   },
   pluginCatalog: {
     home: "Overview",
+    size: "Size",
+    firstPublished: "First published",
     newPlugins: "New",
     showOnly: "Show only",
     updatedAgo: "Updated {{time}}",
@@ -2749,7 +2751,6 @@ const en = {
     results_other: "{{count}} plugins",
     updates: "Updates",
     get: "Get",
-    getName: "Get {{name}}",
     screenshots: "Screenshots",
     screenshotNumber: "Screenshot {{number}}",
     information: "Information",

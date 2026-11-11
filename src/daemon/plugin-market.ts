@@ -47,6 +47,8 @@ const IndexedVersion = Type.Object({
   publisher: Type.Optional(Type.String({ maxLength: 256 })),
   provenance: Type.Optional(Type.String({ maxLength: 2048 })),
   publishedAt: Type.Optional(Type.String({ maxLength: 64 })),
+  /** npm's `dist.unpackedSize`. */
+  unpackedSize: Type.Optional(Type.Integer({ minimum: 0 })),
   rejected: Type.Optional(Type.Array(Type.String({ maxLength: 4096 }))),
   plugin: Type.Optional(Type.Object({
     id: Type.String({ maxLength: 256 }),
@@ -202,6 +204,7 @@ export class PluginMarket {
         ...(screenshots.length ? { screenshots } : {}),
         ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
         ...(facts?.createdAt ? { createdAt: facts.createdAt } : {}),
+        ...(version.unpackedSize !== undefined ? { size: version.unpackedSize } : {}),
         ...(facts?.repository ? { repository: facts.repository } : {}),
         sourceVerified: facts?.sourceVerified === true,
         ...(facts?.stars !== undefined ? { stars: facts.stars } : {}),

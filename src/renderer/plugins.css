@@ -354,6 +354,10 @@
 }
 
 /* a number on a market card, after its icon; the full words are its title */
+.plugins-stat {
+  flex: none;
+}
+
 .plugins-stat > span[aria-hidden] {
   display: inline-flex;
   align-items: center;
@@ -503,6 +507,20 @@
   margin-top: 4px;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
+}
+
+/* a market card's last line: its numbers on the left, the publisher at the right */
+.plugin-card-foot {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.plugin-card-author {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plugins-tag {

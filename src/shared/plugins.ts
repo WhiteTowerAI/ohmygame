@@ -66,6 +66,8 @@ export interface MarketPlugin {
   publishedAt?: string;
   /** When the package was first published. */
   createdAt?: string;
+  /** The listed version's files, unpacked, in bytes. */
+  size?: number;
   repository?: string;
   /** npm's provenance names the repository, or the repository's package.json names the package. */
   sourceVerified: boolean;

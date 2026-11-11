@@ -57,17 +57,20 @@ that failed).
   - Any other view is one list with its count, a **Contains** filter and an
     order: **Recommended**, **Most downloaded**, **Newest**, **Recently
     updated** or **Name**. It shows 24 cards at a time with **Show more**.
-  - A card shows the publisher's GitHub avatar, or the plugin's first letter,
-    then its name and marks, description, publisher, weekly downloads and how
-    long ago it was updated. OhMyGame's own show their letter beside the
-    seal, since its logo on every card weighed on the page.
+  - A card is one button. It shows the publisher's GitHub avatar, or the
+    plugin's first letter, then its name and marks (**Installed** among them)
+    and description. Its last line has weekly downloads and how long ago its
+    newest version came out at the left, where every card has them, and the
+    publisher, cut short if long, at the right. OhMyGame's own show their
+    letter beside the seal, since its logo on every card weighed on the page.
   - A card opens the plugin in a dialog over the list, from the index alone:
     its screenshots, long description, what it asks for and adds, and its
-    categories, project types, publisher, version, date, downloads and whether
-    its source is verified. The dialog has **Get**, or **Manage** for an
-    installed plugin, which opens its page. A link to a plugin that isn't
-    installed opens the same dialog over Discover. **Get** on a card or in the
-    dialog opens [Add plugin](#adding-a-plugin)'s review at the listed version.
+    categories, project types, publisher, version, size, when it was updated
+    and first published, downloads and whether its source is verified. The
+    dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
+    the listed version, or **Manage** for an installed plugin, which opens its
+    page. A link to a plugin that isn't installed opens the same dialog over
+    Discover.
 - **Mine** holds what the person can edit: **Create a plugin with AI**, the
   plugins they made (`personal/<name>`) or added from this computer, then the AI
   workspaces.
@@ -796,7 +799,8 @@ nothing is read.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
   `beta`, a localized `longDescription`, and `images.screenshots`: up to ten
-  `{ path, caption? }` copied out of the package by the index job. A package's
+  `{ path, caption? }` copied out of the package by the index job. A version
+  can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
   facts can carry `createdAt`, its first publish, and `avatar`, the repository
   owner's `avatar_url` from GitHub's API. The index keeps no icons: the
   owner's avatar stands for the plugin, so the job stores nothing per plugin

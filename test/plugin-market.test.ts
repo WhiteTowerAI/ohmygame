@@ -82,7 +82,7 @@ describe("PluginMarket listing", () => {
       versions: [
         version("@a/low", "1.0.0", "a/low"),
         version("@a/top", "1.1.0", "a/top"),
-        version("@a/top", "1.2.0", "a/top"),
+        version("@a/top", "1.2.0", "a/top", { unpackedSize: 2048 }),
         { ...version("@a/top", "1.3.0", "a/top", { rejected: ["no"] }), plugin: undefined },
         version("@a/picked", "1.0.0", "a/picked"),
         version("@ohmygame/studio", "1.0.0", "ohmygame/studio"),
@@ -104,7 +104,7 @@ describe("PluginMarket listing", () => {
     expect(plugins[1]).toMatchObject({
       package: "@a/top", displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
       adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500,
-      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z",
+      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z", size: 2048,
     });
     expect(plugins[0]!.sourceVerified).toBe(false);
     expect(plugins[2]).not.toHaveProperty("avatar");

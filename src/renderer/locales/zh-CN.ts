@@ -2671,6 +2671,8 @@ const zhCN: typeof en = {
   },
   pluginCatalog: {
     home: "概览",
+    size: "大小",
+    firstPublished: "首次发布",
     newPlugins: "新上架",
     showOnly: "只看",
     updatedAgo: "{{time}}更新",
@@ -2703,7 +2705,6 @@ const zhCN: typeof en = {
     results_other: "{{count}} 个插件",
     updates: "可更新",
     get: "获取",
-    getName: "获取 {{name}}",
     screenshots: "截图",
     screenshotNumber: "截图 {{number}}",
     information: "信息",

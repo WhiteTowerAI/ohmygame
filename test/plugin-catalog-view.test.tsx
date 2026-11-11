@@ -298,8 +298,12 @@ describe("plugin catalog browsing", () => {
       expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
       expect(cards(section("All plugins"))).toEqual(["Market picked", "Market popular", "Market owned", "Market official", "Market avatar"]);
       const card = (name: string) => [...section("All plugins").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
-      expect(card("Market owned").querySelector(".plugins-installed-label")?.textContent).toBe("Installed");
+      // A card is one button: it is added from its dialog.
+      expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
+      expect(card("Market owned").querySelector(".ui-badge")?.textContent).toBe("Installed");
       expect(card("Market popular").textContent).toContain("3.4K a week");
+      // The publisher is last, after the numbers.
+      expect(card("Market popular").querySelector(".plugin-card-foot")?.lastElementChild?.textContent).toBe("@acme");
       // Official is the one mark; a verified source is in the plugin's information instead.
       expect(card("Market official").querySelector('[aria-label="Official"]')).toBeTruthy();
       expect(card("Market popular").querySelector('[aria-label="Official"]')).toBeNull();
@@ -330,13 +334,9 @@ describe("plugin catalog browsing", () => {
       expect(section("All plugins").querySelector("h2")?.textContent).toBe("All plugins1");
     });
 
-    it("reviews a listed plugin from Get, on its card or in its dialog, which a link opens too", async () => {
-      market = { status: "ready", blocked: [], plugins: [listed("picked", { longDescription: "Picks things.", categories: ["art"], appliesTo: ["web-game"], asks: ["native"], adds: { skills: 2, panels: 1 }, publishedAt: "2026-11-01T00:00:00.000Z" })] };
-      await renderCatalog(undefined, "discover");
-      await click("Get Market picked");
-      expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toMatch(/^Add /);
-      await act(async () => root.unmount());
-      root = createRoot(container);
+    it("reviews a listed plugin from Get in its dialog, which a link opens too", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("picked", { longDescription: "Picks things.", categories: ["art"], appliesTo: ["web-game"], asks: ["native"], adds: { skills: 2, panels: 1 },
+        publishedAt: "2026-11-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z", size: 1_572_864 })] };
       await renderCatalog("acme/picked", "discover");
       await vi.waitFor(() => expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Market picked"));
       // Over the list it belongs to.
@@ -345,6 +345,10 @@ describe("plugin catalog browsing", () => {
       expect(side.textContent).toContain("@acme");
       expect(side.textContent).toContain("Art");
       expect(side.textContent).toContain("Web Game");
+      // Its version, size and dates are here rather than on its card.
+      expect(side.textContent).toContain("v1.0.0");
+      expect(side.textContent).toContain("Size1.5 MB");
+      expect(side.textContent).toContain("First published");
       expect(dialog()!.textContent).toContain("Picks things.");
       expect(dialog()!.textContent).toContain("Run its own code on this computer");
       expect(dialog()!.querySelector(".plugin-store-adds")?.textContent).toContain("Panel1");
