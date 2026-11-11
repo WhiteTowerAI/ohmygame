@@ -110,9 +110,9 @@ export async function installMultiplayerWorkspace(
   await writeFile(guidePath, `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
   return {
     manifest: config,
-    sdkPath: path.relative(root, sdkPath),
-    manifestPath: path.relative(root, manifestPath),
-    guidePath: path.relative(root, guidePath),
+    sdkPath: workspaceRelative(root, sdkPath),
+    manifestPath: workspaceRelative(root, manifestPath),
+    guidePath: workspaceRelative(root, guidePath),
   };
 }
 
@@ -151,10 +151,15 @@ export async function installGameSdk(project: Pick<ProjectState, "workspacePath"
   const guidePath = path.join(sdkPath, "README.md");
   await writeFile(guidePath, multiplayer ? `${MULTIPLAYER_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}` : `${SDK_WORKSPACE_GUIDE}\n${CLOUD_SAVES_GUIDE}`);
   return {
-    sdkPath: path.relative(root, sdkPath),
-    manifestPath: path.relative(root, manifestPath),
-    guidePath: path.relative(root, guidePath),
+    sdkPath: workspaceRelative(root, sdkPath),
+    manifestPath: workspaceRelative(root, manifestPath),
+    guidePath: workspaceRelative(root, guidePath),
   };
+}
+
+/** A path in the game's folder as the agent writes it in imports: with forward slashes on every system. */
+function workspaceRelative(root: string, target: string): string {
+  return path.relative(root, target).split(path.sep).join("/");
 }
 
 /** The files that carry a game's deployment: the source declaration and the manifest the page loads. */
