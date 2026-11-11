@@ -132,7 +132,6 @@ export declare class GuestIdentity implements IdentityProvider {
     constructor(options: GuestIdentityOptions);
     getToken(): Promise<string>;
     private issue;
-    private saved;
 }
 
 // account.d.ts
@@ -154,6 +153,18 @@ export interface GameAuth extends IdentityProvider {
     signIn(): Promise<OhMyGamePlayer>;
     /** A current game token for game services, renewed when it is about to expire; undefined for a guest. */
     getToken(): Promise<string | undefined>;
+    /**
+     * Signs the player out of this game in this browser, in every tab, and they play as a
+     * guest again. An embedding OhMyGame page no longer hands the game its player until the
+     * player signs in again. It does not sign them out of OhMyGame.
+     */
+    signOut(): Promise<void>;
+    /**
+     * Calls listener with the player whenever they change: signed in, signed out, signed in
+     * or out in another tab, renamed, or signed out because their session ended. Returns a
+     * function that stops it.
+     */
+    onAuthChange(listener: (player: OhMyGamePlayer | undefined) => void): () => void;
 }
 
 // account-protocol.d.ts

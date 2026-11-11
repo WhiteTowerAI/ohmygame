@@ -59,6 +59,8 @@ back and closes, so do not start the game before `init()` resolves.
 | `player`     | `{ id, name }` when signed in, else `undefined` (the player is a guest) |
 | `signIn()`   | Opens OhMyGame sign-in (popup, or a redirect where popups are blocked)  |
 | `getToken()` | The current game token, or `undefined` for a guest                      |
+| `signOut()`  | Signs out in every tab; the player is a new guest                       |
+| `onAuthChange(listener)` | Calls `listener(player \| undefined)` on each change; returns a stop function |
 
 ```ts
 if (game.auth.available && !game.auth.player) {
@@ -73,6 +75,11 @@ if (game.auth.available && !game.auth.player) {
 Call `signIn()` from a click handler so the popup is not blocked. It throws
 `unsupported` in a local build. Players who do not sign in play as guests; that
 is the default, and guests can use saves, leaderboards and rooms that allow them.
+When a guest signs in, their saves and scores in this game move into the
+account, so offer sign-in without warning about lost progress. Redraw the
+player's name and sign-in button from `onAuthChange`, which also hears a sign-in
+or sign-out in another tab. In rooms, leave `displayName` out for a signed-in
+player to show their account name.
 
 ## Saves: `game.storage`
 

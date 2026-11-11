@@ -5,6 +5,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { init, isOhMyGameError, SAVE_MAX_BYTES, SAVE_MAX_KEYS, SCORE_SUBMITS_PER_MINUTE, type CloudConfig } from "@ohmygame/sdk";
 import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
+import type { AccountEnvironment } from "../packages/sdk/src/account.js";
 import { createMultiplayerServer, MemoryGameDataStore } from "@ohmygame/server";
 
 /** A browser's localStorage, one per simulated browser. */
@@ -58,6 +59,23 @@ afterAll(async () => {
   await service.stop();
   await rm(directory, { recursive: true, force: true });
 });
+
+/** The browser features game.auth uses, for a page at a published game's address. */
+function page(storage: Storage): AccountEnvironment {
+  return {
+    fetch: () => Promise.reject(new Error("No account service in this test.")),
+    storage,
+    location: { href: "https://g-puzzle.play.example.test/", origin: "https://g-puzzle.play.example.test", assign() {} },
+    replaceUrl() {},
+    openPopup: () => null,
+    opener: null,
+    parent: null,
+    close() {},
+    listen: () => () => {},
+    crypto: globalThis.crypto,
+    now: () => Date.now(),
+  };
+}
 
 /** A game page in one browser: a guest, or signed in when token is given. */
 function open(storage: Storage, options: { token?: () => Promise<string>; serverUrl?: string } = {}) {
@@ -142,6 +160,40 @@ describe("cloud saves in the browser SDK", () => {
 
     await phone.storage.remove("settings");
     expect(await signedIn.storage.get("settings")).toBeUndefined();
+  });
+
+  it("gives everything a guest kept to the OhMyGame account they sign in to, and a new guest after signing out", async () => {
+    const laptop = browser();
+    const guest = await open(laptop);
+    await guest.storage.set("progress", { level: 7 });
+    await guest.storage.set("settings", { music: 0.5 });
+    await guest.leaderboard.submit("guest-points", 42);
+    const guestKey = `ohmygame:multiplayer:guest:${cloud.serverUrl}`;
+    expect(laptop.getItem(guestKey)).not.toBeNull();
+
+    // OhMyGame signs the player in: a session in this browser, as game.auth keeps it.
+    const signIn = async (storage: Storage) => {
+      storage.setItem(`ohmygame:account:${ISSUER}`, JSON.stringify({
+        accessToken: await sign("dee", "Dee"),
+        expiresAt: Date.now() + 600_000,
+        player: { id: "dee", name: "Dee" },
+      }));
+      return init({ manifest: { cloud, account: { issuer: ISSUER } }, allowLocalhost: true, storage, accountEnvironment: page(storage) });
+    };
+    const signedIn = await signIn(laptop);
+    expect(signedIn.auth.player).toEqual({ id: "dee", name: "Dee" });
+    // Every save comes along at once, not only those read after signing in, and so does the score, now public.
+    expect(await signedIn.storage.keys()).toEqual(["progress", "settings"]);
+    expect(laptop.getItem(guestKey)).toBeNull();
+    const phone = await signIn(browser());
+    expect(await phone.storage.get("settings")).toEqual({ music: 0.5 });
+    expect(await phone.leaderboard.top("guest-points")).toEqual([expect.objectContaining({ playerId: "dee", name: "Dee", score: 42 })]);
+
+    // Signed out, the laptop plays as a new guest with nothing kept.
+    await signedIn.auth.signOut();
+    expect(signedIn.auth.player).toBeUndefined();
+    expect(await signedIn.storage.keys()).toEqual([]);
+    expect(await signedIn.leaderboard.me("guest-points")).toBeUndefined();
   });
 
   it("reports the service's quota with its code", async () => {

@@ -206,6 +206,18 @@ export function mountGameData(app: Application, options: GameDataOptions, auth: 
     response.json(score);
   }));
 
+  // A guest who signs in brings what they kept in this game as a guest; the guest token proves it was theirs.
+  app.post("/v1/games/:gameId/merge-guest", json, route(async (request, response) => {
+    const { gameId, identity } = await player(request);
+    if (identity.kind !== "account") throw new RouteError(403, "not_authorized", "Sign in to bring a guest's saves and scores to an account.");
+    const body = request.body as unknown;
+    if (!isRecord(body) || typeof body.guestToken !== "string" || Object.keys(body).length !== 1)
+      throw new RouteError(400, "invalid_request", "Send { guestToken }.");
+    const guestId = auth.renewableGuest(body.guestToken);
+    if (!guestId) throw new RouteError(401, "not_authorized", "The guest token is invalid or too old to bring its data.");
+    response.json(await store.mergeGuest(gameId, guestId, { playerId: identity.userId, name: identity.name ?? "Player" }, { maxKeys: SAVE_MAX_KEYS, now: Date.now() }));
+  }));
+
   if (options.adminToken) {
     const secret = Buffer.from(options.adminToken);
     app.delete("/v1/admin/accounts/:accountId", route(async (request, response) => {

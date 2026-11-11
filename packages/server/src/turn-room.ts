@@ -381,7 +381,8 @@ export class GameRoom extends Room {
       const playerId = known?.playerId ?? randomUUID();
       player = {
         playerId,
-        displayName: normalizeDisplayName(options.displayName),
+        // A signed-in player who names no one shows as their account.
+        displayName: normalizeDisplayName(options.displayName ?? identity.name),
         connected: true,
         x: 5 + (state.players.length * 80) / this.maxClients,
         y: 5,

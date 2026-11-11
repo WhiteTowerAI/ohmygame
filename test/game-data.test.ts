@@ -94,6 +94,42 @@ describe.each(stores)("%s game data store", (_name, open) => {
     await expect(store.addScore("g6", "time", { playerId: "account:a", name: "A", delta: 1, public: true, now: 2 })).rejects.toBeInstanceOf(ConflictError);
   });
 
+  it("gives a guest's saves and scores in one game to the account they sign in to", async () => {
+    const put = (playerId: string, key: string, value: unknown, now = 1) => store.putSave("g7", playerId, key, JSON.stringify(value), { maxKeys: 3, now });
+    await put("guest:g", "progress", "guest's", 10);
+    await put("guest:g", "settings", { sound: false }, 11);
+    await put("guest:g", "zzz", 1);
+    await put("account:a", "progress", "account's");
+    await put("account:a", "extra", 2);
+    await store.putSave("g8", "guest:g", "other-game", "1", { maxKeys: 3, now: 1 });
+    const score = (playerId: string, board: string, value: number, order: "desc" | "asc", now: number) =>
+      store.submitScore("g7", board, { playerId, name: "P", value, public: playerId.startsWith("account:"), order, now });
+    await score("account:a", "points", 50, "desc", 1);
+    await score("guest:g", "points", 70, "desc", 2);
+    await score("account:a", "time", 30, "asc", 3);
+    await score("guest:g", "time", 40, "asc", 4);
+    await score("guest:g", "only-guest", 5, "desc", 5);
+    await store.addScore("g7", "match.wins", { playerId: "account:a", name: "P", delta: 2, public: true, now: 6 });
+    await store.addScore("g7", "match.wins", { playerId: "guest:g", name: "P", delta: 3, public: false, now: 7 });
+    await store.touch("g7", "guest:g", 8);
+
+    expect(await store.mergeGuest("g7", "guest:g", { playerId: "account:a", name: "Ada" }, { maxKeys: 3, now: 100 })).toEqual({ saves: 1, scores: 4 });
+    // The account's own save wins, and the quota leaves the last guest save behind.
+    expect(await store.getSave("g7", "account:a", "progress")).toMatchObject({ value: "account's" });
+    expect(await store.getSave("g7", "account:a", "settings")).toEqual({ key: "settings", value: { sound: false }, version: 1, updatedAt: 11 });
+    expect(await store.getSave("g7", "account:a", "zzz")).toBeUndefined();
+    // The better score on each board, the sum of match results, all public under the account's name.
+    expect(await store.playerScore("g7", "points", "account:a")).toMatchObject({ score: 70, at: 2, public: true });
+    expect(await store.playerScore("g7", "time", "account:a")).toMatchObject({ score: 30, at: 3 });
+    expect(await store.playerScore("g7", "match.wins", "account:a")).toMatchObject({ score: 5 });
+    expect(await store.topScores("g7", "only-guest", 10, 0)).toEqual([{ rank: 1, playerId: "a", name: "Ada", score: 5, at: 5 }]);
+    // The guest keeps nothing in that game, and everything in others.
+    expect(await store.listSaves("g7", "guest:g")).toEqual([]);
+    expect(await store.playerScore("g7", "points", "guest:g")).toBeUndefined();
+    expect(await store.getSave("g8", "guest:g", "other-game")).toBeDefined();
+    expect(await store.mergeGuest("g7", "guest:g", { playerId: "account:a", name: "Ada" }, { maxKeys: 3, now: 101 })).toEqual({ saves: 0, scores: 0 });
+  });
+
   it("deletes a player everywhere and prunes players who stopped coming", async () => {
     for (const gameId of ["g3", "g4"]) {
       await store.putSave(gameId, "account:gone", "s", "1", { maxKeys: 5, now: 1 });
@@ -224,6 +260,20 @@ describe("game data service", () => {
     for (let index = 0; index < SCORE_SUBMITS_PER_MINUTE; index++)
       expect((await call("POST", "/v1/games/board/leaderboards/points/scores", eager, { score: index })).status).toBe(200);
     expect(await call("POST", "/v1/games/board/leaderboards/points/scores", eager, { score: 99 })).toMatchObject({ status: 429, body: { code: "rate_limited" } });
+  });
+
+  it("gives a guest's data to the account they sign in to, only with the guest's token", async () => {
+    const visitor = await guest();
+    await call("PUT", "/v1/games/board/saves/progress", visitor, { value: "level 3" });
+    await call("POST", "/v1/games/board/leaderboards/merged/scores", visitor, { score: 42 });
+    const cy = await sign("cy", "Cy");
+    expect(await call("POST", "/v1/games/board/merge-guest", visitor, { guestToken: visitor })).toMatchObject({ status: 403, body: { code: "not_authorized" } });
+    expect(await call("POST", "/v1/games/board/merge-guest", cy, { guestToken: "guest.forged.token" })).toMatchObject({ status: 401, body: { code: "not_authorized" } });
+    expect((await call("POST", "/v1/games/board/merge-guest", cy, { guestToken: visitor, extra: 1 })).status).toBe(400);
+    expect(await call("POST", "/v1/games/board/merge-guest", cy, { guestToken: visitor })).toEqual({ status: 200, body: { saves: 1, scores: 1 } });
+    expect((await call("GET", "/v1/games/board/saves/progress", cy)).body).toMatchObject({ value: "level 3" });
+    expect((await call("GET", "/v1/games/board/saves/progress", visitor)).status).toBe(404);
+    expect((await call("GET", "/v1/games/board/leaderboards/merged", cy)).body).toEqual([{ rank: 1, playerId: "cy", name: "Cy", score: 42, at: expect.any(Number) }]);
   });
 
   it("keeps a returning guest's identity, and deletes an account's data for the operator", async () => {
