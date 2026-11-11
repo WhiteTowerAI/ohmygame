@@ -831,8 +831,8 @@ nothing is read.
   wherever the market can be read, so can its pictures, with no setting of
   their own. A path is letters, digits, `.`, `_` and `-` in parts below the
   index's folder, never `..` or another host (`indexImage`).
-  `GET /plugin-market/images?path=` serves only an icon or a screenshot the
-  current index lists, without following redirects: an icon up to 1 MB, of
+  `GET /plugin-market/images?path=&role=icon|screenshot` serves only an image
+  the current index lists in that role, without following redirects: an icon up to 1 MB, of
   the type its name says and checked like an
   installed plugin's (PNG, WebP or static SVG); a screenshot up to 1 MB as a
   PNG, JPEG or WebP. `GET /plugin-market/avatars/<id>` serves only an avatar

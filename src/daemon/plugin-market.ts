@@ -244,12 +244,13 @@ export class PluginMarket {
    * says; a screenshot must be a PNG, JPEG or WebP. They're named by their
    * contents, so one read is kept.
    */
-  async image(file: string): Promise<MarketImage | undefined> {
+  async image(file: string, role: "icon" | "screenshot"): Promise<MarketImage | undefined> {
     const index = this.#url ? await this.#current() : undefined;
     const url = index && indexImage(this.#url!, file);
     if (!url) return undefined;
-    const icon = index.versions.some(({ plugin }) => plugin?.icon === file);
-    if (!icon && !index.versions.some(({ plugin }) => plugin?.screenshots?.some((shot) => shot.path === file))) return undefined;
+    // Named by its contents, one file may be one plugin's icon and another's screenshot; each is checked as asked for.
+    const icon = role === "icon";
+    if (!index.versions.some(({ plugin }) => icon ? plugin?.icon === file : plugin?.screenshots?.some((shot) => shot.path === file))) return undefined;
     const expected = icon ? PLUGIN_ICON_MEDIA_TYPES[file.slice(file.lastIndexOf(".") + 1).toLowerCase() as keyof typeof PLUGIN_ICON_MEDIA_TYPES] : undefined;
     if (icon && !expected) return undefined;
     // Not followed elsewhere: the image has to come from the index's host.

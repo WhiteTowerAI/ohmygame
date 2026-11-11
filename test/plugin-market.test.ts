@@ -246,20 +246,22 @@ describe("PluginMarket listing", () => {
     state.files[at("assets/script.svg")] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0Z"/></svg>');
     state.files[at("assets/other.png")] = png;
     state.files[at("assets/bad.svg")] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
-    expect(await subject.image("assets/icon.svg")).toMatchObject({ mediaType: "image/svg+xml", bytes: svg });
-    expect(await subject.image("assets/one.png")).toMatchObject({ mediaType: "image/png", bytes: png });
+    expect(await subject.image("assets/icon.svg", "icon")).toMatchObject({ mediaType: "image/svg+xml", bytes: svg });
+    expect(await subject.image("assets/one.png", "screenshot")).toMatchObject({ mediaType: "image/png", bytes: png });
     // Kept once read: they're named by their contents.
-    await subject.image("assets/one.png");
+    await subject.image("assets/one.png", "screenshot");
     expect(reads.filter((url) => url.endsWith("one.png"))).toHaveLength(1);
     // A screenshot is a PNG, JPEG or WebP; an icon is checked as an installed one's is.
-    await expect(subject.image("assets/page.png")).rejects.toThrow();
-    await expect(subject.image("assets/script.svg")).rejects.toThrow();
-    await expect(subject.image("assets/bad.svg")).rejects.toThrow();
+    await expect(subject.image("assets/page.png", "screenshot")).rejects.toThrow();
+    await expect(subject.image("assets/script.svg", "screenshot")).rejects.toThrow();
+    await expect(subject.image("assets/bad.svg", "icon")).rejects.toThrow();
     // An icon is the type its name says.
     state.files[at("assets/icon.png")] = svg;
-    await expect(subject.image("assets/icon.png")).rejects.toThrow();
+    await expect(subject.image("assets/icon.png", "icon")).rejects.toThrow();
+    // Each as the role it's asked for: one screenshot isn't read as an icon.
+    expect(await subject.image("assets/one.png", "icon")).toBeUndefined();
     // Nothing the index doesn't list.
-    expect(await subject.image("assets/other.png")).toBeUndefined();
+    expect(await subject.image("assets/other.png", "screenshot")).toBeUndefined();
     expect(reads.some((url) => url.endsWith("other.png"))).toBe(false);
     // A redirect could lead anywhere, so it isn't followed.
     expect(new Set(state.redirects)).toEqual(new Set(["error"]));

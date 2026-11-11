@@ -1794,8 +1794,8 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   return response.blob();
 }
 /** The icon or a screenshot the market lists for a plugin version, by its path in the package. */
-export async function readPluginMarketImage(path: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path })}`), { headers: runtimeHeaders(), signal });
+export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role })}`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }

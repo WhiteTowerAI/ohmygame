@@ -1,4 +1,4 @@
-import { createPluginSetup, listConversations, listPluginSetups, waitForRuntime } from "./api.js";
+import { createPluginSetup, listArchivedConversations, listConversations, listPluginSetups, waitForRuntime } from "./api.js";
 import { pluginBuilderHash } from "./routes.js";
 import { NEW_PLUGIN_TITLE, type PluginSetupMode } from "../shared/plugin-setup.js";
 
@@ -9,10 +9,11 @@ export function openPluginBuilder(pluginId?: string, mode: PluginSetupMode = plu
     const sessions = fresh ? [] : await listPluginSetups();
     // A plugin has one workspace, like a project, whichever way it began: its newest, as the list is newest first.
     // A new plugin picks up a workspace nothing was said in, rather than leaving another empty one behind;
-    // one whose naming failed still says "New plugin", so its conversations are checked too.
+    // one whose naming failed still says "New plugin", so its conversations, archived ones too, are checked.
     const existing = pluginId ? sessions.find(session => session.pluginId === pluginId)
       : await findAsync(sessions, async session => !session.pluginId && session.title === NEW_PLUGIN_TITLE && session.status === "idle"
-        && (await listConversations(session.projectId)).every(conversation => conversation.messageCount === 0));
+        && (await Promise.all([listConversations(session.projectId), listArchivedConversations(session.projectId)]))
+          .flat().every(conversation => conversation.messageCount === 0));
     const session = existing ?? await createPluginSetup(pluginId, mode);
     window.location.hash = pluginBuilderHash(session.id);
   })().finally(() => { opening = undefined; });

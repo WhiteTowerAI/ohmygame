@@ -84,6 +84,7 @@ beforeEach(() => {
     }
     if (route === "/health") return Response.json({ status: "ok" });
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
+    if (/^\/projects\/[^/]+\/conversations\/archived$/.test(route)) return Response.json([]);
     const listed = /^\/projects\/([^/]+)\/conversations$/.exec(route);
     if (listed) return Response.json(spoken[listed[1]!] === undefined ? [] : [{ id: "c", projectId: listed[1], title: "Chat", createdAt: "", updatedAt: "", messageCount: spoken[listed[1]!] }]);
     if (route === "/plugins/setup-sessions" && method === "POST") return Response.json({ ...state, id: "created" });

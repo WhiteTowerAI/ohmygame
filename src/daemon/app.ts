@@ -1592,10 +1592,12 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
-  app.get<{ Querystring: { path: string } }>("/plugin-market/images", {
-    schema: { querystring: { type: "object", required: ["path"], additionalProperties: false, properties: { path: { type: "string", maxLength: 500 } } } },
+  app.get<{ Querystring: { path: string; role: "icon" | "screenshot" } }>("/plugin-market/images", {
+    schema: { querystring: { type: "object", required: ["path", "role"], additionalProperties: false, properties: {
+      path: { type: "string", maxLength: 500 }, role: { enum: ["icon", "screenshot"] },
+    } } },
   }, async (request, reply) => {
-    const image = await pluginMarket.image(request.query.path).catch(() => undefined);
+    const image = await pluginMarket.image(request.query.path, request.query.role).catch(() => undefined);
     if (!image) return reply.code(404).send({ error: "Image not found" });
     return reply
       .header("Cache-Control", "private, max-age=86400, immutable")

@@ -122,16 +122,16 @@ function publisherName(plugin: MarketPlugin): string {
  * through the daemon from beside the index, as addresses an `img` can show:
  * undefined while reading, null for one that can't be read.
  */
-function useMarketImages(paths: readonly (string | undefined)[]): (string | null | undefined)[] {
+function useMarketImages(role: "icon" | "screenshot", paths: readonly (string | undefined)[]): (string | null | undefined)[] {
   const generation = useReadyRuntimeGeneration();
   const [urls, setUrls] = useState<(string | null | undefined)[]>([]);
-  const key = paths.join("\n");
+  const key = [role, ...paths].join("\n");
   useEffect(() => {
     setUrls([]);
     const controller = new AbortController();
     const made: string[] = [];
     void Promise.all(paths.map((path) => path
-      ? readPluginMarketImage(path, controller.signal).then((blob) => {
+      ? readPluginMarketImage(path, role, controller.signal).then((blob) => {
         const url = URL.createObjectURL(blob);
         made.push(url);
         return url;
@@ -180,7 +180,7 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
 
 /** A market plugin's own icon, as an installed one's tile shows it, or its first letter. */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
-  const [icon] = useMarketImages([plugin.icon]);
+  const [icon] = useMarketImages("icon", [plugin.icon]);
   const size = large ? 40 : 24;
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
     {icon ? <img className="plugin-icon-image" src={icon} width={size} height={size} alt="" aria-hidden="true" />
@@ -357,7 +357,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   };
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
-  const shots = useMarketImages((plugin.screenshots ?? []).map((shot) => shot.path));
+  const shots = useMarketImages("screenshot", (plugin.screenshots ?? []).map((shot) => shot.path));
   const stats = [
     plugin.weeklyDownloads !== undefined ? { label: t("pluginCatalog.weekly"), value: compact.format(plugin.weeklyDownloads) } : undefined,
     plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,

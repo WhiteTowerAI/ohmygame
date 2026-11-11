@@ -83,7 +83,7 @@ describe("plugin catalog API", () => {
     await app.ready();
     expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }], avatar: "42" }] });
     // Its screenshots come through the app from beside the index, and only those the index lists.
-    const file = (path: string) => app.inject({ method: "GET", url: `/plugin-market/images?${new URLSearchParams({ path })}` });
+    const file = (path: string, role = "screenshot") => app.inject({ method: "GET", url: `/plugin-market/images?${new URLSearchParams({ path, role })}` });
     const shot = await file("assets/a1.png");
     expect(shot.statusCode).toBe(200);
     expect(shot.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
@@ -91,6 +91,7 @@ describe("plugin catalog API", () => {
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input))).toContain("https://plugins.example.com/assets/a1.png");
     expect((await file("assets/b2.png")).statusCode).toBe(404);
     expect((await file("../secret.png")).statusCode).toBe(404);
+    expect((await file("assets/a1.png", "icon")).statusCode).toBe(404);
     // So does its publisher's avatar, only by the id the index gives.
     const avatar = await app.inject({ method: "GET", url: "/plugin-market/avatars/42" });
     expect(avatar.statusCode).toBe(200);
