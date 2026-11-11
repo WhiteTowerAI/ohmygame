@@ -4,7 +4,7 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { RESERVED_PUBLISHERS } from "../shared/plugin-manifest.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
@@ -116,7 +116,8 @@ export class PluginMarket {
     const newest = new Map<string, IndexedVersion>();
     for (const version of index.versions) {
       const id = version.plugin?.id;
-      if (!id || RESERVED_PUBLISHERS.has(id.split("/")[0]!)) continue;
+      // The index reads npmjs, where only OhMyGame publishes to `@ohmygame`.
+      if (!id || id.startsWith(`${PERSONAL_PUBLISHER}/`)) continue;
       // Installing looks for exactly this name and version, and what it can't find
       // isn't held to a signature. Anything else mustn't reach a card.
       if (!NPM_PLUGIN_PACKAGE.test(version.package) || !isPluginVersion(version.version)) continue;

@@ -52,7 +52,12 @@ and waits until what the plugin asks for is allowed.
 
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
-  `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
+  `schemas/plugin-2.json`, and `ohmygame.json`'s is `schemas/project-1.json`
+  (`bun run plugin:schema` rebuilds both; a test fails when one is out of
+  date). Each file's `$schema` names it on the website,
+  `https://www.ohmygame.ai/schema/…`, which serves `schemas/` from this
+  repository's `main` branch (a rewrite in the `ohmygame-web` repository), so
+  a release publishes it. Ids are
   `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
@@ -590,7 +595,7 @@ like `@ohmygame/plugin-ui`:
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
   version adding from npm refuses (the scope must be the publisher, and
-  `ohmygame` and `personal` are kept), then the page checks against the page
+  `personal` is kept), then the page checks against the page
   components' contracts, which ship in the package. It also ships the manifest's
   JSON Schema as `plugin.schema.json`. In this repository, `bun run
   plugin:check <folder>` does the same as `check`.
@@ -665,8 +670,10 @@ the plugin's page.
   At startup each folder is added again for edits made meanwhile. A theme in
   use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
-  (`PluginServices.installAdded`), so a package can't stand in for what the app or
-  the Plugin Builder provides.
+  (`assertAddablePlugin`), so a package can't stand in for what the app or
+  the Plugin Builder provides. OhMyGame's own plugins can: from its `@ohmygame`
+  npm scope on npmjs or npmmirror, and from a folder in development; never
+  from GitHub, a file, a plain folder or another registry.
 - Archives come out through `extractTarball`, which takes only files and folders
   within the destination. The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
@@ -736,8 +743,8 @@ nothing is read.
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
   release, and an open page picks up new answers every two minutes. A market card
-  shows the default icon, since the package hasn't been downloaded. The publishers
-  `ohmygame` and `personal` aren't listed, nor is anything whose name isn't
+  shows the default icon, since the package hasn't been downloaded. The publisher
+  `personal` isn't listed, nor is anything whose name isn't
   `@publisher/name` or whose version isn't exact.
 
 ## More manifest fields

@@ -10,7 +10,7 @@ import path from "node:path";
 import { indexPluginPackage } from "./plugin-index.js";
 import { PluginPackError, stagePublished } from "./plugin-pack.js";
 import { npmPackagePluginIds } from "../shared/plugins.js";
-import { RESERVED_PUBLISHERS } from "../shared/plugin-manifest.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PAGE_TOKENS } from "../shared/plugin-ui-protocol.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS, PLUGIN_UI_RETIRING } from "../shared/plugin-ui-versions.js";
 
@@ -249,7 +249,8 @@ async function npmFindings(root: string, id: string, version: string): Promise<P
   if (pkg?.private === true) return [];
   const findings: PluginCheckFinding[] = [];
   const publisher = id.split("/")[0]!;
-  if (RESERVED_PUBLISHERS.has(publisher)) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your npm scope` });
+  // OhMyGame's own publisher is fine on npm, which only lets its organization publish to `@ohmygame`.
+  if (publisher === PERSONAL_PUBLISHER) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your npm scope` });
   const allowed = typeof pkg.name === "string" ? npmPackagePluginIds(pkg.name) : undefined;
   if (!allowed) findings.push({ level: "error", file: "package.json", message: `The package's name must be scoped by the plugin's publisher: @${id}` });
   else if (!allowed.includes(id)) findings.push({ level: "error", file: "package.json", message: `${String(pkg.name)} can only hold the plugin ${allowed.at(-1)}, not ${id}; name it @${id}` });

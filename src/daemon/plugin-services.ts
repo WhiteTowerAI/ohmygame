@@ -10,8 +10,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition, PluginLogView, PluginUninstallPreview, ProjectPluginCanvas, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import { PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -167,11 +167,18 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
   };
 }
 
-/** Publishers whose names only the app and the Plugin Builder can give out. */
-
-export function assertAddablePlugin(id: string): void {
+/**
+ * Publishers whose names only the app and the Plugin Builder can give out.
+ * OhMyGame's own also comes from npm, where its `@ohmygame` scope vouches for
+ * it (npmjs, or npmmirror, which copies it), and from a folder the person
+ * develops. Never from GitHub, a file or another registry: any package there
+ * can claim it.
+ */
+export function assertAddablePlugin(id: string, origin?: PluginOrigin): void {
   const publisher = id.slice(0, id.indexOf("/"));
-  if (RESERVED_PUBLISHERS.has(publisher)) throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}": ${id}`);
+  if (publisher === OHMYGAME_PUBLISHER && (origin?.type === "development" || (origin?.type === "npm" && (PLUGIN_NPM_REGISTRIES as readonly string[]).includes(origin.registry)))) return;
+  if (RESERVED_PUBLISHERS.has(publisher))
+    throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}"${publisher === OHMYGAME_PUBLISHER ? " unless they come from its npm scope" : ""}: ${id}`);
 }
 
 export class PluginServices {
@@ -745,8 +752,9 @@ export class PluginServices {
       );
     }
     // A plugin the app no longer brings goes too, not only an older version of
-    // one it does, wherever an earlier install of the app kept it. Only the app
-    // publishes as ohmygame/, and those it installs live in the store.
+    // one it does, wherever an earlier install of the app kept it. Outside the
+    // store only the app publishes as ohmygame/: one added from OhMyGame's npm
+    // scope is installed in the store.
     const current = new Set(results.flatMap((result) => result.ok ? [`${result.entry.id}@${result.entry.version}`] : []));
     const store = path.resolve(this.packagesDirectory) + path.sep;
     for (const entry of this.index.entries())
@@ -820,12 +828,13 @@ export class PluginServices {
   /**
    * Installs a package the person added from npm, GitHub or a file. It allows
    * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses. `before`
-   * runs first, with no other package changing, to call the install off.
+   * sheet. It can't take a name the app or the Plugin Builder uses, unless
+   * `origin` vouches for it (`assertAddablePlugin`). `before` runs first, with
+   * no other package changing, to call the install off.
    */
-  async installAdded(source: string, before?: () => Promise<void>): Promise<PluginIndexEntry> {
+  async installAdded(source: string, before?: () => Promise<void>, origin?: PluginOrigin): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
-    if (checked.ok) assertAddablePlugin(checked.entry.id);
+    if (checked.ok) assertAddablePlugin(checked.entry.id, origin);
     return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
   }
 

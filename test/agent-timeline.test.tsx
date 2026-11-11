@@ -959,6 +959,26 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Preparing mcp");
   });
 
+  it("says which calls wait behind the one that is running", () => {
+    const call = (id: string, name: string, status: "preparing" | "inProgress", args?: unknown): ThreadItem =>
+      ({ ...tool(), id, toolCallId: id, tool: name, status, arguments: args });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      call("running", "animate_3d_asset", "inProgress", {}),
+      call("waiting", "generate_audio", "preparing", {}),
+      // Still being written by the model, so not yet waiting on anything.
+      call("writing", "generate_video", "preparing"),
+    ]} activeTurnId="turn-1" />);
+    expect(html).toContain("Queued: generate_audio");
+    expect(html).toContain("Preparing generate_video");
+    // The group is named for the call that is running.
+    expect(html).toMatch(/tool-group-summary[^]*?title="animate_3d_asset"/);
+
+    // With nothing running, a call about to start is not waiting in a queue.
+    expect(renderToStaticMarkup(<AgentTimeline items={[user(), call("next", "generate_audio", "preparing", {})]} activeTurnId="turn-1" />))
+      .not.toContain("Queued");
+  });
+
   it("shows the Godot brand for MCP discovery operations", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),

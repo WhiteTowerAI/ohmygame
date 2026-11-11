@@ -1,4 +1,4 @@
-import { PLUGIN_HOST_API_VERSION, PLUGIN_MANIFEST_SCHEMA_URL, RESERVED_PUBLISHERS } from "./plugin-manifest.js";
+import { PERSONAL_PUBLISHER, PLUGIN_HOST_API_VERSION, PLUGIN_MANIFEST_SCHEMA_URL } from "./plugin-manifest.js";
 
 // The files of a new plugin package, for `npm create ohmygame-plugin` and the
 // package the Plugin Builder exports: the manifest, package.json named so npm
@@ -23,7 +23,7 @@ const ID_PART = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Why the publisher or name can't be used, or undefined. */
 export function pluginTemplateIssue(options: Pick<PluginTemplateOptions, "publisher" | "name">): string | undefined {
   if (!ID_PART.test(options.publisher)) return `${options.publisher} isn't a publisher: use lowercase letters, digits and hyphens, as in your npm scope`;
-  if (RESERVED_PUBLISHERS.has(options.publisher)) return `The publisher ${options.publisher} is kept for OhMyGame; use your npm scope`;
+  if (options.publisher === PERSONAL_PUBLISHER) return `The publisher ${options.publisher} is kept for OhMyGame; use your npm scope`;
   if (!ID_PART.test(options.name)) return `${options.name} isn't a plugin name: use lowercase letters, digits and hyphens`;
   return undefined;
 }

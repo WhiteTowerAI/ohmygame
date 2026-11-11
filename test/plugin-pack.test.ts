@@ -129,10 +129,12 @@ describe("plugin template", () => {
     expect(packed).toContain("template/gitignore");
   });
 
-  it("refuses a publisher the app keeps, and names that can't be ids", () => {
+  it("refuses the Plugin Builder's publisher, and names that can't be ids", async () => {
     const make = (publisher: string, name = "maker") => () => pluginTemplate({ publisher, name, displayName: "Maker", description: "Makes", parts: [] });
     expect(make("personal")).toThrow("kept for OhMyGame");
-    expect(make("ohmygame")).toThrow("kept for OhMyGame");
+    // OhMyGame makes its own plugins for its npm scope, and the check takes them.
+    expect(make("ohmygame")).not.toThrow();
+    expect(await checkFolder(await folder(make("ohmygame")()))).toEqual([]);
     expect(make("Acme")).toThrow("isn't a publisher");
     expect(make("acme", "my_plugin")).toThrow("isn't a plugin name");
   });

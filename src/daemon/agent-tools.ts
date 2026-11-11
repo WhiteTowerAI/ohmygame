@@ -33,6 +33,11 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "animate-3d": "animate_3d_asset",
   "generate-audio": "generate_audio",
 };
+/**
+ * The tools that make media through a provider. A call waits minutes on the
+ * provider and then saves its own new files, so several may run at once.
+ */
+export const GENERATION_TOOL_NAMES: ReadonlySet<string> = new Set([...Object.values(PI_TOOL_NAMES), "generate_canvas_media"]);
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {

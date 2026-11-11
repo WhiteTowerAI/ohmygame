@@ -314,19 +314,6 @@ Three tools supplement ordinary file editing:
   run; `regenerate: true` asks for a new variation. The canvas Generate button
   always starts a new run.
 
-## Migrating Existing Projects
-
-Stop OhMyGame, then run the migration against its data directory:
-
-```sh
-bun scripts/migrate-canvas-workspaces.ts .data
-```
-
-The script backs up old Design directories and Asset Canvas files under
-`<data-directory>/canvas-backups/`, separates layout files and materializes
-Library references. IDs, Markdown, media and layout are preserved. It leaves
-current projects alone. The application only reads the current format.
-
 Both editors share nodes, documents, metadata, generation, history, clipboard,
 file uploads and external file synchronization. Asset Canvas starts with one
 board and supports additional boards for separate asset workflows. The main
