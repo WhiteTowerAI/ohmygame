@@ -40,6 +40,9 @@ import {
   type IconComponent,
   Plug,
   RefreshCw,
+  CircleCheck,
+  CircleX,
+  Minus,
 } from "./icons.js";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -103,7 +106,8 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
-import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { pixelArtLevelSettings, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import type { PixelArtCheckBatch, PixelArtCheckReport } from "../shared/pixel-art-check.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
@@ -353,6 +357,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [cropNodeId, setCropNodeId] = useState<string>();
   const [mediaToolDialog, setMediaToolDialog] = useState<{ operation: DialogMediaOperation; assetIds: string[] }>();
   const [mediaToolBusy, setMediaToolBusy] = useState(false);
+  // The latest Check pixel art result, shown in its own dialog.
+  const [pixelCheck, setPixelCheck] = useState<{ checks: PixelArtCheckBatch; names: string[] }>();
   const [mediaToolError, setMediaToolError] = useState<string>();
   const [sentAsset, setSentAsset] = useState<{ assetId: string; name: string }>();
   const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
@@ -1660,11 +1666,24 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       void executeMediaTool(operation, ids.slice(0, 1), {});
       return;
     }
+    if (operation === "check-pixel-art") {
+      // A density's colour budget is the only setting a selected image carries.
+      const level = nodePixelLevel(targets[0]!);
+      void executeMediaTool(operation, ids, level ? { colors: pixelArtLevelSettings(level).colors } : {});
+      return;
+    }
     if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames") {
       void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
       return;
     }
     setMediaToolDialog({ operation, assetIds: isMultiImageOperation(operation) ? ids : ids.slice(0, 1) });
+  }
+
+  /** The pixel density of a node or of the density group that holds it. */
+  function nodePixelLevel(node: AssetCanvasFlowNode): PixelArtLevel | undefined {
+    if (node.data.pixelStyle) return node.data.pixelStyle;
+    const parent = node.parentId ? nodesRef.current.find((candidate) => candidate.id === node.parentId) : undefined;
+    return parent?.data.pixelStyle;
   }
 
   function startAiImageCutout(source: AssetCanvasFlowNode): void {
@@ -1713,7 +1732,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         ? toolOptions.selectedFrames.length
         : Number(toolOptions.columns ?? 2) * Number(toolOptions.rows ?? 2)
       : operation === "video-frame-strip" && Array.isArray(toolOptions.selectedFrames)
-        ? toolOptions.selectedFrames.length : 1;
+        ? toolOptions.selectedFrames.length
+        : operation === "check-pixel-art" ? 0 : 1;
     if (nodesRef.current.length + expectedNodes > MAX_ASSET_CANVAS_NODES) {
       const message = t("assetCanvas.canvasFull");
       setMediaToolError(message);
@@ -1734,6 +1754,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         setNotice({ kind: "done", message: t("assetCanvas.mediaTools.downloaded", { name: result.name }) });
       } else if (result.kind === "text") {
         addTranscript(result.text, assetIds[0]!);
+      } else if (result.kind === "pixel-check") {
+        setPixelCheck({ checks: result.checks, names: assetIds.map((id) => libraryAssets.find((asset) => asset.id === id)?.name ?? id) });
       } else {
         const assets = await loadLibraryAssets();
         setLibraryAssets(assets);
@@ -1764,7 +1786,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const message = errorMessage(error);
       const detail = message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message;
       setMediaToolError(detail);
-      if (operation === "fix-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames" || operation === "transcribe-audio") setNotice({ kind: "action", message: detail });
+      if (operation === "fix-pixel-art" || operation === "check-pixel-art" || operation === "split-image-grid" || operation === "extract-gif-frames" || operation === "transcribe-audio") setNotice({ kind: "action", message: detail });
     } finally {
       setMediaToolBusy(false);
     }
@@ -2558,6 +2580,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         } } : {})}
       /> : null}
       {sentAsset ? <SendToProjectDialog assetId={sentAsset.assetId} name={sentAsset.name} onClose={() => setSentAsset(undefined)} /> : null}
+      {pixelCheck ? <PixelArtCheckDialog {...pixelCheck} onClose={() => setPixelCheck(undefined)} /> : null}
       {mediaToolDialog ? <MediaToolDialog
         operation={mediaToolDialog.operation}
         key={mediaToolDialog.operation}
@@ -2595,7 +2618,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
 type MediaGridSize = { columns: number; rows: number };
 
-type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames">;
+type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames" | "check-pixel-art">;
 
 function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen, onGroup, onUngroup }: {
   mediaType: "image" | "video" | "audio";
@@ -2641,7 +2664,7 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
       {extra}
     </div> : null}
   </div>;
-  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : id === "fix-pixel-art" ? t("assetCanvas.mediaTools.fixPixelArtHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
+  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : id === "fix-pixel-art" ? t("assetCanvas.mediaTools.fixPixelArtHint") : id === "check-pixel-art" ? t("assetCanvas.mediaTools.checkPixelArtHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
     {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
@@ -2908,6 +2931,49 @@ function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }
       </div>
       <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
     </form>
+  </div>;
+}
+
+/** The result of a pixel-art check: one table per image, plus whether several images line up. */
+function PixelArtCheckDialog({ checks, names, onClose }: { checks: PixelArtCheckBatch; names: string[]; onClose: () => void }) {
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  const failed = checks.reports.filter((report) => !report.passed).length;
+  const title = t("assetCanvas.mediaTools.pixelCheck.title");
+  const status = (value: "pass" | "fail" | "info") => value === "pass"
+    ? <CircleCheck size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.pass")} />
+    : value === "fail" ? <CircleX size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.fail")} />
+      : <Minus size={15} aria-label={t("assetCanvas.mediaTools.pixelCheck.info")} />;
+  const report = (item: PixelArtCheckReport, index: number) => <section key={index} className={`asset-pixel-check-report${item.passed ? "" : " is-failed"}`}>
+    <h3>{status(item.passed ? "pass" : "fail")}<span>{names[index] ?? String(index + 1)}</span><small>{t("assetCanvas.mediaTools.pixelCheck.logicalSize", { width: item.width, height: item.height, scale: item.scale })}</small></h3>
+    <table>
+      <thead><tr><th scope="col">{t("assetCanvas.mediaTools.pixelCheck.rule")}</th><th scope="col">{t("assetCanvas.mediaTools.pixelCheck.value")}</th><th scope="col">{t("assetCanvas.mediaTools.pixelCheck.expected")}</th><th scope="col"><span className="visually-hidden">{t("assetCanvas.mediaTools.pixelCheck.status")}</span></th></tr></thead>
+      <tbody>{item.items.map((row) => <tr key={row.id} className={`is-${row.status}`}>
+        <th scope="row">{t(`assetCanvas.mediaTools.pixelCheck.items.${row.id}`)}</th>
+        <td>{row.value}</td>
+        <td>{row.expected ?? "—"}</td>
+        <td>{status(row.status)}</td>
+      </tr>)}</tbody>
+    </table>
+  </section>;
+  return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="asset-media-tool-dialog asset-pixel-check-dialog" role="dialog" aria-modal="true" aria-label={title}>
+      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose}><X size={18} /></button></header>
+      <div className="asset-media-tool-body">
+        <p className={`asset-pixel-check-summary${failed ? " is-failed" : ""}`} role="status">{failed ? t("assetCanvas.mediaTools.pixelCheck.failed", { count: failed }) : t("assetCanvas.mediaTools.pixelCheck.passed")}</p>
+        {checks.shared ? <ul className="asset-pixel-check-shared">
+          <li>{status(checks.shared.sameSize ? "pass" : "fail")}{t("assetCanvas.mediaTools.pixelCheck.sameSize")}</li>
+          <li>{status(checks.shared.sameBaseline ? "pass" : "fail")}{t("assetCanvas.mediaTools.pixelCheck.sameBaseline")}</li>
+          <li>{status("info")}{t("assetCanvas.mediaTools.pixelCheck.sharedColors", { count: checks.shared.colors })}</li>
+        </ul> : null}
+        {checks.reports.map(report)}
+        <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.pixelCheck.note")}</p>
+      </div>
+      <footer><button type="button" className="asset-media-tool-submit" onClick={onClose}><Check size={15} />{t("assetCanvas.mediaTools.pixelCheck.done")}</button></footer>
+    </div>
   </div>;
 }
 

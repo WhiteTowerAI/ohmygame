@@ -370,6 +370,28 @@ it("reconstructs a native-resolution pixel-art asset without changing its source
   expect(await sharp(path.join(project.workspacePath, fixedPath)).metadata()).toMatchObject({ width: 128, height: 128 });
 });
 
+it("checks pixel art without adding canvas assets", async () => {
+  const check = () => app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation: "check-pixel-art", assetIds: [assetId], options: { colors: 1 } },
+  });
+  // The first request registers the source asset itself; checking adds nothing after that.
+  await check();
+  const before = Object.keys((await readCanvasAssets(project.workspacePath)).assets).length;
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation: "check-pixel-art", assetIds: [assetId], options: { colors: 1 } },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result.kind).toBe("pixel-check");
+  expect(result.checks.reports).toHaveLength(1);
+  expect(result.checks.reports[0].items.find((item: { id: string }) => item.id === "colors")).toMatchObject({ expected: "≤ 1" });
+  expect(Object.keys((await readCanvasAssets(project.workspacePath)).assets)).toHaveLength(before);
+});
+
 it("returns every split frame as a registered canvas asset in frame order", async () => {
   const response = await app.inject({
     method: "POST",
