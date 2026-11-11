@@ -21,6 +21,14 @@ async function saveProjectAsset(app: Awaited<ReturnType<typeof createApp>>, proj
   return saved.json();
 }
 
+/** Removing an asset a project uses takes it out of the Library and leaves it stored for the project. */
+async function expectRemovedButKept(app: Awaited<ReturnType<typeof createApp>>, assetId: string) {
+  expect((await app.inject({ method: "DELETE", url: `/library/assets/${assetId}` })).statusCode).toBe(204);
+  const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json<{ id: string; saved: boolean }[]>();
+  expect(assets.find((asset) => asset.id === assetId)).toMatchObject({ saved: false });
+  expect((await app.inject({ method: "GET", url: `/library/assets/${assetId}/content` })).statusCode).toBe(200);
+}
+
 describe("daemon", () => {
   it("exposes project activity without requiring a conversation event subscription", async () => {
     let finish!: () => void;
@@ -572,7 +580,7 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
   });
 
-  it("saves project media once in the global Library and protects references", async () => {
+  it("saves project media once in the global Library and keeps it for projects that use it", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-api-")) });
     apps.push(app);
     const project = (await app.inject({
@@ -593,17 +601,10 @@ describe("daemon", () => {
     expect(content.rawPayload.toString()).toBe("video bytes");
 
     await useLibraryAssetInGraph(app, project.id, "opening", "video", first[0].id);
-    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}` });
-    expect(blocked.statusCode).toBe(409);
-    expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
-
-    const references = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/references` });
-    expect(references.json()).toEqual([{ id: project.id, name: "Story", type: "interactive-story" }]);
-    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}?force=true` });
-    expect(removed.statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
+    await expectRemovedButKept(app, first[0].id);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.opening).toBeUndefined();
+    expect(updated.graph.assets.opening).toBeDefined();
   });
 
   it("materializes a Library asset once", async () => {
@@ -626,11 +627,10 @@ describe("daemon", () => {
     expect(await readdir(path.join(target.workspacePath, "assets", "imported"))).toEqual(["sprite.png"]);
     const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
     expect(missing.statusCode).toBe(404);
-    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
-    expect(blocked.statusCode).toBe(409);
+    await expectRemovedButKept(app, asset.id);
   });
 
-  it("blocks Library deletion when an Interactive Story document cannot be verified", async () => {
+  it("keeps a removed asset's file when an Interactive Story document cannot be verified", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-broken-graph-")) });
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
@@ -641,10 +641,7 @@ describe("daemon", () => {
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=image.png` });
 
-    const response = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain("Cannot verify Library references");
+    await expectRemovedButKept(app, asset.id);
   });
 
   it("renames and deletes an unreferenced Library asset", async () => {
@@ -689,11 +686,9 @@ describe("daemon", () => {
       payload: { name: "Story", type: "interactive-story" },
     })).json();
     await useLibraryAssetInGraph(app, project.id, "reference", "image", response.json().id);
-    expect((await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/references` })).json()).toHaveLength(1);
-
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
+    await expectRemovedButKept(app, response.json().id);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.reference).toBeUndefined();
+    expect(updated.graph.assets.reference).toBeDefined();
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -727,17 +722,26 @@ describe("daemon", () => {
     });
 
     expect(response.statusCode, response.body).toBe(201);
-    expect(response.json()).toMatchObject({ name: "opening.mp4", mediaType: "video", contentType: "video/mp4", duration: 6.5 });
+    // An upload from a project is stored for it; only one sent with `saved` shows in the Library.
+    expect(response.json()).toMatchObject({ name: "opening.mp4", mediaType: "video", contentType: "video/mp4", duration: 6.5, saved: false });
+    const kept = await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=kept.mp4&mediaType=video%2Fmp4&saved=true",
+      headers: { "content-type": "application/octet-stream" },
+      payload: mp4,
+    });
+    expect(kept.json()).toMatchObject({ name: "kept.mp4", saved: true });
     const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
     expect(content.rawPayload).toEqual(mp4);
 
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
     await useLibraryAssetInGraph(app, project.id, "clip", "video", response.json().id);
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}` })).statusCode).toBe(409);
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
+    await expectRemovedButKept(app, response.json().id);
+    // Nothing uses this one, so removing it deletes its file.
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${kept.json().id}` })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/library/assets/${kept.json().id}/content` })).statusCode).toBe(404);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.clip).toBeUndefined();
-    expect(updated.graph.nodes[0].assets).not.toContain("clip");
+    expect(updated.graph.assets.clip).toBeDefined();
   });
 
   it("records the Library video a trimmed upload was cut from, and rejects an unknown or partial source", async () => {
@@ -2667,7 +2671,7 @@ describe("Playable Nodes projects", () => {
     expect(webExport.statusCode).toBe(200);
   });
 
-  it("protects Library assets declared by a Playable Nodes graph", async () => {
+  it("keeps Library assets declared by a Playable Nodes graph", async () => {
     const app = await createPlayableApp("ohmygame-playable-library-api-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
@@ -2693,15 +2697,9 @@ describe("Playable Nodes projects", () => {
       payload: codebase,
     })).statusCode).toBe(200);
 
-    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
-    expect(blocked.statusCode).toBe(409);
-    expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
-
-    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` });
-    expect(removed.statusCode).toBe(204);
+    await expectRemovedButKept(app, asset.id);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(updated.graph.assets.portrait).toBeUndefined();
-    expect(updated.graph.nodes[0].assets).not.toContain("portrait");
+    expect(updated.graph.nodes[0].assets).toContain("portrait");
   });
 });
 
@@ -2771,7 +2769,7 @@ describe("Asset Canvas projects", () => {
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/text/generate`, payload: { instruction: "Write" } })).statusCode).toBe(409);
   });
 
-  it("protects and removes Library assets used by a canvas", async () => {
+  it("keeps Library assets used by a canvas", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-library-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
@@ -2788,16 +2786,11 @@ describe("Asset Canvas projects", () => {
     document.editorLayout.nodes = { asset: { x: 0, y: 0 }, image: { x: 320, y: 0 } };
     expect((await saveCanvas(app, project.id, document)).statusCode).toBe(200);
 
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
-
-    const updated = (await getCanvas(app, project.id)).board;
-    expect(updated.nodes).toEqual([expect.objectContaining({ id: "image", data: expect.objectContaining({ images: [] }) })]);
-    expect(updated.edges).toEqual([]);
-    expect(Object.keys(updated.editorLayout.nodes)).toEqual(["image"]);
+    await expectRemovedButKept(app, asset.id);
+    expect((await getCanvas(app, project.id)).board.nodes).toHaveLength(2);
   });
 
-  it("protects and removes Library models used by an Animate 3D node", async () => {
+  it("keeps Library models used by an Animate 3D node", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-animate-library-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "hero.glb"), "glb bytes");
@@ -2810,10 +2803,7 @@ describe("Asset Canvas projects", () => {
     document.editorLayout.nodes = { animate: { x: 0, y: 0 } };
     expect((await saveCanvas(app, project.id, document)).statusCode).toBe(200);
 
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
-    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
-
-    const updated = (await getCanvas(app, project.id)).board;
-    expect(updated.nodes).toEqual([expect.objectContaining({ id: "animate", data: { heightMeters: 1.7, actionIds: [0] } })]);
+    await expectRemovedButKept(app, asset.id);
+    expect((await getCanvas(app, project.id)).board.nodes).toEqual([expect.objectContaining({ id: "animate", data: expect.objectContaining({ source: { type: "library", assetId: asset.id } }) })]);
   });
 });

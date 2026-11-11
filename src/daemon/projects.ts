@@ -2,7 +2,7 @@ import { mapConcurrent } from "./map-concurrent.js";
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isPreviewViewport, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
@@ -11,11 +11,10 @@ import { defaultProjectName } from "../shared/project-names.js";
 import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
-import type { AssetLibrary } from "./asset-library.js";
+import { copyMediaFile, type AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
-import { changeNodeCodebase } from "./playable-codebase.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
@@ -661,8 +660,13 @@ export class ProjectManager {
     const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
     // The same asset saved again, as when an image is imported twice, is nothing new to hear about.
     const unchanged = await readFile(destination).then((existing) => Buffer.from(contents).equals(existing), () => false);
+    const linkedAssetId = metadata.registerInLibrary === false || !metadata.libraryAssetId || !this.assetLibrary?.get(metadata.libraryAssetId)
+      ? undefined
+      : metadata.libraryAssetId;
     try {
-      await writeFile(temporary, contents, { flag: "wx" });
+      // Bytes the Library already stores are cloned from there, so the disk holds them once where it can.
+      if (linkedAssetId) await copyMediaFile((await this.assetLibrary!.content(linkedAssetId)).absolutePath, temporary);
+      else await writeFile(temporary, contents, { flag: "wx" });
       await rename(temporary, destination);
     } finally {
       await rm(temporary, { force: true });
@@ -685,13 +689,11 @@ export class ProjectManager {
     }
     const libraryAssetId = metadata.registerInLibrary === false
       ? undefined
-      : metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
-        ? metadata.libraryAssetId
-        : (await (workspaceMediaInfo(fileName) ? this.assetLibrary?.add(fileName, contents, {
-          origin: "generated",
-          ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
-          sourceKey: `project:${id}:${assetPath}`,
-        }) : undefined))?.id;
+      : linkedAssetId ?? (await (workspaceMediaInfo(fileName) ? this.assetLibrary?.addFile(fileName, destination, {
+        origin: "generated",
+        ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+        sourceKey: `project:${id}:${assetPath}`,
+      }) : undefined))?.id;
     await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
       origin: "generated",
       purpose: "asset",
@@ -737,7 +739,7 @@ export class ProjectManager {
           stalePaths.push(assetPath);
         }
       }
-      const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyFile(absolutePath, temporary));
+      const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyMediaFile(absolutePath, temporary));
       if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
@@ -969,39 +971,6 @@ export class ProjectManager {
       }
     }
     return references;
-  }
-
-  async removeLibraryAssetReferences(assetId: string): Promise<void> {
-    for (const project of await this.referencesLibraryAsset(assetId)) {
-      await removeCanvasAssetReferences(project.workspacePath, assetId);
-      const metadata = await readAssetMetadata(project.workspacePath);
-      for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
-        if (linkedId !== assetId) continue;
-        try {
-          await this.deleteAsset(project.id, assetPath);
-        } catch (error) {
-          if (!(error instanceof WorkspaceError)) throw error;
-          await this.#writeAssetMetadata(project.id, () => deleteAssetMetadata(project.workspacePath, assetPath));
-        }
-      }
-      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
-        let changed = false;
-        await changeNodeCodebase(project.workspacePath, (codebase) => {
-          const removedIds = new Set(Object.entries(codebase.graph.assets).flatMap(([id, asset]) => (
-            asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
-          )));
-          if (!removedIds.size) return;
-          for (const id of removedIds) delete codebase.graph.assets[id];
-          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
-            ...node,
-            assets: node.assets.filter((id) => !removedIds.has(id)),
-          }));
-          changed = true;
-          return codebase;
-        });
-        if (changed) await this.touch(project.id);
-      }
-    }
   }
 
   async setPublication(id: string, publication: PublicationState | undefined): Promise<void> {

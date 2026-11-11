@@ -4,19 +4,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { assetSortDetail, fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { assetDateTime, sortAssets, type AssetSort } from "./asset-sort.js";
 import { AssetMedia, useNearViewport } from "./asset-gallery.js";
-import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
+import { getLibraryAsset, removeLibraryAsset, renameLibraryAsset, uploadLibraryAsset } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
-import { Copy, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2 } from "./icons.js";
+import { Copy, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2, Upload } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
-import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
-import { AssetSortSelect, LibraryFilterRow, libraryFiltersActive, useAssetSort } from "./library-filters.js";
+import { hasTransferredFiles } from "./file-transfer.js";
+import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { AssetPeriodSelect, AssetSortSelect, useAssetSort } from "./library-filters.js";
+import type { AssetPeriod } from "./asset-sort.js";
+import { mediaFileInfo, MEDIA_FILE_TYPES } from "../shared/media-files.js";
+import { readMediaFileDuration } from "./video-reference-files.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { Button, CategoryMark, ContextMenu, Dialog, DropdownMenu, Empty, IconButton, Input, MediaTile, SearchInput, Sheet, Skeleton, Tabs, type MenuEntry } from "./ui/index.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { saveTrimmedVideo, VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
-import { t, tNodes } from "./i18n.js";
+import { t } from "./i18n.js";
 import { pluginChangeLines } from "./plugin-hook-labels.js";
 import "./library.css";
 
@@ -29,12 +33,21 @@ type Kind = LibraryAsset["mediaType"];
 /** Kinds in the order the tabs list them; each kind is also its category hue. */
 const KINDS: readonly Kind[] = ["image", "video", "audio", "model"];
 
+/** The largest file the Library takes, as on the canvas. */
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const UPLOAD_ACCEPT = Object.keys(MEDIA_FILE_TYPES).join(",");
+
 /** A dialog over the page; the details sheet steps aside while one is open and comes back after. */
 type LibraryDialog =
   | { kind: "rename"; asset: LibraryAsset }
-  | { kind: "delete"; asset: LibraryAsset; references: LibraryAssetReference[] }
+  | { kind: "remove"; asset: LibraryAsset }
   | { kind: "trim"; asset: LibraryAsset };
 
+/**
+ * The Library holds what the person put there: files uploaded here, project
+ * files saved to it and game recordings. Media a project generates or uploads
+ * stays with that project until someone saves it.
+ */
 export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
@@ -43,11 +56,15 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [actionError, setActionError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<LibraryAssetFilters>({});
+  const [period, setPeriod] = useState<AssetPeriod>("all");
   const [sort, setSort] = useAssetSort("ohmygame:library-sort");
   const [selectedId, setSelectedId] = useState<string>();
   const [dialog, setDialog] = useState<LibraryDialog>();
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepth = useRef(0);
+  const fileInput = useRef<HTMLInputElement>(null);
   const audio = useTileAudio();
 
   async function load(): Promise<void> {
@@ -92,23 +109,33 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
     setDialog(undefined);
   }
 
-  async function beginDelete(asset: LibraryAsset): Promise<void> {
-    setActionError(undefined);
-    try {
-      openDialog({ kind: "delete", asset, references: await listLibraryAssetReferences(asset.id) });
-    } catch (cause) {
-      setActionError(errorMessage(cause));
+  async function confirmRemove(asset: LibraryAsset): Promise<void> {
+    if (busy) return;
+    if (await runAssetAction(() => removeLibraryAsset(asset.id))) {
+      if (audio.playing?.id === asset.id) audio.stop();
+      setDialog(undefined);
+      if (selectedId === asset.id) setSelectedId(undefined);
     }
   }
 
-  async function confirmDelete(target: Extract<LibraryDialog, { kind: "delete" }>): Promise<void> {
-    if (busy) return;
-    const remove = target.references.length ? forceDeleteLibraryAsset : deleteLibraryAsset;
-    if (await runAssetAction(() => remove(target.asset.id))) {
-      if (audio.playing?.id === target.asset.id) audio.stop();
-      setDialog(undefined);
-      if (selectedId === target.asset.id) setSelectedId(undefined);
+  /** Uploads each file in turn; one that fails is named, and the rest still upload. */
+  async function upload(files: readonly File[]): Promise<void> {
+    if (uploading || !files.length) return;
+    setActionError(undefined);
+    setUploading(true);
+    const failures: string[] = [];
+    let last: string | undefined;
+    for (const file of files) {
+      try {
+        last = (await uploadToLibrary(file)).id;
+      } catch (cause) {
+        failures.push(t("library.uploadFailed", { name: file.name, error: errorMessage(cause) }));
+      }
     }
+    await load();
+    setUploading(false);
+    if (failures.length) setActionError(failures.join("\n"));
+    else if (files.length === 1 && last) setSelectedId(last);
   }
 
   async function confirmRename(asset: LibraryAsset, input: string): Promise<void> {
@@ -119,7 +146,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
   /** Saves the kept part of a video as a new Library asset and shows it. */
   async function saveTrimmed(asset: LibraryAsset, video: Blob, trim: VideoTrim): Promise<void> {
-    const saved = await saveTrimmedVideo(video, trim, { name: asset.name, libraryAssetId: asset.id });
+    const saved = await saveTrimmedVideo(video, trim, { name: asset.name, libraryAssetId: asset.id }, { saved: true });
     await load();
     setDialog(undefined);
     setSelectedId(saved.id);
@@ -127,33 +154,65 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
   function assetMenu(asset: LibraryAsset): MenuEntry[] {
     return [
-      ...(canSave(asset) ? [{ label: t("workspace.saveToLibrary"), onSelect: () => void runAssetAction(() => saveLibraryAsset(asset.id)) }] : []),
       { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: () => openDialog({ kind: "rename", asset }) },
       ...(asset.mediaType === "video" ? [{ label: t("library.trim"), icon: <Scissors size={14} />, onSelect: () => openDialog({ kind: "trim", asset }) }] : []),
-      { label: t("common.delete"), icon: <Trash2 size={14} />, danger: true, onSelect: () => void beginDelete(asset) },
+      { label: t("library.remove"), icon: <Trash2 size={14} />, danger: true, onSelect: () => openDialog({ kind: "remove", asset }) },
     ];
   }
 
   // Counts follow every filter except the kind, so each tab says what picking it would show.
-  const narrowed = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [assets, query, filters]);
+  const saved = useMemo(() => assets.filter((asset) => asset.saved), [assets]);
+  const narrowed = useMemo(() => filterLibraryAssets(saved, "all", query, { origin: "all", includeReferences: true, period }), [saved, query, period]);
   // Sorted before paging, so the first page is the top of the whole list.
   const visibleAssets = useMemo(() => sortAssets(mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), sort), [narrowed, mediaFilter, sort]);
-  const filtered = Boolean(query.trim()) || libraryFiltersActive(filters);
+  const filtered = Boolean(query.trim()) || period !== "all";
   const page = useListPage(visibleAssets.length);
   const selected = assets.find((asset) => asset.id === selectedId);
   const trimmedFrom = selected?.derivedFrom ? assets.find((candidate) => candidate.id === selected.derivedFrom!.assetId)?.name ?? selected.derivedFrom.assetId : undefined;
-  const resetFilters = () => { setQuery(""); setFilters({}); };
+  const resetFilters = () => { setQuery(""); setPeriod("all"); };
+  const uploadButton = <Button variant="primary" icon={uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
 
   return (
     <SidebarPageLayout active="library" onNavigate={onNavigate}>
-      <SidebarPageHeader title={t("library.title")} actions={<div className="library-page-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("library.searchPlaceholder")} /></div>} />
+      <div className="library-drop-region"
+        onDragEnter={(event) => {
+          if (!hasTransferredFiles(event.dataTransfer)) return;
+          event.preventDefault();
+          dragDepth.current++;
+          if (!uploading) setDropActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!hasTransferredFiles(event.dataTransfer)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (!dragDepth.current) setDropActive(false);
+        }}
+        onDrop={(event) => {
+          if (!hasTransferredFiles(event.dataTransfer)) return;
+          event.preventDefault();
+          dragDepth.current = 0;
+          setDropActive(false);
+          void upload([...event.dataTransfer.files]);
+        }}>
+      <SidebarPageHeader title={t("library.title")} actions={<>
+        <div className="library-page-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("library.searchPlaceholder")} /></div>
+        {uploadButton}
+        <input ref={fileInput} type="file" multiple hidden accept={UPLOAD_ACCEPT} onChange={(event) => {
+          const files = [...(event.currentTarget.files ?? [])];
+          event.currentTarget.value = "";
+          void upload(files);
+        }} />
+      </>} />
       <div className="library-filter-row">
         <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
           ...KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
         ]} />
         <span className="library-filter-spacer" />
-        <LibraryFilterRow assets={assets} filters={filters} onChange={setFilters} />
+        <AssetPeriodSelect label={t("libraryFilters.added")} value={period} onChange={setPeriod} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
         <AssetSortSelect value={sort} onChange={setSort} />
       </div>
@@ -161,7 +220,9 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
       {phase === "error" ? <Empty title={t("library.loadFailed")} description={error} action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>} />
         : phase === "loading" && assets.length === 0 ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 12 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
-        : visibleAssets.length === 0 ? <Empty title={assets.length ? t("library.noMatch") : t("library.none")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
+        : visibleAssets.length === 0 ? (saved.length
+          ? <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
+          : <Empty title={t("library.none")} description={t("library.noneDescription")} action={uploadButton} />)
         : <div className="library-tiles">{visibleAssets.slice(0, page.limit).map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
             <LibraryTile asset={asset} sort={sort} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
               audio={asset.mediaType === "audio" ? { state: audio.playing?.id === asset.id ? audio.playing.state : undefined, toggle: () => audio.toggle(asset.id) } : undefined} />
@@ -170,29 +231,24 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       {phase === "ready" ? page.next : null}
       <Sheet open={Boolean(selected) && !dialog} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
         footer={selected ? <>
-          <IconButton label={t("common.delete")} onClick={() => void beginDelete(selected)}><Trash2 size={16} /></IconButton>
+          <IconButton label={t("library.remove")} onClick={() => openDialog({ kind: "remove", asset: selected })}><Trash2 size={16} /></IconButton>
           <IconButton label={t("common.rename")} onClick={() => openDialog({ kind: "rename", asset: selected })}><Pencil size={16} /></IconButton>
           {selected.mediaType === "video" ? <Button icon={<Scissors size={14} />} onClick={() => openDialog({ kind: "trim", asset: selected })}>{t("library.trim")}</Button> : null}
           <span className="library-filter-spacer" />
-          {canSave(selected) ? <Button variant={selected.projects?.length ? "secondary" : "primary"} disabled={busy} onClick={() => void runAssetAction(() => saveLibraryAsset(selected.id))}>{t("workspace.saveToLibrary")}</Button> : null}
           <OpenProjectButton asset={selected} onOpenProject={onOpenProject} />
         </> : undefined}>
         {selected ? <LibraryDetails asset={selected} trimmedFrom={trimmedFrom} /> : null}
       </Sheet>
 
-      {dialog?.kind === "delete" ? <Dialog open size="sm" onClose={closeDialog}
-        title={dialog.references.length ? t("library.deleteEverywhereTitle") : t("library.deleteTitle", { name: fileName(dialog.asset.path) })}
-        description={dialog.references.length
-          ? tNodes(dialog.references.length === 1 ? "library.usedByProject" : "library.usedByProjects", { name: <strong>{fileName(dialog.asset.path)}</strong>, count: dialog.references.length })
-          : t("library.deleteDescription")}
+      {dialog?.kind === "remove" ? <Dialog open size="sm" onClose={closeDialog}
+        title={t("library.removeTitle", { name: fileName(dialog.asset.path) })}
+        description={dialog.asset.projects?.length
+          ? (dialog.asset.projects.length === 1 ? t("library.removeKeptInProject") : t("library.removeKeptInProjects", { count: dialog.asset.projects.length }))
+          : t("library.removeDeletes")}
         footer={<>
           <Button disabled={busy} onClick={closeDialog}>{t("common.cancel")}</Button>
-          <Button variant="primary" disabled={busy} onClick={() => void confirmDelete(dialog)}>{busy ? t("library.deletingEllipsis") : dialog.references.length ? t("library.deleteEverywhere") : t("common.delete")}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void confirmRemove(dialog.asset)}>{busy ? t("library.removingEllipsis") : t("library.remove")}</Button>
         </>}>
-        {dialog.references.length ? <>
-          <ul className="library-delete-projects">{dialog.references.map((reference) => <li key={reference.id}>{reference.name}</li>)}</ul>
-          <p className="library-delete-note">{t("library.deleteWarning")}</p>
-        </> : null}
         {actionError ? <p className="library-page-dialog-error" role="alert">{actionError}</p> : null}
       </Dialog> : null}
 
@@ -201,6 +257,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       {dialog?.kind === "trim" ? <Dialog open size="lg" onClose={() => setDialog(undefined)} title={t("library.trimTitle", { name: fileName(dialog.asset.path) })}>
         <TrimEditor asset={dialog.asset} onSave={(video, trim) => saveTrimmed(dialog.asset, video, trim)} onCancel={() => setDialog(undefined)} />
       </Dialog> : null}
+      {dropActive ? <div className="library-drop-overlay" role="status"><div className="library-drop-message"><Upload size={28} /><span>{t("library.dropHint")}</span></div></div> : null}
+      </div>
     </SidebarPageLayout>
   );
 }
@@ -213,16 +271,21 @@ function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-function canSave(asset: LibraryAsset): boolean {
-  return asset.saved === false || Boolean(asset.referenceOnly);
+/** Uploads a file to the Library page; its kind comes from its extension, as the Library checks. */
+async function uploadToLibrary(file: File): Promise<{ id: string }> {
+  const info = mediaFileInfo(file.name);
+  if (!info) throw new Error(t("library.uploadType"));
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error(t("assetCanvas.uploadSize"));
+  const duration = info.mediaType === "video" || info.mediaType === "audio" ? await readMediaFileDuration(file, info.mediaType) : undefined;
+  return uploadLibraryAsset(file, info.contentType, { ...(duration !== undefined ? { duration } : {}), saved: true });
 }
 
-/** The value it is sorted by, where the asset is used, then where it came from. */
+/** The value it is sorted by, then the projects using the asset. */
 function assetMeta(asset: LibraryAsset, sort: AssetSort): string {
   const projects = asset.projects ?? [];
-  const where = projects.length === 1 ? projects[0]!.name : projects.length ? t("library.projectCount", { count: projects.length }) : t("libraryFilters.noProject");
+  const where = projects.length === 1 ? projects[0]!.name : projects.length ? t("library.projectCount", { count: projects.length }) : libraryAssetOriginLabel(asset.origin);
   const detail = assetSortDetail(asset, sort);
-  return `${detail ? `${detail} · ` : ""}${where} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`;
+  return `${detail ? `${detail} · ` : ""}${where}`;
 }
 
 type TileAudioState = "loading" | "playing" | "paused";
@@ -324,7 +387,6 @@ function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFr
       <dt>{t("libraryFilters.added")}</dt><dd>{assetDateTime(asset)}</dd>
       {asset.origin ? <><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></> : null}
       {trimmedFrom ? <><dt>{t("assets.trimmedFrom")}</dt><dd>{trimmedFrom}</dd></> : null}
-      {asset.referenceOnly ? <><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></> : null}
       {projects ? <><dt>{t("assets.projects")}</dt><dd>{projects}</dd></> : null}
       <dt>{t("assets.path")}</dt><dd className="library-mono">{asset.path}</dd>
     </dl>

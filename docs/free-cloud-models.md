@@ -16,7 +16,7 @@ to the desktop, project files, the agent, or model inputs.
 Providers show the user's remaining daily allowance. The detail page shows
 personal credits with one compact progress bar and reset time. Models remain selectable when exhausted; their generation action
 is temporarily unavailable. Cancelling desktop waiting keeps the remote job;
-successful results are saved to Library through the normal generation flow. The server retains remote jobs for reconciliation, including when desktop waiting is cancelled.
+successful results are saved to the project through the normal generation flow. The server retains remote jobs for reconciliation, including when desktop waiting is cancelled.
 
 Free cloud models use the common model list's search and visibility controls.
 Users can hide models or select defaults; the server owns the permitted catalog

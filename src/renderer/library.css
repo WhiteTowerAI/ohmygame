@@ -263,3 +263,40 @@
 .library-trim .video-trimmer-footer {
   padding: 0;
 }
+
+/* Files dropped anywhere on the page upload to the Library. */
+.library-drop-region {
+  position: relative;
+  min-height: calc(100dvh - 80px);
+}
+
+.library-drop-overlay {
+  position: absolute;
+  inset: var(--space-2) 0 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-6);
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  text-align: center;
+  pointer-events: none;
+}
+
+.library-drop-message {
+  position: sticky;
+  top: 50dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  transform: translateY(-50%);
+}
+
+.library-drop-overlay svg {
+  color: var(--color-accent);
+}

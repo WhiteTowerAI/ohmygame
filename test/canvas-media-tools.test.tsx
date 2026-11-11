@@ -371,7 +371,7 @@ it("turns a template example into the node's output before running a media tool"
   await select("example");
   await chooseTool("Grid split", "4 cells (2 × 2)");
   expect(fetchExample).toHaveBeenCalledTimes(1);
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", undefined, "asset");
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", { purpose: "asset" });
   expect(captured.props!.nodes.find((node) => node.id === "example")?.data.assetId).toBe("materialized");
   expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b",
@@ -396,7 +396,7 @@ it("generates from a template reference slot by uploading its example", async ()
   await act(async () => imageRuntime("generator").onGenerate());
 
   expect(fetchExample).toHaveBeenCalledWith("https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp");
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
   expect(captured.props!.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
   const saved = save.mock.calls.at(-1)![0] as { nodes: Array<{ id: string; data: { assetId?: string } }> };
   expect(saved.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
@@ -423,7 +423,7 @@ it("keeps each example it fetches and generates from that copy while offline", a
     generate.mockClear();
     await addSlot("offline");
     await act(async () => imageRuntime("generator-offline").onGenerate());
-    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
     expect(generate).toHaveBeenCalledWith("generator-offline");
   } finally {
     setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
@@ -6,8 +7,15 @@ import { workspaceMediaInfo } from "./workspace.js";
 import { readMediaDimensions } from "./media-dimensions.js";
 import { isImageHookRecords, type ImageHookRecord } from "../shared/plugin-hooks.js";
 
+/**
+ * The Library's store holds every media file the app shares between projects,
+ * conversations and the canvas; `saved` marks the ones the person put in the
+ * Library: uploaded on its page, saved from a project, or recorded from a game.
+ * Version 2: what was generated or uploaded into a project no longer joins the
+ * Library by itself.
+ */
 interface StoredLibrary {
-  version: 1;
+  version: 2;
   assets: LibraryAsset[];
   sources: Record<string, string>;
 }
@@ -23,6 +31,16 @@ interface AddAssetOptions {
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
   derivedFrom?: LibraryAssetDerivation;
+  /** The person put it in the Library; anything else is only stored here for the projects that use it. */
+  saved?: boolean;
+}
+
+/**
+ * A copy of a file into or out of the store. Where the disk can (APFS), it is
+ * a clone, which takes no more space until one side changes.
+ */
+export function copyMediaFile(source: string, destination: string): Promise<void> {
+  return copyFile(source, destination, constants.COPYFILE_FICLONE);
 }
 
 export class AssetLibraryError extends Error {
@@ -43,12 +61,16 @@ export class AssetLibrary {
     this.#metadataFile = path.join(directory, "assets.json");
   }
 
-  async load(): Promise<void> {
+  /** `usedByProjects` gives the ids projects use, read only to upgrade an older store. */
+  async load({ usedByProjects }: { usedByProjects?: () => Promise<ReadonlySet<string>> } = {}): Promise<void> {
     await mkdir(this.#filesDirectory, { recursive: true });
     try {
       const parsed: unknown = JSON.parse(await readFile(this.#metadataFile, "utf8"));
-      const parsedLibrary = parseLibrary(parsed);
-      if (!parsedLibrary) throw new Error("Invalid Library metadata");
+      const readLibrary = parseLibrary(parsed);
+      if (!readLibrary) throw new Error("Invalid Library metadata");
+      const parsedLibrary = readLibrary.version === 1
+        ? upgradeFromVersion1(readLibrary, await usedByProjects?.() ?? new Set())
+        : { ...readLibrary, version: 2 as const };
       const assets: LibraryAsset[] = [];
       // Sequential reads keep a large Library from exhausting file handles while older records gain dimensions.
       for (const asset of parsedLibrary.assets) assets.push(await this.#withDimensions(asset));
@@ -108,7 +130,7 @@ export class AssetLibrary {
       const destination = this.#contentPath(id, fileName);
       const temporary = `${destination}.${randomUUID()}.tmp`;
       try {
-        await copyFile(sourcePath, temporary);
+        await copyMediaFile(sourcePath, temporary);
         await rename(temporary, destination);
         return await this.#record(id, fileName, (await stat(destination)).size, media, options);
       } catch (error) {
@@ -161,6 +183,20 @@ export class AssetLibrary {
     });
   }
 
+  /** Takes it out of the Library; it stays stored for the projects that use it. */
+  async unsave(id: string): Promise<LibraryAsset> {
+    return this.#mutate(async () => {
+      const asset = this.get(id);
+      if (!asset) throw new AssetLibraryError("Library asset not found", 404);
+      if (!asset.saved) return asset;
+      const updated = { ...asset, saved: false };
+      const state = { ...this.#state, assets: this.#state.assets.map((candidate) => candidate.id === id ? updated : candidate) };
+      await this.#write(state);
+      this.#state = state;
+      return updated;
+    });
+  }
+
   async delete(id: string): Promise<void> {
     await this.#mutate(async () => {
       const asset = this.get(id);
@@ -194,7 +230,7 @@ export class AssetLibrary {
       createdAt: new Date().toISOString(),
       origin,
       purpose: options.purpose ?? "asset",
-      saved: origin !== "workspace",
+      saved: options.saved ?? false,
       ...(options.audio ? { audio: options.audio } : {}),
       ...(options.model3d ? { model3d: options.model3d } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
@@ -242,13 +278,30 @@ export class AssetLibrary {
 }
 
 function emptyLibrary(): StoredLibrary {
-  return { version: 1, assets: [], sources: {} };
+  return { version: 2, assets: [], sources: {} };
 }
 
-function parseLibrary(value: unknown): StoredLibrary | undefined {
+/**
+ * Version 1 put everything generated or uploaded in the Library. What a project
+ * uses leaves it, as the project has it; what none uses stays, as the Library is
+ * the only place to find it. A project file someone saved stays too, and chat
+ * attachments, which the Library page never showed, leave.
+ */
+// compat: since beta.5.7, remove from beta.7 and 2026-12-12. Library store version 1 collected project media by itself.
+function upgradeFromVersion1(library: StoredLibraryVersion, used: ReadonlySet<string>): StoredLibrary {
+  return {
+    ...library,
+    version: 2,
+    assets: library.assets.map((asset) => asset.saved && (asset.purpose === "reference" || asset.origin !== "workspace" && used.has(asset.id)) ? { ...asset, saved: false } : asset),
+  };
+}
+
+type StoredLibraryVersion = Omit<StoredLibrary, "version"> & { version: 1 | 2 };
+
+function parseLibrary(value: unknown): StoredLibraryVersion | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const stored = value as Partial<StoredLibrary>;
-  if (stored.version !== 1 || !Array.isArray(stored.assets) || !stored.sources || typeof stored.sources !== "object" || Array.isArray(stored.sources)) return undefined;
+  const stored = value as Partial<StoredLibraryVersion>;
+  if ((stored.version !== 1 && stored.version !== 2) || !Array.isArray(stored.assets) || !stored.sources || typeof stored.sources !== "object" || Array.isArray(stored.sources)) return undefined;
   const ids = new Set<string>();
   if (!stored.assets.every((asset) => isLibraryAsset(asset) && !ids.has(asset.id) && Boolean(ids.add(asset.id)))) return undefined;
   if (!Object.entries(stored.sources).every(([source, id]) => Boolean(source) && typeof id === "string" && ids.has(id))) return undefined;
@@ -259,7 +312,7 @@ function parseLibrary(value: unknown): StoredLibrary | undefined {
     sources.set(id, keys);
   }
   return {
-    ...(stored as StoredLibrary),
+    ...(stored as StoredLibraryVersion),
     assets: stored.assets.map((asset) => {
       const keys = sources.get(asset.id) ?? [];
       const origin = asset.origin ?? "unknown";

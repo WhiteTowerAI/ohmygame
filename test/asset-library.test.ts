@@ -71,9 +71,72 @@ describe("AssetLibrary", () => {
     const library = new AssetLibrary(dataDirectory);
     await library.load();
     expect(library.get("old")).toMatchObject({ origin: "unknown", purpose: "asset", saved: true });
-    expect(library.get("chat")).toMatchObject({ origin: "uploaded", purpose: "reference" });
+    // Chat attachments were never shown in the Library; the upgrade to version 2 says so.
+    expect(library.get("chat")).toMatchObject({ origin: "uploaded", purpose: "reference", saved: false });
     // A project's file isn't saved to the Library until the person saves it.
     expect(library.get("project")).toMatchObject({ origin: "unknown", saved: false });
+  });
+
+  it("shows in the Library only what is added with `saved`, and takes it out again", async () => {
+    const library = new AssetLibrary(await mkdtemp(path.join(tmpdir(), "ohmygame-library-saved-")));
+    await library.load();
+    const generated = await library.add("hero.png", Buffer.from("image"), { origin: "generated" });
+    const uploaded = await library.add("logo.png", Buffer.from("logo"), { origin: "uploaded", saved: true });
+    expect(generated.saved).toBe(false);
+    expect(uploaded.saved).toBe(true);
+
+    await expect(library.unsave(uploaded.id)).resolves.toMatchObject({ saved: false });
+    expect(library.get(uploaded.id)).toMatchObject({ saved: false });
+    // Taken out of the Library, the file is still stored for the projects using it.
+    expect(await readFile((await library.content(uploaded.id)).absolutePath, "utf8")).toBe("logo");
+    await expect(library.unsave("missing")).rejects.toThrow("not found");
+  });
+
+  it("upgrades a version 1 store: what projects use leaves the Library, the rest stays", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-v1-"));
+    const directory = path.join(dataDirectory, "library");
+    await mkdir(directory, { recursive: true });
+    const base = { size: 3, mediaType: "image", contentType: "image/png", createdAt: "2026-08-24T12:00:00Z", purpose: "asset" };
+    await writeFile(path.join(directory, "assets.json"), JSON.stringify({
+      version: 1,
+      assets: [
+        { ...base, id: "used", name: "used.png", origin: "generated", saved: true },
+        { ...base, id: "unused", name: "unused.png", origin: "generated", saved: true },
+        { ...base, id: "saved-file", name: "sprite.png", origin: "workspace", saved: true },
+        { ...base, id: "chat", name: "screenshot.png", origin: "uploaded", purpose: "reference", saved: true },
+        { ...base, id: "copy", name: "copy.png", origin: "workspace", saved: false },
+      ],
+      sources: {},
+    }));
+    const library = new AssetLibrary(dataDirectory);
+    await library.load({ usedByProjects: async () => new Set(["used", "saved-file", "copy"]) });
+
+    expect(Object.fromEntries(library.list().map((asset) => [asset.id, asset.saved]))).toEqual({
+      used: false,
+      unused: true,
+      "saved-file": true,
+      chat: false,
+      copy: false,
+    });
+    expect(JSON.parse(await readFile(path.join(directory, "assets.json"), "utf8"))).toMatchObject({ version: 2 });
+
+    // Upgraded once: a later load reads version 2 as stored.
+    await library.unsave("unused");
+    const reloaded = new AssetLibrary(dataDirectory);
+    await reloaded.load({ usedByProjects: async () => { throw new Error("not read for version 2"); } });
+    expect(reloaded.get("unused")).toMatchObject({ saved: false });
+    expect(reloaded.get("saved-file")).toMatchObject({ saved: true });
+  });
+
+  it("leaves a store from a newer version untouched", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-newer-"));
+    const directory = path.join(dataDirectory, "library");
+    await mkdir(directory, { recursive: true });
+    const stored = JSON.stringify({ version: 3, assets: [], sources: {} });
+    await writeFile(path.join(directory, "assets.json"), stored);
+
+    await expect(new AssetLibrary(dataDirectory).load()).rejects.toThrow("Invalid Library metadata");
+    expect(await readFile(path.join(directory, "assets.json"), "utf8")).toBe(stored);
   });
 
   it("keeps a reference promoted to an asset when the same input is submitted again", async () => {

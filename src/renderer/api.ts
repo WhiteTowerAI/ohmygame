@@ -1168,10 +1168,6 @@ export async function saveProjectAssetToLibrary(projectId: string, filePath: str
   return request(`/projects/${encodeURIComponent(projectId)}/assets/library?path=${encodeURIComponent(filePath)}`, { method: "POST" });
 }
 
-export async function saveLibraryAsset(assetId: string): Promise<LibraryAsset> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/save`, { method: "POST" });
-}
-
 export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
   return request("/library/assets");
 }
@@ -1180,11 +1176,20 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-/** `derivedFrom` records the Library video an upload was cut from. */
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose, derivedFrom?: LibraryAssetDerivation): Promise<LibraryAsset> {
+export interface LibraryUploadOptions {
+  duration?: number;
+  purpose?: LibraryAssetPurpose;
+  /** The Library video or audio an upload was cut from. */
+  derivedFrom?: LibraryAssetDerivation;
+  /** Show it on the Library page. Without it, the upload is only stored for the project that uses it. */
+  saved?: boolean;
+}
+
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, saved }: LibraryUploadOptions = {}): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
+  if (saved) query.set("saved", "true");
   if (derivedFrom) {
     query.set("trimSource", derivedFrom.assetId);
     query.set("trimStart", String(derivedFrom.trim.start));
@@ -1226,22 +1231,9 @@ export async function renameLibraryAsset(assetId: string, name: string): Promise
   return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
 
-export async function deleteLibraryAsset(assetId: string): Promise<void> {
+/** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */
+export async function removeLibraryAsset(assetId: string): Promise<void> {
   await request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-}
-
-export interface LibraryAssetReference {
-  id: string;
-  name: string;
-  type: ProjectState["type"];
-}
-
-export async function listLibraryAssetReferences(assetId: string): Promise<LibraryAssetReference[]> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/references`);
-}
-
-export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
-  await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {

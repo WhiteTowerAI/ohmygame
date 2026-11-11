@@ -1197,7 +1197,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (file.size > MAX_UPLOAD_BYTES) throw new Error(t("assetCanvas.uploadSize"));
     const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
     const duration = kind ? await readMediaFileDuration(file, kind) : undefined;
-    const uploaded = await uploadLibraryAsset(file, mediaType, duration);
+    const uploaded = await uploadLibraryAsset(file, mediaType, { duration });
     const asset: LibraryAsset = { ...uploaded, assetId: uploaded.id, path: uploaded.name };
     setLibraryAssets((current) => [asset, ...current]);
     return asset;
@@ -1624,7 +1624,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const blob = await fetchTemplateExample(url);
       const contentType = (blob.type || "image/webp") as LibraryUploadMediaType;
       const name = `${node.data.exampleImage!.split("/").pop()!.replace(/\.[^.]+$/, "")}.${contentType.split("/")[1]}`;
-      const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, undefined, purpose);
+      const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, { purpose });
       assigned.set(node.id, asset.id);
     }
     if (assigned.size) {
@@ -1932,7 +1932,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     try {
       const uploads = await Promise.all(files.map(prepareVideoReferenceFile));
       for (const upload of uploads) {
-        const asset = await uploadLibraryAsset(upload.file, upload.mediaType, undefined, "reference");
+        const asset = await uploadLibraryAsset(upload.file, upload.mediaType, { purpose: "reference" });
         setLibraryAssets((current) => [{ ...asset, assetId: asset.id, path: asset.name }, ...current.filter((candidate) => candidate.id !== asset.id)]);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "video"
           ? { ...candidate, data: { ...candidate.data, references: [...(candidate.data.references ?? []), { type: "library", assetId: asset.id }] } }

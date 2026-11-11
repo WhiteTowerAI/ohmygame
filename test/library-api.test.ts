@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,6 +37,29 @@ async function list(app: App): Promise<LibraryAssetSummary[]> {
   return response.json();
 }
 
+describe("Library store upgrade", () => {
+  it("takes what projects use out of an older Library at startup and keeps the rest", async () => {
+    const first = await setup();
+    const used = await upload(first);
+    const unused = await upload(first);
+    const project = (await first.inject({ method: "POST", url: "/projects", payload: { name: "Forest" } })).json<ProjectState>();
+    expect((await first.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${used.id}` })).statusCode).toBe(201);
+    const directory = fixtures[0]!.directory;
+    await first.close();
+    // As version 1 stored it: everything uploaded or generated was in the Library.
+    const store = path.join(directory, "library", "assets.json");
+    const stored = JSON.parse(await readFile(store, "utf8")) as { version: number; assets: { saved: boolean }[] };
+    await writeFile(store, JSON.stringify({ ...stored, version: 1, assets: stored.assets.map((asset) => ({ ...asset, saved: true })) }));
+
+    const reopened = createApp({ dataDirectory: directory });
+    fixtures.push({ app: reopened, directory });
+    const assets = await list(reopened);
+    expect(assets.find((asset) => asset.id === used.id)).toMatchObject({ saved: false, projects: [{ id: project.id }] });
+    expect(assets.find((asset) => asset.id === unused.id)).toMatchObject({ saved: true, projects: [] });
+    expect(JSON.parse(await readFile(store, "utf8"))).toMatchObject({ version: 2 });
+  });
+});
+
 describe("Library provenance and project filters", () => {
   it("keeps upload provenance across projects and only saves project files explicitly", async () => {
     const app = await setup();
@@ -74,7 +97,6 @@ describe("Library provenance and project filters", () => {
     expect(changed).toMatchObject({ saved: true, origin: "workspace" });
     expect((await app.inject({ method: "GET", url: `/library/assets/${changed.id}/content` })).body).toBe("changed");
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/assets/library?path=../outside.png` })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/library/assets/missing/save" })).statusCode).toBe(404);
   });
 
   it("distinguishes canvas reference inputs from materialized assets and standalone nodes", async () => {
