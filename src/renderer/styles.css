@@ -4545,10 +4545,6 @@ button {
   outline: 0;
 }
 
-.tool-artifact-preview {
-  min-height: 120px;
-}
-
 /* A chat in the middle of the workspace reads in one centered column. */
 .dock-area-center .agent-pane {
   --agent-content-column-width: 720px;
@@ -9309,30 +9305,80 @@ summary.work-summary:hover {
   margin-bottom: 0;
 }
 
-.tool-artifacts {
-  margin: 12px 0 16px;
+.tool-artifact-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
 }
 
-.tool-generated-image {
-  min-height: 96px;
+/* One result, small. Every kind takes the same square, so a row of them reads as one set. */
+.tool-artifact-tile {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--color-surface-raised);
+  color: var(--text-muted);
 }
 
-.tool-generated-image img {
+.tool-artifact-tile img,
+.tool-artifact-tile video {
   display: block;
   width: 96px;
   height: 96px;
-  object-fit: contain;
-  border-radius: 6px;
+  object-fit: cover;
 }
 
-.tool-artifact-video {
-  display: block;
-  width: min(100%, 560px);
-  max-height: 420px;
-  margin: 0 0 12px;
-  border-radius: 8px;
-  background: var(--surface);
+/* A picture is the result itself, so all of it shows. */
+.tool-artifact-tile img {
+  object-fit: contain;
 }
+
+.tool-artifact-tile .model-preview {
+  width: 96px;
+  height: 96px;
+  pointer-events: none;
+}
+
+.tool-artifact-open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.tool-artifact-open {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tool-artifact-open:hover {
+  color: var(--color-text);
+}
+
+.tool-artifact-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
 
 .tool-result-video {
   display: block;

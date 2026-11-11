@@ -7,6 +7,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
+// The 3D viewer needs a GPU; here its place in the page is what matters.
+vi.mock("@google/model-viewer", () => {
+  customElements.define("model-viewer", class extends HTMLElement {
+    paused = true;
+    play() {}
+    pause() {}
+  });
+  return {};
+});
+
 // Inspect the expanded contents in presentation tests. Mount behavior is tested separately.
 const lazyDetailsPath = path.resolve("src/renderer/lazy-details.tsx");
 vi.doMock(lazyDetailsPath, () => ({
@@ -1486,7 +1496,7 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
   });
 
-  it("shows generated images only in their tool details, with enlargement and no trailing gallery", async () => {
+  it("shows a result small under the calls that made it, and not again under the response", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("IntersectionObserver", undefined);
     const fetchImage = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Blob(["image"], { type: "image/png" })));
@@ -1503,21 +1513,72 @@ describe("AgentTimeline", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
+    const thumbnail = 'button[aria-label="Open Generated image"]';
     try {
-      for (const activeTurnId of ["turn-1", undefined]) {
-        await act(async () => root.render(<AgentTimeline projectId="project-1" items={items} activeTurnId={activeTurnId} />));
-        await vi.waitFor(() => expect(container.querySelector('.tool-activity-details button[aria-label="Open Generated image"]')).not.toBeNull());
-        expect(container.querySelector(".tool-artifacts")).toBeNull();
-        expect(container.querySelector(".assistant-response img")).toBeNull();
-      }
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={items} activeTurnId="turn-1" />));
+      // Beside the calls, without opening them.
+      await vi.waitFor(() => expect(container.querySelector(`.active-work-items > .tool-artifact-strip ${thumbnail}`)).not.toBeNull());
+      expect(container.querySelector(`.tool-activity-group ${thumbnail}`)).toBeNull();
+      expect(container.querySelectorAll(thumbnail)).toHaveLength(1);
+      await act(async () => container.querySelector<HTMLButtonElement>(thumbnail)!.click());
+      await vi.waitFor(() => expect(document.querySelector('.image-preview img')?.getAttribute("src")).toMatch(/^blob:/));
+
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={items} />));
+      expect(container.querySelector(".assistant-response .tool-artifact-strip")).toBeNull();
+      expect(container.querySelector(".assistant-response img")).toBeNull();
       expect(fetchImage).toHaveBeenCalledWith("/api/projects/project-1/files/raw?path=generated%2Fimage.png", expect.anything());
       expect(container.querySelectorAll('button[aria-label="Copy response"]')).toHaveLength(1);
-      await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Generated image"]')!.click());
-      await vi.waitFor(() => expect(document.querySelector('.image-preview img')?.getAttribute("src")).toMatch(/^blob:/));
     } finally {
       await act(async () => root.unmount());
       container.remove();
       fetchImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("holds a place for each result still being made, opens a video in a dialog, and shows a model in its tile", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // Everything is on screen; happy-dom's own observer never reports.
+    vi.stubGlobal("IntersectionObserver", class {
+      readonly #callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+      observe(target: Element) { queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)); }
+      disconnect() {}
+    });
+    const fetchVideo = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Blob(["video"], { type: "video/mp4" })));
+    const call = (id: string, name: string, extra: Partial<ThreadItemOf<"dynamicToolCall">>): ThreadItem =>
+      ({ ...tool(), id, toolCallId: id, arguments: undefined, tool: name, ...extra });
+    const items: ThreadItem[] = [
+      user(),
+      call("video", "generate_video", { artifact: { type: "video", path: "generated/clip.mp4", mediaType: "video/mp4" } }),
+      call("made", "generate_3d_asset", { artifact: { type: "model", path: "generated/model.glb", mediaType: "model/gltf-binary" } }),
+      call("model", "generate_3d_asset", { status: "inProgress" }),
+      call("queued", "animate_3d_asset", { status: "preparing" }),
+      // Neither makes a picture, a video or a model.
+      call("audio", "generate_audio", { status: "preparing" }),
+      call("failed", "generate_image", { status: "failed" }),
+    ];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<AgentTimeline projectId="project-1" items={items} activeTurnId="turn-1" />));
+      expect(container.querySelectorAll(".tool-artifact-pending")).toHaveLength(2);
+      const open = 'button[aria-label="Open Generated video"]';
+      await vi.waitFor(() => expect(container.querySelector(open)).not.toBeNull());
+      expect(container.querySelector(`${open} video`)?.hasAttribute("controls")).toBe(false);
+      await act(async () => container.querySelector<HTMLButtonElement>(open)!.click());
+      const dialog = document.querySelector('[role="dialog"]')!;
+      expect(dialog.querySelector("h2")?.textContent).toBe("clip.mp4");
+      expect(dialog.querySelector("video")?.hasAttribute("controls")).toBe(true);
+      await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Close asset preview"]')!.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      // A model's tile shows the model, inside the button that opens it.
+      await vi.waitFor(() => expect(container.querySelector('button[aria-label="Open Generated 3D model"] model-viewer')).not.toBeNull());
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      fetchVideo.mockRestore();
       vi.unstubAllGlobals();
     }
   });
