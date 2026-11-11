@@ -80,6 +80,13 @@
         "objc-js": "1.6.0",
       },
     },
+    "packages/create-ohmygame-plugin": {
+      "name": "create-ohmygame-plugin",
+      "version": "2.3.0",
+      "bin": {
+        "create-ohmygame-plugin": "dist/create.mjs",
+      },
+    },
     "packages/games": {
       "name": "@ohmygame/games",
       "version": "0.0.0",
@@ -92,13 +99,20 @@
         "typescript": "^5.9.2",
       },
     },
+    "packages/plugin-cli": {
+      "name": "@ohmygame/plugin-cli",
+      "version": "2.3.0",
+      "bin": {
+        "ohmygame-plugin": "dist/cli.mjs",
+      },
+    },
     "packages/plugin-ui": {
       "name": "@ohmygame/plugin-ui",
-      "version": "1.0.0",
+      "version": "2.3.0",
     },
     "packages/sdk": {
       "name": "@ohmygame/sdk",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@colyseus/sdk": "^0.18.5",
       },
@@ -488,6 +502,8 @@
     "@noble/hashes": ["@noble/hashes@2.3.0", "", {}, "sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ=="],
 
     "@ohmygame/games": ["@ohmygame/games@workspace:packages/games"],
+
+    "@ohmygame/plugin-cli": ["@ohmygame/plugin-cli@workspace:packages/plugin-cli"],
 
     "@ohmygame/plugin-ui": ["@ohmygame/plugin-ui@workspace:packages/plugin-ui"],
 
@@ -1018,6 +1034,8 @@
     "core-util-is": ["core-util-is@1.0.3", "", {}, "sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ=="],
 
     "cors": ["cors@2.8.6", "", { "dependencies": { "object-assign": "^4", "vary": "^1" } }, "sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw=="],
+
+    "create-ohmygame-plugin": ["create-ohmygame-plugin@workspace:packages/create-ohmygame-plugin"],
 
     "cross-dirname": ["cross-dirname@0.1.0", "", {}, "sha512-+R08/oI0nl3vfPcqftZRpytksBXDzOUveBq/NBVx0sUp1axwzPQrKinNx5yd5sxPu8j1wIy8AfnVQ+5eFdha6Q=="],
 
