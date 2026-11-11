@@ -34,8 +34,8 @@ describe("OhMyGame system prompt", () => {
     // The SDK's own direct connections are allowed; a hand-made WebRTC stack is not.
     expect(text).toContain("built-in p2p option");
     expect(text).toContain("server/rules.ts");
-    expect(text).toContain("defineGame for a turn-based game");
-    expect(text).toContain("defineRealtimeGame for a realtime game such as multiplayer snake");
+    // Saves and multiplayer follow the identity line, briefly; their guides carry the rest.
+    expect(text.indexOf("You are OhMyGame")).toBeLessThan(text.indexOf("multiplayer_setup"));
     expect(text).toContain("needs no cloud deployment");
     expect(text).toContain("the workspace root");
     expect(text).toContain('a "dev" script and a "build" script');
