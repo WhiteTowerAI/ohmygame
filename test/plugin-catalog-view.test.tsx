@@ -67,6 +67,7 @@ beforeEach(() => {
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
       if (route === "/plugin-market") return Response.json(market);
+      if (route === "/settings/plugin-files") return Response.json({ base: init.method === "PUT" ? JSON.parse(String(init.body)).base : "https://cdn.jsdelivr.net/npm/" });
       if (route === "/plugin-market/avatars/42" || route === "/plugin-market/files") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
         const id = route.slice("/plugin-store/".length, -"/every-project".length);
@@ -150,7 +151,8 @@ describe("plugin catalog browsing", () => {
     expect(cards(sections[1])).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
     expect(cards(sections[2])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
     expect(cards(sections[3])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
-    expect(cards(sections[4])).toEqual(["New tool"]);
+    // The person's own are listed with the rest, to switch on and off.
+    expect(cards(sections[4])).toEqual(["Alpha", "New tool", "Zebra"]);
     // Each says where it is on, and switches that for every project. One
     // stopped everywhere from its page says so and has no switch.
     expect(sections[3].textContent).toContain("On in every project");
@@ -160,11 +162,13 @@ describe("plugin catalog browsing", () => {
     expect(unreal.querySelector('[role="switch"]')).toBeNull();
     expect(sections[0].querySelector('[aria-label="Turn Unity on in every project"]')?.getAttribute("aria-checked")).toBe("false");
 
-    // What the person made, or added from this computer, is theirs to edit, under Mine.
+    // What the person made, or added from this computer, is also under Mine, as a list to edit.
     await click("Mine");
     const mine = container.querySelector('section[aria-label="Your plugins"]')!;
     expect(cards(mine)).toEqual(["Alpha", "Zebra"]);
-    expect(mine.textContent).toContain("Create a plugin with AI");
+    expect(mine.querySelectorAll(".plugins-row")).toHaveLength(2);
+    expect(mine.querySelector('[role="switch"]')).toBeNull();
+    expect(container.querySelector(".plugins-create")?.textContent).toContain("Create a plugin with AI");
   });
 
   it("narrows to one category, offering only those something is in, under each category a plugin names", async () => {
@@ -182,7 +186,7 @@ describe("plugin catalog browsing", () => {
     await click("Publishing");
     expect(cards()).toContain("New tool");
     await click("Other");
-    expect(cards()).toEqual(["New tool"]);
+    expect(cards()).toEqual(["Alpha", "New tool", "Zebra"]);
   });
 
   it("expands and collapses an individual group", async () => {
@@ -190,8 +194,8 @@ describe("plugin catalog browsing", () => {
     await renderCatalog();
     const other = () => [...container.querySelectorAll(".plugins-section")].find((section) => section.querySelector("h2")?.textContent?.startsWith("Other"))!;
     expect(cards(other())).toHaveLength(6);
-    await click("View all (7)");
-    expect(cards(other())).toHaveLength(7);
+    await click("View all (9)");
+    expect(cards(other())).toHaveLength(9);
     await click("Show less");
     expect(cards(other())).toHaveLength(6);
     expect(cards()).toContain("Tiled");
@@ -216,7 +220,7 @@ describe("plugin catalog browsing", () => {
     expect(container.querySelectorAll(".plugins-section h2")).toHaveLength(0);
     expect(container.textContent).not.toContain("View all");
     await search("a");
-    expect(cards()).not.toContain("Alpha");
+    expect(cards()).toContain("Alpha");
     await click("Mine");
     expect(cards()).toContain("Alpha");
     await click("Installed");
@@ -346,13 +350,15 @@ describe("plugin catalog browsing", () => {
       // Over the list it belongs to.
       expect(cards(section("All plugins"))).toEqual(["Market picked"]);
       const side = dialog()!.querySelector('[aria-label="Information"]')!;
-      expect(side.textContent).toContain("@acme");
+      expect(dialog()!.querySelector(".plugin-publisher")?.textContent).toBe("@acme");
       expect(side.textContent).toContain("Art");
       expect(side.textContent).toContain("Web Game");
-      // Its version, size and dates are here rather than on its card.
-      expect(side.textContent).toContain("v1.0.0");
-      expect(side.textContent).toContain("Size1.5 MB");
       expect(side.textContent).toContain("First published");
+      // Its numbers are in one row: version, size and when it was updated.
+      const stats = dialog()!.querySelector(".plugin-dialog-stats")!.textContent;
+      expect(stats).toContain("Version1.0.0");
+      expect(stats).toContain("Size1.5 MB");
+      expect(stats).toContain("Updated");
       expect(dialog()!.textContent).toContain("Picks things.");
       expect(dialog()!.textContent).toContain("Run its own code on this computer");
       expect(dialog()!.querySelector(".plugin-store-adds")?.textContent).toContain("Panel1");
@@ -406,6 +412,16 @@ describe("plugin catalog browsing", () => {
       expect(cards(section("Featured"))).toEqual(["Market hit"]);
     });
 
+    it("sets where pictures come from in the market's settings, at the foot of the side list", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("picked")] };
+      await renderCatalog(undefined, "discover");
+      await click("Market settings");
+      await vi.waitFor(() => expect(dialog()?.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("jsDelivr"));
+      await act(async () => [...dialog()!.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "unpkg")!.click());
+      await vi.waitFor(() => expect(dialog()?.textContent).toContain("Saved"));
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith("/settings/plugin-files") && init?.method === "PUT" && String(init.body).includes("https://unpkg.com/"))).toBe(true);
+    });
+
     it("shows a long list a page at a time", async () => {
       market = { status: "ready", blocked: [], plugins: Array.from({ length: 30 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
       await renderCatalog(undefined, "discover");
@@ -445,8 +461,7 @@ describe("plugin catalog browsing", () => {
       expect(cards(section("Updates"))).toEqual(["Installed owned"]);
       const installedTab = [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Installed"))!;
       expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
-      // One added from this computer is the person's own, under Mine, and never updates from the market.
-      await click("Mine");
+      // One added from this computer is the person's own, and never updates from the market.
       expect(card("Installed local").textContent).not.toContain("Update available");
       await renderCatalog("acme/owned");
       await click("Update to 1.2.0");
@@ -503,7 +518,7 @@ describe("plugin catalog browsing", () => {
     ];
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Discover", "Installed", "Mine"]);
     expect(tabs[2].getAttribute("aria-selected")).toBe("true");
-    expect(container.querySelectorAll(".plugins-count")).toHaveLength(0);
+    expect(container.querySelector('[role="tablist"] .plugins-count')).toBeNull();
     tabs[2].focus();
     await act(async () =>
       tabs[2].dispatchEvent(
@@ -530,7 +545,8 @@ describe("plugin catalog browsing", () => {
     await pick("Contains", "Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
     expect(container.textContent).toContain("design-game");
-    expect(container.textContent).not.toContain("stripes");
+    // The person's own plugins' Skills too.
+    expect(container.textContent).toContain("stripes");
     expect(container.querySelector('[aria-label="Disable design-game"]')).toBeNull();
     await search("plan");
     expect(container.textContent).toContain("plan-game");

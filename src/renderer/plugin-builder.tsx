@@ -18,7 +18,7 @@ import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, Mo
   Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
-import { t } from "./i18n.js";
+import { language, t } from "./i18n.js";
 
 const RECENT_LIMIT = 8;
 
@@ -39,8 +39,8 @@ export function PluginBuilderSessions() {
   if (error) return <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} />;
   if (!sessions.length) return null;
   return <section className="plugins-section" aria-label={t("pluginBuilder.workspaces")}>
-    <h2>{t("pluginBuilder.continue")}</h2>
-    <div className="plugins-grid">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
+    <h2>{t("pluginBuilder.continue")}<span className="plugins-count">{sessions.length}</span></h2>
+    <div className="plugins-list">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
       onDeleted={() => setSessions(current => current.filter(item => item.id !== session.id))}
       onError={cause => setError(message(cause))} />)}</div>
   </section>;
@@ -62,13 +62,15 @@ function PluginBuilderSessionCard({ session, onDeleted, onError }: {
       setRemoving(false);
     });
   };
-  return <article className="plugin-card plugin-builder-session-card">
-    <a className="plugin-card-link" href={pluginBuilderHash(session.id)}>
+  const updated = new Date(session.updatedAt).toLocaleDateString(language, { month: "short", day: "numeric" });
+  return <article className="plugins-row plugin-builder-session-card">
+    <a className="plugins-row-main" href={pluginBuilderHash(session.id)}>
       <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}</span>
-      <span className="plugin-card-text">
-        <strong className="plugin-card-name">{workspaceTitle(session.title)}</strong>
+      <span className="plugins-row-text">
+        <strong><span className="plugin-card-name">{workspaceTitle(session.title)}</span></strong>
         <small>{t(`pluginBuilder.mode.${session.mode ?? "create"}`)} · {statusLabel(session.status)}</small>
       </span>
+      <span className="plugins-row-version">{updated}</span>
     </a>
     <DropdownMenu placement="bottom-end" items={[
       { label: t("common.delete"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },

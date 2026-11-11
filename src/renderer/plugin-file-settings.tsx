@@ -3,8 +3,7 @@ import { PLUGIN_FILE_MIRRORS } from "../shared/plugins.js";
 import { getPluginFileMirror, setPluginFileMirror } from "./api.js";
 import { t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
-import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
+import { Alert, Button, Dialog, Field, Input, SegmentedControl } from "./ui/index.js";
 
 type Choice = keyof typeof PLUGIN_FILE_MIRRORS | "custom";
 
@@ -12,11 +11,12 @@ const presetOf = (base: string): Choice =>
   (Object.keys(PLUGIN_FILE_MIRRORS) as (keyof typeof PLUGIN_FILE_MIRRORS)[]).find((key) => PLUGIN_FILE_MIRRORS[key] === base) ?? "custom";
 
 /**
- * Where the market's plugin icons and screenshots come from: jsDelivr, unpkg,
- * or the address of another CDN (or a proxy of one) for npm packages. A
- * preset applies when picked; an address when it's saved.
+ * Discover's settings, from the foot of its side list: where the market's
+ * plugin icons and screenshots come from. jsDelivr, unpkg, or the address of
+ * another CDN (or a proxy of one) for npm packages. A preset applies when
+ * picked; an address when it's saved.
  */
-export function PluginFileSettings() {
+export function PluginMarketSettingsDialog({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const generation = useReadyRuntimeGeneration();
   const [base, setBase] = useState<string>();
   const [choice, setChoice] = useState<Choice>("jsdelivr");
@@ -42,7 +42,8 @@ export function PluginFileSettings() {
       const saved = await setPluginFileMirror(next);
       setBase(saved.base);
       if (presetOf(saved.base) === "custom") setDraft(saved.base);
-      setNote({ tone: "success", text: t("network.saved") });
+      setNote({ tone: "success", text: t("pluginMarketSettings.saved") });
+      onSaved?.();
     } catch (cause) {
       setNote({ tone: "danger", text: errorText(cause) });
     } finally {
@@ -56,25 +57,26 @@ export function PluginFileSettings() {
     if (next !== "custom" && PLUGIN_FILE_MIRRORS[next] !== base) void save(PLUGIN_FILE_MIRRORS[next]);
   }
 
-  if (base === undefined) return note ? <SettingsNote tone={note.tone}>{note.text}</SettingsNote> : null;
   return (
-    <SettingsGroup title={t("network.pluginFiles.title")} description={t("network.pluginFiles.description")}>
-      <SettingsRow title={t("network.pluginFiles.source")}>
-        <SegmentedControl
-          size="sm"
-          label={t("network.pluginFiles.sourceLabel")}
-          value={choice}
-          onChange={pick}
-          options={[
-            { value: "jsdelivr", label: "jsDelivr", disabled: busy },
-            { value: "unpkg", label: "unpkg", disabled: busy },
-            { value: "custom", label: t("network.pluginFiles.custom"), disabled: busy },
-          ]}
-        />
-      </SettingsRow>
-      {choice === "custom" ? (
-        <form className="settings-pad settings-form" onSubmit={(event) => { event.preventDefault(); void save(draft); }}>
-          <Field label={t("network.pluginFiles.address")} hint={t("network.pluginFiles.addressHint", { example: "@scope/name@1.0.0/icon.svg" })}>
+    <Dialog open size="sm" onClose={onClose} title={t("pluginMarketSettings.title")}>
+      <form className="plugin-market-settings" onSubmit={(event) => { event.preventDefault(); void save(draft); }}>
+        <Field label={t("pluginMarketSettings.source")} hint={t("pluginMarketSettings.sourceHint")}>
+          {() => (
+            <SegmentedControl
+              size="sm"
+              label={t("pluginMarketSettings.source")}
+              value={choice}
+              onChange={pick}
+              options={[
+                { value: "jsdelivr", label: "jsDelivr", disabled: busy || base === undefined },
+                { value: "unpkg", label: "unpkg", disabled: busy || base === undefined },
+                { value: "custom", label: t("pluginMarketSettings.custom"), disabled: busy || base === undefined },
+              ]}
+            />
+          )}
+        </Field>
+        {choice === "custom" ? <>
+          <Field label={t("pluginMarketSettings.address")} hint={t("pluginMarketSettings.addressHint", { example: "@scope/name@1.0.0/icon.svg" })}>
             {(props) => (
               <Input
                 {...props}
@@ -89,15 +91,15 @@ export function PluginFileSettings() {
               />
             )}
           </Field>
-          <div className="settings-actions">
+          <div className="plugin-market-settings-actions">
             <Button variant="primary" type="submit" disabled={busy || !draft.trim() || draft.trim() === base}>
               {busy ? t("common.saving") : t("common.save")}
             </Button>
           </div>
-        </form>
-      ) : null}
-      {note ? <div className="settings-pad"><SettingsNote tone={note.tone} {...(note.tone === "success" ? { role: "status" as const } : {})}>{note.text}</SettingsNote></div> : null}
-    </SettingsGroup>
+        </> : null}
+        {note ? <Alert tone={note.tone === "success" ? "success" : "danger"} title={note.text} /> : null}
+      </form>
+    </Dialog>
   );
 }
 

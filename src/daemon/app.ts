@@ -859,11 +859,14 @@ export function createApp(options: AppOptions = {}) {
     }
     return undefined;
   };
+  let projectsSkipped = false;
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
     projectKind: projectKindAtFolder,
+    // Unknown while a project couldn't be loaded, since it may run an older version.
+    projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
     ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
@@ -1362,6 +1365,7 @@ export function createApp(options: AppOptions = {}) {
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+      projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(), pluginFileMirror.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));

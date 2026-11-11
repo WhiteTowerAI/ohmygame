@@ -33,8 +33,9 @@ label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
 that failed).
 
-- **Installed** holds what others made: bundled, prepared, and added from npm or
-  GitHub. A row of chips offers **All** and each category something here is
+- **Installed** holds every installed plugin: bundled, prepared, added from
+  npm, GitHub or this computer, and the person's own. It is where plugins are
+  switched on and off. A row of chips offers **All** and each category something here is
   in. Plugins with an update come first, under **Updates**, then a group for
   each category, each with up to six cards and a **View all**. A
   **Contains** filter narrows them to what they add; **Skills** lists each of
@@ -47,7 +48,9 @@ that failed).
   plugins**, each category with how many plugins it has, and two filters,
   **Official** and **Source verified**. The counts follow the search and
   filters, and a category nothing is in is left out. On a narrow window the
-  side list becomes a row above the cards.
+  side list becomes a row above the cards. At its foot, an icon opens the
+  market's settings: where icons and screenshots come from (see
+  [Market images](#the-plugin-market)).
   - **Overview** with more than twelve plugins is the same few rows however
     many there are (`marketFront`): **Featured** (picked by the index),
     **Recommended** (the market's score, below), **New** (first published in
@@ -62,17 +65,24 @@ that failed).
     last line has the publisher at the left, cut short if long, and the
     version and weekly downloads at the right.
   - A card opens the plugin in a dialog over the list, from the index alone:
-    its screenshots, long description, what it asks for and adds, and its
-    categories, project types, publisher (after their GitHub avatar), version,
-    size, when it was updated and first published, downloads and whether its
-    source is verified. The
-    dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
+    its description and publisher (after their GitHub avatar); a row of its
+    numbers, as an app store shows them (weekly downloads, stars, version,
+    size, when it was updated); its screenshots, long description (**About**),
+    what it adds and asks for; and its categories, project types, first
+    publish, npm package and repository, with whether its source is verified.
+    It doesn't load the package's README: that is written for developers,
+    often only in English, and would need its Markdown and pictures made safe;
+    the manifest's localized `longDescription` and screenshots are the page,
+    and the npm link leads to the README. The dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
     the listed version, or **Manage** for an installed plugin, which opens its
     page. A link to a plugin that isn't installed opens the same dialog over
     Discover.
-- **Mine** holds what the person can edit: **Create a plugin with AI**, the
-  plugins they made (`personal/<name>`) or added from this computer, then the AI
-  workspaces.
+- **Mine** is for making plugins: **Create a plugin with AI** across the top,
+  then two lists. **Your plugins** are those they made (`personal/<name>`) or
+  added from this computer, each a row with its version that opens its page,
+  and **Edit with AI** for one they made; they're switched on and off under
+  Installed with the rest. **AI workspaces** are the builder's conversations,
+  each with when it was last changed.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -337,7 +347,7 @@ was opened.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/daemon/plugin-file-mirror.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-file-settings.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/daemon/plugin-file-mirror.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-file-settings.tsx` (the market settings dialog), `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -610,8 +620,12 @@ as any package is checked.
   game conversation, allows nothing: what it asks for is allowed when the
   person turns it on. A plugin that only adds Skills asks for nothing and
   applies right away.
-- A new version of a plugin that only adds Skills replaces its older versions.
-  Any other keeps them for the projects that name them.
+- A new version replaces its older versions, whether it comes from the builder
+  or is added again: one that only adds Skills replaces them all, and any
+  other keeps only those a project still runs (`PluginServices`
+  `projectFolders`). A newer version is never removed by installing an older
+  one. When a project or its file can't be read, every older version is kept,
+  since it might name one.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.
@@ -689,7 +703,7 @@ the plugin's page.
   market version came from npm instead, so updates are looked for there.
 - Adding a package allows what its review showed it asks for, and turns it on in
   every project unless the person chose otherwise before. One that only adds
-  Skills asks for nothing; it replaces its older versions.
+  Skills asks for nothing. A new version replaces older ones no project runs.
 - A package joins an installed plugin only from the same source: the same npm
   scope or GitHub repository. npm and npmmirror count as one source; another
   registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
@@ -809,8 +823,8 @@ nothing is read.
   read from a CDN that serves npm packages' files at
   `<base><package>@<version>/<path>`, at the version the index lists:
   jsDelivr by default, or unpkg or another address (HTTPS, or HTTP on this
-  computer) under Settings › Network › Plugin market images
-  (`GET`/`PUT /settings/plugin-files`, kept in `plugin-file-mirror.json`;
+  computer) in the market's settings, from the foot of Discover's side list
+  (`PluginMarketSettingsDialog`; `GET`/`PUT /settings/plugin-files`, kept in `plugin-file-mirror.json`;
   `src/daemon/plugin-file-mirror.ts`). npmmirror isn't offered: it serves the
   files of allowlisted packages only. `GET /plugin-market/files?package=&version=&path=`
   serves only the icon or a screenshot the current index lists for that

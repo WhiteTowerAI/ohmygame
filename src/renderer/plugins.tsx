@@ -6,17 +6,18 @@ import { useEffect, useState, type ReactNode } from "react";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, StorePluginRow, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { PluginAddDialog } from "./plugin-add-dialog.js";
+import { PluginMarketSettingsDialog } from "./plugin-file-settings.js";
 import { Alert, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
-/** The person's own: one they made, or one added from this computer. Installed plugins get updates; these get edited. */
+/** The person's own: one they made, or one added from this computer. Installed lists them with the rest; Mine is where they're edited. */
 const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || (!plugin.bundled && !plugin.preinstalled && !plugin.origin);
 
 export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
@@ -49,6 +50,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [kind, setKind] = useState<PluginContribution | "all">("all");
   const [marketSection, setMarketSection] = useState<MarketSection>("home");
   const [only, setOnly] = useState<MarketOnly[]>([]);
+  const [marketSettings, setMarketSettings] = useState(false);
+  // Changing where pictures come from draws the cards again, to read them from there.
+  const [pictures, setPictures] = useState(0);
   const [installedCategory, setInstalledCategory] = useState<CatalogFilter>("all");
   const [sort, setSort] = useState<MarketSort>("recommended");
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
@@ -116,8 +120,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
   const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
     onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
-  const others = groups.filter(({ plugin }) => !isMine(plugin));
-  const updatable = others.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
+  // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
+  const updatable = groups.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
     { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
@@ -137,23 +141,23 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     <div className="plugins-filters-end">{controls}</div>
   </div>;
 
-  // Installed: what others made, by what it is for. Skills are a kind of content, so they are a filter here.
-  const installable = matching.filter(({ plugin }) => !isMine(plugin) && (kind === "all" || storePluginContributions(plugin).includes(kind)));
+  // Installed: every plugin, by what it is for. Skills are a kind of content, so they are a filter here.
+  const installable = matching.filter(({ plugin }) => kind === "all" || storePluginContributions(plugin).includes(kind));
   const installed = installable.filter(({ plugin }) => inCatalogCategory(plugin.categories, installedCategory));
-  const matchingSkills = kind === "skills" ? others.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })))
+  const matchingSkills = kind === "skills" ? groups.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })))
     .filter(({ plugin, skill }) => `${skill.name} ${skill.description} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery)) : [];
   const skills = matchingSkills.filter(({ plugin }) => inCatalogCategory(plugin.categories, installedCategory));
   // Updates come first only on the whole list; a filtered one shows them in place.
   const toUpdate = normalizedQuery || kind !== "all" || installedCategory !== "all" ? []
-    : others.filter(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
+    : groups.filter(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const installedTab = <>
     {toUpdate.length ? <section className="plugins-section plugins-updates" aria-label={t("pluginCatalog.updates")}>
       <h2>{t("pluginCatalog.updates")}<span className="plugins-count">{toUpdate.length}</span></h2>
       <div className="plugins-grid">{toUpdate.map(card)}</div>
     </section> : null}
-    {others.length ? toolbar(
+    {groups.length ? toolbar(
       <CategoryChips items={(kind === "skills" ? matchingSkills : installable).map(({ plugin }) => plugin.categories)} value={installedCategory} onChange={setInstalledCategory} />,
-      kindFilter(kind, setKind, [...new Set(others.flatMap(({ plugin }) => storePluginContributions(plugin)))]),
+      kindFilter(kind, setKind, [...new Set(groups.flatMap(({ plugin }) => storePluginContributions(plugin)))]),
     ) : null}
     {kind === "skills" ? skills.length
       ? <div className="plugins-grid">{skills.map(({ plugin, skill }) => <StoreSkillCard key={`${plugin.id}:${skill.id}`} plugin={plugin} skill={skill} onOpen={() => onPluginChange(plugin.id)} />)}</div>
@@ -194,8 +198,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
     {marketPlugins.length ? <div className="plugins-browse">
-      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} />
-      <div className="plugins-browse-main">
+      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} onSettings={() => setMarketSettings(true)} />
+      <div className="plugins-browse-main" key={pictures}>
         {front ? <>
           {row(t("plugins.marketFeatured"), front.featured)}
           {row(t("pluginCatalog.sort.recommended"), front.recommended, "recommended")}
@@ -222,22 +226,22 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </div>} />}
   </>;
 
-  // Mine: what the person can edit: a new one with AI, the AI workspaces, and their own plugins.
+  // Mine: what the person makes: a new plugin with AI, their own plugins, and the AI workspaces, each a list.
   const mine = matching.filter(({ plugin }) => isMine(plugin));
   const mineTab = <>
-    <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
-      <h2>{t("plugins.minePlugins")}</h2>
-      <div className="plugins-grid">
-        <button type="button" className="plugin-card plugin-card-create" onClick={createWithAi}>
-          <span className="plugin-tile"><Sparkles size={18} /></span>
-          <span className="plugin-card-text">
-            <strong>{t("plugins.createPluginWithAi")}</strong>
-            <small>{t("plugins.createWithAiHint")}</small>
-          </span>
-        </button>
-        {mine.map(card)}
-      </div>
-    </section>
+    <div className="plugins-create">
+      <span className="plugin-tile"><Sparkles size={18} /></span>
+      <span className="plugins-row-text">
+        <strong>{t("plugins.createPluginWithAi")}</strong>
+        <small>{t("plugins.createWithAiHint")}</small>
+      </span>
+      <Button variant="primary" icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
+    </div>
+    {mine.length ? <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
+      <h2>{t("plugins.minePlugins")}<span className="plugins-count">{mine.length}</span></h2>
+      <div className="plugins-list">{mine.map((group) => <StorePluginRow key={group.plugin.id} group={group}
+        onOpen={() => onPluginChange(group.plugin.id)} onError={(cause) => setError(errorMessage(cause))} />)}</div>
+    </section> : null}
     <PluginBuilderSessions />
   </>;
 
@@ -284,6 +288,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {shown && !adding ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
       onGet={() => setAdding(shown)}
       onManage={() => { setPreview(undefined); onPluginChange(shown.id); }} /> : null}
+    {marketSettings ? <PluginMarketSettingsDialog onClose={() => setMarketSettings(false)} onSaved={() => setPictures((count) => count + 1)} /> : null}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}

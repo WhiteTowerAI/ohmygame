@@ -4,7 +4,7 @@ import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../s
 import type { MarketPlugin } from "../shared/plugins.js";
 import { readPluginMarketAvatar, readPluginMarketFile } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, Download, ExternalLink } from "./icons.js";
+import { Check, Download, ExternalLink, SlidersHorizontal } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -12,7 +12,7 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Button, Dialog, FilterChips, Select } from "./ui/index.js";
+import { Button, Dialog, FilterChips, IconButton, Select } from "./ui/index.js";
 
 // What the Plugins page browses by: the categories plugins name, how the
 // market is sorted, and the market's cards and pages. A plugin may name up to
@@ -253,13 +253,15 @@ export type MarketOnly = "official" | "verified";
 export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
   (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
 
-export function MarketRail({ plugins, section, onSection, only, onOnly }: {
+export function MarketRail({ plugins, section, onSection, only, onOnly, onSettings }: {
   /** What the search and filters leave, to count. */
   plugins: readonly MarketPlugin[];
   section: MarketSection;
   onSection: (section: MarketSection) => void;
   only: readonly MarketOnly[];
   onOnly: (only: MarketOnly[]) => void;
+  /** Opens the market's settings, from the foot of the list. */
+  onSettings: () => void;
 }): ReactNode {
   const counts = new Map(CATALOG_CATEGORIES.map((category) => [category, plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length]));
   const item = (value: MarketSection, label: string, count?: number) =>
@@ -283,6 +285,9 @@ export function MarketRail({ plugins, section, onSection, only, onOnly }: {
     <h3>{t("pluginCatalog.showOnly")}</h3>
     {filter("official", t("plugins.official"))}
     {filter("verified", t("plugins.sourceVerified"))}
+    <div className="plugins-rail-foot">
+      <IconButton size="sm" label={t("pluginMarketSettings.open")} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
+    </div>
   </nav>;
 }
 
@@ -333,7 +338,12 @@ function marketAddRows(adds: Record<string, number>): PluginAddRow[] {
   return Object.entries(labels).flatMap(([key, kind]) => (adds[key] ? [{ id: key, kind, title: String(adds[key]) }] : []));
 }
 
-/** A plugin on the market, over the list it was opened from: what the index says about it. */
+/**
+ * A plugin on the market, over the list it was opened from: what the index
+ * says about it. Its name, what it is and who publishes it come first, then
+ * its numbers in one row, as an app store shows them, its screenshots and
+ * description, what it adds and asks for, and where it comes from.
+ */
 export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage }: {
   plugin: MarketPlugin;
   installed: boolean;
@@ -348,11 +358,18 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   const worksWith = appliesToLabels(plugin.appliesTo);
   const date = (value: string | undefined) => {
     const time = value ? new Date(value) : undefined;
-    return time && !Number.isNaN(time.getTime()) ? time.toLocaleDateString(language) : undefined;
+    return time && !Number.isNaN(time.getTime()) ? time.toLocaleDateString(language, { year: "numeric", month: "short", day: "numeric" }) : undefined;
   };
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
   const shots = useMarketFiles(plugin, (plugin.screenshots ?? []).map((shot) => shot.path));
+  const stats = [
+    plugin.weeklyDownloads !== undefined ? { label: t("pluginCatalog.weekly"), value: compact.format(plugin.weeklyDownloads) } : undefined,
+    plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,
+    { label: t("plugins.version"), value: plugin.version },
+    plugin.size !== undefined ? { label: t("pluginCatalog.size"), value: formatBytes(plugin.size) } : undefined,
+    updated ? { label: t("pluginCatalog.updated"), value: updated } : undefined,
+  ].filter((stat): stat is { label: string; value: string } => Boolean(stat));
   return <Dialog open size="lg" onClose={onClose}
     title={<span className="plugin-dialog-title">{plugin.displayName}<MarketBadges plugin={plugin} installed={installed} /></span>}>
     <div className="plugin-dialog">
@@ -360,19 +377,22 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
         <MarketTile plugin={plugin} large />
         <div className="plugin-dialog-summary">
           <p>{plugin.description}</p>
-          <span className="plugins-meta">
-            <Publisher plugin={plugin} />
-            {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
-          </span>
+          <Publisher plugin={plugin} />
         </div>
         {installed ? <Button onClick={onManage}>{t("pluginCatalog.manage")}</Button>
           : <Button variant="primary" onClick={onGet}>{t("pluginCatalog.get")}</Button>}
       </div>
+      <dl className="plugin-dialog-stats">
+        {stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}
+      </dl>
       <PluginScreenshots shots={(plugin.screenshots ?? []).flatMap((shot, index) => {
         const src = shots[index];
         return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
       })} />
-      {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
+      {plugin.longDescription ? <section className="plugins-section" aria-label={t("plugins.about")}>
+        <h2>{t("plugins.about")}</h2>
+        <p className="plugin-long">{plugin.longDescription}</p>
+      </section> : null}
       {rows.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
         <h2>{t("pluginStore.adds")}</h2>
         <PluginAddsList rows={rows} />
@@ -384,23 +404,17 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
       <section className="plugins-section" aria-label={t("pluginCatalog.information")}>
         <h2>{t("pluginCatalog.information")}</h2>
         <dl className="plugin-props plugin-dialog-props">
-          <dt>{t("pluginCatalog.publisher")}</dt>
-          <dd>{publisherName(plugin)}</dd>
-          <dt>{t("plugins.version")}</dt>
-          <dd className="plugins-mono">v{plugin.version}</dd>
-          {plugin.size !== undefined ? <><dt>{t("pluginCatalog.size")}</dt><dd>{formatBytes(plugin.size)}</dd></> : null}
-          {updated ? <><dt>{t("pluginCatalog.updated")}</dt><dd>{updated}</dd></> : null}
-          {created && created !== updated ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
+          <dt>{t("pluginCatalog.categoriesLabel")}</dt>
+          <dd>{categories.length ? categories.map(categoryLabel).join(" · ") : categoryLabel("other")}</dd>
+          <dt>{t("pluginCatalog.worksWith")}</dt>
+          <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
+          {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
           <dt>{t("pluginStore.npmPackage")}</dt>
           <dd><a href={`https://www.npmjs.com/package/${plugin.package}`} target="_blank" rel="noreferrer">{plugin.package}<ExternalLink size={11} /></a></dd>
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>
             <a href={plugin.repository} target="_blank" rel="noreferrer">{plugin.repository.replace("https://github.com/", "")}<ExternalLink size={11} /></a>
             <span className="plugins-note">{t(plugin.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</span>
           </dd></> : null}
-          {plugin.stars !== undefined ? <><dt>{t("pluginCatalog.stars")}</dt><dd>★ {compact.format(plugin.stars)}</dd></> : null}
-          {categories.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{categories.map(categoryLabel).join(" · ")}</dd></> : null}
-          <dt>{t("pluginCatalog.worksWith")}</dt>
-          <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
         </dl>
       </section>
     </div>

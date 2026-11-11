@@ -99,7 +99,7 @@ describe("Plugin library", () => {
     expect(cards.filter(card => card.querySelector(".ui-badge"))).toEqual([betaCard]);
   });
 
-  it("groups others' plugins by category, and keeps the person's own under Mine", async () => {
+  it("groups every plugin by category, and lists the person's own under Mine too", async () => {
     await act(async () =>
       root.render(
         <PluginsSettings
@@ -111,7 +111,8 @@ describe("Plugin library", () => {
     );
     expect(section("Other").textContent).toContain("Studio");
     expect(section("Other").textContent).toContain("Community Review");
-    expect(section("Other").textContent).not.toContain("My Notes");
+    // Their own is switched on and off with the rest.
+    expect(section("Other").textContent).toContain("My Notes");
     const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Turn Studio on in every project"]')!;
     await act(async () => toggle().click());
     expect(saved).toEqual({ on: false });
@@ -120,12 +121,12 @@ describe("Plugin library", () => {
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === "Mine")!.click());
     expect(section("Your plugins").querySelectorAll(".plugin-card-name")).toHaveLength(1);
     expect(section("Your plugins").textContent).toContain("My Notes");
-    expect(section("Your plugins").textContent).toContain("Create a plugin with AI");
+    expect(container.querySelector(".plugins-create")?.textContent).toContain("Create a plugin with AI");
     // The AI workspaces follow the person's plugins.
     expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Edit My Notes");
   });
 
-  it("shows AI workspaces as cards and asks before deleting one", async () => {
+  it("lists AI workspaces and asks before deleting one", async () => {
     await act(async () => root.render(<PluginBuilderSessions />));
     expect(container.querySelector(".plugin-builder-session-card")).not.toBeNull();
     const actions = container.querySelector<HTMLButtonElement>(

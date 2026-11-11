@@ -11,7 +11,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -142,6 +142,8 @@ export interface PluginServicesOptions {
   projectKind?: PluginScope["kind"];
   /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
   safeMode?: boolean;
+  /** The person's project folders, so a new version can replace the older ones none of them uses; undefined when some couldn't be read. */
+  projectFolders?: () => readonly string[] | undefined;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
@@ -197,6 +199,7 @@ export class PluginServices {
   #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
   readonly #projectKind: PluginScope["kind"];
+  readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
@@ -228,6 +231,7 @@ export class PluginServices {
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);
     this.#projectKind = options.projectKind;
+    this.#projectFolders = options.projectFolders;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
@@ -826,7 +830,7 @@ export class PluginServices {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    return this.#replacingAppWide(await this.installManaged(source, options));
+    return this.#replacingOlder(await this.installManaged(source, options));
   }
 
   /**
@@ -845,14 +849,37 @@ export class PluginServices {
       await this.grants.setEveryProject(entry.id, true);
       await this.changed();
     }
-    return this.#replacingAppWide(entry);
+    return this.#replacingOlder(entry);
   }
 
-  /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
-  async #replacingAppWide(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
-    if (isAppWidePlugin(entry.manifest))
-      for (const older of this.index.versions(entry.id))
-        if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);
+  /**
+   * A new version replaces its older versions. A plugin that only adds Skills
+   * replaces every other; any other replaces only older ones no project still
+   * runs, as one that names an older version keeps it. When a project or its
+   * plugins can't be read, every older version is kept.
+   */
+  async #replacingOlder(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
+    const skillsOnly = isAppWidePlugin(entry.manifest);
+    const others = this.index.versions(entry.id).filter((item) => skillsOnly
+      ? item.version !== entry.version && isAppWidePlugin(item.manifest)
+      : isNewerPluginVersion(entry.version, item.version));
+    const used = new Set<string>();
+    let known = true;
+    if (!skillsOnly && others.length) {
+      const folders = this.#projectFolders?.();
+      known = Boolean(folders);
+      for (const folder of folders ?? []) {
+        const resolved = await this.resolve(folder).catch(() => undefined);
+        if (!resolved?.ok) { known = false; break; }
+        const state = resolved.plugins.find((item) => item.id === entry.id);
+        if (state) used.add(state.version);
+      }
+    }
+    for (const item of others) {
+      // Never the last one: something else may have removed the new version meanwhile.
+      if (!this.index.get(entry.id, entry.version)) break;
+      if (skillsOnly || (known && !used.has(item.version))) await this.uninstall(entry.id, item.version);
+    }
     return entry;
   }
 
