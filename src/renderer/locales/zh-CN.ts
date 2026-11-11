@@ -30,6 +30,7 @@ const zhCN: typeof en = {
     "sampleRate": "采样率",
     "bitRate": "比特率",
     "targetDuration": "目标时长（秒）",
+    "duration": "时长",
     "promptLimit": "合并后的提示词最多 {{count}} 个字符。",
     "needVoice": "请先选择音色或配置默认音色。",
     "sectionId": "语义连续分组",

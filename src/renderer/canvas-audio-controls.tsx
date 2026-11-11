@@ -11,6 +11,7 @@ import {
 } from "../shared/audio.js";
 import { listAudioVoices, MODELS_CHANGED_EVENT } from "./api.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample, VoiceSample } from "./doubao-voices.js";
+import { ChevronDown } from "./icons.js";
 import { language as uiLanguage, t } from "./i18n.js";
 import { Disclosure } from "./ui/index.js";
 
@@ -75,15 +76,28 @@ export function audioSettingsIssue(
   if (option) return t("audioStudio.voiceUnsupported", { option });
 }
 
+/** Whether a model has low-frequency controls worth opening from the tune menu. */
+export function audioHasAdvancedSettings(model?: AudioModel): boolean {
+  const caps = model?.capabilities;
+  if (!caps) return false;
+  const sampleRates = Object.values(caps.sampleRatesByFormat ?? {}).flat();
+  return Boolean(
+    caps.supportsSpeechOptions || caps.supportsSSML || caps.supportsPitch || caps.supportsVolume || caps.supportsStyle
+    || (caps.languages?.length ?? 0) > 0 || caps.formats.length > 1 || new Set(sampleRates).size > 1,
+  );
+}
+
 /** Voices listed from the provider's account, searched and paged on demand. */
 function ProviderVoicePicker({
   provider,
   value,
   onChange,
+  compact = false,
 }: {
   provider: string;
   value?: string;
   onChange(voiceId: string | undefined): void;
+  compact?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [voices, setVoices] = useState<AudioVoice[]>([]);
@@ -132,6 +146,18 @@ function ProviderVoicePicker({
   };
   // A saved voice outside the loaded page stays selectable by id.
   const missing = value && !voices.some((voice) => voice.id === value);
+  if (compact) return (
+    <div className="canvas-chip audio-quick-voice">
+      <span>{t("assetCanvas.voice.label")}</span>
+      <select aria-label={t("assetCanvas.voice.label")} value={value ?? ""} disabled={loading} onChange={(event) => onChange(event.target.value || undefined)}>
+        <option value="">{t("assetCanvas.voice.choose")}</option>
+        {missing ? <option value={value}>{value}</option> : null}
+        {voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
+      </select>
+      <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
+      <VoiceSample url={voices.find((voice) => voice.id === value)?.previewUrl} className="audio-icon-button" />
+    </div>
+  );
   return (
     <div className="audio-control-wide audio-provider-voices">
       <label className="audio-voice-picker">
@@ -162,12 +188,61 @@ function ProviderVoicePicker({
   );
 }
 
+/** The controls people commonly change while generating. Less frequent options live behind the tune icon. */
+export function CanvasAudioQuickControls({ value, model, listsVoices, disabled, onChange }: {
+  value: AudioSettings;
+  model?: AudioModel;
+  listsVoices?: boolean;
+  disabled?: boolean;
+  onChange(value: Partial<AudioSettings>): void;
+}) {
+  const [speedOpen, setSpeedOpen] = useState(false);
+  const caps = model?.capabilities;
+  const speaks = Boolean(caps?.produces.includes("speech"));
+  const min = caps?.speedRange?.[0] ?? -50, max = caps?.speedRange?.[1] ?? 100;
+  return <>
+    {caps?.supportsSpeaker && listsVoices && model ? <ProviderVoicePicker compact provider={model.provider} value={value.voiceId} onChange={(voiceId) => onChange({ voiceId, voiceKind: undefined, voiceModel: undefined })} /> : null}
+    {caps?.supportsSpeaker && !listsVoices ? <div className="canvas-chip audio-quick-voice">
+      <span>{t("assetCanvas.voice.label")}</span>
+      <select aria-label={t("assetCanvas.voice.label")} value={value.voiceId ?? ""} disabled={disabled} onChange={(event) => onChange({ voiceId: event.target.value || undefined, voiceKind: "preset", voiceModel: undefined })}>
+        <option value="">{t("assetCanvas.voice.default")}</option>
+        <DoubaoVoiceOptions />
+      </select>
+      <ChevronDown className="audio-quick-chevron" size={12} aria-hidden="true" />
+      <DoubaoVoiceSample voiceId={value.voiceId} className="audio-icon-button" />
+    </div> : null}
+    {speaks ? <div className="audio-quick-speed-menu nodrag nowheel">
+      <button className="canvas-chip audio-quick-speed" type="button" disabled={disabled} aria-expanded={speedOpen} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSpeedOpen((open) => !open)}>
+        <span>{t("audioStudio.speed")} · {(1 + (value.speed ?? 0) / 100).toFixed(1)}×</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      {speedOpen ? <div className="audio-quick-speed-popover">
+        <span>{t("audioStudio.speed")}</span>
+        <input
+          aria-label={t("audioStudio.speed")}
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={value.speed ?? 0}
+          disabled={disabled}
+          onChange={(event) => onChange({ speed: Number(event.target.value) })}
+        />
+        <output>{(1 + (value.speed ?? 0) / 100).toFixed(1)}×</output>
+      </div> : null}
+    </div> : null}
+  </>;
+}
+
 export function CanvasAudioControls({
   value,
   model,
   listsVoices,
   disabled,
   onChange,
+  quick = false,
+  popover = false,
+  inline = false,
 }: {
   value: AudioSettings;
   model?: AudioModel;
@@ -175,6 +250,12 @@ export function CanvasAudioControls({
   listsVoices?: boolean;
   disabled?: boolean;
   onChange(value: Partial<AudioSettings>): void;
+  /** Speaker and speed are already shown in the node's compact control row. */
+  quick?: boolean;
+  /** Render directly inside the tune popover rather than in the legacy disclosure. */
+  popover?: boolean;
+  /** Expand directly beneath the node controls instead of opening a floating panel. */
+  inline?: boolean;
 }) {
   const [customVoice, setCustomVoice] = useState(false);
   const caps = model?.capabilities,
@@ -205,9 +286,7 @@ export function CanvasAudioControls({
       />
     </label>
   );
-  return (
-    <Disclosure variant="section" className="canvas-audio-options nodrag nopan nokey" summary={t("audioStudio.options")}>
-      <fieldset disabled={disabled}>
+  const fields = <fieldset disabled={disabled}>
         {caps && hasUnsupportedOptions(value, caps) ? (
           <button
             type="button"
@@ -227,13 +306,13 @@ export function CanvasAudioControls({
             {t("audioStudio.clearUnsupported")}
           </button>
         ) : null}
-        {caps?.supportsSpeaker && listsVoices && model ? (
+        {!quick && caps?.supportsSpeaker && listsVoices && model ? (
           <ProviderVoicePicker
             provider={model.provider}
             value={value.voiceId}
             onChange={(voiceId) => onChange({ voiceId, voiceKind: undefined, voiceModel: undefined })}
           />
-        ) : caps?.supportsSpeaker ? (
+        ) : !quick && caps?.supportsSpeaker ? (
           <>
             <label className="audio-control-wide audio-voice-picker">
               {t("assetCanvas.voice.label")}
@@ -311,7 +390,7 @@ export function CanvasAudioControls({
           </>
         ) : null}
         <div className="audio-control-adjustments">
-          {speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
+          {!quick && speaks ? control("speed", caps?.speedRange?.[0] ?? -50, caps?.speedRange?.[1] ?? 100, t("audioStudio.speed")) : null}
           {caps?.supportsPitch
             ? control("pitch", -12, 12, t("audioStudio.pitch"))
             : null}
@@ -512,7 +591,8 @@ export function CanvasAudioControls({
             </div>
           </Disclosure>
         ) : null}
-      </fieldset>
-    </Disclosure>
-  );
+      </fieldset>;
+  if (popover) return <div className={`canvas-audio-options is-popover${tts ? " is-scrollable" : ""} nodrag nopan nokey`}><h3>{t("audioStudio.options")}</h3>{fields}</div>;
+  if (inline) return <section className="canvas-audio-options is-inline nodrag nopan nokey"><h3>{t("audioStudio.options")}</h3>{fields}</section>;
+  return <Disclosure variant="section" className="canvas-audio-options nodrag nopan nokey" summary={t("audioStudio.options")}>{fields}</Disclosure>;
 }
