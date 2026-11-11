@@ -37,7 +37,8 @@
  * is taken on a power-of-two canvas of at most 1024 pixels, peaks are searched
  * between 15% and 185% of the centre, and grid lines move up to a third of a
  * cell. Unlike the demo, grid lines always reach the left and top edges, and an
- * image without a measurable grid is reported rather than given an 8-pixel grid.
+ * image without a measurable grid, or whose grid has fewer than 16 cells or
+ * cells under 4 pixels, is reported rather than given an 8-pixel grid.
  */
 
 export interface RgbaImage {
@@ -55,6 +56,14 @@ export interface PerfectPixelResult extends RgbaImage {
 const MIN_SIZE = 4;
 const MAX_PIXEL_SIZE = 20;
 const MAX_RATIO = 1.5;
+/**
+ * Fewest cells along the longer side. Edge spacing, the fallback when the
+ * spectrum gives no usable size, is not range-checked by the library: panel
+ * dividers and frames in a character sheet can make it report cells of 80+
+ * pixels and a 12×9 result. Coarse 32-pixel art on a 1024 canvas (32-pixel
+ * cells, above the spectrum's 20-pixel limit) still passes.
+ */
+const MIN_CELLS = 16;
 const PEAK_WIDTH = 6;
 const REFINE_INTENSITY = 1 / 3;
 const FFT_MAX_SIDE = 1024;
@@ -136,6 +145,7 @@ function detectGridScale(gray: Float32Array, width: number, height: number): { g
   const pixelSize = pixelX / pixelY > MAX_RATIO || pixelY / pixelX > MAX_RATIO
     ? Math.min(pixelX, pixelY)
     : (pixelX + pixelY) / 2;
+  if (!Number.isFinite(pixelSize) || pixelSize < MIN_SIZE || Math.max(width, height) / pixelSize < MIN_CELLS) return undefined;
   return { gridWidth: Math.round(width / pixelSize), gridHeight: Math.round(height / pixelSize) };
 }
 

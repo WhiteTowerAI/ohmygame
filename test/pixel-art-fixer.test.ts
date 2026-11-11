@@ -118,3 +118,29 @@ it("places grid lines up to the left edge when cells are smaller than estimated"
   expect(lines[0]).toBeLessThanOrEqual(0);
   expect(lines.at(-1)).toBeGreaterThanOrEqual(660);
 });
+
+/** Blocks of random colours with slightly soft edges, like generated pixel art. */
+async function softBlocks(columns: number, rows: number, cell: number): Promise<Buffer> {
+  let state = 11;
+  const colours = Array.from({ length: columns * rows }, () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return [(state >>> 8) & 0xe0, (state >>> 16) & 0xe0, (state >>> 24) & 0xe0, 255];
+  });
+  const width = columns * cell;
+  const height = rows * cell;
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) data.set(colours[Math.floor(y / cell) * columns + Math.floor(x / cell)]!, (y * width + x) * 4);
+  return sharp(data, { raw: { width, height, channels: 4 } }).blur(1.2).png().toBuffer();
+}
+
+it("keeps coarse pixel art whose cells are larger than the spectrum allows", async () => {
+  // 32×32 logical pixels on a 1024 canvas: 32-pixel cells.
+  const result = await fixPixelArt(await softBlocks(32, 32, 32));
+  expect(result.width / 32).toBe(Math.round(result.width / 32));
+  expect(result.width / Math.round(result.width / 32)).toBe(32);
+});
+
+it("refuses a grid with too few cells, such as panels of a character sheet", async () => {
+  await expect(fixPixelArt(await softBlocks(12, 9, 128))).rejects.toMatchObject({ statusCode: 422 });
+});

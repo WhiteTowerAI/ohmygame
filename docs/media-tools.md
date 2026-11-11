@@ -28,7 +28,10 @@ common real colour, while hair shading, eye colours, and highlights stay. As in 
 short side under 64 pixels are first enlarged by a whole number and images
 longer than 1024 pixels are reduced to 1024 by sampling the four nearest
 pixels. The spectrum estimate is used only when cells measure 4–20 working
-pixels; otherwise edge spacing decides. Alpha becomes fully transparent or
+pixels; otherwise edge spacing decides. Unlike the library, an edge-spacing
+result also needs at least 16 cells along the longer side and cells of at
+least 4 pixels: dividers and frames in a character sheet can otherwise yield a
+12 × 9 result. Coarse 32 × 32 art on a 1024 canvas still passes. Alpha becomes fully transparent or
 opaque, and the result is enlarged with nearest-neighbour scaling to about the
 source size. An image in which no grid can be found, such as a flat colour, is
 refused with an error, where the web demo would assume 8-pixel cells. Images
