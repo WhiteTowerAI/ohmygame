@@ -3,15 +3,18 @@ import express from "express";
 import { matchMaker, Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  describeProtocolMismatch,
   isMultiplayerManifestConfig,
   isRecord,
+  MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE,
   multiplayerRoomType,
+  negotiateProtocolVersion,
   sameMultiplayerConfig,
   type MultiplayerManifestConfig,
 } from "@ohmygame/sdk/protocol";
 import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
-import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
+import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS, type RoomIdentity } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
@@ -395,14 +398,17 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         if (
           !isRecord(value) ||
           value.gameId !== config.gameId ||
-          value.deploymentId !== config.deploymentId ||
-          value.protocolVersion !== 1
+          value.deploymentId !== config.deploymentId
         )
-          throw new Error("The game deployment or protocol does not match.");
+          throw new Error("The game deployment does not match.");
+        const protocolVersion = negotiateProtocolVersion(value);
+        if (protocolVersion === undefined)
+          throw Object.assign(new Error(describeProtocolMismatch(value)), { code: MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE });
         const identity = await auth.authenticate(token, config);
         if (!rate.take(`player:${identity.userId}`, 60))
           throw new Error("Too many room requests.");
-        return identity;
+        // A reconnection keeps the auth, so the room speaks the same version to it again.
+        return { ...identity, protocolVersion } satisfies RoomIdentity;
       }
     }
     server

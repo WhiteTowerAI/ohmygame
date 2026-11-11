@@ -382,6 +382,24 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(white.snapshot!.state.currentPlayerId).toBe(black.ready!.playerId);
   });
 
+  it("speaks the newest protocol version a client shares with it, and says which side is out of date", async () => {
+    const current = await peer(await transport());
+    expect(current.ready).toMatchObject({ protocolVersion: 1 });
+    const client = await transport();
+    const create = (versions: { protocolVersion: unknown; minProtocolVersion?: unknown }) =>
+      client.create(multiplayerRoomType(config), { ...joinOptions(), ...versions, creationKey: randomUUID() });
+    await expect(create({ protocolVersion: 2 })).rejects.toMatchObject({ code: 426, message: expect.stringMatching(/does not support yet.*Update the service/) });
+    await expect(create({ protocolVersion: 0 })).rejects.toMatchObject({ code: 426, message: expect.stringMatching(/no longer supports.*Update the game/) });
+    // A newer client that still speaks version 1 joins and is spoken to in it.
+    const newer = await create({ protocolVersion: 3, minProtocolVersion: 1 });
+    const ready = new Promise<unknown>((resolve) => newer.onMessage("ready", resolve));
+    newer.onMessage("*", () => {});
+    newer.send("sync");
+    await expect(ready).resolves.toMatchObject({ protocolVersion: 1 });
+    newer.reconnection.enabled = false;
+    await newer.leave(true);
+  });
+
   it("protects invitations, snapshots, deployments and single control ownership", async () => {
     const privateConfig = deployments[2]!;
     const ownerTransport = await transport();

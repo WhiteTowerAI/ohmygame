@@ -365,6 +365,7 @@ const others = new Smoother({ intervalMs: client.tickMs });
 | `unsupported`        | Not allowed by this room policy or build (for example `signIn` locally) |
 | `timeout`, `offline` | Show a retry                                                            |
 | `room_limit`         | Service full; retry later                                               |
+| `protocol_unsupported` | Game and multiplayer service share no protocol version; the message says which to update |
 | `request_failed`     | The service refused, such as an expired invite code                     |
 | `quota_exceeded`     | Too many saves, or a save too large                                     |
 | `rate_limited`       | Too many requests; wait a minute                                        |

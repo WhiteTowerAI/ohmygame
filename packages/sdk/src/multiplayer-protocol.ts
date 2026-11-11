@@ -18,6 +18,10 @@ export interface MultiplayerManifestConfig {
   mode: MultiplayerMode;
   gameId: string;
   deploymentId: string;
+  /**
+   * The version of this deployment format. Rooms negotiate their protocol separately,
+   * from MULTIPLAYER_PROTOCOL_VERSION.
+   */
   protocolVersion: 1;
   serverUrl: string;
   authPolicy: MultiplayerAuthPolicy;
@@ -67,6 +71,56 @@ export const REALTIME_INPUT_MAX_LENGTH = 512;
  * retries it. Colyseus uses the code as the HTTP status, so it stays in that range.
  */
 export const MULTIPLAYER_ROOM_LIMIT_CODE = 503;
+
+/**
+ * The newest room protocol this SDK speaks, sent as protocolVersion when it joins. Games
+ * keep the client.js they were built with, so the service must keep speaking every
+ * version a published game may send.
+ */
+export const MULTIPLAYER_PROTOCOL_VERSION = 1;
+/**
+ * The room protocols this service speaks. A new version raises max and keeps min, so
+ * games built with an older SDK keep connecting; min rises only once no published game
+ * still sends it.
+ */
+export const MULTIPLAYER_PROTOCOL_VERSIONS = { min: 1, max: MULTIPLAYER_PROTOCOL_VERSION } as const;
+/**
+ * Sent with a matchmaking error when the service speaks none of the client's versions.
+ * Colyseus uses the code as the HTTP status: 426 Upgrade Required.
+ */
+export const MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE = 426;
+
+/**
+ * The version a room speaks to a client: the newest both sides speak. The client sends
+ * its newest as protocolVersion and, when it can still speak older ones, its oldest as
+ * minProtocolVersion; clients before negotiation send only protocolVersion. Undefined
+ * when they share none. The service reports the result as protocolVersion in "ready";
+ * a service before negotiation sends none, and speaks version 1.
+ */
+export function negotiateProtocolVersion(
+  options: { protocolVersion?: unknown; minProtocolVersion?: unknown },
+  supported: { min: number; max: number } = MULTIPLAYER_PROTOCOL_VERSIONS,
+): number | undefined {
+  const newest = options.protocolVersion;
+  const oldest = options.minProtocolVersion ?? newest;
+  if (!Number.isInteger(newest) || !Number.isInteger(oldest) || (oldest as number) > (newest as number))
+    return undefined;
+  const version = Math.min(newest as number, supported.max);
+  return version >= Math.max(oldest as number, supported.min) ? version : undefined;
+}
+
+/** Why a client and service share no protocol version, for the error both show. */
+export function describeProtocolMismatch(
+  options: { protocolVersion?: unknown },
+  supported: { min: number; max: number } = MULTIPLAYER_PROTOCOL_VERSIONS,
+): string {
+  const range = supported.min === supported.max ? `version ${supported.min}` : `versions ${supported.min} to ${supported.max}`;
+  const sent = options.protocolVersion;
+  if (!Number.isInteger(sent)) return `The game sent no valid multiplayer protocol version; the service speaks ${range}.`;
+  return (sent as number) < supported.min
+    ? `This game speaks multiplayer protocol version ${String(sent)}, which the service no longer supports (it speaks ${range}). Update the game.`
+    : `This game speaks multiplayer protocol version ${String(sent)}, which the service does not support yet (it speaks ${range}). Update the service.`;
+}
 export const MULTIPLAYER_MIN_CLIENTS = 2;
 export const MULTIPLAYER_MAX_CLIENTS = 32;
 
@@ -203,7 +257,10 @@ export function sameMultiplayerConfig(
 export interface JoinRoomOptions {
   gameId: string;
   deploymentId: string;
-  protocolVersion: 1;
+  /** The newest room protocol the client speaks. See negotiateProtocolVersion. */
+  protocolVersion: number;
+  /** The oldest room protocol the client still speaks; protocolVersion when absent. */
+  minProtocolVersion?: number;
   displayName?: string;
   roomCode?: string;
   creationKey?: string;

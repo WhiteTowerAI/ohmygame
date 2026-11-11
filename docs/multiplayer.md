@@ -606,6 +606,21 @@ goal, spread around the ring. Matchmaking and its room creation lock are
 per-process; running more than one service instance needs a shared Colyseus
 presence and driver.
 
+## Protocol versions
+
+Games keep the `client.js` they were built with, so the room protocol is
+negotiated when a player joins. The SDK sends the newest protocol it speaks as
+`protocolVersion`, and the oldest it still speaks as `minProtocolVersion` once
+there is more than one; the service, which speaks
+`MULTIPLAYER_PROTOCOL_VERSIONS` (`@ohmygame/sdk/protocol`), picks the newest
+version both share and reports it as `protocolVersion` in `ready`. A service
+from before negotiation reports none and speaks version 1. When they share none,
+the join fails with `protocol_unsupported`, whose message says whether the game
+or the service is out of date. A new protocol version raises the service's
+`max` and keeps its `min`, so published games keep connecting; `min` rises only
+once no published game sends it. The manifest's `protocolVersion` is the
+deployment format's version, not the room protocol's.
+
 ## Client addresses
 
 The service limits requests, guest sessions, invitation attempts and WebSocket

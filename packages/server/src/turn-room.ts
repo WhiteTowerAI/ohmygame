@@ -10,8 +10,12 @@ import {
   isRealtimeAction,
   isRealtimeInputMessage,
   isRecord,
+  describeProtocolMismatch,
   isTurnCommand,
+  MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE,
   MULTIPLAYER_ROOM_LIMIT_CODE,
+  MULTIPLAYER_PROTOCOL_VERSIONS,
+  negotiateProtocolVersion,
   OWNER_SHARED_MAX_CHANGES,
   OWNER_SHARED_MAX_KEYS,
   OWNER_STATE_MAX_LENGTH,
@@ -55,6 +59,11 @@ import {
   type HostRequest,
   type HostViews,
 } from "@ohmygame/sdk/host";
+
+/** A player's auth in a room: who they are, and the protocol version the room speaks to them. */
+export interface RoomIdentity extends MultiplayerIdentity {
+  protocolVersion: number;
+}
 
 /** A request for the hosting player, before the room adds its ID, state and clock. */
 type HostAsk = HostRequest extends infer Request ? (Request extends HostRequest ? Omit<Request, "requestId" | "state" | "now"> : never) : never;
@@ -326,7 +335,7 @@ export class GameRoom extends Room {
 
   onJoin(client: Client, options: JoinRoomOptions): void {
     this.validateVersion(options);
-    const identity = client.auth as MultiplayerIdentity | undefined;
+    const identity = client.auth as RoomIdentity | undefined;
     if (!identity?.userId)
       throw new Error("Player authentication is required.");
     const known = this.record.members.find(
@@ -456,6 +465,7 @@ export class GameRoom extends Room {
     this.sendOwner(client);
     client.send("ready", {
       playerId,
+      protocolVersion: (client.auth as RoomIdentity | undefined)?.protocolVersion ?? MULTIPLAYER_PROTOCOL_VERSIONS.min,
       ...this.tickInfo(),
       // Anyone in a drop-in room can invite a friend to it; elsewhere the owner can.
       inviteCode:
@@ -549,8 +559,9 @@ export class GameRoom extends Room {
       options.deploymentId !== this.services.config.deploymentId
     )
       throw new Error("The room belongs to a different game deployment.");
-    if (options.protocolVersion !== 1)
-      throw new Error("The room protocol version is not supported.");
+    // onAuth already negotiated; a version outside the range never reaches a room.
+    if (negotiateProtocolVersion(options) === undefined)
+      throw Object.assign(new Error(describeProtocolMismatch(options)), { code: MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE });
   }
   private validateIdentity(client: Client): void {
     const id = this.controls.get(client.sessionId);

@@ -10,6 +10,8 @@ import {
   applyStateChanges,
   isSnapshotDelta,
   stateChanges,
+  describeProtocolMismatch,
+  negotiateProtocolVersion,
 } from "@ohmygame/sdk/protocol";
 
 const manifest = {
@@ -63,6 +65,26 @@ describe("multiplayer protocol", () => {
         multiplayer: manifest,
       }),
     ).toBe(true);
+  });
+
+  it("negotiates the newest room protocol both sides speak", () => {
+    const service = { min: 2, max: 4 };
+    // A client before negotiation sends only its one version.
+    expect(negotiateProtocolVersion({ protocolVersion: 3 }, service)).toBe(3);
+    expect(negotiateProtocolVersion({ protocolVersion: 6, minProtocolVersion: 3 }, service)).toBe(4);
+    expect(negotiateProtocolVersion({ protocolVersion: 3, minProtocolVersion: 1 }, service)).toBe(3);
+    for (const options of [
+      { protocolVersion: 1 },
+      { protocolVersion: 6, minProtocolVersion: 5 },
+      { protocolVersion: 3, minProtocolVersion: 4 },
+      { protocolVersion: "3" },
+      { protocolVersion: 2.5 },
+      {},
+    ])
+      expect(negotiateProtocolVersion(options, service)).toBeUndefined();
+    expect(describeProtocolMismatch({ protocolVersion: 1 }, service)).toMatch(/no longer supports.*versions 2 to 4.*Update the game/);
+    expect(describeProtocolMismatch({ protocolVersion: 5 }, service)).toMatch(/does not support yet.*Update the service/);
+    expect(describeProtocolMismatch({}, service)).toMatch(/no valid/);
   });
 
   it("validates idempotent turn commands and ordered events", () => {

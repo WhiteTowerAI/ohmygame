@@ -29,6 +29,11 @@ export type OhMyGameErrorCode =
   | "rate_limited"
   /** The data changed since it was read, or a leaderboard ranks in the other order. */
   | "conflict"
+  /**
+   * The game and the multiplayer service share no protocol version: the message says
+   * which side to update.
+   */
+  | "protocol_unsupported"
   /** The service answered with something the SDK does not understand. */
   | "invalid_response"
   /** The room closed or the service ended the connection. */

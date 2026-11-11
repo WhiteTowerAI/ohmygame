@@ -299,6 +299,14 @@ describe("multiplayer connection failures", () => {
     await expect(client.createRoom()).rejects.toMatchObject({ code: "sign_in_required" });
     expect(create).not.toHaveBeenCalled();
     client.dispose();
+
+    // A service that speaks none of the SDK's protocol versions says which side to update.
+    const outdated = new Client(manifest.serverUrl);
+    const refused = vi.spyOn(outdated, "create").mockRejectedValue(Object.assign(new Error("Update the service."), { code: 426 }));
+    const newer = new MultiplayerClient({ manifest, transport: outdated, identity: { getToken: async () => "account-token" } });
+    await expect(newer.createRoom()).rejects.toMatchObject({ code: "protocol_unsupported", message: "Update the service." });
+    expect(refused.mock.calls[0]![1]).toMatchObject({ protocolVersion: 1 });
+    newer.dispose();
   });
 });
 

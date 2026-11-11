@@ -13,6 +13,8 @@ import {
   isSnapshotDelta,
   isTurnCommandResult,
   LOCKSTEP_ADAPTER_ID,
+  MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE,
+  MULTIPLAYER_PROTOCOL_VERSION,
   MULTIPLAYER_ROOM_LIMIT_CODE,
   OWNER_ADAPTER_ID,
   isOwnerMessage,
@@ -1188,8 +1190,8 @@ export class MultiplayerClient<Game = unknown> {
     displayName?: string;
     roomCode?: string;
   }): JoinRoomOptions {
-    const { gameId, deploymentId, protocolVersion } = this.options.manifest;
-    return { gameId, deploymentId, protocolVersion, ...options };
+    const { gameId, deploymentId } = this.options.manifest;
+    return { gameId, deploymentId, protocolVersion: MULTIPLAYER_PROTOCOL_VERSION, ...options };
   }
   private async token(): Promise<string> {
     const policy = this.options.manifest.authPolicy;
@@ -1248,6 +1250,7 @@ export class MultiplayerClient<Game = unknown> {
 /** Errors from Colyseus or the browser keep their message under a stable code. */
 function toOhMyGameError(cause: unknown, code: OhMyGameErrorCode): OhMyGameError {
   if (isOhMyGameError(cause)) return cause;
+  if (isRecord(cause) && cause.code === MULTIPLAYER_PROTOCOL_UNSUPPORTED_CODE) code = "protocol_unsupported";
   return new OhMyGameError(code, cause instanceof Error ? cause.message : String(cause), { cause });
 }
 
