@@ -36,8 +36,8 @@
  * results users compare against, rather than the Python defaults: the spectrum
  * is taken on a power-of-two canvas of at most 1024 pixels, peaks are searched
  * between 15% and 185% of the centre, and grid lines move up to a third of a
- * cell. Unlike the demo, an image without a measurable grid is reported rather
- * than given an 8-pixel grid.
+ * cell. Unlike the demo, grid lines always reach the left and top edges, and an
+ * image without a measurable grid is reported rather than given an 8-pixel grid.
  */
 
 export interface RgbaImage {
@@ -273,8 +273,14 @@ function findBestGrid(origin: number, range: number, gradient: Float64Array): nu
   return best;
 }
 
-/** Grid lines one cell apart from the centre outwards, each moved to the strongest nearby edge. */
-function refineGrid(size: number, cells: number, gradient: Float64Array): number[] {
+/**
+ * Grid lines one cell apart from the centre outwards, each moved to the
+ * strongest nearby edge. The lines continue to both edges of the image: the
+ * web demo stops adding lines on the left once there are as many as the
+ * estimated cell count, which cuts off the left of the image whenever the real
+ * cells are smaller than the estimate.
+ */
+export function refineGrid(size: number, cells: number, gradient: Float64Array): number[] {
   const cell = size / cells;
   const coords: number[] = [];
   let line = findBestGrid(size / 2, cell, gradient);
@@ -284,7 +290,7 @@ function refineGrid(size: number, cells: number, gradient: Float64Array): number
     line += cell;
   }
   line = findBestGrid(size / 2, cell, gradient) - cell;
-  while (line > -cell / 2 && coords.length <= size / cell) {
+  while (line > -cell / 2) {
     line = findBestGrid(line, cell * REFINE_INTENSITY, gradient);
     coords.push(line);
     line -= cell;

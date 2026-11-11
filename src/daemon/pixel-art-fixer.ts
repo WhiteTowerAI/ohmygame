@@ -6,8 +6,9 @@ import { perfectPixel } from "./perfect-pixel.js";
  * perfect-pixel method: the image's own (often uneven) pixel grid is found
  * and each cell becomes one pixel. Like the perfect-pixel web demo, very
  * small images are enlarged and large ones reduced to 1024 pixels before the
- * grid is measured. Alpha becomes fully transparent or opaque, and the result
- * is enlarged with nearest-neighbour scaling back to about the source size.
+ * grid is measured. Alpha becomes fully transparent or opaque, colours that
+ * differ only by noise are merged, and the result is enlarged with
+ * nearest-neighbour scaling back to about the source size.
  */
 
 const MAX_INPUT_PIXELS = 4_000_000;
@@ -15,6 +16,14 @@ const WORKING_MAX_SIDE = 1024;
 const SMALL_SIDE = 64;
 const SMALL_TARGET = 256;
 const ALPHA_THRESHOLD = 128;
+/**
+ * Colours closer than this (RGB distance) are one colour drawn with noise or
+ * compression error. Generated images give hundreds or thousands of such
+ * near-identical colours, which look flat but are not. At 24 a generated
+ * character keeps its hair shading, eye colours, and highlights; at 32 hair
+ * and eye tones begin to merge.
+ */
+const MERGE_DISTANCE = 24;
 
 export class PixelArtFixerError extends Error {
   constructor(
@@ -54,6 +63,7 @@ export async function fixPixelArt(bytes: Buffer): Promise<PixelArtFixResult> {
       "No pixel grid was found in this image. Fix pixel art works on images drawn as pixel art.",
     );
   thresholdAlpha(result.data);
+  mergeNearColours(result.data);
   const scale = Math.max(1, Math.round(source.info.width / result.width));
   const png = await sharp(result.data, {
     raw: { width: result.width, height: result.height, channels: 4 },
@@ -137,6 +147,38 @@ function bilinear(
     }
   }
   return { data, width, height };
+}
+
+/**
+ * Merge near-identical colours. Colours are visited from most to least common;
+ * each joins the first kept colour within MERGE_DISTANCE, or is kept itself. A
+ * region therefore takes its most common real colour, and distinct colours
+ * such as highlights stay.
+ */
+function mergeNearColours(data: Uint8Array): void {
+  const counts = new Map<number, number>();
+  for (let at = 0; at < data.length; at += 4) {
+    if (!data[at + 3]) continue;
+    const key = (data[at]! << 16) | (data[at + 1]! << 8) | data[at + 2]!;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const kept: number[] = [];
+  const target = new Map<number, number>();
+  for (const [key] of [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])) {
+    const match = kept.find((candidate) =>
+      ((candidate >> 16) - (key >> 16)) ** 2 +
+      (((candidate >> 8) & 0xff) - ((key >> 8) & 0xff)) ** 2 +
+      ((candidate & 0xff) - (key & 0xff)) ** 2 <= MERGE_DISTANCE ** 2);
+    if (match === undefined) kept.push(key);
+    target.set(key, match ?? key);
+  }
+  for (let at = 0; at < data.length; at += 4) {
+    if (!data[at + 3]) continue;
+    const colour = target.get((data[at]! << 16) | (data[at + 1]! << 8) | data[at + 2]!)!;
+    data[at] = colour >> 16;
+    data[at + 1] = (colour >> 8) & 0xff;
+    data[at + 2] = colour & 0xff;
+  }
 }
 
 /** Remove semi-transparent edge colours. */

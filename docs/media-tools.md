@@ -18,7 +18,13 @@ perfect-pixel web demo, so results match what users see there. Generated pixel
 art rarely has cells of one exact size, so the cell size is estimated from the
 image's frequency spectrum (or, failing that, from the spacing of edges) and
 every grid line is then moved to the strongest edge within a third of a cell.
-Each cell takes the colour at its centre. As in the web demo, images with a
+Grid lines continue to the left and top edges; the web demo stops adding lines
+once it has as many as the estimated cell count, which cuts off the left of
+the image when the real cells are smaller than the estimate. Each cell takes
+the colour at its centre. Generated images then hold hundreds or thousands of
+near-identical colours from noise and compression, so colours within an RGB
+distance of 24 are merged, most common first: each region takes its most
+common real colour, while hair shading, eye colours, and highlights stay. As in the web demo, images with a
 short side under 64 pixels are first enlarged by a whole number and images
 longer than 1024 pixels are reduced to 1024 by sampling the four nearest
 pixels. The spectrum estimate is used only when cells measure 4–20 working
