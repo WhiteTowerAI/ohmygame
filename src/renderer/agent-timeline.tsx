@@ -37,6 +37,7 @@ import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.j
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
+import { ModelPreview } from "./model-preview.js";
 import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
@@ -969,10 +970,9 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
   const [open, setOpen] = useState(false);
   const [target, visible] = useNearViewport<HTMLDivElement>();
   const titleId = useId();
-  // A model is megabytes to fetch and a 3D view to draw, and a row can hold a dozen: it loads when opened.
-  const wanted = artifact.type === "model" ? open : visible;
+  // For now a model's tile is the model itself, held still; ModelPreview loads a row of them two at a time.
   useEffect(() => {
-    if (!wanted) return;
+    if (!visible) return;
     let disposed = false;
     let objectUrl: string | undefined;
     setPreview(undefined);
@@ -985,7 +985,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, projectId, wanted]);
+  }, [artifact.path, projectId, visible]);
   const name = artifact.path.split("/").at(-1) ?? artifact.path;
   if (artifact.type === "image") {
     return <div ref={target} className="tool-artifact-tile" title={name}>{preview
@@ -995,7 +995,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
   const label = artifact.type === "model" ? t("timeline.generated3d") : t("timeline.generatedVideo");
   return <div ref={target} className="tool-artifact-tile" title={name}>
     {artifact.type === "model" ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
-      {open && !preview ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Box size={28} aria-hidden="true" />}
+      {preview ? <ModelPreview source={preview.url} label={label} minHeight={96} interactive={false} controls={false} /> : <Box size={28} aria-hidden="true" />}
     </button> : preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
       <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />
       <span className="tool-artifact-badge" aria-hidden="true"><Film size={11} /></span>

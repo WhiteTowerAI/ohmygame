@@ -7,6 +7,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
+// The 3D viewer needs a GPU; here its place in the page is what matters.
+vi.mock("@google/model-viewer", () => {
+  customElements.define("model-viewer", class extends HTMLElement {
+    paused = true;
+    play() {}
+    pause() {}
+  });
+  return {};
+});
+
 // Inspect the expanded contents in presentation tests. Mount behavior is tested separately.
 const lazyDetailsPath = path.resolve("src/renderer/lazy-details.tsx");
 vi.doMock(lazyDetailsPath, () => ({
@@ -1506,9 +1516,15 @@ describe("AgentTimeline", () => {
     }
   });
 
-  it("holds a place for each result still being made, opens a video in a dialog, and leaves a model unloaded", async () => {
+  it("holds a place for each result still being made, opens a video in a dialog, and shows a model in its tile", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("IntersectionObserver", undefined);
+    // Everything is on screen; happy-dom's own observer never reports.
+    vi.stubGlobal("IntersectionObserver", class {
+      readonly #callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+      observe(target: Element) { queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)); }
+      disconnect() {}
+    });
     const fetchVideo = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Blob(["video"], { type: "video/mp4" })));
     const call = (id: string, name: string, extra: Partial<ThreadItemOf<"dynamicToolCall">>): ThreadItem =>
       ({ ...tool(), id, toolCallId: id, arguments: undefined, tool: name, ...extra });
@@ -1537,9 +1553,8 @@ describe("AgentTimeline", () => {
       expect(dialog.querySelector("video")?.hasAttribute("controls")).toBe(true);
       await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Close asset preview"]')!.click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
-      // A model's tile is there to open, and fetches nothing until it is.
-      expect(container.querySelector('button[aria-label="Open Generated 3D model"]')).not.toBeNull();
-      expect(fetchVideo.mock.calls.some(([url]) => String(url).includes("model.glb"))).toBe(false);
+      // A model's tile shows the model, inside the button that opens it.
+      await vi.waitFor(() => expect(container.querySelector('button[aria-label="Open Generated 3D model"] model-viewer')).not.toBeNull());
     } finally {
       await act(async () => root.unmount());
       container.remove();
