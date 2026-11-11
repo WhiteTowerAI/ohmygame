@@ -238,16 +238,24 @@ describe("Markdown design workspace", () => {
     expect(await readFile(path.join(project.workspacePath, "canvas/AGENTS.md"), "utf8")).toBe("Custom canvas instructions");
     expect(await readFile(path.join(project.workspacePath, "README.md"), "utf8")).toBe("Existing project notes");
   });
-  it.each(["design", "canvas.json"])("requires migration before opening the legacy %s format", async (legacy) => {
+  it("explains the format from before canvas/ and opens a project that only has a design/ folder or canvas.json of its own", async () => {
     const { store, projects } = await runtime();
-    const project = await projects.create("Legacy project");
-    const source = path.join(project.workspacePath, legacy);
-    if (legacy === "design") await mkdir(source);
-    else await writeFile(source, "Legacy canvas data");
-
-    await expect(store.workspace(project.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("migrate-canvas-workspaces.ts") });
-    await expect(lstat(path.join(project.workspacePath, "canvas"))).rejects.toMatchObject({ code: "ENOENT" });
-    if (legacy === "canvas.json") expect(await readFile(source, "utf8")).toBe("Legacy canvas data");
+    const legacy = await projects.create("Legacy project");
+    await mkdir(path.join(legacy.workspacePath, "design"));
+    await writeFile(path.join(legacy.workspacePath, "design", "index.json"), "{}");
+    await expect(store.workspace(legacy.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("before beta.2") });
+    await expect(lstat(path.join(legacy.workspacePath, "canvas"))).rejects.toMatchObject({ code: "ENOENT" });
+    const oldCanvas = await projects.create("Legacy Asset Canvas");
+    await writeFile(path.join(oldCanvas.workspacePath, "canvas.json"), "Legacy canvas data");
+    await mkdir(path.join(oldCanvas.workspacePath, "editor"));
+    await writeFile(path.join(oldCanvas.workspacePath, "editor", "layout.json"), "{}");
+    await expect(store.workspace(oldCanvas.id)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await readFile(path.join(oldCanvas.workspacePath, "canvas.json"), "utf8")).toBe("Legacy canvas data");
+    const game = await projects.create("Game with its own design folder");
+    await mkdir(path.join(game.workspacePath, "design"));
+    await writeFile(path.join(game.workspacePath, "canvas.json"), "{}");
+    await expect(store.workspace(game.id)).resolves.toBeDefined();
+    expect(await readFile(path.join(game.workspacePath, "canvas.json"), "utf8")).toBe("{}");
   });
   it("preserves an incomplete canvas instead of reinitializing its assets", async () => {
     const { store, projects } = await runtime();

@@ -14,8 +14,9 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 // are the source of the published JSON Schema (`schemas/plugin-2.json`), and
 // `validatePluginManifest` adds the rules a schema can't express.
 
+/** On the website, which serves `schemas/` from the repository's `main` branch, so releases update it. */
 export const PLUGIN_MANIFEST_SCHEMA_URL =
-  "https://ohmygame.dev/schema/plugin-2.json";
+  "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
 export const PLUGIN_HOST_API_VERSION = "2.3.0";
 
@@ -614,8 +615,16 @@ const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** The publisher of plugins the person makes themselves. */
 export const PERSONAL_PUBLISHER = "personal";
-/** Publishers only OhMyGame and its Plugin Builder use, so no package from outside can. */
-export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
+/**
+ * The publisher of OhMyGame's own plugins: those it bundles, and those in its
+ * `@ohmygame` npm scope, which only its organization can publish to.
+ */
+export const OHMYGAME_PUBLISHER = "ohmygame";
+/**
+ * Publishers only OhMyGame and its Plugin Builder use, so no package from
+ * outside can, apart from OhMyGame's own from npm (`assertAddablePlugin`).
+ */
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set([OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER]);
 
 /** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {

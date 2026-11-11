@@ -227,3 +227,31 @@ it.each(["en", "zh-CN"])(
     expect(input.placeholder).toBe("AWS bearer token");
   },
 );
+
+it("offers the sign-in link to copy when the browser cannot open", async () => {
+  await i18next.changeLanguage("en");
+  const openExternal = vi.fn(async () => {
+    throw new Error("Failed to open: no application is associated (0x483)");
+  });
+  vi.stubGlobal("ohMyGameDesktop", { openExternal });
+  await render();
+  const oauth = [
+    ...host.querySelectorAll<HTMLButtonElement>(".settings-form-actions button"),
+  ].find((button) => button.textContent === "Sign in with ChatGPT")!;
+  await act(async () => oauth.click());
+  const url = "https://auth.openai.com/authorize?state=1";
+  await act(async () =>
+    onEvent!({
+      id: 1,
+      operationId: "operation",
+      type: "notification",
+      notification: { type: "auth_url", url },
+    }),
+  );
+
+  expect(openExternal).toHaveBeenCalledWith(url);
+  const note = host.querySelector(".settings-note.is-danger");
+  expect(note?.textContent).toContain("Couldn’t open your browser.");
+  expect(note?.querySelector("code")?.textContent).toBe(url);
+  expect(note?.querySelector("button")?.getAttribute("aria-label")).toBe("Copy link");
+});

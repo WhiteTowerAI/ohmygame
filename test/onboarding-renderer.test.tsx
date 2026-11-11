@@ -1317,6 +1317,32 @@ describe("three-step setup with coding agents", () => {
     },
   );
 
+  it("offers a CLI sign-in link to copy when the browser cannot open", async () => {
+    const runtime = { ...codex, auth: { status: "signed-out" } };
+    const url = "https://auth.openai.com/codex/device";
+    api.listAgentRuntimes.mockResolvedValue([runtime]);
+    api.updateAgentRuntime.mockResolvedValue({ ...runtime, enabled: true });
+    api.loginAgentRuntime.mockResolvedValue({ url });
+    const openExternal = vi.fn(async () => {
+      throw new Error("Failed to open: no application is associated (0x483)");
+    });
+    Object.defineProperty(window, "ohMyGameDesktop", {
+      configurable: true,
+      value: { openExternal },
+    });
+    await showConnection(
+      <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+    );
+    await chooseAgent("Codex");
+
+    expect(openExternal).toHaveBeenCalledWith(url);
+    const alert = container.querySelector(".onboarding-agent-login[role=alert]");
+    expect(alert?.textContent).toContain("Couldn’t open your browser.");
+    expect(alert?.querySelector("code")?.textContent).toBe(url);
+    expect(container.textContent).not.toContain("0x483");
+    expect(button("Copy link")).toBeTruthy();
+  });
+
   it("keeps providers under OhMyGame and limits the model picker to the selected agent", async () => {
     const builtIn = {
       ...nativeModel,

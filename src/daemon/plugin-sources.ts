@@ -161,7 +161,7 @@ export class PluginSources {
     try {
       const entry = await validPackage(fetched.root);
       try {
-        assertAddablePlugin(entry.id);
+        assertAddablePlugin(entry.id, fetched.origin);
       } catch (cause) {
         throw new PluginSourceError((cause as Error).message);
       }
@@ -210,7 +210,7 @@ export class PluginSources {
       // The origin goes first: if it can't be saved nothing is installed, and
       // one left by an install that fails belongs to no installed version.
       await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
-      return this.services.installAdded(fetched.root, before);
+      return this.services.installAdded(fetched.root, before, fetched.origin);
     });
     this.#adding = run.catch(() => undefined);
     return run;

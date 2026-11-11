@@ -27,6 +27,7 @@ import { exportDiagnostics, getProjectLocation, listPluginThemes, setProjectLoca
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
 import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { AccountUsage } from "./usage-stats.js";
 import "./settings.css";
 import { readUsageDataEnabled, setUsageDataEnabled } from "./analytics.js";
@@ -379,17 +380,14 @@ function AccountIdentity() {
   );
 }
 
-async function openExternal(url: string): Promise<void> {
-  if (window.ohMyGameDesktop?.openExternal) await window.ohMyGameDesktop.openExternal(url);
-  else window.open(url, "_blank", "noopener,noreferrer");
-}
-
 function BillingSettings() {
+  const link = useExternalLink();
   return (
     <SettingsGroup>
       <SettingsRow title={t("settings.billing.title")} description={t("settings.billing.description")}>
-        <Button icon={<ExternalLink size={14} />} onClick={() => void openExternal(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
+        <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
       </SettingsRow>
+      <ExternalLinkFallback url={link.failedUrl} />
     </SettingsGroup>
   );
 }

@@ -45,7 +45,8 @@ import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
-import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
+import { useModelProviderAuth } from "./use-model-provider-auth.js";
+import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -353,6 +354,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
   const [error, setError] = useState<string>();
   const [command, setCommand] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const link = useExternalLink();
   async function recheck() {
     setBusy(true); setError(undefined);
     try {
@@ -369,7 +371,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
     setBusy(true); setError(undefined); setCommand(undefined);
     try {
       const result = await loginAgentRuntime("codex-cli");
-      if (result.url) await openExternal(result.url);
+      if (result.url) await link.open(result.url);
       if (result.command) setCommand(result.command);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
@@ -389,6 +391,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
       </div>
       {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+      <ExternalLinkFallback url={link.failedUrl} />
     </section>
     <ProviderImageModels key={revision} providerId="codex-cli" />
   </section>;
@@ -1251,8 +1254,9 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
             <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
-            {external ? <Button variant="primary" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
+            {external ? <Button variant="primary" onClick={() => void auth.openBrowser(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
           </div>
+          <ExternalLinkFallback url={auth.openFailedUrl} />
           {browserFallback && prompt ? (
             <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
               <label className="settings-detail-hint" htmlFor="model-auth-redirect">{t("providers.redirectHint")}</label>
