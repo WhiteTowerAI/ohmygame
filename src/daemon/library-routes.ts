@@ -154,12 +154,13 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library 
   );
 
   // Removing from the Library never touches a project: what one uses stays stored for it, and only
-  // what nothing uses is deleted. When usage can't be read, it is treated as used.
+  // what nothing uses is deleted. When usage can't be read, as while a project's folder is
+  // unavailable, it is treated as used.
   app.delete<{ Params: { assetId: string } }>("/library/assets/:assetId", async (request, reply) => {
     const id = request.params.assetId;
     try {
       if (!library.get(id)) return reply.code(404).send({ error: "Library asset not found" });
-      const used = await projects.referencesLibraryAsset(id).then((references) => references.length > 0, (cause: unknown) => {
+      const used = projects.list().some((project) => project.workspaceAvailable === false) || await projects.referencesLibraryAsset(id).then((references) => references.length > 0, (cause: unknown) => {
         if (!(cause instanceof ProjectLibraryReferenceError)) throw cause;
         request.log.warn({ assetId: id, err: cause }, "Could not read Library asset usage; keeping its file");
         return true;

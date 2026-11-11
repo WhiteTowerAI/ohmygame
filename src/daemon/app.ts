@@ -3170,7 +3170,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       try {
         const asset = await projects.materializeLibraryAsset(project.id, request.params.assetId);
-        await library.save(request.params.assetId);
+        await library.useAsAsset(request.params.assetId);
         return reply.code(201).send(asset);
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);

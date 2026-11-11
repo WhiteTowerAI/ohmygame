@@ -170,26 +170,27 @@ export class AssetLibrary {
     });
   }
 
-  async save(id: string): Promise<LibraryAsset> {
-    return this.#mutate(async () => {
-      const asset = this.get(id);
-      if (!asset) throw new AssetLibraryError("Library asset not found", 404);
-      if (asset.purpose === "asset" && asset.saved) return asset;
-      const updated = { ...asset, purpose: "asset" as const, saved: true };
-      const state = { ...this.#state, assets: this.#state.assets.map((candidate) => candidate.id === id ? updated : candidate) };
-      await this.#write(state);
-      this.#state = state;
-      return updated;
-    });
+  /** Puts it in the Library, as an asset rather than a reference. */
+  save(id: string): Promise<LibraryAsset> {
+    return this.#set(id, { purpose: "asset", saved: true });
+  }
+
+  /** Marks a reference a project now uses as an asset, without putting it in the Library. */
+  useAsAsset(id: string): Promise<LibraryAsset> {
+    return this.#set(id, { purpose: "asset" });
   }
 
   /** Takes it out of the Library; it stays stored for the projects that use it. */
-  async unsave(id: string): Promise<LibraryAsset> {
+  unsave(id: string): Promise<LibraryAsset> {
+    return this.#set(id, { saved: false });
+  }
+
+  #set(id: string, changes: Pick<Partial<LibraryAsset>, "purpose" | "saved">): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const asset = this.get(id);
       if (!asset) throw new AssetLibraryError("Library asset not found", 404);
-      if (!asset.saved) return asset;
-      const updated = { ...asset, saved: false };
+      if (Object.entries(changes).every(([key, value]) => asset[key as keyof typeof changes] === value)) return asset;
+      const updated = { ...asset, ...changes };
       const state = { ...this.#state, assets: this.#state.assets.map((candidate) => candidate.id === id ? updated : candidate) };
       await this.#write(state);
       this.#state = state;

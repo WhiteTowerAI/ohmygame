@@ -489,7 +489,7 @@ export class CanvasStore {
       const label = asset.name.replace(/[[\]\n]/g, "");
       const link = asset.path.split("/").map(encodeURIComponent).join("/");
       const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, project.type !== "asset-canvas");
-      if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.save(asset.libraryAssetId);
+      if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.useAsAsset(asset.libraryAssetId);
       return saved;
     });
   }

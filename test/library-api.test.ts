@@ -60,6 +60,30 @@ describe("Library store upgrade", () => {
   });
 });
 
+describe("Remove from Library", () => {
+  it("keeps the file while a project's folder is unavailable, as its usage can't be read", async () => {
+    const first = await setup();
+    const directory = fixtures[0]!.directory;
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-library-external-"));
+    expect((await first.inject({ method: "POST", url: "/projects", payload: { name: "External", workspacePath } })).statusCode).toBe(201);
+    const response = await first.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=portrait.png&mediaType=image%2Fpng&saved=true",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+    const asset = response.json<LibraryAsset>();
+    await first.close();
+    await rm(workspacePath, { recursive: true, force: true });
+
+    const reopened = createApp({ dataDirectory: directory });
+    fixtures.push({ app: reopened, directory });
+    expect((await reopened.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(204);
+    expect((await list(reopened)).find((candidate) => candidate.id === asset.id)).toMatchObject({ saved: false });
+    expect((await reopened.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(200);
+  });
+});
+
 describe("Library provenance and project filters", () => {
   it("keeps upload provenance across projects and only saves project files explicitly", async () => {
     const app = await setup();
@@ -128,7 +152,8 @@ describe("Library provenance and project filters", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json<ProjectState>();
     const copied = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` });
     expect(copied.statusCode, copied.body).toBe(201);
-    expect((await list(app))[0]).toMatchObject({ origin: "uploaded", purpose: "asset", referenceOnly: false });
+    // Used as an asset now, but only "Save to Library" puts it in the Library.
+    expect((await list(app))[0]).toMatchObject({ origin: "uploaded", purpose: "asset", referenceOnly: false, saved: false });
   });
 
   it("inserts a local canvas image even when its Library link is stale", async () => {
