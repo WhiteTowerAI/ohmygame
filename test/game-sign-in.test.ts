@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { init } from "@ohmygame/sdk";
 import type { AccountEnvironment } from "../packages/sdk/src/account.js";
 import { gameTokenAudience } from "@ohmygame/sdk/account-protocol";
@@ -121,7 +121,6 @@ function accountService() {
 }
 
 const manifest = { account: { issuer: ISSUER } };
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("game sign-in in the SDK", () => {
   it("plays as a guest in a local build, where sign-in is unavailable", async () => {
@@ -144,7 +143,7 @@ describe("game sign-in in the SDK", () => {
     expect(game.auth.available).toBe(true);
     expect(game.identity).toBe(game.auth);
     const signingIn = game.auth.signIn();
-    await settle();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
     const { code, state, redirectUri } = service.authorize(page.opened[0]!);
     expect(redirectUri).toBe(`${GAME}/`);
     // Neither another origin nor another window can answer the popup.
@@ -189,7 +188,7 @@ describe("game sign-in in the SDK", () => {
     second.env.exclusive = exclusive;
     const tab = await init({ manifest, accountEnvironment: first.env });
     const signingIn = tab.auth.signIn();
-    await settle();
+    await vi.waitFor(() => expect(first.page.opened).toHaveLength(1));
     const { code, state } = service.authorize(first.page.opened[0]!);
     first.page.receive({ type: "ohmygame:sign-in", code, state }, GAME, first.page.popup);
     await signingIn;
@@ -210,7 +209,7 @@ describe("game sign-in in the SDK", () => {
     const { page, env } = browser(memoryStorage(), () => Response.json({}));
     const game = await init({ manifest, accountEnvironment: env });
     const signingIn = game.auth.signIn();
-    await settle();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
     page.popup.closed = true;
     await expect(signingIn).rejects.toMatchObject({ code: "cancelled" });
   });
@@ -221,8 +220,7 @@ describe("game sign-in in the SDK", () => {
     const { page, env } = browser(storage, (body) => service.handle(body), { popup: false });
     const game = await init({ manifest, accountEnvironment: env });
     void game.auth.signIn();
-    await settle();
-    expect(page.assigned).toHaveLength(1);
+    await vi.waitFor(() => expect(page.assigned).toHaveLength(1));
     const { code, state } = service.authorize(page.assigned[0]!);
 
     const back = browser(storage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}&level=2` });
@@ -240,14 +238,13 @@ describe("game sign-in in the SDK", () => {
     const { page, env } = browser(storage, (body) => service.handle(body));
     const game = await init({ manifest, accountEnvironment: env });
     const signingIn = game.auth.signIn();
-    await settle();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
     const { code, state } = service.authorize(page.opened[0]!);
 
     const popup = browser(storage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}`, opener: true });
     let started = false;
     void init({ manifest, accountEnvironment: popup.env }).then(() => (started = true));
-    await settle();
-    expect(popup.page.sentToOpener).toEqual([{ type: "ohmygame:sign-in", state, code }]);
+    await vi.waitFor(() => expect(popup.page.sentToOpener).toEqual([{ type: "ohmygame:sign-in", state, code }]));
     expect(popup.page.closed).toBe(true);
     page.receive(popup.page.sentToOpener[0], GAME, page.popup);
     await expect(signingIn).resolves.toEqual(player);
@@ -260,7 +257,7 @@ describe("game sign-in in the SDK", () => {
     const { page, env } = browser(storage, (body) => service.handle(body));
     const game = await init({ manifest, accountEnvironment: env });
     const signingIn = game.auth.signIn();
-    await settle();
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1));
     const { code, state } = service.authorize(page.opened[0]!);
     const popup = browser(storage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}` });
     void init({ manifest, accountEnvironment: popup.env });
