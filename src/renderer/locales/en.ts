@@ -2420,6 +2420,7 @@ const en = {
       tool: "Preparing",
       other: "Preparing {{tool}}",
     },
+    queued: "Queued: {{tool}}",
     group: {
       edit: "Edit Files",
       read: "Read Files",

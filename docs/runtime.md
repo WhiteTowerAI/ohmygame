@@ -750,6 +750,10 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
+When an agent runs several tool calls one at a time, the calls waiting behind
+the running one are labelled **Queued**, and the group is named for the call
+that is running.
+
 Generated images appear as small thumbnails inside their tool's details
 ([example](assets/chat-generated-image-details.png)),
 with the same click-to-enlarge, copy and save actions as other chat images.

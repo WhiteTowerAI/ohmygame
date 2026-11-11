@@ -538,7 +538,9 @@ function WorkItems({ items, images, failed = false, activeRetryId }: { items: Tu
 }
 
 function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: boolean }) {
-  const runningTool = tools.findLast((tool) => tool.status === "preparing" || tool.status === "inProgress");
+  // An agent may run its calls one at a time: the one running names the group, not those behind it.
+  const busy = tools.some((tool) => tool.status === "inProgress");
+  const runningTool = tools.findLast((tool) => tool.status === "inProgress") ?? tools.findLast((tool) => tool.status === "preparing");
   const runningPresentation = runningTool ? toolPresentation(runningTool) : undefined;
   const Icon = runningPresentation?.icon ?? toolGroupIcon(tools);
   const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label) : undefined;
@@ -552,7 +554,7 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
         <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
       </summary>}>
       <div className="tool-group-items">
-        {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} />)}
+        {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} queued={busy && isQueued(tool)} />)}
       </div>
     </LazyDetails>
   );
@@ -819,12 +821,17 @@ function AgentErrorDetails({ error }: { error: ThreadItemError }) {
   );
 }
 
-function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
+/** A call the agent has finished writing and not started, as when it waits for the one before it. */
+function isQueued(item: ToolItem): boolean {
+  return item.type === "dynamicToolCall" && item.status === "preparing" && item.arguments !== undefined;
+}
+
+function ToolActivity({ item, completed = false, queued = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean; queued?: boolean }) {
   const { projectId } = useContext(WorkspaceLinkContext);
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
-    ? preparingToolLabel(item.tool)
+    ? queued ? t("timeline.queued", { tool: item.tool }) : preparingToolLabel(item.tool)
     : presentation.label;
   const expandable = hasToolDetails(item);
   const row = (

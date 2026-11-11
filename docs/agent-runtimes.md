@@ -328,7 +328,12 @@ file; what Claude would ask about while planning is refused without asking.
 The staged Skills plugin is also a working directory (`--add-dir`), so reading
 its files is not a request outside the project. Background tasks and scheduled
 prompts are disabled, because their reports would arrive after the turn ends.
-Bridge tools are marked always loaded so tool search does not hide them. Discover
+Bridge tools are marked always loaded so tool search does not hide them.
+Claude Code runs an MCP tool beside others only when it carries
+`readOnlyHint`, and otherwise one call at a time, so the media generation
+tools are listed with that hint for Claude Code alone. They are not read-only;
+the hint is the only switch. Claude's own plan mode also lets a read-only tool
+through, which is one more reason planning must not use it. Discover
 models from `initialize` or `list_models` as supported; expose failed/empty
 catalogs as diagnostics. A sole callback path is not a sufficient assumption.
 
