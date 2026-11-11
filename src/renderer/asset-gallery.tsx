@@ -98,5 +98,5 @@ export function AssetMedia({ type, url, label }: { type: AssetMediaType; url: st
   if (type === "image") return <img src={url} alt={label} />;
   if (type === "video") return <video src={url} controls preload="metadata" />;
   if (type === "audio") return <audio src={url} controls />;
-  return <ModelPreview source={url} label={label} minHeight={420} />;
+  return <ModelPreview source={url} label={label} minHeight={420} autoPlay />;
 }

@@ -1,14 +1,13 @@
 import { LoaderCircle, Pause, Play } from "./icons.js";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
-import { IconButton } from "./ui/button.js";
+import { Button } from "./ui/button.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
 
 type ModelViewerElement = HTMLElement & {
   loaded: boolean;
   availableAnimations: string[];
   modelIsVisible: boolean;
-  autoRotate: boolean;
   paused: boolean;
   play: () => void;
   pause: () => void;
@@ -44,7 +43,8 @@ function takeModelLoadTurn(start: () => void): () => void {
   };
 }
 
-export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean }) {
+/** `autoPlay` starts a model's clip as it loads: for a view of one model, not a board or chat of them. */
+export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true, autoPlay = false }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean; autoPlay?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -53,7 +53,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [modelError, setModelError] = useState<string>();
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string>();
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(autoPlay);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const seen = useSeenOnScreen(frame);
   // The source whose turn it is: a new source must wait for its own.
@@ -79,8 +79,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     setModelError(undefined);
     setClips([]);
     setClip(undefined);
-    setPlaying(false);
-  }, [source]);
+    setPlaying(autoPlay);
+  }, [source, autoPlay]);
 
   useEffect(() => {
     if (!seen) return;
@@ -133,9 +133,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     if (!componentReady || !viewer) return;
     // Keep the current camera and frame. Autoplay=false alone does not pause
     // a model that was already playing, so use the viewer's playback API too.
+    // Playing never turns the model: the person drags it to see another side.
     const syncPlayback = () => {
       const active = controls && playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
-      viewer.autoRotate = Boolean(active);
       if (active && viewer.paused) viewer.play();
       else if (!active) viewer.pause();
     };
@@ -147,7 +147,6 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       viewer.removeEventListener("load", syncPlayback);
       viewer.removeEventListener("model-visibility", syncPlayback);
       document.removeEventListener("visibilitychange", syncPlayback);
-      viewer.autoRotate = false;
       viewer.pause();
     };
   }, [componentReady, source, controls, playing, modelError, turn]);
@@ -183,12 +182,13 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         </span>
       ) : null}
       {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
-      {controls && loaded && !modelError ? (
+      {controls && loaded && !modelError && clips.length > 0 ? (
+        // A model with nothing to play is a still: it gets no controls.
         // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.
         <div className="model-preview-controls nodrag nowheel">
-          <IconButton size="sm" label={t(playing ? "modelPreview.pause" : "modelPreview.play")} active={playing} onClick={() => setPlaying((value) => !value)}>
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </IconButton>
+          <Button size="sm" icon={playing ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />} aria-label={t(playing ? "modelPreview.pause" : "modelPreview.play")} title={t(playing ? "modelPreview.pause" : "modelPreview.play")} aria-pressed={playing || undefined} onClick={() => setPlaying((value) => !value)}>
+            {t(playing ? "modelPreview.pauseAction" : "modelPreview.playAction")}
+          </Button>
           {clips.length > 1 ? <select
             className="model-preview-clips"
             aria-label={t("modelPreview.clip")}
