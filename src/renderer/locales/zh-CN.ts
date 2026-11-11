@@ -73,6 +73,8 @@ const zhCN: typeof en = {
     tryAgain: "重试",
     copied: "已复制",
     copyDetails: "复制详情",
+    copyLink: "复制链接",
+    openLinkFailed: "无法打开浏览器。请复制下面的链接，在浏览器中打开。",
     technicalDetails: "技术详情",
     signIn: "登录",
     signOut: "退出登录",

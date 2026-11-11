@@ -142,7 +142,8 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
       <div className="markdown-code-header">
         <span>{language ?? t("markdown.code")}</span>
         <button type="button" onClick={() => {
-          void navigator.clipboard.writeText(code).then(() => setCopiedCode(code));
+          // Copying fails when the window has lost focus; the button then stays as it was.
+          void navigator.clipboard.writeText(code).then(() => setCopiedCode(code), () => undefined);
         }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
           <span>{copied ? t("common.copied") : t("common.copy")}</span>

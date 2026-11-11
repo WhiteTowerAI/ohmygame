@@ -14,7 +14,7 @@ import {
 } from "./api.js";
 import { Check, LoaderCircle, LogIn, RefreshCw } from "./icons.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { openModelAuthExternal } from "./use-model-provider-auth.js";
+import { useExternalLink } from "./external-link.js";
 import { t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
@@ -53,6 +53,8 @@ export function OnboardingAgents({
     command?: string;
   }>();
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const link = useExternalLink();
   const loginId = useRef<AgentRuntimeId | undefined>(undefined);
   const revision = useRef(0);
   useEffect(() => {
@@ -98,6 +100,11 @@ export function OnboardingAgents({
     const timer = setTimeout(() => setCopied(false), 1_500);
     return () => clearTimeout(timer);
   }, [copied]);
+  useEffect(() => {
+    if (!linkCopied) return;
+    const timer = setTimeout(() => setLinkCopied(false), 1_500);
+    return () => clearTimeout(timer);
+  }, [linkCopied]);
 
   async function run(id: AgentRuntimeId | "scan", action: () => Promise<void>) {
     if (busy || pending) return;
@@ -151,7 +158,7 @@ export function OnboardingAgents({
     loginId.current = id;
     setCopied(false);
     setLogin({ id, ...started });
-    if (started.url) await openModelAuthExternal(started.url);
+    if (started.url) await link.open(started.url);
   }
 
   const selected = agents?.find((agent) => agent.id === selectedAgent);
@@ -196,9 +203,7 @@ export function OnboardingAgents({
                   className="onboarding-text-button"
                   disabled={locked}
                   onClick={() =>
-                    void run(selected.id, () =>
-                      openModelAuthExternal(installUrl),
-                    )
+                    void run(selected.id, () => link.open(installUrl))
                   }
                 >
                   {t("codingAgents.installGuide")}
@@ -225,7 +230,7 @@ export function OnboardingAgents({
               type="button"
               className="onboarding-text-button"
               onClick={() =>
-                void run(login.id, () => openModelAuthExternal(login.url!))
+                void run(login.id, () => link.open(login.url!))
               }
             >
               {t("codingAgents.openAgain")}
@@ -257,6 +262,24 @@ export function OnboardingAgents({
             onClick={() => void run(login.id, () => recheck(login.id))}
           >
             {t("codingAgents.recheck")}
+          </button>
+        </div>
+      ) : null}
+      {link.failedUrl ? (
+        <div className="onboarding-agent-login" role="alert">
+          <p>{t("common.openLinkFailed")}</p>
+          <code>{link.failedUrl}</code>
+          <button
+            type="button"
+            className="onboarding-text-button"
+            onClick={() =>
+              void navigator.clipboard.writeText(link.failedUrl!).then(
+                () => setLinkCopied(true),
+                (cause) => setError(errorMessage(cause)),
+              )
+            }
+          >
+            {linkCopied ? t("common.copied") : t("common.copyLink")}
           </button>
         </div>
       ) : null}

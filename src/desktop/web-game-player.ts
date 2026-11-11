@@ -1,8 +1,9 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
-import { BrowserWindow, WebContentsView, screen, shell, type BaseWindow, type Input, type WebContents } from "electron";
+import { BrowserWindow, WebContentsView, screen, type BaseWindow, type Input, type WebContents } from "electron";
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
+import { openInBrowser } from "./open-in-browser.js";
 
 interface EditorAttachment extends WebGamePreviewLayout {
   id: string;
@@ -257,7 +258,7 @@ export class WebGamePlayerWindows {
         view.setBackgroundColor("#000000");
         const contents = view.webContents;
         contents.setWindowOpenHandler(({ url: destination }) => {
-          if (/^https?:\/\//.test(destination)) void shell.openExternal(destination);
+          if (/^https?:\/\//.test(destination)) void openInBrowser(destination);
           return { action: "deny" };
         });
         contents.on("will-frame-navigate", (event) => {

@@ -1,4 +1,5 @@
-import { BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, nativeTheme, screen } from "electron";
+import { openInBrowser } from "./open-in-browser.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -116,7 +117,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isHttpUrl(url)) void shell.openExternal(url);
+    if (isHttpUrl(url)) void openInBrowser(url);
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
