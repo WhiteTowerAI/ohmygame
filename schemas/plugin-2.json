@@ -120,11 +120,23 @@
           },
           {
             "type": "string",
+            "const": "templates"
+          },
+          {
+            "type": "string",
             "const": "publishing"
           },
           {
             "type": "string",
+            "const": "online"
+          },
+          {
+            "type": "string",
             "const": "design"
+          },
+          {
+            "type": "string",
+            "const": "story"
           },
           {
             "type": "string",
@@ -145,6 +157,10 @@
           {
             "type": "string",
             "const": "testing"
+          },
+          {
+            "type": "string",
+            "const": "learning"
           },
           {
             "type": "string",

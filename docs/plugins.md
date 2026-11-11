@@ -844,10 +844,13 @@ nothing is read.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `categories` sorts it on the
-Plugins page, grouped under the first: `engine` (engines and platforms), `publishing`,
-`design` (game design and level tools), `art`, `3d`, `audio`, `video`,
-`testing`, `agent` (coding agents), `provider` (model providers), `workflow`,
-`integration` (other apps and services) and `theme`. `screenshots` (API 2.4.0)
+Plugins page, grouped under the first: `engine` (engines and platforms),
+`templates` (starter games and presets), `publishing`, `online` (multiplayer,
+leaderboards, saves, analytics, ads and purchases), `design` (game design and
+level tools), `story` (narrative, dialogue and translation), `art`, `3d`,
+`audio`, `video`, `testing`, `learning` (tutorials and classes), `agent`
+(coding agents), `provider` (model providers), `workflow`, `integration`
+(other apps and services) and `theme`. `screenshots` (API 2.4.0)
 lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
 an optional `caption`, shown on its page through
 `GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)

@@ -62,13 +62,17 @@ const PROJECT_PATH_SEGMENT =
  */
 export const PLUGIN_CATEGORIES = [
   "engine",
+  "templates",
   "publishing",
+  "online",
   "design",
+  "story",
   "art",
   "3d",
   "audio",
   "video",
   "testing",
+  "learning",
   "agent",
   "provider",
   "workflow",
