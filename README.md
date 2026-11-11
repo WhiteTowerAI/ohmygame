@@ -106,7 +106,8 @@ Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
 listed in the in-app Community, where you can play what others have made,
 sort by latest, most viewed, or most liked, visit creators' profiles, and like
-the games you enjoy.
+the games you enjoy. A multiplayer game's rooms and its players' saves and
+leaderboards come with it.
 
 A one-person studio should pay for itself. Beyond the Community, plugins take
 your game to the platforms where players pay.
@@ -173,6 +174,13 @@ workflow: a design doc, key-screen mockups, production art, a playable core
 loop, and playtesting in the live preview. Games fit any window size, support
 touch, and publish to a shareable link. The project is a normal web project you
 can open in any editor.
+
+Web games can be **multiplayer**: board and card games, realtime arenas, or fast
+games such as snake, played online with friends. The agent sets up the rooms and
+tests them on your computer; publishing puts them on OhMyGame's game service, so
+you run no server. Published games can also sign players in with their OhMyGame
+account and keep their saves and leaderboards. See
+[Multiplayer](docs/multiplayer.md).
 
 ### 🎬 Interactive stories
 
