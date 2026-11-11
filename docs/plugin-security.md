@@ -65,8 +65,13 @@ a plugin's last version forgets what was allowed.
 ## Who can publish what
 
 - The publishers `ohmygame` and `personal` can't be added from outside the
-  app (`PluginServices.installAdded`), so no package stands in for a bundled
-  plugin or one the Plugin Builder made.
+  app (`assertAddablePlugin`), so no package stands in for a bundled plugin or
+  one the Plugin Builder made. The one exception is OhMyGame's own plugins
+  from its `@ohmygame` npm scope, on npmjs or npmmirror, which only the
+  OhMyGame organization can publish to, and a folder in development. GitHub,
+  a file, a plain folder and another registry can claim any publisher, so
+  they can't use `ohmygame`. Such a package never replaces a bundled plugin
+  of the same id: it comes from another source (below).
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept

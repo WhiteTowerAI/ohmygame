@@ -94,7 +94,8 @@ describe("PluginMarket listing", () => {
     const { status, plugins } = await subject.listing("zh-CN");
     expect(status).toBe("ready");
     expect(plugins.map((plugin) => [plugin.id, plugin.version, plugin.featured])).toEqual([
-      ["a/picked", "1.0.0", true], ["a/top", "1.2.0", false], ["a/low", "1.0.0", false],
+      // OhMyGame's own npm scope is listed; the Plugin Builder's publisher isn't.
+      ["a/picked", "1.0.0", true], ["a/top", "1.2.0", false], ["a/low", "1.0.0", false], ["ohmygame/studio", "1.0.0", false],
     ]);
     expect(plugins[1]).toMatchObject({
       package: "@a/top", displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
