@@ -316,6 +316,11 @@ it("runs pixel-art fixing immediately and creates a derived asset", async () => 
   await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b", operation: "fix-pixel-art", assetIds: ["first"], options: {},
   }));
+  // A finished action reports what it made, not that it failed.
+  const notice = await vi.waitFor(() => container.querySelector<HTMLElement>(".story-save-notice")!);
+  expect(notice.textContent).toContain("Created pixel-art-fixed.png");
+  expect(notice.textContent).not.toContain("Could not complete this action.");
+  expect(notice.getAttribute("role")).toBe("status");
 });
 
 it("shows a direct pixel-art processing error", async () => {
