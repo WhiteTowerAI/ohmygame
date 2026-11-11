@@ -123,78 +123,48 @@
   font-weight: var(--weight-regular);
 }
 
-/* featured: a picture over the name, up to four a row */
-.plugins-features {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+/* the end of a long list: Show more, or View all on the front page */
+.plugins-all {
+  display: flex;
+  justify-content: center;
+}
+
+/* a market plugin, opened over Discover (plugin-catalog.tsx) */
+.plugin-dialog-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-dialog-head {
+  display: flex;
+  align-items: flex-start;
   gap: var(--space-3);
 }
 
-.plugin-feature-link {
+.plugin-dialog-summary {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration-fast);
-}
-
-.plugin-feature-link:hover {
-  background: var(--color-hover);
-}
-
-.plugin-feature-link:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-}
-
-.plugin-feature-art {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: var(--color-hover);
-}
-
-.plugin-feature-art > img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.plugin-feature-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
-  padding: var(--space-3);
 }
 
-.plugin-feature-text strong {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
+.plugin-dialog-summary p {
+  margin: 0;
+  color: var(--color-text-secondary);
   font-size: var(--text-md);
-  font-weight: var(--weight-medium);
+  line-height: 1.55;
 }
 
-.plugin-feature-text small {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.plugin-dialog .plugin-shot img {
+  height: 180px;
 }
 
 /* screenshots: one row that scrolls sideways, each opening larger */
@@ -400,14 +370,10 @@
   color: var(--color-text-secondary);
 }
 
-.plugins-verified {
+/* The Official seal (plugin-marks.tsx). */
+.plugin-official-mark {
   flex: none;
   color: var(--color-accent);
-}
-
-.plugins-official {
-  display: inline-flex;
-  flex: none;
 }
 
 .plugins-installed-label {
@@ -669,6 +635,10 @@
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.plugin-props a + .plugins-note {
+  margin-left: var(--space-2);
 }
 
 .plugin-props a {

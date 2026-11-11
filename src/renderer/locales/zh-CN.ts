@@ -2670,7 +2670,11 @@ const zhCN: typeof en = {
     asksNothingNew: "没有需要重新允许的新权限。",
   },
   pluginCatalog: {
-    morePlugins: "更多插件",
+    popular: "热门",
+    viewAllPlugins_one: "查看全部 {{count}} 个插件",
+    viewAllPlugins_other: "查看全部 {{count}} 个插件",
+    showMore: "显示更多（还有 {{count}} 个）",
+    manage: "管理",
     allPlugins: "全部插件",
     all: "全部",
     categoriesLabel: "分类",

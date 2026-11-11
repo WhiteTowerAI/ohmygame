@@ -7,7 +7,7 @@ import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type 
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, FeaturedPluginCard, inCatalogCategory, MarketPluginCard, MarketPluginDetail, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
+import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, MarketPluginCard, MarketPluginDialog, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -35,6 +35,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [addOpen, setAddOpen] = useState(false);
   const [market, setMarket] = useState<PluginMarketListing>();
   const [adding, setAdding] = useState<MarketPlugin>();
+  // A market plugin shown over Discover, so browsing never leaves the list.
+  const [preview, setPreview] = useState<string>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [updating, setUpdating] = useState<PluginSourceUpdate>();
   const [safeMode, setSafeMode] = useState(false);
@@ -162,55 +164,46 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         .map(group => <PluginGroup key={group.category} title={categoryLabel(group.category)} cards={group.plugins.map(card)} />)}
   </>;
 
-  // Discover: the market, to get plugins from. A card opens the plugin's page, installed or not.
+  // Discover: the market, to get plugins from. A card opens the plugin in a dialog over the list.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
   const searched = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
     && (adds === "all" || marketContributions(plugin).includes(adds)));
   const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
   const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
-    onOpen={() => onPluginChange(plugin.id)} onGet={() => setAdding(plugin)} />;
-  // With nothing picked, the market reads like a store's front page: what's featured, then a few of each category.
-  const browsing = !normalizedQuery && adds === "all" && marketCategory === "all";
-  const featured = browsing ? listed.filter(plugin => plugin.featured).slice(0, FEATURED_LIMIT) : [];
-  // A category gets its own section once it has two; the rest share one at the end.
-  const byCategory = CATALOG_CATEGORIES.map(category => ({ category, plugins: listed.filter(plugin => catalogSection(plugin.categories) === category) }));
-  const sections = byCategory.filter(group => group.category !== "other" && group.plugins.length > 1);
-  const unsectioned = byCategory.filter(group => !sections.includes(group)).flatMap(group => group.plugins);
+    onOpen={() => setPreview(plugin.id)} onGet={() => setAdding(plugin)} />;
+  // With nothing picked and the recommended order, the market reads like a store's front page:
+  // a few rows of a few cards, however many plugins there are. Any other view is one list, shown a page at a time.
+  const browsing = !normalizedQuery && adds === "all" && marketCategory === "all" && sort === "recommended";
+  const front = browsing && listed.length > SECTIONS_FROM ? marketFront(listed) : undefined;
+  const row = (title: string, plugins: MarketPlugin[], more?: { count: number; show: () => void }) => plugins.length
+    ? <section key={title} className="plugins-section" aria-label={title}>
+      <div className="plugins-section-head">
+        <h2>{title}</h2>
+        {more ? <Button variant="ghost" size="sm" onClick={more.show}>{t("plugins.viewAll", { count: more.count })}</Button> : null}
+      </div>
+      <div className="plugins-grid">{plugins.map(marketCard)}</div>
+    </section> : null;
   const discoverTab = <>
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
     {marketPlugins.length ? toolbar(
       <CategoryChips items={searched.map(plugin => plugin.categories)} value={marketCategory} onChange={setMarketCategory} />,
       kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))]),
-      browsing ? null : <MarketSortSelect key="sort" value={sort} onChange={setSort} />,
+      <MarketSortSelect key="sort" value={sort} onChange={setSort} />,
     ) : null}
-    {featured.length ? <section className="plugins-section" aria-label={t("plugins.marketFeatured")}>
-      <h2>{t("plugins.marketFeatured")}</h2>
-      <div className="plugins-features">{featured.map(plugin => <FeaturedPluginCard key={plugin.id} plugin={plugin} onOpen={() => onPluginChange(plugin.id)} />)}</div>
-    </section> : null}
-    {!listed.length ? null : browsing && listed.length > SECTIONS_FROM ? <>
-      {sections.map(group => <section key={group.category} className="plugins-section" aria-label={categoryLabel(group.category)}>
-        <div className="plugins-section-head">
-          <h2>{categoryLabel(group.category)}</h2>
-          {group.plugins.length > SECTION_LIMIT ? <Button variant="ghost" size="sm" onClick={() => setMarketCategory(group.category)}>
-            {t("plugins.viewAll", { count: group.plugins.length })}
-          </Button> : null}
-        </div>
-        <div className="plugins-grid">{group.plugins.slice(0, SECTION_LIMIT).map(marketCard)}</div>
-      </section>)}
-      {unsectioned.length ? <section className="plugins-section" aria-label={t("pluginCatalog.morePlugins")}>
-        <h2>{t("pluginCatalog.morePlugins")}</h2>
-        <div className="plugins-grid">{unsectioned.map(marketCard)}</div>
-      </section> : null}
+    {!listed.length ? null : front ? <>
+      {row(t("plugins.marketFeatured"), front.featured)}
+      {row(t("pluginCatalog.popular"), front.popular, { count: listed.length, show: () => setSort("downloads") })}
+      {row(t("pluginCatalog.sort.updated"), front.recent, { count: listed.length, show: () => setSort("updated") })}
+      {front.categories.map(group => row(categoryLabel(group.category), group.plugins, { count: group.total, show: () => setMarketCategory(group.category) }))}
+      <div className="plugins-all">
+        <Button onClick={() => setSort("name")}>{t("pluginCatalog.viewAllPlugins", { count: listed.length })}</Button>
+      </div>
     </>
-      : browsing ? <section className="plugins-section" aria-label={t("pluginCatalog.allPlugins")}>
-        <h2>{t("pluginCatalog.allPlugins")}</h2>
-        <div className="plugins-grid">{listed.map(marketCard)}</div>
-      </section>
-      : <section className="plugins-section" aria-label={t("pluginCatalog.results", { count: listed.length })}>
-        <p className="plugins-note">{t("pluginCatalog.results", { count: listed.length })}</p>
-        <div className="plugins-grid">{listed.map(marketCard)}</div>
+      : <section className="plugins-section" aria-label={browsing ? t("pluginCatalog.allPlugins") : t("pluginCatalog.results", { count: listed.length })}>
+        {browsing ? <h2>{t("pluginCatalog.allPlugins")}</h2> : <p className="plugins-note">{t("pluginCatalog.results", { count: listed.length })}</p>}
+        <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketCategory}\n${sort}`} cards={listed.map(marketCard)} />
       </section>}
     {listed.length ? null : <Empty title={normalizedQuery || adds !== "all" || marketCategory !== "all" ? t("plugins.noMatch") : t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
@@ -238,21 +231,24 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
-  const listedDetail = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
+  // A link to a plugin that isn't installed opens it over Discover, as a card does.
+  const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
+  const page = linked ? undefined : pluginId;
+  const shown = preview ? marketPlugins.find(plugin => plugin.id === preview) : linked;
+  const closePreview = () => { if (preview) setPreview(undefined); else showCatalog(); };
 
   return <section className="plugins-page">
     {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
       ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
       {t("pluginSafeMode.hint")}
     </Alert></div> : null}
-    {pluginId ? <>
+    {page ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={pluginId} group={detail} market={market} updates={updates} onUpdate={setAdding}
+        ? <StorePluginDetail key={page} group={detail} market={market} updates={updates} onUpdate={setAdding}
           onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
-        : listedDetail ? <MarketPluginDetail key={pluginId} plugin={listedDetail} onGet={() => setAdding(listedDetail)} />
         : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
@@ -274,8 +270,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         {phase === "ready" ? tab === "discover" ? discoverTab : tab === "mine" ? mineTab : installedTab : null}
       </div>
     </>}
+    {shown && !adding ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
+      onGet={() => setAdding(shown)}
+      onManage={() => { setPreview(undefined); onPluginChange(shown.id); }} /> : null}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
-    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); added(id); }} /> : null}
+    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}
   </section>;
 
@@ -287,11 +286,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
 }
 
 const INSTALLED_PLUGIN_LIMIT = 6;
-/** Cards in a category's section of the market's front page, and featured ones above them. */
-const SECTION_LIMIT = 4;
-/** Below this many, sections of one or two cards say less than a single list does. */
+/** Below this many, rows of one or two cards say less than a single list does. */
 const SECTIONS_FROM = 12;
-const FEATURED_LIMIT = 4;
+/** Market cards a list shows at a time, so a long one stays quick to draw and to fetch icons for. */
+const LIST_PAGE = 24;
 /** How often an open page picks up what the daemon's market has read. */
 const MARKET_READ_MS = 2 * 60_000;
 
@@ -306,6 +304,17 @@ function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): R
       {expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: cards.length })}
     </Button></div> : null}
   </section>;
+}
+
+/** A long list of cards, a page at a time. */
+function PagedGrid({ cards }: { cards: ReactNode[] }): ReactNode {
+  const [count, setCount] = useState(LIST_PAGE);
+  return <>
+    <div className="plugins-grid">{cards.slice(0, count)}</div>
+    {cards.length > count ? <div className="plugins-all">
+      <Button onClick={() => setCount((current) => current + LIST_PAGE)}>{t("pluginCatalog.showMore", { count: cards.length - count })}</Button>
+    </div> : null}
+  </>;
 }
 
 function PluginState({ children }: { children: ReactNode }): ReactNode {

@@ -2716,7 +2716,11 @@ const en = {
     asksNothingNew: "It asks for nothing you haven't allowed already.",
   },
   pluginCatalog: {
-    morePlugins: "More plugins",
+    popular: "Popular",
+    viewAllPlugins_one: "View all {{count}} plugin",
+    viewAllPlugins_other: "View all {{count}} plugins",
+    showMore: "Show more ({{count}} left)",
+    manage: "Manage",
     allPlugins: "All plugins",
     all: "All",
     categoriesLabel: "Categories",

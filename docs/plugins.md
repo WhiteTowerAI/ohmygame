@@ -17,7 +17,8 @@ The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
 the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
 default. Tabs show no counts; **Installed** has a dot when an installed plugin
 has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share: the category chips, sorting, cards and the market plugin page.
+Installed share: the category chips, sorting, cards, the front page and the
+market plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
 A row of chips above the list offers **All** and each category something on
@@ -27,6 +28,13 @@ under its first, and one with none is under **Other**. Search shows every match
 in one list. A plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
+The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.tsx`).
+**Official** is the only icon: a solid blue seal on OhMyGame's own plugins,
+bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
+label (**Beta**, **Included**, **In development**, **Update available**), red
+only when it needs the person (**Stopped**, **Blocked**, a development build
+that failed).
+
 - **Installed** holds what others made: bundled, prepared, and added from npm or
   GitHub. Plugins with an update come first, under **Updates**, then a group
   for each category, each with up to six cards and a **View all**. A
@@ -35,20 +43,22 @@ picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
   Each card says whether the plugin is on in every project or in chosen ones,
   and its switch changes that without moving the card. Turning one on is
   what allows it: there is no second prompt.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins: up to
-  four **Featured** ones with their first screenshot, then **All plugins**. Once
-  the market lists more than twelve, each category with at least two gets its
-  own section of four with a **View all**, and the rest are under **More
-  plugins**. A narrowed list can be sorted by **Recommended** (featured, then
-  weekly downloads), **Most downloaded**, **Recently updated** or **Name**, and
-  filtered by what the plugins add. Cards mark what's installed, what's
-  `beta`, and the `ohmygame` publisher's plugins with the app's icon
-  (**Official**) in place of the blue **Source verified** check. A card opens the
-  plugin's page; **Get** opens [Add plugin](#adding-a-plugin)'s review at the
-  listed version. A plugin that isn't installed has a page of its own, from
-  the index alone: its screenshots, long description, what it asks for and
-  adds, and its categories, project types, publisher, version, date and
-  downloads.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins. With
+  nothing picked and the **Recommended** order, more than twelve read as a
+  front page of short rows, so it stays the same size however many plugins
+  there are (`marketFront`): **Featured**, **Popular** (weekly downloads),
+  **Recently updated**, then the six categories whose plugins are downloaded
+  most. Each plugin shows once, in the first row that takes it, and each row
+  has a **View all**. Any other view is one list: a category, a search, a
+  **Contains** filter, or another order (**Most downloaded**, **Recently
+  updated**, **Name**). It shows 24 cards at a time with **Show more**. A card
+  opens the plugin in a dialog over the list, from the index alone: its
+  screenshots, long description, what it asks for and adds, and its
+  categories, project types, publisher, version, date, downloads and whether
+  its source is verified. The dialog has **Get**, or **Manage** for an
+  installed plugin, which opens its page. A link to a plugin that isn't
+  installed opens the same dialog over Discover. **Get** on a card or in the
+  dialog opens [Add plugin](#adding-a-plugin)'s review at the listed version.
 - **Mine** holds what the person can edit: **Create a plugin with AI**, the
   plugins they made (`personal/<name>`) or added from this computer, then the AI
   workspaces.

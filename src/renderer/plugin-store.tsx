@@ -5,7 +5,8 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, OfficialMark, PluginScreenshots } from "./plugin-catalog.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginScreenshots } from "./plugin-catalog.js";
+import { PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
@@ -16,7 +17,7 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
-import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -44,6 +45,12 @@ export function groupStorePlugins(rows: readonly StorePlugin[]): StorePluginGrou
 
 /** Not held off by safe mode, the only thing that stops a plugin everywhere. */
 export const storePluginEnabled = (plugin: StorePlugin) => plugin.grants?.enabled !== false;
+/**
+ * OhMyGame's own: bundled with the app, or from its npm scope. A folder in
+ * development may use the publisher too, so it isn't.
+ */
+const isOfficialStorePlugin = (plugin: StorePlugin) =>
+  isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm");
 
 export function storePluginSearchText(plugin: StorePlugin): string {
   return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
@@ -161,11 +168,13 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
       <span className="plugin-card-text">
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-          {plugin.origin?.type === "development" ? <Badge tone={plugin.developmentError ? "danger" : "outline"}>{t("plugins.inDevelopment")}</Badge> : null}
-          {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
-          {enabled && plugin.quarantined ? <Badge tone="danger">{t("pluginLog.stoppedBadge")}</Badge> : null}
-          {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
+          <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
+            plugin.beta && "beta",
+            plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
+            !enabled && "off",
+            enabled && plugin.quarantined && "stopped",
+            marketBlocks(group.versions, market).length ? "blocked" : (marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates)) && "update",
+          ]} />
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta">
@@ -293,12 +302,13 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
-    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
-      {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge>
-        : isOfficialPlugin(plugin.id) && plugin.origin?.type === "npm" ? <OfficialMark /> : null}
-      {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
-    </>}>
+    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={
+      <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
+        plugin.beta && "beta",
+        (plugin.bundled || plugin.preinstalled) && "included",
+        plugin.origin?.type === "development" && "development",
+      ]} />
+    }>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
         <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
