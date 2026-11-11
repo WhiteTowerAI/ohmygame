@@ -5424,7 +5424,7 @@ button {
   gap: 4px;
   width: auto;
   height: auto;
-  color: var(--icon-secondary);
+  color: var(--text-secondary);
   pointer-events: none;
 }
 .story-audio-waveform > i {
@@ -14053,7 +14053,7 @@ summary.work-summary:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--surface-raised);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
   color: var(--text-secondary);
   font-size: var(--text-xs);
   transform: translateX(-50%);
