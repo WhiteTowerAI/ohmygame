@@ -71,7 +71,7 @@ describe("plugin catalog API", () => {
 
     const body = JSON.stringify({ schemaVersion: 1, versions: [{
       package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
-      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, icon: "./icon.png", screenshots: [{ path: "./assets/a1.png" }] },
+      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }] },
     }], packages: { "@acme/maker": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" } }, featured: [] });
     const digest = createHash("sha256").update(body).digest("hex");
     const png = Buffer.from("89504e470d0a1a0a", "hex");
@@ -81,22 +81,16 @@ describe("plugin catalog API", () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
     apps.push(app);
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "./icon.png", screenshots: [{ path: "./assets/a1.png" }], avatar: "42" }] });
-    // Its screenshots come through the app from the package file mirror, and only those the index lists.
-    const file = (path: string, version = "1.0.0") => app.inject({ method: "GET", url: `/plugin-market/files?${new URLSearchParams({ package: "@acme/maker", version, path })}` });
-    const shot = await file("./assets/a1.png");
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }], avatar: "42" }] });
+    // Its screenshots come through the app from beside the index, and only those the index lists.
+    const file = (path: string) => app.inject({ method: "GET", url: `/plugin-market/images?${new URLSearchParams({ path })}` });
+    const shot = await file("assets/a1.png");
     expect(shot.statusCode).toBe(200);
     expect(shot.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
     expect(shot.rawPayload).toEqual(png);
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input))).toContain("https://cdn.jsdelivr.net/npm/@acme/maker@1.0.0/assets/a1.png");
-    expect((await file("./assets/b2.png")).statusCode).toBe(404);
-    expect((await file("./assets/a1.png", "0.9.0")).statusCode).toBe(404);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input))).toContain("https://plugins.example.com/assets/a1.png");
+    expect((await file("assets/b2.png")).statusCode).toBe(404);
     expect((await file("../secret.png")).statusCode).toBe(404);
-    // The mirror is a setting: a CDN for npm packages, over HTTPS.
-    expect((await app.inject({ method: "GET", url: "/settings/plugin-files" })).json()).toEqual({ base: "https://cdn.jsdelivr.net/npm/" });
-    expect((await app.inject({ method: "PUT", url: "/settings/plugin-files", payload: { base: "http://cdn.example/npm" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "PUT", url: "/settings/plugin-files", payload: { base: "https://unpkg.com" } })).json()).toEqual({ base: "https://unpkg.com/" });
-    expect((await app.inject({ method: "GET", url: "/settings/plugin-files" })).json()).toEqual({ base: "https://unpkg.com/" });
     // So does its publisher's avatar, only by the id the index gives.
     const avatar = await app.inject({ method: "GET", url: "/plugin-market/avatars/42" });
     expect(avatar.statusCode).toBe(200);

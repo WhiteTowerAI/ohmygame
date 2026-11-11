@@ -1794,18 +1794,10 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   return response.blob();
 }
 /** The icon or a screenshot the market lists for a plugin version, by its path in the package. */
-export async function readPluginMarketFile(plugin: { package: string; version: string }, path: string, signal?: AbortSignal): Promise<Blob> {
-  const query = new URLSearchParams({ package: plugin.package, version: plugin.version, path });
-  const response = await fetch(apiUrl(`/plugin-market/files?${query}`), { headers: runtimeHeaders(), signal });
+export async function readPluginMarketImage(path: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path })}`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
-}
-/** Where the market's icons and screenshots are read from: a CDN for npm packages' files. */
-export async function getPluginFileMirror(): Promise<{ base: string }> {
-  return request("/settings/plugin-files");
-}
-export async function setPluginFileMirror(base: string): Promise<{ base: string }> {
-  return request("/settings/plugin-files", { method: "PUT", body: JSON.stringify({ base }) });
 }
 /** A market publisher's GitHub avatar, by GitHub's id for them. */
 export async function readPluginMarketAvatar(id: string, signal?: AbortSignal): Promise<Blob> {

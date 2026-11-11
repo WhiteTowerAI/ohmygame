@@ -42,18 +42,6 @@ export type PluginAddSource =
   | { type: "directory"; path: string; development?: true };
 
 /** A plugin published on npm that the market lists, at its newest version. */
-/**
- * CDNs that serve any npm package's files at `<base><package>@<version>/<path>`.
- * The market's icons and screenshots are read from one of them, so the index
- * stores no pictures. npmmirror isn't one: it serves the files of only the
- * packages on its allowlist.
- */
-export const PLUGIN_FILE_MIRRORS = {
-  jsdelivr: "https://cdn.jsdelivr.net/npm/",
-  unpkg: "https://unpkg.com/",
-} as const;
-export const DEFAULT_PLUGIN_FILE_MIRROR: string = PLUGIN_FILE_MIRRORS.jsdelivr;
-
 export interface MarketPlugin {
   id: string;
   package: string;
@@ -70,9 +58,9 @@ export interface MarketPlugin {
   appliesTo?: string[];
   beta?: boolean;
   longDescription?: string;
-  /** Its icon, by its path in the package, which `/plugin-market/files` reads from the package file mirror. */
+  /** Its icon, by its path beside the market's index, which `/plugin-market/images` reads. */
   icon?: string;
-  /** Screenshots by their path in the package, read the same way. */
+  /** Screenshots by their path beside the index, read the same way. */
   screenshots?: Array<{ path: string; caption?: string }>;
   /** GitHub's id for the publisher, whose avatar `/plugin-market/avatars/<id>` reads; only when the source is verified. */
   avatar?: string;

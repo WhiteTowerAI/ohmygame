@@ -2669,16 +2669,6 @@ const zhCN: typeof en = {
     asksAgain: "只会再次询问新增的权限。",
     asksNothingNew: "没有需要重新允许的新权限。",
   },
-  pluginMarketSettings: {
-    open: "市场设置",
-    title: "市场设置",
-    source: "图片来源",
-    sourceHint: "插件图标和截图从 npm 包的 CDN 读取。所在地区加载不出图片时，可以换一个。",
-    custom: "自定义",
-    address: "CDN 地址",
-    addressHint: "按 jsDelivr 的方式提供 npm 包：地址后接 {{example}}。",
-    saved: "已保存，图片将从这里加载。",
-  },
   pluginCatalog: {
     home: "概览",
     size: "大小",

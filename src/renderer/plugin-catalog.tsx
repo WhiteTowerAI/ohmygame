@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
 import type { MarketPlugin } from "../shared/plugins.js";
-import { readPluginMarketAvatar, readPluginMarketFile } from "./api.js";
+import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, Download, ExternalLink, SlidersHorizontal } from "./icons.js";
+import { Check, Download, ExternalLink } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -12,7 +12,7 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Button, Dialog, FilterChips, IconButton, Select } from "./ui/index.js";
+import { Button, Dialog, FilterChips, Select } from "./ui/index.js";
 
 // What the Plugins page browses by: the categories plugins name, how the
 // market is sorted, and the market's cards and pages. A plugin may name up to
@@ -118,20 +118,20 @@ function publisherName(plugin: MarketPlugin): string {
 }
 
 /**
- * Files a market plugin's listed version names (its icon, its screenshots),
- * read through the daemon from the package file mirror, as addresses an `img`
- * can show: undefined while reading, null for one that can't be read.
+ * Images the market lists for a plugin (its icon, its screenshots), read
+ * through the daemon from beside the index, as addresses an `img` can show:
+ * undefined while reading, null for one that can't be read.
  */
-function useMarketFiles(plugin: MarketPlugin, paths: readonly (string | undefined)[]): (string | null | undefined)[] {
+function useMarketImages(paths: readonly (string | undefined)[]): (string | null | undefined)[] {
   const generation = useReadyRuntimeGeneration();
   const [urls, setUrls] = useState<(string | null | undefined)[]>([]);
-  const key = [plugin.package, plugin.version, ...paths].join("\n");
+  const key = paths.join("\n");
   useEffect(() => {
     setUrls([]);
     const controller = new AbortController();
     const made: string[] = [];
     void Promise.all(paths.map((path) => path
-      ? readPluginMarketFile(plugin, path, controller.signal).then((blob) => {
+      ? readPluginMarketImage(path, controller.signal).then((blob) => {
         const url = URL.createObjectURL(blob);
         made.push(url);
         return url;
@@ -180,7 +180,7 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
 
 /** A market plugin's own icon, as an installed one's tile shows it, or its first letter. */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
-  const [icon] = useMarketFiles(plugin, [plugin.icon]);
+  const [icon] = useMarketImages([plugin.icon]);
   const size = large ? 40 : 24;
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
     {icon ? <img className="plugin-icon-image" src={icon} width={size} height={size} alt="" aria-hidden="true" />
@@ -253,15 +253,13 @@ export type MarketOnly = "official" | "verified";
 export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
   (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
 
-export function MarketRail({ plugins, section, onSection, only, onOnly, onSettings }: {
+export function MarketRail({ plugins, section, onSection, only, onOnly }: {
   /** What the search and filters leave, to count. */
   plugins: readonly MarketPlugin[];
   section: MarketSection;
   onSection: (section: MarketSection) => void;
   only: readonly MarketOnly[];
   onOnly: (only: MarketOnly[]) => void;
-  /** Opens the market's settings, from the foot of the list. */
-  onSettings: () => void;
 }): ReactNode {
   const counts = new Map(CATALOG_CATEGORIES.map((category) => [category, plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length]));
   const item = (value: MarketSection, label: string, count?: number) =>
@@ -285,9 +283,6 @@ export function MarketRail({ plugins, section, onSection, only, onOnly, onSettin
     <h3>{t("pluginCatalog.showOnly")}</h3>
     {filter("official", t("plugins.official"))}
     {filter("verified", t("plugins.sourceVerified"))}
-    <div className="plugins-rail-foot">
-      <IconButton size="sm" label={t("pluginMarketSettings.open")} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
-    </div>
   </nav>;
 }
 
@@ -362,7 +357,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   };
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
-  const shots = useMarketFiles(plugin, (plugin.screenshots ?? []).map((shot) => shot.path));
+  const shots = useMarketImages((plugin.screenshots ?? []).map((shot) => shot.path));
   const stats = [
     plugin.weeklyDownloads !== undefined ? { label: t("pluginCatalog.weekly"), value: compact.format(plugin.weeklyDownloads) } : undefined,
     plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,

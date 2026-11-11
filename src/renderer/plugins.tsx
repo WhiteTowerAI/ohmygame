@@ -13,7 +13,6 @@ import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { PluginAddDialog } from "./plugin-add-dialog.js";
-import { PluginMarketSettingsDialog } from "./plugin-file-settings.js";
 import { Alert, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
@@ -54,9 +53,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [kind, setKind] = useState<PluginContribution | "all">("all");
   const [marketSection, setMarketSection] = useState<MarketSection>("home");
   const [only, setOnly] = useState<MarketOnly[]>([]);
-  const [marketSettings, setMarketSettings] = useState(false);
-  // Changing where pictures come from draws the cards again, to read them from there.
-  const [pictures, setPictures] = useState(0);
   const [installedCategory, setInstalledCategory] = useState<CatalogFilter>("all");
   const [sort, setSort] = useState<MarketSort>("recommended");
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
@@ -202,8 +198,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
     {marketPlugins.length ? <div className="plugins-browse">
-      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} onSettings={() => setMarketSettings(true)} />
-      <div className="plugins-browse-main" key={pictures}>
+      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} />
+      <div className="plugins-browse-main">
         {front ? <>
           {row(t("plugins.marketFeatured"), front.featured)}
           {row(t("pluginCatalog.sort.recommended"), front.recommended, "recommended")}
@@ -287,7 +283,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {shown && !adding ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
       onGet={() => setAdding(shown)}
       onManage={() => { setPreview(undefined); onPluginChange(shown.id); }} /> : null}
-    {marketSettings ? <PluginMarketSettingsDialog onClose={() => setMarketSettings(false)} onSaved={() => setPictures((count) => count + 1)} /> : null}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}

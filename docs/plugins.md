@@ -48,9 +48,7 @@ that failed).
   plugins**, each category with how many plugins it has, and two filters,
   **Official** and **Source verified**. The counts follow the search and
   filters, and a category nothing is in is left out. On a narrow window the
-  side list becomes a row above the cards. At its foot, an icon opens the
-  market's settings: where icons and screenshots come from (see
-  [Market images](#the-plugin-market)).
+  side list becomes a row above the cards.
   - **Overview** with more than twelve plugins is the same few rows however
     many there are (`marketFront`): **Featured** (picked by the index),
     **Recommended** (the market's score, below), **New** (first published in
@@ -351,7 +349,7 @@ was opened.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/daemon/plugin-file-mirror.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-file-settings.tsx` (the market settings dialog), `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -820,23 +818,22 @@ nothing is read.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
   `beta`, a localized `longDescription`, and the manifest's `icon` and
-  `screenshots` (up to ten `{ path, caption? }`), as paths in the package. A
+  `screenshots` (up to ten `{ path, caption? }`), as paths beside the index. A
   version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
   facts can carry `createdAt`, its first publish, and `avatar`, the repository
   owner's `avatar_url` from GitHub's API. The app reads fields it doesn't know
   past, keeps only categories it knows, and passes over a path that leaves the
-  package and an avatar that isn't
+  index's folder and an avatar that isn't
   `https://avatars.githubusercontent.com/u/<id>`.
-- **Market images.** The index stores no pictures. Icons and screenshots are
-  read from a CDN that serves npm packages' files at
-  `<base><package>@<version>/<path>`, at the version the index lists:
-  jsDelivr by default, or unpkg or another address (HTTPS, or HTTP on this
-  computer) in the market's settings, from the foot of Discover's side list
-  (`PluginMarketSettingsDialog`; `GET`/`PUT /settings/plugin-files`, kept in `plugin-file-mirror.json`;
-  `src/daemon/plugin-file-mirror.ts`). npmmirror isn't offered: it serves the
-  files of allowlisted packages only. `GET /plugin-market/files?package=&version=&path=`
-  serves only the icon or a screenshot the current index lists for that
-  version, without following redirects: an icon up to 1 MB, checked like an
+- **Market images.** The index job copies each version's icon and screenshots
+  out of its package to the index's own storage, beside the index, named by
+  their contents (`assets/<sha256>.<ext>`), and lists them by those paths. So
+  wherever the market can be read, so can its pictures, with no setting of
+  their own. A path is letters, digits, `.`, `_` and `-` in parts below the
+  index's folder, never `..` or another host (`indexImage`).
+  `GET /plugin-market/images?path=` serves only an icon or a screenshot the
+  current index lists, without following redirects: an icon up to 1 MB, of
+  the type its name says and checked like an
   installed plugin's (PNG, WebP or static SVG); a screenshot up to 1 MB as a
   PNG, JPEG or WebP. `GET /plugin-market/avatars/<id>` serves only an avatar
   the current index gives a verified package, read from GitHub's avatar host

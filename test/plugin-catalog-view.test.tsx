@@ -67,8 +67,7 @@ beforeEach(() => {
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
       if (route === "/plugin-market") return Response.json(market);
-      if (route === "/settings/plugin-files") return Response.json({ base: init.method === "PUT" ? JSON.parse(String(init.body)).base : "https://cdn.jsdelivr.net/npm/" });
-      if (route === "/plugin-market/avatars/42" || route === "/plugin-market/files") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
+      if (route === "/plugin-market/avatars/42" || route === "/plugin-market/images") return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/every-project")) {
         const id = route.slice("/plugin-store/".length, -"/every-project".length);
         store.find((plugin) => plugin.id === id)!.everyProject = JSON.parse(String(init.body)).on;
@@ -409,16 +408,6 @@ describe("plugin catalog browsing", () => {
       expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
       await rail("Source verified");
       expect(cards(section("Featured"))).toEqual(["Market hit"]);
-    });
-
-    it("sets where pictures come from in the market's settings, at the foot of the side list", async () => {
-      market = { status: "ready", blocked: [], plugins: [listed("picked")] };
-      await renderCatalog(undefined, "discover");
-      await click("Market settings");
-      await vi.waitFor(() => expect(dialog()?.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("jsDelivr"));
-      await act(async () => [...dialog()!.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "unpkg")!.click());
-      await vi.waitFor(() => expect(dialog()?.textContent).toContain("Saved"));
-      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith("/settings/plugin-files") && init?.method === "PUT" && String(init.body).includes("https://unpkg.com/"))).toBe(true);
     });
 
     it("shows a long list a page at a time", async () => {

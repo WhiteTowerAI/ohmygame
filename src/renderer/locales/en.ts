@@ -2715,16 +2715,6 @@ const en = {
     asksAgain: "You'll be asked to allow only what's new.",
     asksNothingNew: "It asks for nothing you haven't allowed already.",
   },
-  pluginMarketSettings: {
-    open: "Market settings",
-    title: "Market settings",
-    source: "Image source",
-    sourceHint: "Plugin icons and screenshots are read from a CDN for npm packages. Choose another if pictures don't load where you are.",
-    custom: "Custom",
-    address: "CDN address",
-    addressHint: "Serves npm packages like jsDelivr: the address, then {{example}}.",
-    saved: "Saved. Pictures now load from here.",
-  },
   pluginCatalog: {
     home: "Overview",
     size: "Size",

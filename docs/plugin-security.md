@@ -90,9 +90,9 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
 - Market icons, screenshots and avatars come through the daemon, not the
   page, and are served with `nosniff` and a sandboxing CSP. Icons and
-  screenshots are only those the current index lists for a version, read from
-  the package file CDN the person chose, at that exact version, by a path that
-  stays inside the package. An icon is checked like an installed plugin's
+  screenshots are only those the current index lists, read from beside the
+  index on its own host, by a path that stays below the index's folder. An
+  icon is the type its name says, and is checked like an installed plugin's
   (PNG, WebP, or static SVG without scripts, styles or outside references);
   a screenshot must be a PNG, JPEG or WebP. Avatars are only from
   `avatars.githubusercontent.com`, for a package whose source is verified, so

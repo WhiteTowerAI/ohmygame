@@ -539,25 +539,6 @@
   flex: 1;
 }
 
-/* the foot of the side list: the market's settings */
-.plugins-rail-foot {
-  display: flex;
-  margin-top: var(--space-3);
-  padding: 0 var(--space-1);
-}
-
-/* the market's settings dialog */
-.plugin-market-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.plugin-market-settings-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 @media (max-width: 1000px) {
   .plugins-browse {
     grid-template-columns: minmax(0, 1fr);
@@ -577,10 +558,6 @@
 
   .plugins-rail-item {
     flex: none;
-  }
-
-  .plugins-rail-foot {
-    margin: 0 0 0 auto;
   }
 }
 
