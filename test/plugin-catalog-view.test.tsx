@@ -297,6 +297,10 @@ describe("plugin catalog browsing", () => {
       expect(card("Market popular").textContent).toContain("3.4K a week");
       expect(card("Market popular").querySelector('[aria-label="Source verified"]')).toBeTruthy();
       expect(card("Market official").querySelector('[aria-label="Official"]')).toBeTruthy();
+      // Without an icon in the index, a card shows the plugin's first letter, in the same colour each time.
+      const letter = card("Market popular").querySelector<HTMLElement>(".plugin-monogram")!;
+      expect(letter.textContent).toBe("M");
+      expect(letter.style.getPropertyValue("--monogram-hue")).toMatch(/^var\(--hue-[a-z]+\)$/);
       expect(card("Market popular").querySelector('[aria-label="Official"]')).toBeNull();
       expect(card("Market official").textContent).toContain("OhMyGame");
       expect(section("Featured").querySelector('[aria-label="Source verified"]')).toBeNull();

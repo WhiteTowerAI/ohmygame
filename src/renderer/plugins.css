@@ -366,6 +366,17 @@
   color: var(--color-text-secondary);
 }
 
+.plugin-monogram {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--monogram-hue) 22%, transparent);
+  color: var(--monogram-hue);
+  font-weight: 600;
+  line-height: 1;
+}
+
 .plugin-tile-large {
   width: 64px;
   height: 64px;

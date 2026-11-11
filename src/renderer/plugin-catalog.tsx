@@ -4,7 +4,8 @@ import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../s
 import type { MarketPlugin } from "../shared/plugins.js";
 import { readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { BadgeCheck, ExternalLink, Package } from "./icons.js";
+import { BadgeCheck, ExternalLink } from "./icons.js";
+import { PluginMonogram } from "./plugin-icons.js";
 import { BrandLogo } from "./brand-logo.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, PluginHead, type PluginAddRow } from "./plugin-summary.js";
@@ -78,10 +79,13 @@ function publisherName(plugin: MarketPlugin): string {
   return isOfficialPlugin(plugin.id) ? t("plugins.officialSource") : `@${plugin.id.slice(0, plugin.id.indexOf("/"))}`;
 }
 
-/** Images the market lists, read through the daemon, as addresses an `img` can show; one that can't be read stays undefined. */
-function useMarketImages(paths: readonly (string | undefined)[]): (string | undefined)[] {
+/**
+ * Images the market lists, read through the daemon, as addresses an `img` can
+ * show: undefined while reading, null for one that can't be read.
+ */
+function useMarketImages(paths: readonly (string | undefined)[]): (string | null | undefined)[] {
   const generation = useReadyRuntimeGeneration();
-  const [urls, setUrls] = useState<(string | undefined)[]>([]);
+  const [urls, setUrls] = useState<(string | null | undefined)[]>([]);
   const key = paths.join("\n");
   useEffect(() => {
     setUrls([]);
@@ -92,8 +96,8 @@ function useMarketImages(paths: readonly (string | undefined)[]): (string | unde
         const url = URL.createObjectURL(blob);
         made.push(url);
         return url;
-      }, () => undefined)
-      : undefined))
+      }, () => null)
+      : null))
       .then((next) => { if (!controller.signal.aborted) setUrls(next); });
     return () => {
       controller.abort();
@@ -103,13 +107,14 @@ function useMarketImages(paths: readonly (string | undefined)[]): (string | unde
   return urls;
 }
 
-/** A market plugin's icon, which the index copied out of its package, or a package glyph. */
+/** A market plugin's icon, which the index copied out of its package, or its first letter. */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
   const [icon] = useMarketImages([plugin.icon]);
   const size = large ? 40 : 24;
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
     {icon ? <img src={icon} width={size} height={size} alt="" aria-hidden="true" className="plugin-icon-image" />
-      : <Package size={size} aria-hidden="true" />}
+      // While its icon loads the tile stays empty, rather than flashing a letter.
+      : icon === undefined && plugin.icon ? null : <PluginMonogram id={plugin.id} name={plugin.displayName} size={size} />}
   </span>;
 }
 

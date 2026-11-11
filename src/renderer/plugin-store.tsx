@@ -119,7 +119,7 @@ export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
 }
 
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
-  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
+  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} name={plugin.displayName} size={large ? 40 : 24} /></span>;
 }
 
 /** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */

@@ -998,6 +998,11 @@ describe("plugin check", () => {
       "/categories/1 \"hologram\" isn't known to this version of OhMyGame, so it's ignored",
       "/homepage isn't known to this version of OhMyGame, so it's ignored",
     ]);
+    expect(await messages(root, "warning")).not.toContainEqual(expect.stringContaining("no icon"));
+    // One without an icon is shown by its first letter, which the author should know.
+    // (One with panels needs it for their tabs, so that's an error.)
+    expect(await messages(await plugin({}, { major: 1 }, { icon: undefined, ui: undefined, contributes: {} }), "warning"))
+      .toContainEqual(expect.stringContaining("There is no icon"));
     expect(await messages(root, "error")).toEqual([
       "/screenshots/1/path ./shots/big.png is larger than 1 MB",
       "/screenshots/2/path ./shots/gone.png is not in the package",

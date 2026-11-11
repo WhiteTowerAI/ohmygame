@@ -24,7 +24,8 @@ A row of chips above the list offers **All** and each category something on
 the tab is in, without counts; picking one shows just those, and picking it
 again shows everything. A plugin is listed in each category it names but grouped
 under its first, and one with none is under **Other**. Search shows every match
-in one list.
+in one list. A plugin without an icon shows its first letter on a colour its id
+picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
 - **Installed** holds what others made: bundled, prepared, and added from npm or
   GitHub. Plugins with an update come first, under **Updates**, then a group
@@ -624,7 +625,8 @@ like `@ohmygame/plugin-ui`:
   version adding from npm refuses (the scope must be the publisher, and
   `personal` is kept), then the page checks against the page
   components' contracts, which ship in the package. It also ships the manifest's
-  JSON Schema as `plugin.schema.json`. In this repository, `bun run
+  JSON Schema as `plugin.schema.json`. It warns about a manifest without an
+  `icon` and about fields this app ignores. In this repository, `bun run
   plugin:check <folder>` does the same as `check`.
 - **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
   `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:

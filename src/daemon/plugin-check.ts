@@ -123,6 +123,7 @@ export async function checkPlugin(root: string, options: PluginCheckOptions): Pr
   if (!indexed.ok) return [...indexed.issues.map((issue): PluginCheckFinding => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() })), ...ignored];
   const findings: PluginCheckFinding[] = [...ignored];
   const { manifest } = indexed.entry;
+  if (!manifest.icon) findings.push({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: "There is no icon, so the Plugins page shows the plugin's first letter: set \"icon\" to a square PNG, WebP or SVG in the package" });
   findings.push(...await npmFindings(root, indexed.entry.id, indexed.entry.version));
   const panels = manifest.contributes?.panels ?? [];
   if (!panels.length) return findings;

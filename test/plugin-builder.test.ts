@@ -158,7 +158,8 @@ describe("Plugin Builder", () => {
     expect(folder).toBe(path.join(into, name));
     expect(JSON.parse(await readFile(path.join(folder, ".ohmygame-plugin/plugin.json"), "utf8")).id).toBe(`acme/${name}`);
     expect(JSON.parse(await readFile(path.join(folder, "package.json"), "utf8"))).toMatchObject({ name: `@acme/${name}`, version: "0.1.0" });
-    expect(await checkFolder(folder)).toEqual([]);
+    // It passes; this draft has no icon, which is only a warning.
+    expect((await checkFolder(folder)).map(({ level, message }) => `${level}: ${message}`)).toEqual([expect.stringMatching(/^warning: There is no icon/)]);
     // Nothing installed changes, and a folder with files isn't overwritten.
     expect(services.index.entries().map((item) => item.id)).toEqual([ID]);
     await expect(exportPlugin(entry, "acme", into)).rejects.toThrow("already has files");
