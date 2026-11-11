@@ -1354,16 +1354,9 @@ export function createApp(options: AppOptions = {}) {
     await migrateAzureProviderId(piAgentDirectory, dataDirectory).catch((err) => app.log.warn({ err }, "Could not migrate Azure provider settings"));
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
-    // The Library loads after the projects: upgrading an older store reads what they use.
-    const loadProjectsAndLibrary = async () => {
-      await projects.load((projectDirectory, cause) => {
-        app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-      });
-      await library.load({
-        usedByProjects: async () => new Set((await projects.libraryAssetAssociations((project, cause) => app.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"))).keys()),
-      });
-    };
-    await Promise.all([loadProjectsAndLibrary(), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+      app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
+    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);

@@ -658,10 +658,12 @@ stored for it and only leaves the page, and a file nothing uses is deleted.
 When a project's usage can't be read, the file is kept.
 
 `assets.json` version 1 put everything generated or uploaded in the Library.
-At startup, after projects load, it is upgraded to version 2 once: what a
-project uses, and chat attachments, leave the Library; what no project uses
-stays, as the Library is the only place to find it. A store from a newer
-version is never rewritten; it is reported as unreadable.
+At startup it is upgraded to version 2 once. The Library keeps what the person
+chose: project files they saved, uploaded videos and audio (game recordings
+and trims, which version 1 can't tell from other uploads) and built-in media.
+Everything else leaves the page but stays stored, so projects and
+conversations still find it. A store from a newer version is never
+rewritten; it is reported as unreadable.
 
 Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
 saved in browser storage). Its order is the person's: editing a project doesn't

@@ -70,7 +70,8 @@ describe("AssetLibrary", () => {
     }));
     const library = new AssetLibrary(dataDirectory);
     await library.load();
-    expect(library.get("old")).toMatchObject({ origin: "unknown", purpose: "asset", saved: true });
+    // Version 1 showed it; version 2 keeps only what the person chose.
+    expect(library.get("old")).toMatchObject({ origin: "unknown", purpose: "asset", saved: false });
     // Chat attachments were never shown in the Library; the upgrade to version 2 says so.
     expect(library.get("chat")).toMatchObject({ origin: "uploaded", purpose: "reference", saved: false });
     // A project's file isn't saved to the Library until the person saves it.
@@ -92,7 +93,7 @@ describe("AssetLibrary", () => {
     await expect(library.unsave("missing")).rejects.toThrow("not found");
   });
 
-  it("upgrades a version 1 store: what projects use leaves the Library, the rest stays", async () => {
+  it("upgrades a version 1 store, keeping in the Library only what the person chose", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-v1-"));
     const directory = path.join(dataDirectory, "library");
     await mkdir(directory, { recursive: true });
@@ -100,32 +101,38 @@ describe("AssetLibrary", () => {
     await writeFile(path.join(directory, "assets.json"), JSON.stringify({
       version: 1,
       assets: [
-        { ...base, id: "used", name: "used.png", origin: "generated", saved: true },
-        { ...base, id: "unused", name: "unused.png", origin: "generated", saved: true },
-        { ...base, id: "saved-file", name: "sprite.png", origin: "workspace", saved: true },
+        { ...base, id: "generated", name: "hero.png", origin: "generated", saved: true },
+        { ...base, id: "canvas-upload", name: "photo.png", origin: "uploaded", saved: true },
         { ...base, id: "chat", name: "screenshot.png", origin: "uploaded", purpose: "reference", saved: true },
+        { ...base, id: "saved-file", name: "sprite.png", origin: "workspace", saved: true },
         { ...base, id: "copy", name: "copy.png", origin: "workspace", saved: false },
+        { ...base, id: "recording", name: "Game 2026-11-02 19-37-32.mp4", mediaType: "video", contentType: "video/mp4", origin: "uploaded", saved: true },
+        { ...base, id: "builtin", name: "night-train.mp4", mediaType: "video", contentType: "video/mp4", origin: "builtin", saved: true },
       ],
       sources: {},
     }));
     const library = new AssetLibrary(dataDirectory);
-    await library.load({ usedByProjects: async () => new Set(["used", "saved-file", "copy"]) });
+    await library.load();
 
     expect(Object.fromEntries(library.list().map((asset) => [asset.id, asset.saved]))).toEqual({
-      used: false,
-      unused: true,
-      "saved-file": true,
+      generated: false,
+      "canvas-upload": false,
       chat: false,
+      "saved-file": true,
       copy: false,
+      recording: true,
+      builtin: true,
     });
+    // Out of the Library, still stored for whatever uses it.
+    expect(library.get("generated")).toBeDefined();
     expect(JSON.parse(await readFile(path.join(directory, "assets.json"), "utf8"))).toMatchObject({ version: 2 });
 
     // Upgraded once: a later load reads version 2 as stored.
-    await library.unsave("unused");
+    await library.save("generated");
     const reloaded = new AssetLibrary(dataDirectory);
-    await reloaded.load({ usedByProjects: async () => { throw new Error("not read for version 2"); } });
-    expect(reloaded.get("unused")).toMatchObject({ saved: false });
-    expect(reloaded.get("saved-file")).toMatchObject({ saved: true });
+    await reloaded.load();
+    expect(reloaded.get("generated")).toMatchObject({ saved: true });
+    expect(reloaded.get("recording")).toMatchObject({ saved: true });
   });
 
   it("leaves a store from a newer version untouched", async () => {

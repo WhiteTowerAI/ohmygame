@@ -61,15 +61,14 @@ export class AssetLibrary {
     this.#metadataFile = path.join(directory, "assets.json");
   }
 
-  /** `usedByProjects` gives the ids projects use, read only to upgrade an older store. */
-  async load({ usedByProjects }: { usedByProjects?: () => Promise<ReadonlySet<string>> } = {}): Promise<void> {
+  async load(): Promise<void> {
     await mkdir(this.#filesDirectory, { recursive: true });
     try {
       const parsed: unknown = JSON.parse(await readFile(this.#metadataFile, "utf8"));
       const readLibrary = parseLibrary(parsed);
       if (!readLibrary) throw new Error("Invalid Library metadata");
       const parsedLibrary = readLibrary.version === 1
-        ? upgradeFromVersion1(readLibrary, await usedByProjects?.() ?? new Set())
+        ? upgradeFromVersion1(readLibrary)
         : { ...readLibrary, version: 2 as const };
       const assets: LibraryAsset[] = [];
       // Sequential reads keep a large Library from exhausting file handles while older records gain dimensions.
@@ -283,18 +282,17 @@ function emptyLibrary(): StoredLibrary {
 }
 
 /**
- * Version 1 put everything generated or uploaded in the Library. What a project
- * uses leaves it, as the project has it; what none uses stays, as the Library is
- * the only place to find it. A project file someone saved stays too, and chat
- * attachments, which the Library page never showed, leave.
+ * Version 1 put everything generated or uploaded in the Library. What stays is
+ * what the person chose: project files they saved, uploaded videos and audio
+ * (game recordings and trims, which version 1 can't tell from other uploads)
+ * and built-in media. Everything else is still stored, for the projects and
+ * conversations that use it, but leaves the Library page.
  */
 // compat: since beta.5.7, remove from beta.7 and 2026-12-12. Library store version 1 collected project media by itself.
-function upgradeFromVersion1(library: StoredLibraryVersion, used: ReadonlySet<string>): StoredLibrary {
-  return {
-    ...library,
-    version: 2,
-    assets: library.assets.map((asset) => asset.saved && (asset.purpose === "reference" || asset.origin !== "workspace" && used.has(asset.id)) ? { ...asset, saved: false } : asset),
-  };
+function upgradeFromVersion1(library: StoredLibraryVersion): StoredLibrary {
+  const chosen = (asset: LibraryAsset) => asset.origin === "workspace" || asset.origin === "builtin" ||
+    asset.origin === "uploaded" && asset.purpose === "asset" && (asset.mediaType === "video" || asset.mediaType === "audio");
+  return { ...library, version: 2, assets: library.assets.map((asset) => asset.saved && !chosen(asset) ? { ...asset, saved: false } : asset) };
 }
 
 type StoredLibraryVersion = Omit<StoredLibrary, "version"> & { version: 1 | 2 };

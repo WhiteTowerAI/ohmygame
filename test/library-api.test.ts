@@ -38,10 +38,9 @@ async function list(app: App): Promise<LibraryAssetSummary[]> {
 }
 
 describe("Library store upgrade", () => {
-  it("takes what projects use out of an older Library at startup and keeps the rest", async () => {
+  it("takes what was collected by itself out of an older Library at startup", async () => {
     const first = await setup();
     const used = await upload(first);
-    const unused = await upload(first);
     const project = (await first.inject({ method: "POST", url: "/projects", payload: { name: "Forest" } })).json<ProjectState>();
     expect((await first.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${used.id}` })).statusCode).toBe(201);
     const directory = fixtures[0]!.directory;
@@ -53,9 +52,8 @@ describe("Library store upgrade", () => {
 
     const reopened = createApp({ dataDirectory: directory });
     fixtures.push({ app: reopened, directory });
-    const assets = await list(reopened);
-    expect(assets.find((asset) => asset.id === used.id)).toMatchObject({ saved: false, projects: [{ id: project.id }] });
-    expect(assets.find((asset) => asset.id === unused.id)).toMatchObject({ saved: true, projects: [] });
+    expect((await list(reopened)).find((asset) => asset.id === used.id)).toMatchObject({ saved: false, projects: [{ id: project.id }] });
+    expect((await reopened.inject({ method: "GET", url: `/library/assets/${used.id}/content` })).statusCode).toBe(200);
     expect(JSON.parse(await readFile(store, "utf8"))).toMatchObject({ version: 2 });
   });
 });
