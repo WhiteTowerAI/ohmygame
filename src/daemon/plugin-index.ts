@@ -435,6 +435,12 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   };
 }
 
+/** Whether a plugin adds only what joins the app itself, model providers and agents, so projects' switches don't reach it. */
+export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): boolean {
+  const kinds = Object.keys(manifest.contributes ?? {});
+  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents");
+}
+
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */
 export function localizePluginString(
   entry: Pick<PluginIndexEntry, "strings">,

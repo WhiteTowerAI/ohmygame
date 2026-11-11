@@ -212,6 +212,7 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(document.querySelector("h1")!.textContent).toContain("Beta");
   expect(panel("About").hidden).toBe(false);
   expect(panel("About").textContent).toContain("All about Maker.");
+  expect(panel("About").textContent).toContain("in that project alone");
   expect(panel("Skills").hidden).toBe(true);
 
   await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
@@ -223,6 +224,13 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(panel("Skills").textContent).not.toContain("name: maker");
   // Unsaved settings stay on the page while another tab shows.
   expect(panel("Settings").querySelector("form")).not.toBeNull();
+});
+
+it("leaves out what projects turn on for a plugin that only adds model providers and agents", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { appOnly: true, skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["NVIDIA"], agents: ["Gemini CLI"], tools: 0, skills: 0 } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).toContain("NVIDIA");
+  expect(document.body.textContent).not.toContain("in that project alone");
 });
 
 it("tries an example in a project it suits, turning it on there, or in a new one", async () => {

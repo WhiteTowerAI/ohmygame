@@ -346,6 +346,8 @@ export interface StorePlugin {
   settings: StorePluginSetting[];
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
+  /** It adds only model providers and agents, which join the app itself whatever projects turn on. */
+  appOnly?: true;
   /** What it adds, by title; tools and skills are counted. */
   adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }

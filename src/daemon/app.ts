@@ -124,7 +124,7 @@ import { PluginHooks } from "./plugin-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, pluginAdds, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -1542,6 +1542,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.options ? { options: field.options } : {}),
         })),
         adds: pluginAdds(entry, text),
+        ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
     }));
   });

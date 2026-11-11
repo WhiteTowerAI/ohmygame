@@ -137,9 +137,10 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   const onOpen = vi.fn();
   await render({ onOpen });
   const names = [...host.querySelectorAll(".settings-row")].map(nameOf);
-  // Gemini CLI is listed as coming soon, without a switch or a page.
-  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "Gemini CLI"]);
-  expect(row("Gemini CLI")!.querySelector('[role="switch"], button')).toBeNull();
+  // Other agents come from plugins, which the last row leads to.
+  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents"]);
+  await act(async () => [...row("More coding agents")!.querySelectorAll("button")].find((button) => button.textContent === "Browse plugins")!.click());
+  expect(window.location.hash).toBe("#/plugins?tab=discover");
   expect(row("OhMyGame")!.textContent).toContain("now GPT-5");
   expect(row("OhMyGame")!.querySelector(".ui-badge")?.textContent).toBe("Default");
   expect(row("Claude Code")!.querySelector(".ui-badge")).toBeNull();

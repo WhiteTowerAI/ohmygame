@@ -17,6 +17,7 @@ import {
   type AgentAccountProfileStatus,
 } from "../src/shared/agent-runtimes.js";
 import type { AgentModelCatalog, ConversationDetail, ConversationSummary, ProjectState } from "../src/shared/contracts.js";
+import type { StorePlugin } from "../src/shared/plugins.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 beforeEach(() => {
@@ -166,6 +167,8 @@ describe("coding agent routes", () => {
     const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
     expect(inspected.status).toBe(200);
     expect((await call("POST", "/plugin-sources/install", { ...payload, digest: inspected.body.digest })).status).toBe(201);
+    // It adds only an agent, which projects' switches don't reach.
+    expect((await call<StorePlugin[]>("GET", "/plugin-store/plugins")).body.find((plugin) => plugin.id === "acme/fake-acp")).toMatchObject({ appOnly: true });
     const id = "agent.acme.fake-acp.fake";
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
