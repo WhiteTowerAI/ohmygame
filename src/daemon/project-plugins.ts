@@ -255,8 +255,12 @@ export class PluginGrants {
     return this.#change((data) => {
       if (data.schema >= GRANTS_SCHEMA) return;
       // compat: since beta.5.6, remove from beta.7 and 2027-01-12. Version 1 grants: separate consent, and plugins stopped everywhere.
-      for (const grant of Object.values(data.plugins))
-        if (grant.enabled === false) Object.assign(grant, { enabled: true, everyProject: false });
+      for (const [id, grant] of Object.entries(data.plugins)) {
+        if (grant.enabled !== false) continue;
+        // Stopped everywhere becomes off everywhere: projects whose file turns it on ask again.
+        Object.assign(grant, { enabled: true, everyProject: false });
+        for (const folder of Object.values(data.projects)) delete folder[id];
+      }
       for (const [id, asks] of installed) {
         const current = data.plugins[id] ?? { enabled: true, allowed: [] };
         data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks])].sort() };

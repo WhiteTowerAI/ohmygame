@@ -114,8 +114,9 @@ the project it starts in and mentions it.
   - `grants.json` (`schema` 2): per plugin what the person allowed and their
     choice for every project (`everyProject`), and which plugins each project
     folder allows (by real path). Schema 1 is upgraded where it loads: a
-    plugin stopped everywhere becomes off in every project, and what the
-    installed plugins ask for is allowed, since adding them now allows it;
+    plugin stopped everywhere becomes off in every project, and projects that
+    turn it on ask again; what the installed plugins ask for is allowed, since
+    adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its

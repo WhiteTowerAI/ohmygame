@@ -694,18 +694,21 @@ describe("project plugins", () => {
     });
   });
 
-  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off by default", async () => {
+  it("brings version 1 decisions up to date once: what's installed is allowed, and one stopped everywhere is off, projects too", async () => {
     const { data } = await setup();
     const file = path.join(data, "old-grants.json");
     await writeFile(file, JSON.stringify({ schema: 1, plugins: {
       "ohmygame/godot": { enabled: false, allowed: [] },
       "someone/tilemaps": { enabled: true, allowed: ["network:a.example"], everyProject: true },
-    }, projects: {} }));
+    }, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] }, "someone/tilemaps": { allowed: [] } } } }));
     const grants = new PluginGrants(file);
     await grants.load();
     await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example"]], ["acme/new", []]]));
     expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
+    // A project that turns the stopped one on asks for it again.
+    expect(grants.project("/games/maze", "ohmygame/godot")).toBeUndefined();
+    expect(grants.project("/games/maze", "someone/tilemaps")).toEqual({ allowed: [] });
     expect(JSON.parse(await readFile(file, "utf8")).schema).toBe(2);
     // Once only: what's allowed later isn't widened again.
     await grants.upgrade(new Map([["ohmygame/godot", ["process:godot"]]]));
