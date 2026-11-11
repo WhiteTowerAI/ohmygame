@@ -103,7 +103,8 @@ describe("desktop runtime packaging", () => {
       await createPackage(destination, archive);
       // ASAR's promise can resolve before its output stream has finished writing.
       await vi.waitFor(() => {
-        expect(extractFile(archive, relative).toString()).toBe("story resources");
+        // ASAR looks files up by the system's path separators.
+        expect(extractFile(archive, path.join(...relative.split("/"))).toString()).toBe("story resources");
         for (const { archivePath, contents } of notices) {
           expect(extractFile(archive, archivePath)).toEqual(contents);
         }

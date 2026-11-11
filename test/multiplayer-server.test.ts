@@ -106,7 +106,8 @@ describe("multiplayer service over HTTP and WebSocket", () => {
       void room.leave(true).catch(() => {});
     }
     await service.stop();
-    await rm(directory, { recursive: true, force: true });
+    // Windows can hold a just-closed SQLite file for a moment.
+    await rm(directory, { recursive: true, force: true, maxRetries: 10 });
   });
   async function transport(token?: string) {
     const client = new Client(endpoint);
