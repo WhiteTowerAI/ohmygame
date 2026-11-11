@@ -129,9 +129,10 @@ trimming, the shared preview controls, encoding, and the Library record.
 | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | [README.md](../README.md)                          | Product overview, installation, and first-run instructions.                        |
 | [CHANGELOG.md](../CHANGELOG.md)                    | User-visible changes collected during release preparation.                        |
+| [packages/sdk/CHANGELOG.md](../packages/sdk/CHANGELOG.md) | Changes to `@ohmygame/sdk`, added when it is released.                          |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)              | Setup, branches, verification, PRs, and optional integrations.                     |
 | [中文快速指引](contributing.zh-CN.md)              | A short Chinese entry point; the full contribution rules are in `CONTRIBUTING.md`. |
-| [maintaining.md](maintaining.md)                   | Maintainer triage, reviews, repository settings, and releases.                     |
+| [maintaining.md](maintaining.md)                   | Maintainer triage, reviews, repository settings, and releases, including the SDK's. |
 | [compatibility.md](compatibility.md)               | What stays compatible across versions, how data migrates, and when that code goes. |
 | [AGENTS.md](../AGENTS.md)                          | Repository instructions for coding agents.                                         |
 | [Issue and PR labels](../.github/LABELS.md)        | Label definitions, progress states, and automation.                                |

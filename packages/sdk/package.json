@@ -67,7 +67,8 @@
   "files": [
     "dist",
     "README.md",
-    "AGENT_GUIDE.md"
+    "AGENT_GUIDE.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node build.mjs",
