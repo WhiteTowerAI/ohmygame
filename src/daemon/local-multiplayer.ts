@@ -15,6 +15,8 @@ import { HOST_ADAPTER_ID } from "@ohmygame/sdk/host";
  * owner: no rules file; each page runs its own player and the service passes states on.
  */
 export type LocalGameAdapterId = BuiltInAdapterId | "custom" | "owner";
+/** What configuring a local deployment reads of its rules. */
+type RulesShape = Pick<GameAdapter, "mode" | "players" | "tickMs" | "playerView">;
 export interface LocalMultiplayerOptions {
   maxClients?: number;
   /** Players join a running round without creating a room. Realtime rules only; roam defaults to it. */
@@ -51,7 +53,7 @@ async function availablePort(preferred: number): Promise<number> {
 }
 
 /** The local cap narrowed to the seats the rules support, so gomoku is always 2. */
-function localPlayerRange({ players }: GameAdapter) {
+function localPlayerRange({ players }: RulesShape) {
   return {
     min: Math.max(LOCAL_MULTIPLAYER_MIN_CLIENTS, players.min),
     max: Math.min(LOCAL_MULTIPLAYER_MAX_CLIENTS, players.max),
@@ -81,19 +83,20 @@ export class LocalMultiplayerRuntime {
     options: LocalMultiplayerOptions = {},
     rulesFile?: string,
   ): Promise<MultiplayerManifestConfig> {
-    let rules: GameAdapter | undefined;
+    let rules: RulesShape | undefined;
     if (adapterId === "custom") {
       if (!rulesFile)
         throw new Error("Write server/rules.ts first: defineGame for turn-based rules or defineRealtimeGame for realtime rules, exported as default.");
-      const { loadGameRules } = await import("@ohmygame/server");
-      rules = await loadGameRules(rulesFile);
+      // Only the rules' shape: they run in the players' browsers, never in OhMyGame.
+      const { inspectGameRules } = await import("@ohmygame/server");
+      rules = await inspectGameRules(rulesFile);
     }
     // An owner room has no rules: any number of seats, realtime, at the game's tick.
     const owned: GameAdapter | undefined = adapterId === "owner"
       ? { ...createRoomAdapter("realtime", { min: 1, max: MULTIPLAYER_MAX_CLIENTS }), owner: true, tickMs: options.tickMs ?? OWNER_DEFAULT_TICK_MS }
       : undefined;
     if (owned) checkTickMs(owned.tickMs!);
-    const adapter = rules ?? owned ?? BUILT_IN_ADAPTERS[adapterId as BuiltInAdapterId];
+    const adapter: RulesShape | undefined = rules ?? owned ?? BUILT_IN_ADAPTERS[adapterId as BuiltInAdapterId];
     if (!adapter) throw new Error(`Unknown rules: ${adapterId}.`);
     const { mode } = adapter;
     // Roaming is a shared place to wander, so players drop in unless the game asks for private rooms.

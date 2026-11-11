@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createServer, type AddressInfo } from "node:net";
 import path from "node:path";
@@ -7,7 +7,7 @@ import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, MemoryGameDataStore, startDevServer } from "@ohmygame/server";
 import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
-import { loadRulesDefinition } from "../packages/server/src/dev.js";
+import { inspectGameRules, loadRulesDefinition } from "../packages/server/src/dev.js";
 import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "@ohmygame/games/gomoku";
@@ -1278,6 +1278,15 @@ export default defineGame({
       await expect(runtime.restore("cards", config, rulesFile)).rejects.toThrow();
       await writeFile(rulesFile, rules(1, "{ min: 9, max: 10 }"));
       await expect(runtime.configure("cards", "custom", {}, rulesFile)).rejects.toThrow("need 9 to 10 players; local rooms hold 2 to 8");
+      // OhMyGame only reads the rules' shape, in a worker: their top-level code runs once
+      // per version of the file, and a hang is cut off instead of stopping OhMyGame.
+      const loads = path.join(workspace, "loads.txt");
+      await writeFile(rulesFile, `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(loads)}, "x");\n${rules(1)}`);
+      await runtime.configure("cards", "custom", {}, rulesFile);
+      await runtime.configure("cards", "custom", {}, rulesFile);
+      expect(await readFile(loads, "utf8")).toBe("x");
+      await writeFile(rulesFile, `while (true) {}\n${rules(1)}`);
+      await expect(inspectGameRules(rulesFile, 500)).rejects.toThrow("took longer than 0.5 seconds");
     } finally {
       for (const client of clients) client.dispose();
       await runtime.close();

@@ -13,7 +13,9 @@ The game agent calls `multiplayer_setup` with `adapterId: "gomoku"`, `"stones"`,
 or realtime rules from [`defineRealtimeGame`](#realtime-rules-with-definerealtimegame),
 which also decide the room's mode;
 the agent writes that file first, and calls setup again after changing it to
-check that it loads. These rules run on a player's browser, locally and once
+check that it loads. OhMyGame reads only the rules' mode, seats and tick, in a
+worker that gives up after 10 seconds, and reads each version of the file once.
+These rules run on a player's browser, locally and once
 published: the deployment's `adapterId` is `"host"`; see
 [rules on a player's browser](#rules-on-a-players-browser). Local rooms hold 2 to 8 players, narrowed to the seats the
 rules support: gomoku is always 2, and the others default to 4. The realtime rules also accept `dropIn`, which roam

@@ -18,4 +18,4 @@ export {
   type MoveFunction,
   type MoveOptions,
 } from "@ohmygame/sdk/game";
-export { findGameRules, loadGameRules, readLocalDeployment, startDevServer, GAME_RULES_FILES, type DevServerOptions } from "./dev.js";
+export { findGameRules, inspectGameRules, loadGameRules, readLocalDeployment, type GameRulesSummary, startDevServer, GAME_RULES_FILES, type DevServerOptions } from "./dev.js";
