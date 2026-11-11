@@ -171,21 +171,21 @@ describe("plugin catalog browsing", () => {
     expect(mine.textContent).toContain("Create a plugin with AI");
   });
 
-  it("narrows to one category, counting what each holds, under each category a plugin names", async () => {
+  it("narrows to one category, offering only those something is in, under each category a plugin names", async () => {
     store.find((plugin) => plugin.id === "ohmygame/douyin-minigame")!.categories = ["engine", "publishing"];
     await renderCatalog();
     const chips = () => [...container.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")];
-    // Only categories something here is in, each with how many.
-    expect(chips().map((chip) => chip.textContent)).toEqual(["All13", "Engines & platforms4", "Publishing2", "Art4", "Workflow3", "Other1"]);
-    await click("Engines & platforms4");
+    // Only categories something here is in, without counts.
+    expect(chips().map((chip) => chip.textContent)).toEqual(["All", "Engines & platforms", "Publishing", "Art", "Workflow", "Other"]);
+    await click("Engines & platforms");
     expect(cards()).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "Unreal Engine"]);
     expect(container.querySelectorAll(".plugins-section h2")).toHaveLength(0);
-    await click("Publishing2");
+    await click("Publishing");
     expect(cards()).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
     // Picking it again shows everything.
-    await click("Publishing2");
+    await click("Publishing");
     expect(cards()).toContain("New tool");
-    await click("Other1");
+    await click("Other");
     expect(cards()).toEqual(["New tool"]);
   });
 
@@ -296,7 +296,8 @@ describe("plugin catalog browsing", () => {
       expect(card("Market owned").querySelector(".plugins-installed-label")?.textContent).toBe("Installed");
       expect(card("Market popular").textContent).toContain("3.4K a week");
       expect(card("Market popular").querySelector('[aria-label="Source verified"]')).toBeTruthy();
-      expect(card("Market official").textContent).toContain("Official");
+      expect(card("Market official").querySelector('[aria-label="Official"]')).toBeTruthy();
+      expect(card("Market popular").querySelector('[aria-label="Official"]')).toBeNull();
       expect(card("Market official").textContent).toContain("OhMyGame");
       expect(section("Featured").querySelector('[aria-label="Source verified"]')).toBeNull();
       // A card opens the plugin's page, installed or not.

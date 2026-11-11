@@ -394,6 +394,11 @@
   color: var(--color-accent);
 }
 
+.plugins-official {
+  display: inline-flex;
+  flex: none;
+}
+
 .plugins-installed-label {
   flex: none;
   color: var(--color-text-tertiary);

@@ -5,6 +5,7 @@ import type { MarketPlugin } from "../shared/plugins.js";
 import { readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
 import { BadgeCheck, ExternalLink, Package } from "./icons.js";
+import { BrandLogo } from "./brand-logo.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -43,13 +44,11 @@ export function CategoryChips({ items, value, onChange }: {
   value: CatalogFilter;
   onChange: (value: CatalogFilter) => void;
 }): ReactNode {
-  const options = CATALOG_CATEGORIES.map((category) => ({
-    value: category as CatalogFilter,
-    label: categoryLabel(category),
-    count: items.filter((categories) => inCatalogCategory(categories, category)).length,
-  })).filter((option) => option.count || option.value === value);
+  // Only categories something here is in, so no chip leads to an empty list; no counts, as on the tabs.
+  const options = CATALOG_CATEGORIES.filter((category) => category === value || items.some((categories) => inCatalogCategory(categories, category)))
+    .map((category) => ({ value: category as CatalogFilter, label: categoryLabel(category) }));
   return <FilterChips<CatalogFilter> label={t("pluginCatalog.categoriesLabel")}
-    options={[{ value: "all", label: t("pluginCatalog.all"), count: items.length }, ...options]}
+    options={[{ value: "all", label: t("pluginCatalog.all") }, ...options]}
     value={[value]}
     // A chip turns the others off; turning the picked one off shows everything again.
     onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
@@ -114,9 +113,16 @@ function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: b
   </span>;
 }
 
+/** OhMyGame's own plugins carry the app's icon beside their name. */
+export function OfficialMark(): ReactNode {
+  return <span className="plugins-official" role="img" aria-label={t("plugins.official")} title={t("plugins.official")}>
+    <BrandLogo size={14} />
+  </span>;
+}
+
 function MarketBadges({ plugin }: { plugin: MarketPlugin }): ReactNode {
   return <>
-    {isOfficialPlugin(plugin.id) ? <Badge tone="ink">{t("plugins.official")}</Badge>
+    {isOfficialPlugin(plugin.id) ? <OfficialMark />
       : plugin.sourceVerified ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.sourceVerified")} /> : null}
     {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
   </>;

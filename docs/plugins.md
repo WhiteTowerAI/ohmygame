@@ -21,7 +21,7 @@ Installed share: the category chips, sorting, cards and the market plugin page.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
 A row of chips above the list offers **All** and each category something on
-the tab is in, with how many; picking one shows just those, and picking it
+the tab is in, without counts; picking one shows just those, and picking it
 again shows everything. A plugin is listed in each category it names but grouped
 under its first, and one with none is under **Other**. Search shows every match
 in one list.
@@ -43,7 +43,8 @@ in one list.
   plugins**. A narrowed list can be sorted by **Recommended** (featured, then
   weekly downloads), **Most downloaded**, **Recently updated** or **Name**, and
   filtered by what the plugins add. Cards mark what's installed, what's
-  `beta`, and **Official** for the `ohmygame` publisher. A card opens the
+  `beta`, and the `ohmygame` publisher's plugins with the app's icon
+  (**Official**) in place of the blue **Source verified** check. A card opens the
   plugin's page; **Get** opens [Add plugin](#adding-a-plugin)'s review at the
   listed version. A plugin that isn't installed has a page of its own, from
   the index alone: its screenshots, long description, what it asks for and

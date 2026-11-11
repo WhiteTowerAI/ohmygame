@@ -5,7 +5,7 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginScreenshots } from "./plugin-catalog.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, OfficialMark, PluginScreenshots } from "./plugin-catalog.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
@@ -316,7 +316,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
       {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
       {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge>
-        : isOfficialPlugin(plugin.id) && plugin.origin?.type === "npm" ? <Badge tone="ink">{t("plugins.official")}</Badge> : null}
+        : isOfficialPlugin(plugin.id) && plugin.origin?.type === "npm" ? <OfficialMark /> : null}
       {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
     </>}>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
