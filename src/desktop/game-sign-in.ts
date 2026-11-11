@@ -1,4 +1,5 @@
-import { shell, type BrowserWindow, type BrowserWindowConstructorOptions } from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions } from "electron";
+import { openInBrowser } from "./open-in-browser.js";
 
 /**
  * A published game playing in the desktop app signs its player in through a popup, as in a
@@ -84,7 +85,7 @@ export const GAME_SIGN_IN_WINDOW_OPTIONS: BrowserWindowConstructorOptions = {
 export function guardGameSignInWindow(child: BrowserWindow): void {
   const contents = child.webContents;
   contents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+    if (/^https:\/\//i.test(url)) void openInBrowser(url);
     return { action: "deny" };
   });
   // Local test sign-in returns over plain HTTP to a game on this computer.

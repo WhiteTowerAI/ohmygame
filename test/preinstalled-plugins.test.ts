@@ -151,6 +151,32 @@ describe("preinstalled plugins", () => {
     await services.close();
   });
 
+  it("removes the copy it installed of a plugin it no longer brings, once, keeping one installed apart", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-retired-");
+    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+    const seed = async (directory: string) => {
+      const manager = new PreinstalledPluginManager(directory, dataDirectory);
+      await manager.load();
+      expect(await manager.seed(services)).toEqual([]);
+    };
+    const retired = "ohmygame/img2threejs";
+    await seed((await preparedPlugin({ pluginId: "98d626d2-8e51-42a9-adfe-a3a1e19372c9", id: retired })).directory);
+    const apart = path.join(await temporary("ohmygame-preinstalled-retired-apart-"), "package");
+    await cp(services.index.get(retired, "1.0.0")!.root, apart, { recursive: true });
+    const manifestPath = path.join(apart, ".ohmygame-plugin", "plugin.json");
+    await writeFile(manifestPath, JSON.stringify({ ...JSON.parse(await readFile(manifestPath, "utf8")), version: "9.0.0" }));
+    expect((await services.index.add(apart)).ok).toBe(true);
+    const none = await temporary("ohmygame-prepared-none-");
+    await writeFile(path.join(none, "index.json"), JSON.stringify({ version: 1, plugins: [] }));
+    await seed(none);
+    expect(services.index.versions(retired).map((entry) => entry.version)).toEqual(["9.0.0"]);
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "plugins", "preinstalled-plugins.json"), "utf8")).plugins["98d626d2-8e51-42a9-adfe-a3a1e19372c9"]).toMatchObject({ removed: true });
+    // It is done once: the version kept apart stays on the next start.
+    await seed(none);
+    expect(services.index.versions(retired).map((entry) => entry.version)).toEqual(["9.0.0"]);
+    await services.close();
+  });
+
   it("reports a plugin store that can't load instead of stopping startup", async () => {
     const dataDirectory = await temporary("ohmygame-preinstalled-unready-");
     const prepared = await preparedPlugin();
@@ -193,11 +219,11 @@ async function listed(app: Awaited<ReturnType<typeof start>>) {
   return (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json().find((plugin: { id: string }) => plugin.id === ID);
 }
 
-/** A prepared release: a package made from a repository with one `SKILL.md` at its root, as img2threejs is. */
-async function preparedPlugin(options: { releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
+/** A prepared release: a package made from a repository with one `SKILL.md` at its root, as img2threejs was. */
+async function preparedPlugin(options: { pluginId?: string; id?: string; releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
   const directory = await temporary("ohmygame-prepared-plugin-");
   const source = await temporary("ohmygame-prepared-source-");
-  const pluginId = "11111111-1111-4111-8111-111111111111";
+  const pluginId = options.pluginId ?? "11111111-1111-4111-8111-111111111111";
   const releaseId = options.releaseId ?? "22222222-2222-4222-8222-222222222222";
   const skillContent = options.skillContent ?? "---\nname: reference\ndescription: Rebuild a reference.\n---\n";
   const iconContent = options.iconContent ?? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#f00"/></svg>';
@@ -217,7 +243,7 @@ async function preparedPlugin(options: { releaseId?: string; version?: string; s
   await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify(manifest));
   await writeFile(path.join(source, "SKILL.md"), skillContent);
   const packaged = path.join(await temporary("ohmygame-prepared-converted-"), "package");
-  const converted = await packageSkills({ root: source, manifest }, packaged, { id: ID });
+  const converted = await packageSkills({ root: source, manifest }, packaged, { id: options.id ?? ID });
   const archive = await createPluginArchive(packaged);
   const artifactSha256 = createHash("sha256").update(archive).digest("hex");
   await writeFile(path.join(directory, `${releaseId}.zip`), archive);

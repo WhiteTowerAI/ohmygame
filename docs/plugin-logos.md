@@ -14,19 +14,15 @@ the source, upstream terms, and any preparation in
 `assets/NOTICE.md`. These notices travel with exported and imported packages.
 TapTap Maker currently uses the official TapTap app mark to identify the service.
 
-Game Studio, Web Game Studio, and Image to Three.js use user-selected
-Streamline Ultimate color (CC BY 4.0) artwork: **Module Puzzle**, **Card Game Heart**,
-and **Vectors Anchor Rectangle**, respectively. Original geometry, colors, and
-attribution are retained. Three.js World uses
-the upstream Three.js mark and retains its MIT license.
+Game Studio and Web Game Studio use user-selected Streamline Ultimate color
+(CC BY 4.0) artwork: **Module Puzzle** and **Card Game Heart**, respectively.
+Original geometry, colors, and attribution are retained.
 
-Image to Three.js is a preinstalled third-party package from `img2threejs/img2threejs`,
-locked in `config/preinstalled-plugins.json`. Its build-only `assets` directory
-(`config/plugin-assets/img2threejs`) is copied into the package's `assets/`
-before `bun run prepare:preinstalled-plugins` makes it a plugin package
-(`packageSkills`). The app installs it as `ohmygame/img2threejs`, and the
-Plugins page shows it like the bundled plugins that only add Skills.
-These files participate in the preparation fingerprint and final archive checksum.
+A preinstalled third-party package, locked in `config/preinstalled-plugins.json`
+(none at the moment), can name a build-only `assets` directory under
+`config/plugin-assets/`. It is copied into the package's `assets/` before
+`bun run prepare:preinstalled-plugins` makes it a plugin package
+(`packageSkills`). These files participate in the preparation fingerprint and final archive checksum.
 Change the prepared release ID and checksum when shipping updated assets so existing
 installations receive them through the normal preinstalled-package update path.
 The icon and notice then travel with the package, just like bundled plugin assets.
@@ -43,7 +39,7 @@ attributes before they meet the [static icon contract](plugins.md#plugin-icons).
 Plugin cards, details, Builder previews, and conversation references share
 `PluginGlyph` / `PluginIcon`. Local assets are fetched through authenticated
 image routes and rendered as images. Artwork must remain readable in both themes.
-The Unity, Unreal, and Three.js World assets include a light backplate for contrast,
+The Unity and Unreal assets include a light backplate for contrast,
 so their appearance survives export without theme variants or global background
 changes to user images. Failed images retain the standard fallback.
 

@@ -3,19 +3,43 @@ import { Check, Copy, Globe2, LoaderCircle, Maximize, Share2 } from "./icons.js"
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import { CreatorLink, GameGrid, GameStats } from "./community-game-card.js";
+import { CreatorLink, GameGrid, GameGridSkeleton, GameStats } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
-import { CommunitySearch, CommunityToolbar, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
+import { CommunitySearch, CommunityToolbar, filterCommunityGames, type CommunityFilters } from "./community-filters.js";
 import { CommunityPage, CommunityState } from "./community-page.js";
+import { GameLoader } from "./community-game-loader.js";
+import {
+  cachedGame,
+  cachedGames,
+  cachedListFilters,
+  cachedRelatedGames,
+  communityViewer,
+  forgetCachedGame,
+  keepGame,
+  keepGames,
+  keepListFilters,
+  updateCachedGame,
+} from "./community-cache.js";
 import { useAuth } from "./auth.js";
-import { getExploreGame, listExploreGames, waitForRuntime } from "./api.js";
+import { ApiError, getExploreGame, listExploreGames, waitForRuntime } from "./api.js";
 import { communityProfileHash, type AppNavigationTarget } from "./routes.js";
-import { Button, Dialog, IconButton, Input } from "./ui/index.js";
+import { Button, Dialog, IconButton, Input, Skeleton } from "./ui/index.js";
 import { language, t } from "./i18n.js";
 
 const RELATED_GAMES_LIMIT = 10;
 /** How old the list may get before the window coming back reloads it. */
 export const COMMUNITY_REFRESH_AFTER_MS = 60_000;
+
+function withoutLike(game: CommunityGame): CommunityGame {
+  return game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game;
+}
+
+/** A read that started before the player counted this visit must not lower its count. */
+function keepLaterViews(next: CommunityGame, previous: CommunityGame | undefined): CommunityGame {
+  return previous?.id === next.id && previous.stats && next.stats && previous.stats.viewCount > next.stats.viewCount
+    ? { ...next, stats: { ...next.stats, viewCount: previous.stats.viewCount } }
+    : next;
+}
 
 export function GamesPage({
   onNavigate,
@@ -26,14 +50,20 @@ export function GamesPage({
 }) {
   const auth = useAuth();
   const serviceGeneration = useReadyRuntimeGeneration();
-  const [filters, setFilters] = useState({ ...DEFAULT_COMMUNITY_FILTERS });
+  const viewer = communityViewer(auth.state);
+  const [filters, setFilters] = useState(cachedListFilters);
   const [openingProfile, setOpeningProfile] = useState(false);
   const loadVersion = useRef(0);
   const loadedAt = useRef<number | undefined>(undefined);
   const pendingStats = useRef<Map<string, CommunityGameStats> | undefined>(undefined);
-  const [games, setGames] = useState<CommunityGame[]>([]);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  // A list seen earlier in this window shows at once and refreshes behind it.
+  const [cached] = useState(() => cachedGames(viewer));
+  const [games, setGames] = useState<CommunityGame[]>(cached ?? []);
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">(cached ? "ready" : "loading");
   const [error, setError] = useState<string>();
+  const shownPhase = useRef(phase);
+  shownPhase.current = phase;
+  const shownViewer = useRef(viewer);
 
   // A background load keeps the grid in place, and keeps it when it fails.
   async function load(background = false) {
@@ -50,7 +80,9 @@ export function GamesPage({
       const loaded = await listExploreGames(token);
       if (version !== loadVersion.current) return;
       // Keep likes made while the list request was in flight.
-      setGames(loaded.map(game => changes.has(game.id) ? { ...game, stats: changes.get(game.id) } : game));
+      const merged = loaded.map(game => changes.has(game.id) ? { ...game, stats: changes.get(game.id) } : game);
+      keepGames(viewer, merged);
+      setGames(merged);
       setPhase("ready");
       setError(undefined);
       loadedAt.current = Date.now();
@@ -83,10 +115,14 @@ export function GamesPage({
   }, []);
 
   useEffect(() => {
-    setGames(previous => previous.map(game => game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game));
-    void load();
+    if (shownViewer.current !== viewer) {
+      shownViewer.current = viewer;
+      setGames(previous => previous.map(withoutLike));
+    }
+    // A shown list stays while it reloads, including after sign-in or a reconnect.
+    void load(shownPhase.current === "ready");
     return () => { loadVersion.current += 1; };
-  }, [serviceGeneration, auth.state.status, auth.state.status === "signed-in" ? auth.state.user.id : undefined]);
+  }, [serviceGeneration, viewer]);
   const visibleGames = filterCommunityGames(games, filters);
   useEffect(() => {
     if (openingProfile && auth.state.status === "signed-in") {
@@ -95,10 +131,15 @@ export function GamesPage({
     }
   }, [openingProfile, auth.state]);
 
+  function changeFilters(next: CommunityFilters) {
+    keepListFilters(next);
+    setFilters(next);
+  }
+
   return (
-    <CommunityPage onNavigate={onNavigate} title={t("community.title")} actions={(
+    <CommunityPage onNavigate={onNavigate} scrollKey="games" title={t("community.title")} actions={(
       <>
-        <CommunitySearch value={filters} onChange={setFilters} />
+        <CommunitySearch value={filters} onChange={changeFilters} />
         <Button icon={<Globe2 size={14} />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
@@ -108,13 +149,14 @@ export function GamesPage({
         }}>{t("community.myGames")}</Button>
       </>
     )}>
-      <CommunityToolbar value={filters} onChange={setFilters} />
-      {phase === "loading" && !games.length ? <CommunityState><LoaderCircle className="spin" size={16} />{t("community.loading")}</CommunityState> : null}
+      <CommunityToolbar value={filters} onChange={changeFilters} />
+      {phase === "loading" && !games.length ? <GameGridSkeleton label={t("community.loading")} /> : null}
       {phase === "error" ? <CommunityState tone="error" action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
       {phase === "ready" && games.length === 0 ? <CommunityState>{t("community.none")}</CommunityState> : null}
       {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <CommunityState>{t("community.noMatches")}</CommunityState> : null}
-      {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} onOpen={game => onOhMyGame(game.id)} onStatsChange={(gameId, stats) => {
+      {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} keepPageAs="community-games" onOpen={game => onOhMyGame(game.id)} onStatsChange={(gameId, stats) => {
         pendingStats.current?.set(gameId, stats);
+        updateCachedGame(viewer, gameId, { stats });
         setGames(previous => previous.map(game => game.id === gameId ? { ...game, stats } : game));
       }} /> : null}
     </CommunityPage>
@@ -129,11 +171,16 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
 }) {
   const auth = useAuth();
   const serviceGeneration = useReadyRuntimeGeneration();
-  const [game, setGame] = useState<CommunityGame>();
+  const viewer = communityViewer(auth.state);
+  // A game opened from a card shows its details and starts playing at once;
+  // the page's own read only brings them up to date.
+  const [game, setGame] = useState(() => cachedGame(viewer, gameId));
   const [accessToken, setAccessToken] = useState<string>();
-  const [relatedGames, setRelatedGames] = useState<CommunityGame[]>([]);
+  const [relatedGames, setRelatedGames] = useState(() => cachedRelatedGames(viewer, gameId, RELATED_GAMES_LIMIT));
   const [error, setError] = useState<string>();
   const loadVersion = useRef(0);
+  const shown = useRef({ gameId, serviceGeneration, viewer });
+  const tokenRead = useRef<Promise<string | undefined>>(undefined);
   const pendingChanges = useRef<Map<string, Partial<CommunityGame>> | undefined>(undefined);
   const pendingStats = useRef<{ gameId: string; stats?: CommunityGameStats } | undefined>(undefined);
 
@@ -142,18 +189,34 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
     const changes = new Map<string, Partial<CommunityGame>>();
     pendingChanges.current = changes;
     setError(undefined);
-    try {
+    const signedIn = auth.state.status === "signed-in";
+    // The player may finish loading first; its metrics read waits for this token.
+    const tokenReady = (async () => {
       await waitForRuntime();
-      const token = auth.state.status === "signed-in" ? await auth.requestAccessToken() : undefined;
-      const related = listExploreGames(token, { limit: RELATED_GAMES_LIMIT, excludeGameId: gameId }).catch(() => []);
+      return signedIn ? await auth.requestAccessToken() : undefined;
+    })();
+    tokenRead.current = tokenReady;
+    try {
+      const token = await tokenReady;
+      const related = listExploreGames(token, { limit: RELATED_GAMES_LIMIT, excludeGameId: gameId }).catch(() => undefined);
       const currentGame = await getExploreGame(gameId, token);
       if (version !== loadVersion.current) return;
+      const next = keepLaterViews({ ...currentGame, ...changes.get(gameId) }, cachedGame(viewer, gameId));
+      keepGame(viewer, next);
       setAccessToken(token);
-      setGame({ ...currentGame, ...changes.get(gameId) });
+      setGame(previous => keepLaterViews(next, previous));
       const games = await related;
-      if (version === loadVersion.current) setRelatedGames(games.map(game => ({ ...game, ...changes.get(game.id) })));
+      if (version !== loadVersion.current || !games) return;
+      const nextRelated = games.map(game => ({ ...game, ...changes.get(game.id) }));
+      keepGame(viewer, ...nextRelated);
+      setRelatedGames(nextRelated);
     } catch (cause) {
       if (version !== loadVersion.current) return;
+      // A game that is gone must not keep playing from what this window saw before.
+      if (cause instanceof ApiError && cause.status === 404) {
+        forgetCachedGame(gameId);
+        setGame(undefined);
+      }
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       if (pendingChanges.current === changes) pendingChanges.current = undefined;
@@ -161,17 +224,19 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   }
 
   useEffect(() => {
-    setGame(undefined);
-    setAccessToken(undefined);
-    setRelatedGames([]);
-  }, [gameId, serviceGeneration]);
-
-  useEffect(() => {
-    setGame(previous => previous?.stats ? { ...previous, stats: { ...previous.stats, liked: undefined } } : previous);
-    setRelatedGames(previous => previous.map(game => game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game));
+    const previous = shown.current;
+    shown.current = { gameId, serviceGeneration, viewer };
+    if (previous.gameId !== gameId || previous.serviceGeneration !== serviceGeneration) {
+      setGame(cachedGame(viewer, gameId));
+      setAccessToken(undefined);
+      setRelatedGames(cachedRelatedGames(viewer, gameId, RELATED_GAMES_LIMIT));
+    } else if (previous.viewer !== viewer) {
+      setGame(previous => previous && withoutLike(previous));
+      setRelatedGames(previous => previous.map(withoutLike));
+    }
     void load();
     return () => { loadVersion.current += 1; };
-  }, [gameId, serviceGeneration, auth.state.status, auth.state.status === "signed-in" ? auth.state.user.id : undefined]);
+  }, [gameId, serviceGeneration, viewer]);
 
   async function refreshStats(deploymentId: string) {
     const version = loadVersion.current;
@@ -179,11 +244,14 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
     pendingStats.current = refresh;
     try {
       // The play server counts the entry; this read only refreshes its result.
-      const current = await getExploreGame(gameId, accessToken);
+      const current = await getExploreGame(gameId, await tokenRead.current);
       if (version !== loadVersion.current || pendingStats.current !== refresh || current.deploymentId !== deploymentId) return;
       const stats = current.stats;
-      if (stats) setGame(previous => previous?.id === gameId && previous.deploymentId === deploymentId
-        ? { ...previous, stats: { ...stats, ...refresh.stats, viewCount: Math.max(stats.viewCount, previous.stats?.viewCount ?? 0) } } : previous);
+      if (!stats) return;
+      const merge = (previous?: CommunityGameStats) => ({ ...stats, ...refresh.stats, viewCount: Math.max(stats.viewCount, previous?.viewCount ?? 0) });
+      updateCachedGame(viewer, gameId, { stats: merge(cachedGame(viewer, gameId)?.stats) });
+      setGame(previous => previous?.id === gameId && previous.deploymentId === deploymentId
+        ? { ...previous, stats: merge(previous.stats) } : previous);
     } catch { /* Metrics must not interrupt the player. */ }
     finally { if (pendingStats.current === refresh) pendingStats.current = undefined; }
   }
@@ -192,25 +260,26 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
     const pending = pendingChanges.current;
     pending?.set(id, { ...pending.get(id), ...change });
     if (change.stats && pendingStats.current?.gameId === id) pendingStats.current.stats = change.stats;
+    updateCachedGame(viewer, id, change);
     setGame(previous => previous?.id === id ? { ...previous, ...change } : previous);
     setRelatedGames(previous => previous.map(item => item.id === id ? { ...item, ...change } : item));
   }
 
   const owner = auth.state.status === "signed-in" && auth.state.user.id === game?.author.id;
   return (
-    <CommunityPage onNavigate={onNavigate} onBack={onBack}>
-      {!game && !error ? <CommunityState><LoaderCircle className="spin" size={16} />{t("community.loadingGame")}</CommunityState> : null}
+    <CommunityPage onNavigate={onNavigate} onBack={onBack} scrollKey={`game:${gameId}`}>
       {error ? <CommunityState tone="error" action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>}>{error}</CommunityState> : null}
-      {game ? (
+      {game || !error ? (
         <GameDetail
           game={game}
           relatedGames={relatedGames}
           onOhMyGame={onOhMyGame}
-          onPlayerLoad={() => void refreshStats(game.deploymentId)}
+          onPlayerLoad={deploymentId => void refreshStats(deploymentId)}
           onStatsChange={(id, stats) => updateGame(id, { stats })}
-          actions={owner ? (
+          actions={game && owner ? (
             <CommunityGameActions key={`${game.id}:${serviceGeneration}`} game={game} accessToken={accessToken} onChange={change => updateGame(game.id, change)} onUnpublished={() => {
               loadVersion.current += 1;
+              forgetCachedGame(game.id);
               setGame(undefined);
               window.location.hash = communityProfileHash(game.author.id);
             }} />
@@ -221,16 +290,23 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   );
 }
 
+/** The player, then the title, creator and actions. Until the game is known the
+ * player shows its loading screen and the details their shapes; the loading
+ * screen stays until the game's page has loaded. */
 function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
-  game: CommunityGame;
+  game?: CommunityGame;
   relatedGames: CommunityGame[];
   actions?: ReactNode;
   onOhMyGame: (gameId: string) => void;
-  onPlayerLoad: () => void;
+  onPlayerLoad: (deploymentId: string) => void;
   onStatsChange: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const [sharing, setSharing] = useState(false);
+  // A new deployment starts the game again; the owner's dialogs stay open.
+  const frameKey = game ? `${game.id}:${game.deploymentId}` : undefined;
+  const [loadedFrame, setLoadedFrame] = useState<string>();
+  const playing = frameKey !== undefined && loadedFrame === frameKey;
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -239,37 +315,51 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
 
   return (
     <div className="community-game">
-      <div className="community-player" ref={playerRef}>
-        {/* A new deployment starts the game again; the owner's dialogs stay open. */}
-        <iframe
-          key={`${game.id}:${game.deploymentId}`}
-          src={game.playUrl}
-          onLoad={onPlayerLoad}
-          title={game.title}
-          // A published game may open the OhMyGame sign-in popup; the desktop app allows only that page.
-          sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-          allow="autoplay; fullscreen"
-        />
+      <div className="community-player" ref={playerRef} aria-busy={!playing}>
+        {game ? (
+          <iframe
+            key={frameKey}
+            src={game.playUrl}
+            onLoad={() => {
+              setLoadedFrame(frameKey);
+              onPlayerLoad(game.deploymentId);
+            }}
+            title={game.title}
+            // A published game may open the OhMyGame sign-in popup; the desktop app allows only that page.
+            sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+            allow="autoplay; fullscreen"
+          />
+        ) : null}
+        <GameLoader loading={!playing} />
       </div>
-      <div className="community-game-info">
-        <div className="community-game-title">
-          <h1>{game.title}</h1>
-          <div className="community-game-byline">
-            <CreatorLink author={game.author} size="md" />
-            <span>{publishedDate(game.publishedAt)}</span>
+      {game ? (
+        <div className="community-game-info">
+          <div className="community-game-title">
+            <h1>{game.title}</h1>
+            <div className="community-game-byline">
+              <CreatorLink author={game.author} size="md" />
+              <span>{publishedDate(game.publishedAt)}</span>
+            </div>
+          </div>
+          <span className="community-spacer" />
+          <div className="community-game-actions">
+            <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
+            <Button icon={<Share2 size={14} />} aria-haspopup="dialog" onClick={() => setSharing(true)}>{t("community.shareButton")}</Button>
+            <IconButton label={t("common.fullscreen")} onClick={() => void toggleFullscreen()}><Maximize size={16} /></IconButton>
+            {actions}
           </div>
         </div>
-        <span className="community-spacer" />
-        <div className="community-game-actions">
-          <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
-          <Button icon={<Share2 size={14} />} aria-haspopup="dialog" onClick={() => setSharing(true)}>{t("community.shareButton")}</Button>
-          <IconButton label={t("common.fullscreen")} onClick={() => void toggleFullscreen()}><Maximize size={16} /></IconButton>
-          {actions}
+      ) : (
+        <div className="community-game-info" aria-busy="true" aria-label={t("community.loadingGame")}>
+          <div className="community-game-title">
+            <Skeleton width={240} height={22} />
+            <Skeleton width={150} height={14} />
+          </div>
         </div>
-      </div>
-      {game.description ? <p className="community-game-description">{game.description}</p> : null}
+      )}
+      {game?.description ? <p className="community-game-description">{game.description}</p> : null}
 
-      <GameShareDialog game={game} open={sharing} onClose={() => setSharing(false)} />
+      {game ? <GameShareDialog game={game} open={sharing} onClose={() => setSharing(false)} /> : null}
 
       {relatedGames.length ? (
         <section className="community-section" aria-label={t("community.moreGames")}>

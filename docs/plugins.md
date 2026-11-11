@@ -52,7 +52,12 @@ and waits until what the plugin asks for is allowed.
 
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
-  `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
+  `schemas/plugin-2.json`, and `ohmygame.json`'s is `schemas/project-1.json`
+  (`bun run plugin:schema` rebuilds both; a test fails when one is out of
+  date). Each file's `$schema` names it on the website,
+  `https://www.ohmygame.ai/schema/…`, which serves `schemas/` from this
+  repository's `main` branch (a rewrite in the `ohmygame-web` repository), so
+  a release publishes it. Ids are
   `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
@@ -462,8 +467,13 @@ project, whatever its file says.
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
 same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled.
+removed, later releases included. One the app stops bringing is listed in
+`RETIRED` there: the copy it installed is uninstalled once, and a version
+installed apart is kept. Bundled plugins are indexed from `plugins/`
+and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
+index from there, outside the store, is dropped if its folder is gone, which
+covers a plugin the app stopped bringing and one an earlier install kept
+elsewhere.
 
 ## Model providers
 
@@ -564,7 +574,8 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
-- **Export as a package…** on a personal plugin's page
+- **Export as a package…** on a personal plugin's page, and in its Plugin
+  Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
   `package.json`, README and publish workflow a new package gets from the
@@ -584,7 +595,7 @@ like `@ohmygame/plugin-ui`:
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
   version adding from npm refuses (the scope must be the publisher, and
-  `ohmygame` and `personal` are kept), then the page checks against the page
+  `personal` is kept), then the page checks against the page
   components' contracts, which ship in the package. It also ships the manifest's
   JSON Schema as `plugin.schema.json`. In this repository, `bun run
   plugin:check <folder>` does the same as `check`.
@@ -594,6 +605,9 @@ like `@ohmygame/plugin-ui`:
   both locales, a README, a GitHub Actions workflow that publishes with
   provenance, and any of a Skill, a panel with a command, native code with a
   tool, a local MCP server and a project type. Every combination passes `check`.
+- Each package carries the app's `LICENSE` and a README, and each bundle a
+  `THIRD_PARTY_LICENSES.md` with the license of every package bundled into it;
+  the build fails for a bundled package without a license file.
 - **Examples** in `packages/plugin-examples/`, one for each part, made from the
   template under the publisher `example`.
 
@@ -609,7 +623,9 @@ Tests compare it with `npm pack --dry-run` where npm is installed.
 package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
 each one into a temporary folder and never runs anything in it, so npm's install
 scripts don't apply. The person reviews what it does, then adds it: adding reads
-the source again and refuses a package whose digest isn't the one reviewed.
+the source again and refuses a package whose digest isn't the one reviewed. The
+review lists what it asks for and what it adds, the same `pluginAdds` rows as
+the plugin's page.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
@@ -654,8 +670,10 @@ the source again and refuses a package whose digest isn't the one reviewed.
   At startup each folder is added again for edits made meanwhile. A theme in
   use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
-  (`PluginServices.installAdded`), so a package can't stand in for what the app or
-  the Plugin Builder provides.
+  (`assertAddablePlugin`), so a package can't stand in for what the app or
+  the Plugin Builder provides. OhMyGame's own plugins can: from its `@ohmygame`
+  npm scope on npmjs or npmmirror, and from a folder in development; never
+  from GitHub, a file, a plain folder or another registry.
 - Archives come out through `extractTarball`, which takes only files and folders
   within the destination. The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
@@ -725,8 +743,8 @@ nothing is read.
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
   release, and an open page picks up new answers every two minutes. A market card
-  shows the default icon, since the package hasn't been downloaded. The publishers
-  `ohmygame` and `personal` aren't listed, nor is anything whose name isn't
+  shows the default icon, since the package hasn't been downloaded. The publisher
+  `personal` isn't listed, nor is anything whose name isn't
   `@publisher/name` or whose version isn't exact.
 
 ## More manifest fields
@@ -835,7 +853,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   blur, on disconnect and when the map changes. A game that reads the gamepad
   itself stops the map, so the same input doesn't arrive twice. The events
   aren't trusted ones, so a game that checks `isTrusted` ignores them.
-- **Plugin changes…** in the project menu lists `GET
+- **Change history**, in the project's **Plugins…** sheet, lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It
@@ -1066,8 +1084,10 @@ A project can hold panels of its own, without a plugin: each is a folder in
 `panel.json` and its page (`src/shared/project-panels.ts`,
 `src/daemon/project-panels.ts`). They travel with the project, in its
 [snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. A project
-shows at most 12, each of at most 500 files and folders.
+project's agent can write and change them like any other file. The Code
+panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
+shows, and Assets leaves them out. A project shows at most 12, each of at most
+500 files and folders.
 
 ```json
 {
@@ -1183,8 +1203,8 @@ project, or only in the project types a connection is limited to.
 
 Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
-Three.js World and the Beta workflows below), applies to every project it suits;
+like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
 project. See [TapTap Maker](#taptap-maker)

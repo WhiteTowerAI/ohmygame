@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock } from "../src/renderer/turn-display.js";
+import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock } from "../src/renderer/turn-display.js";
 
 describe("mergeCompletedCompactionTurns", () => {
   const compaction: Turn = {
@@ -267,23 +267,12 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([compaction]);
   });
 
-  it("keeps generated images in their tool without repeating them after work", () => {
-    const generated = tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } });
-    for (const active of [true, false]) {
-      const display = projectTurnDisplay(turn([generated, answer("Done.")], active));
+  it("lists what a group of calls made once each, in the order it was made", () => {
+    const image = { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } as const;
+    const model = { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } as const;
 
-      expect(display.artifacts).toEqual([]);
-      expect(display.work[0]).toMatchObject({ kind: "tool-group", tools: [generated] });
-    }
-  });
-
-  it("projects generated models after work as artifacts", () => {
-    const display = projectTurnDisplay(turn([
-      tool("completed", { artifact: { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } }),
-      answer("Done."),
-    ], false));
-
-    expect(display.artifacts).toEqual([{ type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" }]);
+    expect(collectArtifacts([tool("completed", { artifact: image }), tool("completed"), tool("completed", { artifact: model }), tool("completed", { artifact: model })]))
+      .toEqual([image, model]);
   });
 
   it("keeps a final answer in the stable container until the turn ends", () => {

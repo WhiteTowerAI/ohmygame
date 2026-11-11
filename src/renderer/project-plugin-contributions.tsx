@@ -7,7 +7,7 @@ import { allowProjectPanel, getPluginPanels, getProjectPluginPreview, getProject
 import { language, t } from "./i18n.js";
 import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Alert, Button, DropdownMenu, Empty, IconButton, Sheet, Skeleton } from "./ui/index.js";
+import { Alert, Button, DropdownMenu, Empty, IconButton, Skeleton } from "./ui/index.js";
 import type { PanelId } from "./workspace-layout.js";
 
 // What a project's plugins add to its workspace: panels beside the
@@ -200,31 +200,28 @@ export function ProjectPanelGate({ projectId, panel, onAllowed }: { projectId: s
   </div>;
 }
 
-/** What the project's plugins changed outside a turn, each with its own Undo. */
-export function PluginChangesSheet({ projectId, open, busy, onClose, onUndone }: {
+/** What the project's plugins changed outside a turn, each with its own Undo. A tab of the project's Plugins. */
+export function PluginChanges({ projectId, busy, onUndone }: {
   projectId: string;
-  open: boolean;
   /** An agent is working; an undo waits until it is done. */
   busy: boolean;
-  onClose: () => void;
-  onUndone: () => void;
+  onUndone?: () => void;
 }) {
   const [changes, setChanges] = useState<ProjectPluginChange[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
   const load = () => listProjectPluginChanges(projectId).then((next) => { setChanges(next); setError(undefined); });
   useEffect(() => {
-    if (!open) return;
     setChanges(undefined);
     void load().catch((cause: unknown) => setError(message(cause)));
-  }, [open, projectId]);
+  }, [projectId]);
 
   async function undo(change: ProjectPluginChange): Promise<void> {
     setPending(change.id);
     setError(undefined);
     try {
       await undoProjectPluginChange(projectId, change.id);
-      onUndone();
+      onUndone?.();
       await load();
     } catch (cause) {
       setError(message(cause));
@@ -233,29 +230,27 @@ export function PluginChangesSheet({ projectId, open, busy, onClose, onUndone }:
     }
   }
 
-  return <Sheet open={open} onClose={onClose} title={t("pluginChanges.title")}>
-    <div className="project-plugins">
-      <p className="project-plugins-intro">{t("pluginChanges.hint")}</p>
-      {error ? <Alert tone="danger" title={error} /> : null}
-      {busy ? <Alert title={t("pluginChanges.busy")} /> : null}
-      {!changes && !error ? <Skeleton height={120} /> : null}
-      {changes && !changes.length ? <Empty title={t("pluginChanges.empty")} /> : null}
-      {changes?.map((change) => <div className="project-plugin" key={change.id}>
-        <span className="project-plugin-text">
-          <strong>{change.title}</strong>
-          <small>
-            {change.plugin} · {new Date(change.at).toLocaleString(language)}
-            {change.unrecorded ? null : <>{" · "}{t("pluginChanges.files", { count: change.changed.length })}</>}
-          </small>
-          {change.failed ? <small className="project-plugin-note">{t("pluginChanges.failed", { error: change.failed })}</small> : null}
-          {change.unrecorded ? <small className="project-plugin-note">{t("pluginChanges.unrecorded")}</small> : null}
-          {change.late ? <small className="project-plugin-note">{t("pluginChanges.late")}</small> : null}
-        </span>
-        {change.undone ? <span className="project-plugins-count">{t("pluginChanges.undone")}</span>
-          : change.changed.length ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void undo(change)}>{t("pluginChanges.undo")}</Button> : null}
-      </div>)}
-    </div>
-  </Sheet>;
+  return <>
+    <p className="project-plugins-intro">{t("pluginChanges.hint")}</p>
+    {error ? <Alert tone="danger" title={error} /> : null}
+    {busy ? <Alert title={t("pluginChanges.busy")} /> : null}
+    {!changes && !error ? <Skeleton height={120} /> : null}
+    {changes && !changes.length ? <Empty title={t("pluginChanges.empty")} /> : null}
+    {changes?.map((change) => <div className="project-plugin" key={change.id}>
+      <span className="project-plugin-text">
+        <strong>{change.title}</strong>
+        <small>
+          {change.plugin} · {new Date(change.at).toLocaleString(language)}
+          {change.unrecorded ? null : <>{" · "}{t("pluginChanges.files", { count: change.changed.length })}</>}
+        </small>
+        {change.failed ? <small className="project-plugin-note">{t("pluginChanges.failed", { error: change.failed })}</small> : null}
+        {change.unrecorded ? <small className="project-plugin-note">{t("pluginChanges.unrecorded")}</small> : null}
+        {change.late ? <small className="project-plugin-note">{t("pluginChanges.late")}</small> : null}
+      </span>
+      {change.undone ? <span className="project-plugins-count">{t("pluginChanges.undone")}</span>
+        : change.changed.length ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void undo(change)}>{t("pluginChanges.undo")}</Button> : null}
+    </div>)}
+  </>;
 }
 
 function message(cause: unknown): string {

@@ -1,4 +1,5 @@
-import { BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, nativeTheme, screen } from "electron";
+import { openInBrowser } from "./open-in-browser.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -124,7 +125,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.setWindowOpenHandler((details) => {
     if (isGameSignInRequest(details, options.gameSignInIssuer))
       return { action: "allow", overrideBrowserWindowOptions: { ...GAME_SIGN_IN_WINDOW_OPTIONS, parent: window } };
-    if (isHttpUrl(details.url)) void shell.openExternal(details.url);
+    if (isHttpUrl(details.url)) void openInBrowser(details.url);
     return { action: "deny" };
   });
   window.webContents.on("did-create-window", (child) => guardGameSignInWindow(child));

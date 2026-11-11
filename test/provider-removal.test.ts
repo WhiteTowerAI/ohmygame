@@ -49,7 +49,7 @@ describe("provider deletion", () => {
       "auth.json": { openai: { type: "api_key", key: "openai-test-key" }, anthropic: otherCredential },
       "models.json": '{\n // Keep unrelated JSONC\n "providers": { "openai": { "baseUrl": "https://relay.example/v1", "models": [{ "id": "custom/test", "name": "Custom test" }] }, "anthropic": { "modelOverrides": { "claude-sonnet-4-5": { "name": "My Claude" } } } }\n}',
       "openai-endpoint.json": { version: 1, baseUrl: "https://relay.example/v1" },
-      "model-visibility.json": { version: 1, hidden: { openai: [model.id], anthropic: ["claude-sonnet-4-5"] }, disabled: ["openai", "anthropic"], defaultImageModel: { provider: "openai", id: "gpt-image-1" }, defaultVideoModel: { provider: "other", id: "keep-video" } },
+      "model-visibility.json": { version: 1, hidden: { openai: [model.id], anthropic: ["claude-sonnet-4-5"] }, disabled: ["openai", "anthropic"], defaultImageModel: { provider: "openai", id: "gpt-image-1" }, defaultVideoModel: { provider: "other", id: "keep-video" }, defaultSpeechModel: { provider: "openai", id: "tts" }, defaultMusicModel: { provider: "other", id: "keep-music" } },
     });
     expect(runtime.getModel("openai", model.id)).toBeDefined();
     const removed = await app.inject({ method: "DELETE", url: "/settings/models/providers/openai" });
@@ -66,6 +66,8 @@ describe("provider deletion", () => {
     const saved = await preferences(directory);
     expect(saved.defaultImageModel()).toBeUndefined();
     expect(saved.defaultVideoModel()).toEqual({ provider: "other", id: "keep-video" });
+    expect(saved.defaultMediaModel("speech")).toBeUndefined();
+    expect(saved.defaultMediaModel("music")).toEqual({ provider: "other", id: "keep-music" });
     expect(saved.isVisible({ provider: "openai", id: model.id })).toBe(true);
     expect(saved.isVisible({ provider: "anthropic", id: "claude-sonnet-4-5" })).toBe(false);
     expect(saved.isEnabled("anthropic")).toBe(false);

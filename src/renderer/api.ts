@@ -32,6 +32,7 @@ import {
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type MediaModelDefaults,
+  type MediaModelUsage,
   type ImageModel,
   type ImageModelCatalog,
   type ModelAuthEvent,
@@ -86,7 +87,7 @@ import {
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
 import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
-import type { AudioModelCatalog } from "../shared/audio.js";
+import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -598,14 +599,21 @@ export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ confi
   notifyAgentModelsChanged();
   return result;
 }
-
-export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
-  const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {
-    method: "PUT",
-    body: JSON.stringify({ apiKey }),
-  });
+export async function updateElevenLabsSettings(apiKey: string): Promise<{ configured: boolean }> {
+  const result = await request<{ configured: boolean }>("/settings/models/providers/elevenlabs", { method: "PUT", body: JSON.stringify({ apiKey }) });
   notifyAgentModelsChanged();
   return result;
+}
+export async function removeElevenLabsSettings(): Promise<void> {
+  await request("/settings/models/providers/elevenlabs/credential", { method: "DELETE" });
+  notifyAgentModelsChanged();
+}
+/** One page of the voices an audio provider lists from its account. */
+export async function listAudioVoices(provider: string, query: { search?: string; pageToken?: string } = {}): Promise<AudioVoicePage> {
+  const params = new URLSearchParams();
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.pageToken) params.set("pageToken", query.pageToken);
+  return request(`/audio-providers/${encodeURIComponent(provider)}/voices${params.size ? `?${params}` : ""}`);
 }
 
 export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | null): Promise<{ configured: boolean; defaultVoiceId?: string }> {
@@ -616,6 +624,8 @@ export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | n
 }
 
 export interface VolcengineTtsPreviewInput {
+  /** The Doubao Speech model to test; speech synthesis when unset. Seed Audio reads the text as a description. */
+  model?: "seed-tts-2.0" | "seed-audio-1.0";
   text: string;
   voiceId?: string;
   language?: string;
@@ -674,8 +684,8 @@ export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
   return request("/image-models/catalog");
 }
 
-export async function setDefaultMediaModel(usage: "image" | "video" | "3d", model?: AgentModelRef): Promise<void> {
-  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : "/model3d-models/default";
+export async function setDefaultMediaModel(usage: MediaModelUsage, model?: AgentModelRef): Promise<void> {
+  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : usage === "3d" ? "/model3d-models/default" : `/audio-models/${usage}/default`;
   await request(endpoint, model ? { method: "PUT", body: JSON.stringify(model) } : { method: "DELETE" });
   notifyAgentModelsChanged();
 }
@@ -1824,12 +1834,8 @@ export async function inspectProjectPreview(projectId: string, settings: Project
 }
 
 
-export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
-export async function previewSeedAudio(prompt: string): Promise<Blob> {
-  const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
+/** The Doubao Speech connection; `distinctKeys` means the two services still use keys saved apart. */
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; distinctKeys?: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 
 /** A plugin panel a project's plugins offer, with its page's address. */
 export interface PluginPanel {

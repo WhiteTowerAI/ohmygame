@@ -23,7 +23,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...api,
 }));
 const { ProjectPluginsSheet } = await import("../src/renderer/project-plugins-sheet.js");
-const { PluginChangesSheet } = await import("../src/renderer/project-plugin-contributions.js");
+const { PluginChanges } = await import("../src/renderer/project-plugin-contributions.js");
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -140,13 +140,16 @@ it("waits for the agent before changing plugins", async () => {
   expect(toggle("Tiles").disabled).toBe(true);
 });
 
-it("lists what plugins changed outside a turn and undoes one change", async () => {
+it("lists what plugins changed outside a turn, behind the Plugins sheet's Change history, and undoes one change", async () => {
   changes = [
     { id: "c2", plugin: "acme/maker", action: "command:upload", title: "Upload build", changed: ["build/index.html", "build/game.js"], at: "2026-10-31T10:00:00.000Z" },
     { id: "c1", plugin: "acme/maker", action: "command:setup", title: "Set up", changed: ["maker.json"], at: "2026-10-30T10:00:00.000Z", undone: true },
   ];
   const onUndone = vi.fn();
-  await act(async () => root.render(<PluginChangesSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={onUndone} />));
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={onUndone} />));
+  expect(api.listProjectPluginChanges).not.toHaveBeenCalled();
+  const history = [...document.querySelectorAll("button")].find((button) => button.textContent === "Change history")!;
+  await act(async () => history.click());
   expect(document.body.textContent).toContain("Upload build");
   expect(document.body.textContent).toContain("2 files");
   const undo = () => [...document.querySelectorAll("button")].filter((button) => button.textContent === "Undo");
@@ -163,7 +166,7 @@ it("says when a plugin change isn't recorded yet, and when it was recorded late"
     { id: "c3", plugin: "acme/maker", action: "command:upload", title: "Upload build", changed: [], at: "2026-10-31T10:00:00.000Z", unrecorded: true },
     { id: "c2", plugin: "acme/maker", action: "command:setup", title: "Set up", changed: ["maker.json"], at: "2026-10-30T10:00:00.000Z", late: true },
   ];
-  await act(async () => root.render(<PluginChangesSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={() => {}} />));
+  await act(async () => root.render(<PluginChanges projectId="p1" busy={false} />));
   expect(document.body.textContent).toContain("not recorded yet");
   expect(document.body.textContent).toContain("Recorded late");
   // Each says what to do about it, so it wraps rather than being cut off.

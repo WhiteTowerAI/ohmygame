@@ -34,6 +34,7 @@
 
 /* sidebar */
 .sidebar {
+  user-select: none;
   grid-area: rail;
   display: flex;
   flex-direction: column;
@@ -131,6 +132,61 @@
   color: var(--color-text-tertiary);
 }
 
+/* the heading's row: the list's menu shows on hover, and while it is open */
+.sidebar-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-label-row .sidebar-project-menu {
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.sidebar-label-row:hover .sidebar-project-menu,
+.sidebar-label-row .sidebar-project-menu:focus-visible,
+.sidebar-label-row .sidebar-project-menu[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.sidebar-project-menu {
+  color: var(--color-text-tertiary);
+}
+
+/* The projects scroll when they outgrow the column; everything else stays put. */
+.sidebar-recent:has(> .sidebar-project-list) {
+  min-height: 0;
+}
+
+.sidebar-project-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden auto;
+  scrollbar-width: none;
+}
+
+/* Rows keep their height, so a long list scrolls instead of squeezing together. */
+.sidebar-project-list > * {
+  flex: none;
+}
+
+.sidebar-project-list [data-dragged] {
+  opacity: 0.4;
+}
+
+.sidebar-drop-line {
+  position: absolute;
+  right: var(--space-1);
+  left: var(--space-1);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  transform: translateY(-1px);
+}
+
 .sidebar-item,
 .sidebar-account {
   display: flex;
@@ -186,11 +242,13 @@
   white-space: nowrap;
 }
 
-/* a recent project's cover, or its placeholder when it has none */
+/* a listed project's cover, or its placeholder when it has none */
 .sidebar-cover,
 .sidebar-app-cover {
   display: block;
   overflow: hidden;
+  /* A press lands on the row, so dragging reorders it rather than the image. */
+  pointer-events: none;
 }
 
 .sidebar-cover {
@@ -470,7 +528,18 @@
   gap: var(--space-2);
 }
 
-/* a recent project as an app icon: its cover cropped to a rounded square */
+/* The full width of the column and a little past the icons, so scrolling
+   doesn't clip the open project's edge bar or a focus ring. The bar sits 12px
+   left of the icon, at the column's edge. */
+.is-sidebar-collapsed .sidebar-project-list {
+  align-items: center;
+  align-self: stretch;
+  gap: var(--space-2);
+  margin: -4px -12px;
+  padding: 4px 0;
+}
+
+/* a project as an app icon: its cover cropped to a rounded square */
 .sidebar-app {
   display: block;
   flex: none;

@@ -78,7 +78,7 @@ beforeEach(() => {
         return new Response(null, { status: 204 });
       }
       if (init.method === "POST" && route === "/plugin-sources/inspect")
-        return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], skills: 1, mcpServers: [], settings: false, installedVersions: [] });
+        return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 1 }, settings: false, installedVersions: [] });
       if (init.method === "POST" && route === "/plugin-sources/install") {
         store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, origin: { type: "github", repository: "acme/fresh", commit: "a".repeat(40) }, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }] }));
         return Response.json({ id: "acme/fresh", version: "1.0.0" }, { status: 201 });

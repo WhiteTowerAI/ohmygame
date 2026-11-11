@@ -97,7 +97,7 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
@@ -112,12 +112,13 @@ import { modelUsageList } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
-import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
+import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
-import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
-import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
+import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
+import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
+import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -553,7 +554,6 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-      text: { type: "string", minLength: 1, maxLength: 10_000 },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -564,8 +564,7 @@ const toolRunSchema = {
       durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
       loop: { type: "boolean" },
       instrumental: { type: "boolean" },
-      lyrics: { type: "string", maxLength: 20_000 },
-      negativePrompt: { type: "string", maxLength: 4_000 },
+      kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -710,6 +709,7 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
+  const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
@@ -816,20 +816,19 @@ export function createApp(options: AppOptions = {}) {
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
   });
-  const volcengineTtsProvider = new VolcengineTtsProvider(
-    () => doubaoVoiceSettings.key("volcengine-tts"),
-    options.audioFetch,
-    undefined,
-    () => providerEnabled("volcengine-tts"),
-    () => doubaoVoiceSettings.defaultVoiceId(),
+  const doubaoSpeechProvider = new DoubaoSpeechProvider({
+    key: (service) => doubaoVoiceSettings.key(service),
+    defaultVoiceId: () => doubaoVoiceSettings.defaultVoiceId(),
+    enabled: () => providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
+    request: options.audioFetch,
+  });
+  const elevenLabsProvider = new ElevenLabsAudioProvider(
+    () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const volcengineSeedAudioProvider = new VolcengineSeedAudioProvider(
-    () => doubaoVoiceSettings.key("volcengine-seed-audio"),
-    options.audioFetch,
-    undefined,
-    () => providerEnabled("volcengine-seed-audio"),
-  );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
+  const providerAudio = new ProviderAudio([doubaoSpeechProvider, elevenLabsProvider], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+    const model = providerModelSettings.defaultMediaModel(kind);
+    return model ? [[kind, model]] : [];
+  })));
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -840,15 +839,12 @@ export function createApp(options: AppOptions = {}) {
       if (toolId === "animate-3d") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
-      const audioOperation: AudioOperation | undefined = toolId === "generate-speech" ? "speech"
-        : toolId === "generate-sound-effect" ? "sound-effect"
-          : toolId === "generate-music" ? "music" : toolId === "generate-audio" ? "audio-scene" : undefined;
-      if (audioOperation) {
-        const explicit = (input as { model?: AgentModelRef }).model;
-        const selected = providerAudio.resolveModel(audioOperation, explicit);
+      if (toolId === "generate-audio") {
+        const { model: explicit, kind } = input as AudioGenerationRequest;
+        const selected = providerAudio.resolveModel(explicit, kind, project?.mediaModelDefaults);
         if (!selected) {
           if (options.audioGenerator) return input;
-          throw new ToolRunError(`No ${audioOperation === "sound-effect" ? "sound effect" : audioOperation} model is available. Connect an audio provider first.`, 503);
+          throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
         }
         return { ...input, model: { provider: selected.provider, id: selected.id } };
       }
@@ -1380,7 +1376,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1421,7 +1417,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -2360,7 +2356,7 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
-        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
       },
@@ -2891,13 +2887,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{ Params: { projectId: string }; Body: MediaModelDefaults }>(
     "/projects/:projectId/settings/generation-models",
-    { schema: { body: { type: "object", additionalProperties: true, properties: {
-      image: modelRefSchema, video: modelRefSchema, "3d": modelRefSchema,
-    } } } },
+    { schema: { body: { type: "object", additionalProperties: true, properties: Object.fromEntries(MEDIA_MODEL_USAGES.map((usage) => [usage, modelRefSchema])) } } },
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (Object.keys(request.body).some((key) => !["image", "video", "3d"].includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
+      if (Object.keys(request.body).some((key) => !(MEDIA_MODEL_USAGES as readonly string[]).includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
       for (const [usage, generator] of [["image", providerImages], ["video", providerVideos], ["3d", providerModels3D]] as const) {
         const ref = request.body[usage];
         const previous = project.mediaModelDefaults?.[usage];
@@ -2905,6 +2899,14 @@ export function createApp(options: AppOptions = {}) {
         const catalog = await generator.catalog();
         if (!catalog.models.some((model) => model.provider === ref.provider && model.id === ref.id)) {
           return reply.code(400).send({ error: `The selected ${usage === "3d" ? "3D" : usage} model is not available` });
+        }
+      }
+      for (const kind of AUDIO_KINDS) {
+        const ref = request.body[kind];
+        const previous = project.mediaModelDefaults?.[kind];
+        if (!ref || (ref.provider === previous?.provider && ref.id === previous.id)) continue;
+        if (!providerAudio.catalog().models.some((model) => model.provider === ref.provider && model.id === ref.id && model.capabilities.produces.includes(kind))) {
+          return reply.code(400).send({ error: `The selected ${kind.replace("-", " ")} model is not available` });
         }
       }
       return projects.setMediaModelDefaults(project.id, request.body);
@@ -3411,23 +3413,23 @@ export function createApp(options: AppOptions = {}) {
         capabilities: ["video"] as const,
       };
     }), {
-      id: "volcengine-tts",
+      id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-tts")),
-      enabled: providerEnabled("volcengine-tts"),
+      configured: doubaoVoiceSettings.get().configured,
+      enabled: providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
       custom: false,
-      status: doubaoVoiceSettings.key("volcengine-tts") ? "connected" as const : "not_configured" as const,
+      status: doubaoVoiceSettings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
     }, {
-      id: "volcengine-seed-audio",
-      name: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-seed-audio")),
-      enabled: providerEnabled("volcengine-seed-audio"),
+      id: "elevenlabs",
+      name: ELEVENLABS_PROVIDER_NAME,
+      configured: Boolean(elevenLabsSettings.key()),
+      enabled: providerEnabled("elevenlabs"),
       custom: false,
-      status: doubaoVoiceSettings.key("volcengine-seed-audio") ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
+      status: elevenLabsSettings.key() ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
     }];
@@ -3528,8 +3530,7 @@ export function createApp(options: AppOptions = {}) {
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    volcengineTtsProvider,
-    volcengineSeedAudioProvider,
+    doubaoSpeechProvider,
     providerEnabled,
     cloudModels,
     modelAuth,
@@ -3539,6 +3540,48 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  for (const kind of AUDIO_KINDS) {
+    app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
+      if (!providerAudio.catalog().models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+        return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
+      }
+      await providerModelSettings.setDefaultMediaModel(kind, request.body);
+      return reply.code(204).send();
+    });
+    app.delete(`/audio-models/${kind}/default`, async (_request, reply) => {
+      await providerModelSettings.setDefaultMediaModel(kind);
+      return reply.code(204).send();
+    });
+  }
+  app.get("/settings/models/providers/elevenlabs", async () => elevenLabsSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/elevenlabs", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, properties: {
+      apiKey: { type: "string", minLength: 1, maxLength: 10_000 },
+    } } },
+  }, async (request, reply) => {
+    try {
+      const result = await elevenLabsSettings.update(request.body);
+      catalogRefresh.invalidate("elevenlabs");
+      return result;
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
+    await elevenLabsSettings.clear();
+    catalogRefresh.invalidate("elevenlabs");
+    return reply.code(204).send();
+  });
+  app.get<{ Params: { provider: string }; Querystring: { search?: string; pageToken?: string } }>("/audio-providers/:provider/voices", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: {
+      search: { type: "string", maxLength: 200 },
+      pageToken: { type: "string", minLength: 1, maxLength: 2_000 },
+    } } },
+  }, async (request, reply) => {
+    try { return await providerAudio.voices(request.params.provider, request.query); }
+    catch (cause) {
+      if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {
@@ -3573,6 +3616,36 @@ export function createApp(options: AppOptions = {}) {
     catch (cause) { if (cause instanceof Error && "statusCode" in cause) return reply.code(Number(cause.statusCode)).send({ error: cause.message }); throw cause; }
   });
 
+  // The model a conversation with none of its own uses, in the picker's order:
+  // the saved default, Pi's preferred model, then the first coding agent's.
+  async function defaultPiModel(): Promise<RuntimeModel | undefined> {
+    const runtime = await getModelRuntime();
+    return preferredAgentModel(
+      resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
+      undefined,
+      configuredDefaultModel(dataDirectory, piAgentDirectory),
+    );
+  }
+  async function firstAgentModel(): Promise<AgentModelRef | undefined> {
+    const first = (await agentRuntimes.models()).models[0];
+    return first && { provider: first.provider, id: first.id };
+  }
+  /** Gives a conversation with no model the one a new conversation would start with, with its effort and account. */
+  async function startConversationOnDefault(project: ProjectState, conversation: StoredConversation): Promise<AgentModelRef | undefined> {
+    const defaults = agentRuntimes.settings.defaultModel();
+    const native = defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
+    const pi = native ? undefined : await defaultPiModel();
+    const model = native ? defaults!.model : pi ? { provider: pi.provider, id: pi.id } : await firstAgentModel();
+    if (!model) return undefined;
+    conversations.setModel(project, conversation, model);
+    if (pi) conversations.setReasoningLevel(project, conversation, effectiveReasoningLevel(pi, undefined, defaultReasoningLevel(dataDirectory, piAgentDirectory)));
+    if (isAccountRuntimeId(model.provider)) conversations.setAccountProfile(project, conversation, model.provider, agentRuntimes.settings.get(model.provider).defaultProfileId ?? "system");
+    if (native && defaults?.nativeReasoningLevel && native.nativeReasoningLevels?.includes(defaults.nativeReasoningLevel)) {
+      conversations.setNativeReasoningLevel(project, conversation, model, defaults.nativeReasoningLevel);
+    }
+    return model;
+  }
+
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
     async (request, reply) => {
@@ -3584,7 +3657,10 @@ export function createApp(options: AppOptions = {}) {
       }
       const defaults = agentRuntimes.settings.defaultModel();
       const defaultModel = !request.body?.model && defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
-      const requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      let requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      const piModel = requestedModel ? undefined : await defaultPiModel();
+      // With no Pi model the picker shows the first coding agent's, so start with that one too.
+      if (!requestedModel && !piModel) requestedModel = await firstAgentModel();
       if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {
         const agentModel = await agentRuntimes.model(requestedModel.provider, requestedModel.id);
         if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
@@ -3604,12 +3680,7 @@ export function createApp(options: AppOptions = {}) {
       if (requestedModel) {
         selectedModel = await availableModel(requestedModel.provider, requestedModel.id);
       } else {
-        const runtime = await getModelRuntime();
-        selectedModel = preferredAgentModel(
-          resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
-          undefined,
-          configuredDefaultModel(dataDirectory, piAgentDirectory),
-        );
+        selectedModel = piModel;
       }
       if (requestedModel && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
@@ -4061,9 +4132,11 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const selectedModel = await conversations.model(project, conversation);
+      let selectedModel = await conversations.model(project, conversation);
       if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
+      // A conversation started before any model was available runs on the one its picker shows now.
+      if (!selectedModel && !agents.sessionRuntime(project.id, conversation.summary.id)) selectedModel = await startConversationOnDefault(project, conversation);
       let mentions;
       try {
         mentions = await validateMentions(request.body.mentions ?? []);

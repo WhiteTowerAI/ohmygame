@@ -13,14 +13,7 @@ import {
   subscribeToModelAuth,
 } from "./api.js";
 import { t } from "./i18n.js";
-
-export async function openModelAuthExternal(url: string): Promise<void> {
-  if (window.ohMyGameDesktop?.openExternal) {
-    await window.ohMyGameDesktop.openExternal(url);
-  } else {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-}
+import { useExternalLink } from "./external-link.js";
 
 function externalTarget(notification: ModelAuthNotification | undefined) {
   if (notification?.type === "auth_url") return notification.url;
@@ -49,6 +42,7 @@ export function useModelProviderAuth(options: {
   const callbacks = useRef(options);
   callbacks.current = options;
   const openedUrl = useRef<string | undefined>(undefined);
+  const link = useExternalLink();
   const { providerId, method } = options;
 
   function fail(message: string) {
@@ -120,8 +114,8 @@ export function useModelProviderAuth(options: {
     if (method !== "oauth" || !external || openedUrl.current === external)
       return;
     openedUrl.current = external;
-    void openModelAuthExternal(external).catch(() => undefined);
-  }, [external, method]);
+    void link.open(external);
+  }, [external, method, link.open]);
 
   async function respond(value: string) {
     if (!operation.current || !prompt || responding) return;
@@ -146,5 +140,5 @@ export function useModelProviderAuth(options: {
     callbacks.current.onCancelled();
   }
 
-  return { prompt, notification, external, error, responding, respond, cancel };
+  return { prompt, notification, external, error, responding, respond, cancel, openBrowser: link.open, openFailedUrl: link.failedUrl };
 }

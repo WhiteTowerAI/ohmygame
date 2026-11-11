@@ -12,6 +12,7 @@ import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { createPixelAssetWorkflowNodes } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 import {
   allActionsPrompt,
   characterAssetPrompt,
@@ -342,6 +343,32 @@ it("processes crop-image before the input node has been saved and registers a us
   expect(metadata).toMatchObject({ width: 4, height: 3 });
 });
 
+it("reconstructs a native-resolution pixel-art asset without changing its source", async () => {
+  const width = 32;
+  const pixels = Buffer.alloc(width * width * 4);
+  for (let y = 0; y < width; y++) for (let x = 0; x < width; x++) {
+    const at = (y * width + x) * 4;
+    pixels[at] = Math.floor(x / 8) * 60;
+    pixels[at + 1] = Math.floor(y / 8) * 60;
+    pixels[at + 2] = (Math.floor(x / 8) + Math.floor(y / 8)) * 30;
+    pixels[at + 3] = 255;
+  }
+  const sourceId = (await library.add("scaled-pixel-art.png", await sharp(pixels, {
+    raw: { width, height: width, channels: 4 },
+  }).png().toBuffer())).id;
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation: "fix-pixel-art", assetIds: [sourceId] },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result).toMatchObject({ kind: "asset", name: "pixel-art-fixed.png", mediaType: "image" });
+  expect(result.assetId).not.toBe(sourceId);
+  const fixedPath = (await readCanvasAssets(project.workspacePath)).assets[result.assetId]!.path;
+  expect(await sharp(path.join(project.workspacePath, fixedPath)).metadata()).toMatchObject({ width: 32, height: 32 });
+});
+
 it("returns every split frame as a registered canvas asset in frame order", async () => {
   const response = await app.inject({
     method: "POST",
@@ -465,4 +492,31 @@ it("does not register extracted frames when their actual count exceeds board cap
   expect(response.statusCode).toBe(409);
   expect(response.json().error).toBe("Canvas is full");
   expect(library.list()).toHaveLength(before);
+});
+
+it("transcribes an audio asset to text without registering media", async () => {
+  const transcribe = vi.fn().mockResolvedValue({ text: "Hello there", model: { provider: "elevenlabs", id: "scribe_v2" } });
+  const audioApp = Fastify();
+  const audioStore = registerCanvasRoutes(audioApp, { projects, library, tools: new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library), audio: { catalog: vi.fn(), generate: vi.fn(), transcribe } as never });
+  try {
+    const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+    const response = await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId], options: { language: "en" } } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ kind: "text", text: "Hello there" });
+    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "audio/mpeg", name: expect.stringMatching(/\.mp3$/), language: "en" }));
+
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [assetId] } })).statusCode).toBe(400);
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId], options: { language: "en; rm" } } })).statusCode).toBe(400);
+    transcribe.mockResolvedValueOnce({ text: "", model: { provider: "elevenlabs", id: "scribe_v2" } });
+    expect((await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } })).statusCode).toBe(422);
+  } finally {
+    await audioApp.close();
+    await audioStore.close();
+  }
+});
+
+it("reports transcription as unavailable without an audio provider", async () => {
+  const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } });
+  expect(response.statusCode).toBe(503);
 });

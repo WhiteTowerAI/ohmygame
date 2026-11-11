@@ -62,6 +62,17 @@ describe("canvas board storage", () => {
     expect(api.saveCanvasBoard.mock.calls[0]![1].board.nodes[0]?.data).not.toHaveProperty("generationMode");
   });
 
+  it("recovers drafts with audio nodes saved before they were merged", async () => {
+    const base = createAssetCanvasDocument();
+    const local = structuredClone(base) as unknown as { nodes: unknown[]; editorLayout: AssetCanvasDocument["editorLayout"] };
+    local.nodes = [{ id: "theme", type: "music", position: { x: 0, y: 0 }, data: { prompt: "harbor theme", instrumental: true, lyrics: "la" } }];
+    local.editorLayout.nodes.theme = { x: 0, y: 0 };
+    entries.set(recoveryKey, JSON.stringify({ base, local }));
+    api.getCanvasBoard.mockResolvedValue(detail(base));
+    const recovered = await adapter().load();
+    expect(recovered.nodes[0]).toMatchObject({ type: "audio", data: { prompt: "harbor theme", instrumental: true } });
+    expect(recovered.nodes[0]!.data).not.toHaveProperty("lyrics");
+  });
   it("compares JSON by own keys, whatever their order", () => {
     expect(sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
     expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);

@@ -15,7 +15,6 @@ import type {
 import {
   getCustomProvider,
   getVolcengineTtsSettings,
-  previewSeedAudio,
   removeProvider,
   setProviderEnabled,
   getOpenAIEndpointSettings,
@@ -27,7 +26,8 @@ import {
   updateMinimaxApiKey,
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
-  updateVolcengineSeedAudioApiKey,
+  updateElevenLabsSettings,
+  removeElevenLabsSettings,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
@@ -45,7 +45,8 @@ import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
-import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
+import { useModelProviderAuth } from "./use-model-provider-auth.js";
+import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -271,11 +272,45 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "volcengine-tts") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "elevenlabs") return <ElevenLabsProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted, removeElevenLabsSettings);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateElevenLabsSettings(apiKey.trim());
+      setApiKey("");
+      onCompleted();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={provider} onBack={onBack}>
+      {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.delete.removeKey")} /><ProviderEnableControl provider={provider} disabled={deletion.busy || saving} /></> : null}
+    </ProviderDetailHeader>
+    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+    <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+      <label className="settings-search-field-label">{t("providers.apiKey")}</label>
+      <div className="settings-detail-inline">
+        <input className="settings-search-input" type="password" value={apiKey} placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} onChange={(event) => setApiKey(event.target.value)} />
+        <Button variant="primary" type="submit" disabled={saving || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
+      </div>
+      {error ? <p className="settings-note is-danger">{error}</p> : null}
+    </form>
+    {provider.configured ? <AudioModels providerId={provider.id} /> : null}
+  </section>;
 }
 
 /** A provider an installed plugin adds: its key and address are set on the plugin's page. */
@@ -319,6 +354,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
   const [error, setError] = useState<string>();
   const [command, setCommand] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const link = useExternalLink();
   async function recheck() {
     setBusy(true); setError(undefined);
     try {
@@ -335,7 +371,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
     setBusy(true); setError(undefined); setCommand(undefined);
     try {
       const result = await loginAgentRuntime("codex-cli");
-      if (result.url) await openExternal(result.url);
+      if (result.url) await link.open(result.url);
       if (result.command) setCommand(result.command);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
@@ -355,6 +391,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
       </div>
       {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+      <ExternalLinkFallback url={link.failedUrl} />
     </section>
     <ProviderImageModels key={revision} providerId="codex-cli" />
   </section>;
@@ -564,15 +601,15 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
 
 function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
   const [defaultVoiceId, setDefaultVoiceId] = useState<string>();
+  const [distinctKeys, setDistinctKeys] = useState(false);
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   const deletion = useProviderDeletion(provider.id, onCompleted);
   useEffect(() => {
-    if (provider.id !== "volcengine-tts") return;
     let active = true;
-    void getVolcengineTtsSettings().then((settings) => { if (active) setDefaultVoiceId(settings.defaultVoiceId); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    void getVolcengineTtsSettings().then((settings) => { if (active) { setDefaultVoiceId(settings.defaultVoiceId); setDistinctKeys(Boolean(settings.distinctKeys)); } }).catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
-  }, [provider.id]);
+  }, [provider.id, provider.configured]);
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
@@ -580,13 +617,13 @@ function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: Pr
       </ProviderDetailHeader>
       <ProviderDeleteConfirmation provider={provider} deletion={deletion} />
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
-      <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} onChanged={onCompleted} />
+      <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} distinctKeys={distinctKeys} onChanged={onCompleted} />
     </section>
   );
 }
 
-function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChanged }: { provider: ProviderSummary; defaultVoiceId?: string; onChanged: () => void }) {
-  const speech = provider.id === "volcengine-tts";
+/** Doubao Speech: one key for speech synthesis and Seed Audio, a default voice, and a preview of each. */
+function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinctKeys, onChanged }: { provider: ProviderSummary; defaultVoiceId?: string; distinctKeys: boolean; onChanged: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [keyError, setKeyError] = useState<string>();
   const [savingKey, setSavingKey] = useState(false);
@@ -594,18 +631,13 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
   const [customVoice, setCustomVoice] = useState(false);
   const [voiceError, setVoiceError] = useState<string>();
   const [savingVoice, setSavingVoice] = useState(false);
-  const [previewText, setPreviewText] = useState(speech ? t("providers.previewSampleText") : t("providers.seedPreviewSamplePrompt"));
-  const [previewUrl, setPreviewUrl] = useState<string>();
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewError, setPreviewError] = useState<string>();
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   async function saveKey(event: FormEvent): Promise<void> {
     event.preventDefault();
     setSavingKey(true);
     setKeyError(undefined);
     try {
-      await (speech ? updateVolcengineTtsApiKey : updateVolcengineSeedAudioApiKey)(apiKey.trim());
+      await updateVolcengineTtsApiKey(apiKey.trim());
       setApiKey("");
       onChanged();
     } catch (cause) { setKeyError(errorMessage(cause)); }
@@ -621,24 +653,12 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
     } catch (cause) { setVoiceError(errorMessage(cause)); }
     finally { setSavingVoice(false); }
   }
-  async function runPreview(): Promise<void> {
-    if (previewBusy) return;
-    setPreviewBusy(true);
-    setPreviewError(undefined);
-    try {
-      const blob = speech
-        ? await previewVolcengineTtsSpeech({ text: previewText.trim(), ...(defaultVoiceId.trim() ? { voiceId: defaultVoiceId.trim() } : {}) })
-        : await previewSeedAudio(previewText.trim());
-      setPreviewUrl(URL.createObjectURL(blob));
-    } catch (cause) { setPreviewError(errorMessage(cause)); }
-    finally { setPreviewBusy(false); }
-  }
 
   const usesCustomVoice = customVoice || (Boolean(defaultVoiceId) && !findVolcengineTtsVoice(defaultVoiceId));
   const keyId = `${provider.id}-api-key`;
   return (
     <>
-      {provider.configured && speech ? (
+      {provider.configured ? (
         <form className="settings-detail-field" onSubmit={(event) => void saveVoice(event)}>
           <label className="settings-search-field-label" htmlFor="volcengine-tts-voice-select">{t("providers.defaultVoiceId")}</label>
           <div className="settings-detail-inline">
@@ -672,26 +692,10 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
           {voiceError ? <p className="settings-note is-danger" role="alert">{voiceError}</p> : null}
         </form>
       ) : null}
-      {provider.configured ? (
-        <section className="settings-detail-field" aria-label={t("providers.previewTitle")}>
-          <label className="settings-search-field-label" htmlFor={`${provider.id}-preview`}>{speech ? t("providers.previewTextLabel") : t("providers.seedPreviewPromptLabel")}</label>
-          <div className="settings-detail-inline">
-            <input
-              id={`${provider.id}-preview`}
-              className="settings-search-input"
-              value={previewText}
-              onChange={(event) => setPreviewText(event.target.value)}
-              maxLength={500}
-              disabled={previewBusy}
-            />
-            <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
-              {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
-            </Button>
-          </div>
-          {previewUrl ? <audio controls src={previewUrl} className="settings-audio-preview" /> : null}
-          {previewError ? <p className="settings-note is-danger" role="alert">{previewError}</p> : null}
-        </section>
-      ) : null}
+      {provider.configured ? <>
+        <DoubaoPreview kind="speech" voiceId={defaultVoiceId.trim()} disabled={provider.enabled === false} />
+        <DoubaoPreview kind="seed" disabled={provider.enabled === false} />
+      </> : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
           <label className="settings-search-field-label" htmlFor={keyId}>{t("providers.apiKey")}</label>
           <div className="settings-detail-inline">
@@ -708,10 +712,47 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               {savingKey ? t("common.saving") : t("common.save")}
             </Button>
           </div>
+          {distinctKeys ? <p className="settings-note">{t("providers.doubaoDistinctKeys")}</p> : null}
           {keyError ? <p className="settings-note is-danger" role="alert">{keyError}</p> : null}
       </form>
       {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
+  );
+}
+
+/** A short, billable test of one Doubao Speech service: a spoken line, or a Seed Audio sound. */
+function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; voiceId?: string; disabled: boolean }) {
+  const speech = kind === "speech";
+  const [text, setText] = useState(speech ? t("providers.previewSampleText") : t("providers.seedPreviewSamplePrompt"));
+  const [url, setUrl] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  async function run(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const blob = speech
+        ? await previewVolcengineTtsSpeech({ text: text.trim(), ...(voiceId ? { voiceId } : {}) })
+        : await previewVolcengineTtsSpeech({ model: "seed-audio-1.0", text: text.trim() });
+      setUrl(URL.createObjectURL(blob));
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  const id = `doubao-${kind}-preview`;
+  return (
+    <section className="settings-detail-field" aria-label={speech ? t("providers.previewTitle") : t("providers.seedPreviewTitle")}>
+      <label className="settings-search-field-label" htmlFor={id}>{speech ? t("providers.previewTextLabel") : t("providers.seedPreviewPromptLabel")}</label>
+      <div className="settings-detail-inline">
+        <input id={id} className="settings-search-input" value={text} onChange={(event) => setText(event.target.value)} maxLength={500} disabled={busy} />
+        <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={busy || !text.trim() || disabled} onClick={() => void run()}>
+          {busy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
+        </Button>
+      </div>
+      {url ? <audio controls src={url} className="settings-audio-preview" /> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+    </section>
   );
 }
 
@@ -839,7 +880,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
-function useProviderDeletion(providerId: string, onRemoved?: () => void) {
+function useProviderDeletion(providerId: string, onRemoved?: () => void, removeAction: () => Promise<void> = () => removeProvider(providerId)) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -848,7 +889,7 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
     if (busy) return;
     setBusy(true);
     setError(undefined);
-    try { await removeProvider(providerId); onRemoved?.(); }
+    try { await removeAction(); onRemoved?.(); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
@@ -1202,8 +1243,9 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
             <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
-            {external ? <Button variant="primary" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
+            {external ? <Button variant="primary" onClick={() => void auth.openBrowser(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
           </div>
+          <ExternalLinkFallback url={auth.openFailedUrl} />
           {browserFallback && prompt ? (
             <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
               <label className="settings-detail-hint" htmlFor="model-auth-redirect">{t("providers.redirectHint")}</label>
@@ -1309,6 +1351,10 @@ function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | 
   if (provider.plugin) return t("providers.description.plugin", { plugin: provider.plugin.name });
   if (provider.id === "codex-cli") return t("codexImages.description");
   if (provider.id === "hyper3d") return t("providers.description.hyper3d");
+  // Ark's two providers sell the same models in different regions, with separate accounts.
+  if (provider.id === "volcengine-ark") return t("providers.description.volcengineArk");
+  if (provider.id === "byteplus-modelark") return t("providers.description.byteplusModelArk");
+  if (provider.id === "volcengine-tts") return t("providers.description.doubaoSpeech");
   if (provider.managed) return t("providers.group.free");
   if (isLocalModelProvider(provider)) return t("providers.description.local");
   if (provider.custom) return t("providers.description.custom");

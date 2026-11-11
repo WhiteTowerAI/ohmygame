@@ -11,13 +11,17 @@ interface Settings {
   version: 1;
   /** Shared by both services unless a service has its own entry. */
   apiKey?: string;
-  /** A string overrides the shared key; null disconnects that service. */
+  /**
+   * compat: since beta.5.6, remove from beta.7 and 2026-12-12. Per-service keys from when speech synthesis
+   * and Seed Audio were set up apart: a string overrides the shared key, null disconnects that service.
+   * They keep working until a new key is saved, which replaces them.
+   */
   services: Partial<Record<DoubaoService, string | null>>;
   defaultVoiceId?: string;
 }
 export interface DoubaoVoiceConnection {
-  ttsConfigured: boolean;
-  seedConfigured: boolean;
+  configured: boolean;
+  /** The services still use different keys saved when they were set up apart. */
   distinctKeys: boolean;
   defaultVoiceId?: string;
 }
@@ -29,7 +33,7 @@ const LEGACY_FILES: Record<DoubaoService, string> = {
   "volcengine-seed-audio": "volcengine-seed-audio.json",
 };
 
-/** One Doubao Voice connection for speech synthesis and Seed Audio. */
+/** One Doubao Speech connection: one key for speech synthesis and Seed Audio, which share a console and key. */
 export class DoubaoVoiceSettingsStore {
   #settings: Settings = { version: 1, services: {} };
   #mutations = Promise.resolve();
@@ -91,8 +95,7 @@ export class DoubaoVoiceSettingsStore {
     const tts = this.key("volcengine-tts"),
       seed = this.key("volcengine-seed-audio");
     return {
-      ttsConfigured: Boolean(tts),
-      seedConfigured: Boolean(seed),
+      configured: Boolean(tts || seed),
       distinctKeys: Boolean(tts && seed && tts !== seed),
       ...(this.#settings.defaultVoiceId
         ? { defaultVoiceId: this.#settings.defaultVoiceId }
@@ -105,12 +108,12 @@ export class DoubaoVoiceSettingsStore {
     const apiKey = validateKey(key);
     await this.#mutate(() => ({ ...this.#settings, apiKey, services: {} }));
   }
-  async setService(service: DoubaoService, key: string | null): Promise<void> {
-    const value = key === null ? null : validateKey(key);
-    await this.#mutate(() => ({
-      ...this.#settings,
-      services: { ...this.#settings.services, [service]: value },
-    }));
+  /** Disconnects both services; the default voice stays for when a key is saved again. */
+  async clear(): Promise<void> {
+    await this.#mutate(() => {
+      const { apiKey: _, ...settings } = this.#settings;
+      return { ...settings, services: {} };
+    });
   }
   async setDefaultVoice(voiceId: string | null): Promise<void> {
     const value = voiceId?.trim() || undefined;

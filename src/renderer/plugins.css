@@ -272,10 +272,6 @@
   font-weight: 600;
 }
 
-.plugin-add-review ul {
-  padding-left: var(--space-4);
-}
-
 .plugin-add-review dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -560,7 +556,7 @@
 .plugin-uninstall ul.plugin-uninstall-removes {
   display: grid;
   gap: 4px;
-  padding-left: var(--space-5);
+  padding-left: var(--space-6);
   list-style: disc;
   font-size: var(--text-md);
 }

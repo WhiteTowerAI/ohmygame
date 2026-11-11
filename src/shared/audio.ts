@@ -1,25 +1,20 @@
-import type { AssetCanvasReference, ModelRef } from "./contracts.js";
+import type { ModelRef } from "./contracts.js";
 import { VOLCENGINE_TTS_VOICES } from "./doubao-voices.js";
 
-export const AUDIO_OPERATIONS = [
-  "speech",
-  "dialogue",
-  "sound-effect",
-  "music",
-  "audio-scene",
-] as const;
-export type AudioOperation = (typeof AUDIO_OPERATIONS)[number];
+/** What a model's audio is for. It describes the model and picks one when a request names none; requests don't carry it otherwise. */
+export const AUDIO_KINDS = ["speech", "sound-effect", "music"] as const;
+export type AudioKind = (typeof AUDIO_KINDS)[number];
 
 export const AUDIO_OUTPUT_FORMATS = ["mp3", "wav", "ogg_opus"] as const;
 export type AudioOutputFormat = (typeof AUDIO_OUTPUT_FORMATS)[number];
 
 export const AUDIO_VOICE_ID_MAX_LENGTH = 256;
+/** The longest prompt an audio node or tool takes; each model sets its own, usually lower, `maxTextCharacters`. */
+export const AUDIO_PROMPT_MAX_LENGTH = 32_000;
 export const AUDIO_VOICE_ID_PATTERN = "^[A-Za-z0-9_-]+$";
+/** Doubao Speech is one provider; the ID is its speech service's, from before Seed Audio joined it, so saved choices still match. */
+export const DOUBAO_SPEECH_PROVIDER_ID = "volcengine-tts";
 export const DOUBAO_SPEECH_PROVIDER_NAME = "Doubao Speech";
-export const DOUBAO_SEED_AUDIO_PROVIDER_NAME = "Doubao Seed Audio";
-// compat: since beta.5.0, remove from beta.7 and 2026-11-28. Audio references and subtitles in saved canvases and assets, here and below.
-/** Kept only to validate legacy Asset Canvas reference aliases on load. */
-export const AUDIO_REFERENCE_ID_PATTERN = "^(Audio|Image)[1-9][0-9]*$";
 
 export const AUDIO_SAMPLE_RATES = [
   8_000, 16_000, 22_050, 24_000, 32_000, 40_000, 44_100, 48_000,
@@ -51,96 +46,77 @@ export interface AudioSettings {
   output?: AudioOutputSettings;
 }
 
-/** Legacy workspace fields remain readable but are omitted from generation requests. */
-export interface AudioCanvasReference {
-  id: string;
-  type: "audio" | "image";
-  source: AssetCanvasReference;
-}
-export interface AudioCanvasSettings extends AudioSettings {
-  /** Legacy canvas state; new generations and UI do not use subtitles or references. */
-  subtitles?: boolean;
-  audioReferences?: AudioCanvasReference[];
-  audioReferenceSerial?: number;
-}
-export interface SpeechAudioRequest extends AudioSettings {
-  operation: "speech";
-  text: string;
+/** One request for every audio model; the model decides what the prompt means and which options apply. */
+export interface AudioGenerationRequest extends AudioSettings {
   model?: ModelRef;
-}
-
-export interface DialogueAudioRequest {
-  operation: "dialogue";
-  model?: ModelRef;
-  turns: Array<{
-    speaker: string;
-    voiceId: string;
-    text: string;
-    style?: string;
-  }>;
-  output?: AudioOutputSettings;
-}
-
-export interface SoundEffectAudioRequest extends AudioSettings {
-  operation: "sound-effect";
-  model?: ModelRef;
+  /** The words a model that reads text speaks exactly, or a description of the audio for the rest. */
   prompt: string;
+  /** Picks a model that makes this kind of audio when `model` is absent. */
+  kind?: AudioKind;
   durationSeconds?: number;
   loop?: boolean;
-  negativePrompt?: string;
-  output?: AudioOutputSettings;
+  /** Music without vocals, for models that set `supportsInstrumental`. */
+  instrumental?: boolean;
 }
-
-export interface MusicAudioRequest extends AudioSettings {
-  operation: "music";
-  model?: ModelRef;
-  prompt: string;
-  instrumental: boolean;
-  lyrics?: string;
-  durationSeconds?: number;
-  loop?: boolean;
-  output?: AudioOutputSettings;
-}
-
-export interface SceneAudioRequest extends AudioSettings {
-  operation: "audio-scene";
-  model?: ModelRef;
-  prompt: string;
-  durationSeconds?: number;
-}
-
-export type AudioGenerationRequest =
-  | SpeechAudioRequest
-  | DialogueAudioRequest
-  | SoundEffectAudioRequest
-  | MusicAudioRequest
-  | SceneAudioRequest;
 
 export interface AudioModelCapabilities {
-  operations: AudioOperation[];
-  executionModes: Array<"synchronous" | "streaming" | "async-task">;
+  /** The kinds of audio it makes; empty for a model that only transcribes. */
+  produces: AudioKind[];
+  /** Speaks the prompt word for word, with a voice, rather than following a description. */
+  readsText?: boolean;
+  /** Turns audio into text. */
+  transcribes?: boolean;
   languages?: string[];
   formats: AudioOutputFormat[];
   sampleRates?: AudioSampleRate[];
   maxTextCharacters?: number;
   maxDurationSeconds?: number;
-  maxSpeakers?: number;
   supportsSSML?: boolean;
-  supportsVoiceClone?: boolean;
-  supportsVoiceDesign?: boolean;
   supportsLoop?: boolean;
-  supportsLyrics?: boolean;
   supportsInstrumental?: boolean;
-  supportsNegativePrompt?: boolean;
   supportsSpeaker?: boolean;
   supportsPitch?: boolean;
   supportsVolume?: boolean;
   supportsStyle?: boolean;
-  supportsVocalToggle?: boolean;
   sampleRatesByFormat?: Partial<Record<AudioOutputFormat, AudioSampleRate[]>>;
-  promptInstructionCharacters?: number;
   /** Text-to-speech request options: pronunciation, language detection, dialect, silence, section, bit rate and cloned voice models. */
   supportsSpeechOptions?: boolean;
+  /** The speech rate this model accepts, in the shared -50…100 scale; the full scale when unset. */
+  speedRange?: readonly [number, number];
+  /** Speech needs a voice picked from the provider's own list; there is no default. */
+  requiresVoice?: boolean;
+  /** Shortest and longest audio this model makes, in seconds. */
+  minDurationSeconds?: number;
+}
+
+/** A voice a provider offers, listed from its account rather than built in. */
+export interface AudioVoice {
+  id: string;
+  name: string;
+  /** A hosted sample; playing it spends no generation quota. */
+  previewUrl?: string;
+  labels?: Record<string, string>;
+}
+
+export interface AudioVoicePage {
+  voices: AudioVoice[];
+  /** Pass back to read the next page; absent on the last one. */
+  nextPageToken?: string;
+}
+
+export interface AudioTranscriptionRequest {
+  bytes: Uint8Array;
+  mediaType: string;
+  name: string;
+  /** ISO 639-1 or 639-3; the provider detects it when absent. */
+  language?: string;
+  model?: ModelRef;
+}
+
+export interface AudioTranscription {
+  text: string;
+  language?: string;
+  model: ModelRef;
 }
 
 export interface AudioModel extends ModelRef {
@@ -157,11 +133,15 @@ export interface AudioProviderCatalogStatus {
   state: "ready" | "not_configured" | "disabled" | "error";
   message?: string;
   defaultVoiceId?: string;
+  /** Its voices are listed from the account, through `/audio-providers/:provider/voices`. */
+  listsVoices?: boolean;
 }
 
 export interface AudioModelCatalog {
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
+  /** The global default for each kind; the agent and new audio nodes use it when no model is named. */
+  defaultModels?: Partial<Record<AudioKind, ModelRef>>;
 }
 
 export interface AudioMetadata {
@@ -174,18 +154,10 @@ export interface AudioMetadata {
   usageCharacters?: number;
 }
 
-export interface AudioWord {
-  text: string;
-  startMs: number;
-  endMs: number;
-  confidence?: number;
-}
-export interface AudioSentence extends AudioWord { words?: AudioWord[] }
-/** Legacy asset metadata remains readable; providers no longer generate this data. */
-export interface AudioSubtitles { text: string; sentences: AudioSentence[] }
+/** Assets made before beta.5.0 may also hold `subtitles`, which nothing reads. */
 export interface AudioAssetData {
   metadata?: AudioMetadata;
-  subtitles?: AudioSubtitles;
+  /** What was sent. Assets made before beta.5.6 hold the older per-operation shape, with `operation` and, for speech, `text`. */
   request?: AudioGenerationRequest;
 }
 
@@ -195,21 +167,6 @@ export interface GeneratedAudio {
   model: ModelRef;
   metadata?: AudioMetadata;
 }
-
-export interface RunSpeechToolRequest extends Omit<
-  SpeechAudioRequest,
-  "operation"
-> {}
-export interface RunSoundEffectToolRequest extends Omit<
-  SoundEffectAudioRequest,
-  "operation"
-> {}
-export interface RunMusicToolRequest extends Omit<
-  MusicAudioRequest,
-  "operation"
-> {}
-
-export interface RunSceneAudioToolRequest extends Omit<SceneAudioRequest, "operation"> {}
 
 export interface VolcengineTtsVoice {
   id: string;
@@ -241,14 +198,6 @@ export const AUDIO_SETTING_KEYS = ["voiceId", "voiceKind", "voiceModel", "langua
 export function audioSettings(data: AudioSettings): AudioSettings {
   return Object.fromEntries(AUDIO_SETTING_KEYS.flatMap((key) => data[key] !== undefined ? [[key, data[key]]] : [])) as AudioSettings;
 }
-export function audioCanvasSettings(data: AudioCanvasSettings): AudioCanvasSettings {
-  return { ...audioSettings(data), ...(data.subtitles !== undefined ? { subtitles: data.subtitles } : {}), ...(data.audioReferenceSerial !== undefined ? { audioReferenceSerial: data.audioReferenceSerial } : {}), ...(data.audioReferences ? { audioReferences: data.audioReferences } : {}) };
-}
-/** Music and Audio creation nodes offer no audio settings; saved values are ignored. */
-export function audioNodeHasSettings(type: string): type is "speech" | "sound-effect" {
-  return type === "speech" || type === "sound-effect";
-}
-
 export function audioCompanionFiles(name: string, data: AudioAssetData): Array<{ name: string; mediaType: string; role: "metadata"; text: string }> {
   const metadata = {
     ...(data.metadata ? { metadata: data.metadata } : {}),

@@ -114,6 +114,11 @@
   background: var(--color-text);
 }
 
+/* The bar comes back on the project once it lands. */
+.sidebar-app.is-active[data-dragged]::before {
+  display: none;
+}
+
 .sidebar-app-new {
   display: grid;
   place-items: center;

@@ -4,8 +4,8 @@ import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFi
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
-import { hookLabel } from "./plugin-hook-labels.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
+import { PluginAddsList, pluginAddRows } from "./plugin-summary.js";
 import { settingsHash } from "./routes.js";
 import { Alert, Button, Checkbox, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
@@ -191,6 +191,7 @@ export function PluginAddDialog({ listed, source, onClose, onAdded }: {
 function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPlugin }) {
   const { preview, folder, file } = review;
   const others = preview.installedVersions.filter((version) => version !== preview.version);
+  const adds = pluginAddRows(preview.adds);
   return <div className="plugin-add-review">
     <p>{preview.description}</p>
     <dl>
@@ -203,9 +204,7 @@ function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPl
       {preview.newAsks ? <p>{preview.newAsks.length ? t("pluginAdd.asksAgain") : t("pluginAdd.asksNothingNew")}</p> : null}
     </section> : null}
     <NativeCodeWarning asks={preview.asks} />
-    {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
-    {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
-    {preview.hooks?.length ? <section><h3>{t("pluginHooks.heading")}</h3><ul>{preview.hooks.map((hook) => <li key={hook}>{hookLabel(hook)}</li>)}</ul></section> : null}
+    {adds.length ? <section><h3>{t("pluginStore.adds")}</h3><PluginAddsList rows={adds} /></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
     {preview.origin?.type === "development" ? <p>{t("pluginAdd.developsFolder")}</p> : null}
     {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}

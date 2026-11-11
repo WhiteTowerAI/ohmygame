@@ -1,6 +1,7 @@
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { AssetCanvasEdge, AssetCanvasNode, AssetCanvasReference } from "../shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { canvasNodeLayout, withoutContentNodeSize } from "../shared/canvas-node-layout.js";
 import { canvasDownstream } from "../shared/canvas-chains.js";
@@ -27,7 +28,6 @@ export function rememberCanvasClipboard(value: CanvasClipboard) { copied = struc
 
 function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>) {
   const reference = (value: AssetCanvasReference): AssetCanvasReference[] => value.type === "library" ? [value] : ids.has(value.nodeId) ? [{ ...value, nodeId: ids.get(value.nodeId)! }] : [];
-  if ("audioReferences" in node.data) node.data.audioReferences = node.data.audioReferences?.flatMap((item) => reference(item.source).map((source) => ({ ...item, source })));
   if (node.type === "image" || node.type === "model-3d") node.data.images = node.data.images.flatMap(reference);
   if (node.type === "plugin") node.data.inputs = Object.fromEntries(Object.entries(node.data.inputs).map(([key, references]) => [key, references.flatMap(reference)]));
   if ((node.type === "text" || node.type === "document") && node.data.references) {
@@ -39,7 +39,7 @@ function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>
       Object.entries(node.data.referenceMentions).map(([alias, value]) => [alias, reference(value)[0] ?? value]),
     );
   }
-  if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) {
+  if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "audio") && node.data.promptSource) {
     const id = ids.get(node.data.promptSource.nodeId);
     if (id) node.data.promptSource = { type: "node", nodeId: id };
     else delete node.data.promptSource;
@@ -64,7 +64,8 @@ export function parseCanvasClipboard(text: string): CanvasClipboard | undefined 
     const parsed = JSON.parse(text) as CanvasClipboard;
     if (parsed?.format !== "ohmygame/canvas-nodes" || parsed.version !== 1 || typeof parsed.projectId !== "string" || !Array.isArray(parsed.nodes) || !parsed.nodes.length || !Array.isArray(parsed.edges)) return;
     // Nodes copied from a board saved before sizes were validated may still carry them.
-    const value = { ...parsed, nodes: parsed.nodes.map(withoutContentNodeSize) };
+    const current = migrateLegacyAudioNodes(parsed).value;
+    const value = { ...current, nodes: current.nodes.map(withoutContentNodeSize) };
     if (value.nodes.some((node) => !Number.isFinite(node?.position?.x) || !Number.isFinite(node?.position?.y))) return;
     const canvas = createAssetCanvasDocument();
     canvas.nodes = value.nodes; canvas.edges = value.edges;

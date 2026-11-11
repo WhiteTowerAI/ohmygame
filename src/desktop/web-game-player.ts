@@ -1,9 +1,10 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
-import { BrowserWindow, WebContentsView, screen, shell, type BaseWindow, type Input, type WebContents } from "electron";
+import { BrowserWindow, WebContentsView, screen, type BaseWindow, type Input, type WebContents } from "electron";
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
 import { GAME_SIGN_IN_WINDOW_OPTIONS, guardGameSignInWindow, isGameSignInRequest, isLocalSignInPage } from "./game-sign-in.js";
+import { openInBrowser } from "./open-in-browser.js";
 
 interface EditorAttachment extends WebGamePreviewLayout {
   id: string;
@@ -261,7 +262,7 @@ export class WebGamePlayerWindows {
           // The game's local test sign-in opens in its own window, as OhMyGame sign-in does once published.
           if (isGameSignInRequest(details, undefined) && isLocalSignInPage(details.url))
             return { action: "allow", overrideBrowserWindowOptions: GAME_SIGN_IN_WINDOW_OPTIONS };
-          if (/^https?:\/\//.test(details.url)) void shell.openExternal(details.url);
+          if (/^https?:\/\//.test(details.url)) void openInBrowser(details.url);
           return { action: "deny" };
         });
         contents.on("did-create-window", (child) => guardGameSignInWindow(child));

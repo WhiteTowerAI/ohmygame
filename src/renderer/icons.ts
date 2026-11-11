@@ -120,6 +120,10 @@ import {
   TrashBinMinimalisticIcon,
   UserIcon,
   SpeedometerMiddleIcon,
+  HeadphonesRoundSoundIcon,
+  MicrophoneIcon,
+  SoundwaveIcon,
+  SubtitlesIcon,
 } from "@solar-icons/react/linear";
 import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types";
 import { createElement, forwardRef } from "react";
@@ -251,6 +255,10 @@ export {
   MinusIcon as Minus,
   MonitorIcon as Monitor,
   MusicNoteIcon as Music2,
+  MicrophoneIcon as Mic,
+  SoundwaveIcon as AudioWaveform,
+  SubtitlesIcon as Captions,
+  HeadphonesRoundSoundIcon as Headphones,
   PenIcon as Pencil,
   Pen2Icon as Brush,
   PenNewSquareIcon as FilePenLine,

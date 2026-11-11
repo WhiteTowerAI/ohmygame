@@ -1,4 +1,4 @@
-import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, AssetCanvasNodeType, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
+import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
@@ -16,7 +16,7 @@ import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, useId, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
-import { audioNodeHasSettings, type AudioProviderCatalogStatus, type AudioOperation } from "../shared/audio.js";
+import type { AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import { audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
@@ -299,29 +299,32 @@ function videoAspectRatios(model: VideoModel | undefined, referenceCount: number
   return videoReferenceAspectRatios(model, referenceCount, mode);
 }
 
-export function SpeechNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="speech" />; }
-export function AudioSceneNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="audio-scene" />; }
-
 function audioProviderNotes(providers: readonly AudioProviderCatalogStatus[] | undefined): CanvasChipNote[] {
-  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.name, message: provider.message }]);
+  // Doubao Speech's two services share a name and a key, so they report the same problem once.
+  const notes = (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.name, message: provider.message }]);
+  return notes.filter((note, index) => notes.findIndex((other) => other.group === note.group && other.message === note.message) === index);
 }
 
 const AUDIO_DURATION_OPTIONS = [1, 2, 3, 5, 10, 15, 30, 60, 120, 300, 600] as const;
 
-export function SoundEffectNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
-  return <PromptAudioNode {...props} operation="sound-effect" />;
+/** What a model makes, in a line under its name. */
+export function audioModelDescription(model: AudioModel): string {
+  const { produces, readsText } = model.capabilities;
+  if (readsText) return t("assetCanvas.audioModelKind.textToSpeech");
+  if (produces.length > 1) return t("assetCanvas.audioModelKind.mixed");
+  return produces[0] === "music" ? t("assetCanvas.audioModelKind.music") : produces[0] === "sound-effect" ? t("assetCanvas.audioModelKind.soundEffect") : t("assetCanvas.audioModelKind.speech");
 }
 
-export function MusicNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
-  return <PromptAudioNode {...props} operation="music" />;
-}
-
-function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected"> & { operation: "speech" | "sound-effect" | "music" | "audio-scene" }) {
+/** One node for every audio model: the model decides whether the prompt is read aloud or describes the sound, and which options show. */
+export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const durationListId = useId();
   const runtime = data.audioRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
-  const maximumDuration = selectedModel?.capabilities.maxDurationSeconds;
-  const durations = AUDIO_DURATION_OPTIONS.filter((value) => maximumDuration === undefined || value <= maximumDuration);
+  const caps = selectedModel?.capabilities;
+  const reads = Boolean(caps?.readsText);
+  const minimumDuration = caps?.minDurationSeconds ?? 0.1;
+  const maximumDuration = caps?.maxDurationSeconds;
+  const durations = AUDIO_DURATION_OPTIONS.filter((value) => value >= minimumDuration && (maximumDuration === undefined || value <= maximumDuration));
   const durationOptions: number[] = data.durationSeconds !== undefined && !durations.some((duration) => duration === data.durationSeconds)
     ? [...durations, data.durationSeconds].sort((left, right) => left - right)
     : durations;
@@ -329,51 +332,39 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
   const selectModel = (key: string) => {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
     if (!model) return;
-    const maxDuration = model.capabilities.maxDurationSeconds;
+    const next = model.capabilities;
+    const duration = data.durationSeconds;
     change({
       audioModel: { provider: model.provider, id: model.id },
-      ...(!model.capabilities.supportsLoop ? { loop: undefined } : {}),
-      ...(!model.capabilities.supportsNegativePrompt ? { negativePrompt: undefined } : {}),
-      ...(!model.capabilities.supportsLyrics ? { lyrics: undefined } : {}),
-      ...(!model.capabilities.supportsInstrumental && operation === "music" ? { instrumental: true } : {}),
-      ...(maxDuration !== undefined && data.durationSeconds !== undefined && data.durationSeconds > maxDuration ? { durationSeconds: maxDuration } : {}),
+      // Voices belong to an API: Doubao's TTS and Seed Audio models share a provider but not voice options.
+      ...(model.protocol !== selectedModel?.protocol ? { voiceId: undefined, voiceKind: undefined, voiceModel: undefined } : {}),
+      ...(!next.supportsLoop ? { loop: undefined } : {}),
+      ...(!next.supportsInstrumental ? { instrumental: undefined } : {}),
+      ...(duration !== undefined && next.maxDurationSeconds === undefined ? { durationSeconds: undefined } : {}),
+      ...(duration !== undefined && next.maxDurationSeconds !== undefined && duration > next.maxDurationSeconds ? { durationSeconds: next.maxDurationSeconds } : {}),
+      ...(duration !== undefined && next.minDurationSeconds !== undefined && duration < next.minDurationSeconds ? { durationSeconds: next.minDurationSeconds } : {}),
     });
   };
-  const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, operation === "speech" ? data.text ?? "" : data.prompt ?? "");
-  const settings = audioNodeHasSettings(operation);
-  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (settings ? audioSettingsIssue(data, selectedModel) : undefined) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
+  const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
+  const providerStatus = runtime?.providers.find((provider) => provider.provider === selectedModel?.provider);
+  // A model that speaks the text needs a voice: the node's, or the provider's default.
+  const needsVoice = reads && !data.voiceId && !providerStatus?.defaultVoiceId;
+  const issue = (needsVoice ? t("audioStudio.needVoice") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (caps?.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > caps.maxTextCharacters ? t("audioStudio.promptLimit", { count: caps.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
-  const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 
   return (
-    <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="audio" label={t("assetCanvas.node.audio")} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
       <MediaPrompt
         kind="audio"
-        label={operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : operation === "music" ? t("assetCanvas.musicPrompt") : t("assetCanvas.soundEffectPrompt")}
-        placeholder={operation === "music" ? t("assetCanvas.musicPromptPlaceholder") : t("assetCanvas.soundEffectPromptPlaceholder")}
-        value={operation === "speech" ? data.text ?? "" : data.prompt ?? ""}
+        label={reads ? t("assetCanvas.audioScript") : t("assetCanvas.audioPrompt")}
+        placeholder={reads ? t("assetCanvas.audioScriptPlaceholder") : t("assetCanvas.audioPromptPlaceholder")}
+        value={data.prompt ?? ""}
         runtime={runtime}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-        onChange={(value) => change(operation === "speech" ? { text: value } : { prompt: value })}
+        onChange={(value) => change({ prompt: value })}
       />
       {issue ? <p role="alert">{issue}</p> : null}
-      {settings ? <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} /> : null}
-      {operation === "sound-effect" && selectedModel?.capabilities.supportsNegativePrompt ? <CanvasTextarea
-        aria-label={t("assetCanvas.negativePrompt")}
-        rows={2}
-        value={data.negativePrompt ?? ""}
-        disabled={runtime?.busy}
-        placeholder={t("assetCanvas.negativePromptPlaceholder")}
-        onChange={(negativePrompt) => change({ negativePrompt: negativePrompt || undefined })}
-      /> : null}
-      {operation === "music" && selectedModel?.capabilities.supportsLyrics && data.instrumental === false ? <CanvasTextarea
-        aria-label={t("assetCanvas.lyrics")}
-        rows={3}
-        value={data.lyrics ?? ""}
-        disabled={runtime?.busy}
-        placeholder={t("assetCanvas.lyricsPlaceholder")}
-        onChange={(lyrics) => change({ lyrics: lyrics || undefined })}
-      /> : null}
+      {selectedModel ? <CanvasAudioControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
@@ -381,20 +372,20 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
           notes={audioProviderNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        {operation !== "speech" ? <label className="audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><input aria-label={t("audioStudio.targetDuration")} type="number" list={durationListId} min={0.1} max={maximumDuration ?? 600} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} disabled={!selectedModel || runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /><span aria-hidden="true">s</span><datalist id={durationListId}>{durationOptions.map((duration) => <option key={duration} value={duration} />)}</datalist></label> : null}
-        {operation === "music" && selectedModel?.capabilities.supportsInstrumental ? <CanvasChipToggle
+        {maximumDuration !== undefined ? <label className="audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><input aria-label={t("audioStudio.targetDuration")} type="number" list={durationListId} min={minimumDuration} max={maximumDuration} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /><span aria-hidden="true">s</span><datalist id={durationListId}>{durationOptions.map((duration) => <option key={duration} value={duration} />)}</datalist></label> : null}
+        {caps?.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
-          pressed={data.instrumental !== false}
+          pressed={data.instrumental === true}
           disabled={runtime?.busy}
-          onChange={(instrumental) => change({ instrumental, ...(instrumental ? { lyrics: undefined } : {}) })}
+          onChange={(instrumental) => change({ instrumental })}
         /> : null}
-        {selectedModel?.capabilities.supportsLoop ? <CanvasChipToggle
+        {caps?.supportsLoop ? <CanvasChipToggle
           label={t("assetCanvas.loop")}
           pressed={data.loop === true}
           disabled={runtime?.busy}
@@ -404,12 +395,6 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
       </div>
     </MediaNodeShell>
   );
-}
-
-export function audioOperationForNode(type: AssetCanvasNodeType): AudioOperation | undefined {
-  if (type === "speech") return "speech";
-  if (type === "sound-effect" || type === "music" || type === "audio-scene") return type;
-  return undefined;
 }
 
 export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
@@ -826,8 +811,9 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
   const audio = kind === "audio";
   const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;
-  const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url ?? exampleUrl, assetAspectRatio ?? parseAspectRatio(aspectRatio));
-  const mediaStyle = audio ? { "--story-media-width": "520px", "--story-media-height": "170px" } as CSSProperties : mediaLayout.style;
+  // Audio has no picture, so it takes the video default shape to sit evenly beside other media.
+  const mediaLayout = useMediaNodeLayout(threeD || audio ? undefined : preview.url ?? exampleUrl, audio ? 16 / 9 : assetAspectRatio ?? parseAspectRatio(aspectRatio));
+  const mediaStyle = mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
       <CanvasNodeLabel icon={Icon} label={label} details={details} className={`is-${kind === "animation" ? "model" : kind}`} />

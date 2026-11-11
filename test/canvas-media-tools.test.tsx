@@ -297,12 +297,32 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
   await select("first");
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
+});
+
+it("runs pixel-art fixing immediately and creates a derived asset", async () => {
+  runMedia.mockResolvedValue({ kind: "asset", assetId: "fixed", name: "pixel-art-fixed.png", mediaType: "image/png" });
+  loadAssets.mockResolvedValue([{
+    id: "fixed", assetId: "fixed", name: "pixel-art-fixed.png", path: "pixel-art-fixed.png", size: 1,
+    mediaType: "image", contentType: "image/png", createdAt: "2026-01-01T00:00:00.000Z",
+  }]);
+  await select("first");
+  await chooseTool("Image tools", "Fix pixel art");
+  await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b", operation: "fix-pixel-art", assetIds: ["first"], options: {},
+  }));
+});
+
+it("shows a direct pixel-art processing error", async () => {
+  runMedia.mockRejectedValue(new Error("Pixel-art processing failed"));
+  await select("first");
+  await chooseTool("Image tools", "Fix pixel art");
+  await vi.waitFor(() => expect(container.textContent).toContain("Pixel-art processing failed"));
 });
 
 it("opens categories on hover and disables every multi-image tool for one image", async () => {

@@ -14,8 +14,7 @@ const preview: PluginAddPreview = {
   description: "Makes things",
   appWide: false,
   asks: ["network:api.example.com"],
-  skills: 2,
-  mcpServers: ["API"],
+  adds: { projectTypes: [], panels: ["Board"], commands: ["Open board"], mcpServers: ["API"], modelProviders: [], agents: [], tools: 0, skills: 2 },
   settings: true,
   installedVersions: [],
   origin: { type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmmirror" },
@@ -107,7 +106,7 @@ describe("PluginAddDialog", () => {
     expect(onAdded).not.toHaveBeenCalled();
     const text = dialog().textContent!;
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
-    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "Connect to these sites", "api.example.com", "API", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
+    for (const shown of ["acme/maker 1.0.0", "@acme/maker", "Connect to these sites", "api.example.com", "PanelBoard", "CommandOpen board", "MCP serviceAPI", "2 skills", "You approve what it asks for", "settings to fill in", "doesn't review"])
       expect(text, shown).toContain(shown);
     expect(text).not.toContain("runs its own code");
     await submit();
@@ -142,7 +141,7 @@ describe("PluginAddDialog", () => {
   });
 
   it("says what adding does to versions already installed", async () => {
-    answer = () => Response.json({ ...preview, appWide: true, asks: [], mcpServers: [], settings: false, installedVersions: ["0.9.0", "1.0.0"] });
+    answer = () => Response.json({ ...preview, appWide: true, asks: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 }, settings: false, installedVersions: ["0.9.0", "1.0.0"] });
     await open();
     await tab("GitHub");
     await type(dialog().querySelector<HTMLInputElement>('input[type="url"]')!, "https://github.com/acme/maker");

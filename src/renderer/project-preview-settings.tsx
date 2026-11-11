@@ -1,19 +1,11 @@
-import { previewPageUrl } from "../shared/preview-page.js";
 import {
   DEFAULT_PREVIEW_IDLE_MINUTES,
   previewSettings,
   type PreviewMode,
 } from "../shared/preview-settings.js";
-import { ExternalLink, LoaderCircle, X } from "./icons.js";
-import { Button, Disclosure, IconButton, Switch } from "./ui/index.js";
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { LoaderCircle } from "./icons.js";
+import { Button, Disclosure, Switch } from "./ui/index.js";
+import { useEffect, useState } from "react";
 import { isBuiltinPreviewViewport as isBuiltinViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { ProjectPreviewDevice } from "../shared/plugins.js";
 import type {
@@ -25,7 +17,6 @@ import type {
 } from "../shared/contracts.js";
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
-import { ProjectAppearanceSettings } from "./project-appearance-settings.js";
 import { t } from "./i18n.js";
 
 const PREVIEW_VIEWPORT_LABEL_KEYS = {
@@ -35,124 +26,27 @@ const PREVIEW_VIEWPORT_LABEL_KEYS = {
   "mobile-landscape": "projectSettings.device.mobileLandscape",
 } as const satisfies Record<BuiltinPreviewViewport, string>;
 
-export function ProjectSettingsDialogFrame({
-  children,
-  busy = false,
-  initialFocusRef,
-  onClose,
-}: {
-  children: ReactNode;
-  busy?: boolean;
-  initialFocusRef?: RefObject<HTMLElement | null>;
-  onClose: () => void;
-}) {
-  const titleId = useId();
-  const dialog = useRef<HTMLElement>(null);
-  const busyRef = useRef(busy);
-  const onCloseRef = useRef(onClose);
-  busyRef.current = busy;
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previousFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : undefined;
-    const initialFocus = initialFocusRef?.current ?? dialog.current;
-    initialFocus?.focus();
-    if (initialFocus instanceof HTMLInputElement) initialFocus.select();
-    const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key === "Escape" && !busyRef.current) onCloseRef.current();
-      if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [
-        ...dialog.current.querySelectorAll<HTMLElement>(
-          "summary, button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
-        ),
-      ].filter((element) => element.getClientRects().length > 0);
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) {
-        event.preventDefault();
-        dialog.current.focus();
-        return;
-      }
-      if (
-        !dialog.current.contains(document.activeElement) ||
-        document.activeElement === dialog.current ||
-        (!event.shiftKey && document.activeElement === last)
-      ) {
-        event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyboard);
-    return () => {
-      window.removeEventListener("keydown", handleKeyboard);
-      previousFocus?.focus();
-    };
-  }, [initialFocusRef]);
-
-  return (
-    <div
-      className="ui-backdrop project-settings-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
-      }}
-    >
-      <section
-        ref={dialog}
-        className="ui-dialog ui-dialog-md project-settings"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-      >
-        <div className="ui-dialog-head">
-          <h2 id={titleId} className="ui-dialog-title">
-            {t("projectSettings.title")}
-          </h2>
-          <IconButton
-            size="sm"
-            label={t("common.close")}
-            className="ui-dialog-close"
-            disabled={busy}
-            onClick={onClose}
-          >
-            <X size={16} />
-          </IconButton>
-        </div>
-        {children}
-      </section>
-    </div>
-  );
-}
-
-export function ProjectSettingsDialog({
+/** The Preview tab of a web project's settings. */
+export function ProjectPreviewSettings({
   project,
-  previewUrl: currentPreviewUrl,
   previewActions,
   previewDevices = [],
   onClose,
+  onBusyChange,
   onSaved,
 }: {
   project: ProjectState;
-  previewUrl?: string;
   /** The preview devices the project's plugins add. */
   previewDevices?: readonly ProjectPreviewDevice[];
   previewActions?: {
-    onRestart: (reinstall?: boolean) => void;
+    onReinstall: () => void;
     onStop?: () => void;
-    onLogs: () => void;
   };
   onClose: () => void;
+  /** Saving; the settings stay open until it ends, so a failure can show. */
+  onBusyChange?: (busy: boolean) => void;
   onSaved: (project: ProjectState) => Promise<void> | void;
 }) {
-  const previewToggle = useRef<HTMLButtonElement>(null);
-  const automaticToggle = useRef<HTMLButtonElement>(null);
   const [webPreviewEnabled, setWebPreviewEnabled] = useState(
     supportsWebPreview(project),
   );
@@ -236,9 +130,10 @@ export function ProjectSettingsDialog({
   ]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const previewUrl =
-    currentPreviewUrl ??
-    (project.preview.status === "ready" ? project.preview.url : undefined);
+  useEffect(() => {
+    onBusyChange?.(saving);
+    return () => onBusyChange?.(false);
+  }, [saving, onBusyChange]);
 
   function startupSettings(): ProjectRunSettings {
     const saved: ProjectRunSettings = {
@@ -310,23 +205,11 @@ export function ProjectSettingsDialog({
   }
 
   return (
-    <ProjectSettingsDialogFrame
-      busy={saving}
-      initialFocusRef={
-        project.type === "general" ? previewToggle : automaticToggle
-      }
-      onClose={onClose}
-    >
       <form
         className="project-settings-form project-run-settings"
         onSubmit={(event) => void submit(event)}
       >
         <div className="ui-dialog-body">
-        <section className="project-settings-project" aria-label={t("projectSettings.project")}>
-          <span>{t("projectSettings.project")}</span>
-          <strong title={project.name}>{project.name}</strong>
-        </section>
-        <ProjectAppearanceSettings project={project} disabled={saving} />
         <section
           className="project-settings-switches"
           aria-label={t("projectSettings.previewAccess")}
@@ -335,7 +218,6 @@ export function ProjectSettingsDialog({
             <div className="project-settings-preview-toggle">
               <strong>{t("projectSettings.webPreview")}</strong>
               <Switch
-                ref={previewToggle}
                 size="sm"
                 label={t("projectSettings.webPreview")}
                 checked={webPreviewEnabled}
@@ -347,7 +229,6 @@ export function ProjectSettingsDialog({
           <div className="project-settings-preview-toggle">
             <strong>{t("projectSettings.automaticPreview")}</strong>
             <Switch
-              ref={automaticToggle}
               size="sm"
               label={t("projectSettings.automaticPreview")}
               checked={previewAutoStart}
@@ -555,15 +436,6 @@ export function ProjectSettingsDialog({
               className="project-settings-preview-actions"
               disabled={saving}
             >
-              <Button
-                size="sm"
-                disabled={previewStartDisabled}
-                onClick={() => previewActions.onRestart()}
-              >
-                {project.preview.status === "ready"
-                  ? t("projectSettings.restartPreview")
-                  : t("projectSettings.startPreview")}
-              </Button>
               {previewActions.onStop ? (
                 <Button
                   size="sm"
@@ -577,42 +449,19 @@ export function ProjectSettingsDialog({
                     : t("projectSettings.stopPreview")}
                 </Button>
               ) : null}
-              <Button
-                size="sm"
-                onClick={previewActions.onLogs}
-              >
-                {t("projectSettings.previewLogs")}
-              </Button>
               {(project.previewMode ?? "auto") !== "static" &&
               project.previewMode !== "command" &&
               project.preview.command !== "Serve static files" ? (
                 <Button
                   size="sm"
                   disabled={previewStartDisabled}
-                  onClick={() => previewActions.onRestart(true)}
+                  onClick={previewActions.onReinstall}
                 >
                   {t("projectSettings.reinstall")}
                 </Button>
               ) : null}
             </fieldset>
           </Disclosure>
-        ) : null}
-        {webPreviewEnabled && previewUrl ? (
-          <Button
-            size="sm"
-            className="project-settings-open"
-            icon={<ExternalLink size={14} />}
-            disabled={saving}
-            onClick={() =>
-              window.open(
-                previewPageUrl(previewUrl, "external"),
-                "_blank",
-                "noopener,noreferrer",
-              )
-            }
-          >
-            {t("projectSettings.openInBrowser")}
-          </Button>
         ) : null}
         {error ? (
           <p className="project-settings-error" role="alert">
@@ -634,7 +483,6 @@ export function ProjectSettingsDialog({
           </Button>
         </div>
       </form>
-    </ProjectSettingsDialogFrame>
   );
 }
 

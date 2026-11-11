@@ -3,11 +3,11 @@ import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import { deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
-import { AppRail, RECENT_LIMIT } from "./app-sidebar.js";
+import { AppRail } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
-import { groupStorePlugins, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, PluginExportDialog, useEveryProjectSwitch } from "./plugin-store.js";
 import { draftCheck, draftCheckLabel, PluginOverview } from "./plugin-builder-overview.js";
 import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
@@ -15,10 +15,12 @@ import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { Check, CirclePlus, ExternalLink, FileText, LayoutGrid, LoaderCircle, MoreHorizontal, Package,
-  Pencil, Plug, RefreshCw, Sparkles, Trash2, Wrench } from "./icons.js";
+  Pencil, Plug, RefreshCw, Sparkles, Trash2, Upload, Wrench } from "./icons.js";
 import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
 import { t } from "./i18n.js";
+
+const RECENT_LIMIT = 8;
 
 /**
  * The AI workspaces under the Plugins page: each conversation that creates,
@@ -189,6 +191,7 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
   const [operation, setOperation] = useState<string>();
   const [iconEditing, setIconEditing] = useState(false);
   const [confirming, setConfirming] = useState<"workspace" | "uninstall">();
+  const [exporting, setExporting] = useState(false);
   const { summary, draft, stored } = snapshot ?? {};
   const draftPlugin = draft?.plugin;
   const disabled = view.busy || Boolean(operation);
@@ -218,7 +221,10 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
 
   const menu: MenuEntry[] = summary ? [
     ...(draftPlugin && !draft?.errors.length ? [{ label: t("pluginIconPicker.change"), icon: <Pencil size={14} />, disabled, onSelect: () => setIconEditing(true) }] : []),
-    ...(stored ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } }] : []),
+    ...(stored ? [
+      { label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => { window.location.hash = pluginHash(summary.pluginId!); } },
+      { label: t("pluginStore.export"), icon: <Upload size={14} />, disabled, onSelect: () => setExporting(true) },
+    ] : []),
     ...(draftPlugin || stored ? ["separator" as const] : []),
     ...(stored ? [{ label: t("pluginControls.uninstall"), icon: <Package size={14} />, danger: true, disabled, onSelect: () => setConfirming("uninstall") }] : []),
     { label: t(draft?.path ? "pluginBuilder.deleteDraft" : "pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled, onSelect: () => setConfirming("workspace") },
@@ -234,9 +240,6 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
   return <>
     {createPortal(<ProjectTop name={summary ? workspaceTitle(summary.title) : ""} icon={draftPlugin ? <PluginGlyph plugin={draftPlugin} size={16} setupId={sessionId} /> : undefined}
       menu={menu} status={status}>
-      <DropdownMenu placement="bottom-end" items={view.layoutMenu} trigger={props => (
-        <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
-      )} />
       {draftPlugin ? <Button size="sm" variant="primary" disabled={disabled || Boolean(draft?.errors.length) || upToDate}
         icon={operation === "installing" ? <LoaderCircle className="spin" size={14} /> : upToDate ? <Check size={14} /> : <Package size={14} />}
         onClick={() => void action("installing", async () => {
@@ -263,6 +266,7 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
         </div>} />}
     </div>, view.panel.body)}
     {everyProject.dialog}
+    {exporting && stored ? <PluginExportDialog plugin={stored.plugin} onClose={() => setExporting(false)} /> : null}
     {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)}
       onSave={async change => {
         setOperation("saving-icon");

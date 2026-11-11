@@ -32,6 +32,7 @@ const explicitTestGroups = {
   "network-runtime.test.ts": "daemon",
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",
+  "renderer-styles.test.ts": "renderer",
   "blender-export.test.ts": "daemon",
   "desktop-typebox.test.ts": "desktop",
   "readme-translations.test.ts": "shared",
