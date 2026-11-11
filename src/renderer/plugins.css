@@ -556,7 +556,7 @@
 .plugin-uninstall ul.plugin-uninstall-removes {
   display: grid;
   gap: 4px;
-  padding-left: var(--space-5);
+  padding-left: var(--space-6);
   list-style: disc;
   font-size: var(--text-md);
 }
