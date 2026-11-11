@@ -68,7 +68,8 @@ import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/
 import { registerCanvasRoutes } from "./canvas-routes.js";
 import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
-import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.js";
+import { ASSET_NAME_BODY_SCHEMA, isLibraryMediaOfType, registerLibraryRoutes } from "./library-routes.js";
+import { LibrarySources } from "./library-sources.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
@@ -2924,7 +2925,7 @@ export function createApp(options: AppOptions = {}) {
 
   registerCommunityRoutes(app, publisher, projects);
 
-  registerLibraryRoutes(app, { projects, library });
+  registerLibraryRoutes(app, { projects, library, sources: new LibrarySources(pluginServices, library, isLibraryMediaOfType) });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);

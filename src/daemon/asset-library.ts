@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
+import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose, LibraryAssetSourcing } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
 import { readMediaDimensions } from "./media-dimensions.js";
 import { isImageHookRecords, type ImageHookRecord } from "../shared/plugin-hooks.js";
@@ -31,6 +31,7 @@ interface AddAssetOptions {
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
   derivedFrom?: LibraryAssetDerivation;
+  sourcedFrom?: LibraryAssetSourcing;
   /** The person put it in the Library; anything else is only stored here for the projects that use it. */
   saved?: boolean;
 }
@@ -239,6 +240,7 @@ export class AssetLibrary {
         ? { requestedPrompt: options.requestedPrompt, pluginChanges: options.pluginChanges }
         : {}),
       ...(options.derivedFrom ? { derivedFrom: options.derivedFrom } : {}),
+      ...(options.sourcedFrom ? { sourcedFrom: options.sourcedFrom } : {}),
     });
     const state = {
       ...this.#state,
@@ -348,7 +350,15 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
     (asset.saved === undefined || typeof asset.saved === "boolean") &&
-    (asset.derivedFrom === undefined || isLibraryAssetDerivation(asset.derivedFrom));
+    (asset.derivedFrom === undefined || isLibraryAssetDerivation(asset.derivedFrom)) &&
+    (asset.sourcedFrom === undefined || isLibraryAssetSourcing(asset.sourcedFrom));
+}
+
+function isLibraryAssetSourcing(value: unknown): value is LibraryAssetSourcing {
+  if (!value || typeof value !== "object") return false;
+  const sourcing = value as Partial<LibraryAssetSourcing>;
+  return typeof sourcing.source === "string" && Boolean(sourcing.source) && typeof sourcing.item === "string" && Boolean(sourcing.item) &&
+    [sourcing.author, sourcing.license, sourcing.url].every((field) => field === undefined || typeof field === "string");
 }
 
 export function isLibraryAssetDerivation(value: unknown): value is LibraryAssetDerivation {

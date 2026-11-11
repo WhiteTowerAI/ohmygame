@@ -31,6 +31,10 @@ import {
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
+  type LibrarySource,
+  type LibrarySourceItem,
+  type LibrarySourceResults,
+  type LibrarySourceSearchRequest,
   type MediaModelDefaults,
   type MediaModelUsage,
   type ImageModel,
@@ -1229,6 +1233,20 @@ export async function addLibraryAssetToProject(projectId: string, assetId: strin
 
 export async function renameLibraryAsset(assetId: string, name: string): Promise<LibraryAsset> {
   return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+/** The Library's sources from plugins, shown as tabs beside Local. */
+export async function listLibrarySources(): Promise<LibrarySource[]> {
+  return request(`/library/sources?locale=${encodeURIComponent(language)}`);
+}
+
+export async function searchLibrarySource(search: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
+  return request("/library/sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
+}
+
+/** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
+export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType">): Promise<LibraryAsset> {
+  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id: item.id, mediaType: item.mediaType }) });
 }
 
 /** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */

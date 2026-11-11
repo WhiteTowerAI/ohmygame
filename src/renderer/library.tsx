@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { assetSortDetail, fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { assetDateTime, sortAssets, type AssetSort } from "./asset-sort.js";
 import { AssetMedia, useNearViewport } from "./asset-gallery.js";
-import { getLibraryAsset, removeLibraryAsset, renameLibraryAsset, uploadLibraryAsset } from "./api.js";
+import { getLibraryAsset, listLibrarySources, removeLibraryAsset, renameLibraryAsset, uploadLibraryAsset } from "./api.js";
+import { LibrarySourceBrowser } from "./library-source-browser.js";
+import type { LibrarySource } from "../shared/contracts.js";
 import { ModelPreview } from "./model-preview.js";
-import { Copy, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2, Upload } from "./icons.js";
+import { Copy, ExternalLink, Layers3, LoaderCircle, Pause, Pencil, Play, Scissors, Trash2, Upload } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { hasTransferredFiles } from "./file-transfer.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -30,8 +32,8 @@ interface LibraryPageProps {
 }
 
 type Kind = LibraryAsset["mediaType"];
-/** Where the page browses: the person's own media, for now; sources such as plugins come later. */
-type LibrarySource = "local";
+/** The person's own media; each plugin source's tab is its id, as `publisher/name:source`, which never reads "local". */
+const LOCAL = "local";
 /** Kinds in the order the tabs list them; each kind is also its category hue. */
 const KINDS: readonly Kind[] = ["image", "video", "audio", "model"];
 
@@ -58,7 +60,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [actionError, setActionError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<LibrarySource>("local");
+  const [sources, setSources] = useState<LibrarySource[]>([]);
+  const [tab, setTab] = useState<string>(LOCAL);
   const [period, setPeriod] = useState<AssetPeriod>("all");
   const [sort, setSort] = useAssetSort("ohmygame:library-sort");
   const [selectedId, setSelectedId] = useState<string>();
@@ -83,6 +86,12 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
+  // A source that fails to list is left out; the Local tab still works.
+  useEffect(() => {
+    let current = true;
+    listLibrarySources().then((next) => { if (current) setSources(next); }, () => { if (current) setSources([]); });
+    return () => { current = false; };
+  }, [serviceGeneration]);
   // A recording can finish while this page is open, as when it is stopped from the Play window.
   useEffect(() => onGameRecordingSaved(() => void load()), []);
 
@@ -126,6 +135,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
     if (uploading || !files.length) return;
     setActionError(undefined);
     setUploading(true);
+    // What is uploaded shows in Local, whichever tab it was dropped on.
+    setTab(LOCAL);
     const failures: string[] = [];
     let last: string | undefined;
     for (const file of files) {
@@ -173,6 +184,11 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const selected = assets.find((asset) => asset.id === selectedId);
   const trimmedFrom = selected?.derivedFrom ? assets.find((candidate) => candidate.id === selected.derivedFrom!.assetId)?.name ?? selected.derivedFrom.assetId : undefined;
   const resetFilters = () => { setQuery(""); setPeriod("all"); };
+  const source = sources.find((candidate) => candidate.id === tab);
+  // A source whose plugin is turned off or removed takes the page back to Local.
+  const activeTab = source ? source.id : LOCAL;
+  const sourceTitles = useMemo(() => new Map(sources.map((candidate) => [candidate.id, candidate.title])), [sources]);
+  const sourceItems = useMemo(() => new Map(saved.flatMap((asset) => source && asset.sourcedFrom?.source === source.id ? [[asset.sourcedFrom.item, asset.id] as const] : [])), [saved, source]);
   const uploadButton = <Button variant="primary" icon={uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />} disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? t("library.uploading") : t("library.upload")}</Button>;
 
   return (
@@ -201,7 +217,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           void upload([...event.dataTransfer.files]);
         }}>
       <SidebarPageHeader title={t("library.title")} actions={<div className="library-toolbar">
-        <div className="library-page-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("library.searchPlaceholder")} /></div>
+        <div className="library-page-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={source ? t("library.sourceSearchPlaceholder", { title: source.title }) : t("library.searchPlaceholder")} /></div>
         {uploadButton}
         <input ref={fileInput} type="file" multiple hidden accept={UPLOAD_ACCEPT} onChange={(event) => {
           const files = [...(event.currentTarget.files ?? [])];
@@ -209,10 +225,15 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           void upload(files);
         }} />
       </div>} />
-      <Tabs<LibrarySource> variant="pills" label={t("library.sources")} value={source} onChange={setSource} tabs={[
-        { value: "local", label: t("library.localTab") },
+      <Tabs variant="pills" label={t("library.sources")} value={activeTab} onChange={setTab} tabs={[
+        { value: LOCAL, label: t("library.localTab") },
+        ...sources.map((candidate) => ({ value: candidate.id, label: candidate.title })),
       ]} />
-      <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
+      {source ? <div className="library-panel" role="tabpanel" aria-label={source.title}>
+        <LibrarySourceBrowser key={source.id} source={source} query={query} inLibrary={sourceItems}
+          onAdded={() => void load()}
+          onShowInLocal={(assetId) => { setTab(LOCAL); setQuery(""); setMediaFilter("all"); setSelectedId(assetId); }} />
+      </div> : <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
       <div className="library-filter-row">
         <Tabs variant="underline" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
@@ -231,13 +252,13 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           ? <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
           : <Empty title={t("library.none")} description={t("library.noneDescription")} action={uploadButton} />)
         : <div className="library-tiles">{visibleAssets.slice(0, page.limit).map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
-            <LibraryTile asset={asset} sort={sort} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
+            <LibraryTile asset={asset} sort={sort} sourceTitle={asset.sourcedFrom ? sourceTitles.get(asset.sourcedFrom.source) : undefined} selected={selectedId === asset.id} onOpen={() => { audio.stop(); setSelectedId(asset.id); }}
               audio={asset.mediaType === "audio" ? { state: audio.playing?.id === asset.id ? audio.playing.state : undefined, toggle: () => audio.toggle(asset.id) } : undefined} />
           </ContextMenu>)}</div>}
 
       {phase === "ready" ? page.next : null}
-      </div>
-      <Sheet open={Boolean(selected) && !dialog} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
+      </div>}
+      <Sheet open={Boolean(selected) && !dialog && !source} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
         footer={selected ? <>
           <IconButton label={t("library.remove")} onClick={() => openDialog({ kind: "remove", asset: selected })}><Trash2 size={16} /></IconButton>
           <IconButton label={t("common.rename")} onClick={() => openDialog({ kind: "rename", asset: selected })}><Pencil size={16} /></IconButton>
@@ -245,7 +266,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           <span className="library-filter-spacer" />
           <OpenProjectButton asset={selected} onOpenProject={onOpenProject} />
         </> : undefined}>
-        {selected ? <LibraryDetails asset={selected} trimmedFrom={trimmedFrom} /> : null}
+        {selected ? <LibraryDetails asset={selected} trimmedFrom={trimmedFrom} sourceTitle={selected.sourcedFrom ? sourceTitles.get(selected.sourcedFrom.source) : undefined} /> : null}
       </Sheet>
 
       {dialog?.kind === "remove" ? <Dialog open size="sm" onClose={closeDialog}
@@ -289,9 +310,9 @@ async function uploadToLibrary(file: File): Promise<{ id: string }> {
 }
 
 /** The value it is sorted by, then the projects using the asset. */
-function assetMeta(asset: LibraryAsset, sort: AssetSort): string {
+function assetMeta(asset: LibraryAsset, sort: AssetSort, sourceTitle?: string): string {
   const projects = asset.projects ?? [];
-  const where = projects.length === 1 ? projects[0]!.name : projects.length ? t("library.projectCount", { count: projects.length }) : libraryAssetOriginLabel(asset.origin);
+  const where = projects.length === 1 ? projects[0]!.name : projects.length ? t("library.projectCount", { count: projects.length }) : sourceTitle ?? libraryAssetOriginLabel(asset.origin);
   const detail = assetSortDetail(asset, sort);
   return `${detail ? `${detail} · ` : ""}${where}`;
 }
@@ -340,9 +361,9 @@ function useTileAudio() {
   return { playing, toggle, stop };
 }
 
-function LibraryTile({ asset, sort, selected, onOpen, audio }: { asset: LibraryAsset; sort: AssetSort; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState; toggle: () => void } }) {
+function LibraryTile({ asset, sort, sourceTitle, selected, onOpen, audio }: { asset: LibraryAsset; sort: AssetSort; sourceTitle?: string | undefined; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState; toggle: () => void } }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
-  const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset, sort)} selected={selected} onClick={onOpen}
+  const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset, sort, sourceTitle)} selected={selected} onClick={onOpen}
     preview={<TilePreview asset={asset} visible={visible} />}
     badge={(asset.mediaType === "video" || asset.mediaType === "audio") && asset.duration ? clock(asset.duration) : undefined} />;
   if (!audio) return media;
@@ -372,7 +393,7 @@ function FileMark({ asset }: { asset: LibraryAsset }) {
   return <span className="library-file-mark"><CategoryMark category={asset.mediaType} size={22} />{extension ? <small>{extension}</small> : null}</span>;
 }
 
-function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFrom?: string }) {
+function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAsset; trimmedFrom?: string; sourceTitle?: string }) {
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -393,7 +414,11 @@ function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFr
       {asset.duration ? <><dt>{t("library.length")}</dt><dd>{clock(asset.duration)}</dd></> : null}
       <dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd>
       <dt>{t("libraryFilters.added")}</dt><dd>{assetDateTime(asset)}</dd>
-      {asset.origin ? <><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></> : null}
+      {asset.sourcedFrom ? <><dt>{t("assets.source")}</dt><dd>{sourceTitle ?? t("library.pluginSource")}</dd></>
+        : asset.origin ? <><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></> : null}
+      {asset.sourcedFrom?.author ? <><dt>{t("library.author")}</dt><dd>{asset.sourcedFrom.author}</dd></> : null}
+      {asset.sourcedFrom?.license ? <><dt>{t("library.license")}</dt><dd>{asset.sourcedFrom.license}</dd></> : null}
+      {asset.sourcedFrom?.url ? <><dt>{t("library.link")}</dt><dd><a className="library-link" href={asset.sourcedFrom.url} target="_blank" rel="noopener noreferrer">{t("library.openSourcePage")}<ExternalLink size={12} /></a></dd></> : null}
       {trimmedFrom ? <><dt>{t("assets.trimmedFrom")}</dt><dd>{trimmedFrom}</dd></> : null}
       {projects ? <><dt>{t("assets.projects")}</dt><dd>{projects}</dd></> : null}
       <dt>{t("assets.path")}</dt><dd className="library-mono">{asset.path}</dd>

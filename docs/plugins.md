@@ -63,7 +63,8 @@ and waits until what the plugin asks for is allowed.
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
   says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it.
+  app has left says its author needs to update it. See
+  [API versions](#api-versions).
 - **Project file:** `ohmygame.json` at a project's root names its type and how
   its plugins differ from the person's choice for every project
   (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
@@ -92,6 +93,32 @@ and waits until what the plugin asks for is allowed.
   `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
   on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
   the person turns it on.
+
+## API versions
+
+The leading `2` is the plugin format, the manifest's shape (`schemas/plugin-2.json`),
+not a release count: it changes only when a format-2 plugin can no longer load,
+and the format of an older major is then upgraded where it loads, as
+[compatibility](compatibility.md) asks. Within a format, the API only grows:
+
+- Something a plugin can declare or call that the running API lacks raises
+  the minor; a fix that leaves what plugins see unchanged raises nothing.
+- The minor rises at most once per app release. Every addition between two
+  releases shares that one version, so a plugin's `^2.x.0` names a release
+  that has all of it.
+- A plugin made for an older minor keeps working; one asking for a newer
+  minor than the app's is refused with "update OhMyGame".
+- A new row goes in the table below in the same PR as the bump, with the
+  manifest fields or calls it adds; the sections that describe them name
+  the version too.
+
+| API | Adds |
+| --- | --- |
+| 2.0.0 | Plugin format 2: `.ohmygame-plugin/plugin.json`, capabilities and grants, native code in extension hosts. |
+| 2.1.0 | `ui.major`: the [page components](#page-components) major a plugin's pages use. |
+| 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
+| 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
+| 2.4.0 | [Library sources](#library-sources) (`contributes.assetSources`). |
 
 ## Native code
 
@@ -534,6 +561,53 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
 - Stop sends `session/cancel`. Tool calls show with Pi's names where the ACP
   kind says which (`execute`, `read`, `edit`), and OhMyGame's own tools show
   what they returned.
+
+## Library sources
+
+`contributes.assetSources` (plugin API 2.4.0) adds a tab to the Library page
+next to **Local**, for media a plugin can find: a stock or CC0 library, a
+team's asset server, sounds made on request. The person searches it there
+and adds what they pick; only an added item becomes a Library asset.
+`src/daemon/library-sources.ts` checks what the plugin returns, and
+`src/renderer/library-source-browser.tsx` shows it.
+
+```json
+"entrypoints": { "native": "./dist/index.mjs" },
+"capabilities": { "native": true, "network": ["api.example.com"] },
+"contributes": {
+  "assetSources": [{
+    "id": "sprites",
+    "title": "%sprites%",
+    "media": ["image"],
+    "search": "searchSprites",
+    "fetch": "fetchSprite"
+  }]
+}
+```
+
+- `search` and `fetch` name native commands the plugin registers; the
+  manifest check asks for a native entry. `media` lists the kinds it offers
+  (`image`, `video`, `audio`, `model`), and the tab filters by them when
+  there is more than one. `timeoutSeconds` lengthens both calls.
+- `search` gets `{ query, media?, cursor? }` and returns
+  `{ items, next? }`: up to 100 items of `{ id, name, mediaType, thumbnail?,
+  width?, height?, duration?, author?, license?, url? }`. `thumbnail` is an
+  https URL or a `data:image/…;base64,` URL, `url` an https page about the
+  item; other fields are dropped. `next` is an opaque cursor for **Load
+  more**. Results the Library can't read are an error, not a partial page.
+- `fetch` gets `{ id, mediaType }`, saves the file in `context.dataFolder`
+  and returns `{ file, name?, author?, license?, url? }`, `file` relative to
+  that folder. The Library takes the file only from inside the folder, checks
+  its extension and first bytes as for an upload (200 MB at most), copies it
+  in and deletes the plugin's copy. A plugin's adds run one at a time, so it
+  may save every fetch under the same name. `author`, `license` and `url`
+  stay with the asset as `sourcedFrom` and show in its details.
+- Adding the same item again finds the same asset, and puts it back in the
+  Library after a remove.
+- These calls run outside any project, in an app-wide extension host, so
+  projects' plugin switches don't apply. A source is offered only while its
+  plugin is installed, runs in this app, isn't off everywhere and has been
+  allowed everything it asks for; the host stops when that ends.
 
 ## Making a plugin
 

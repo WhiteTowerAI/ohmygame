@@ -31,7 +31,7 @@ Use only the parts the request needs, and read a part's reference before writing
 - An existing MCP service: \`contributes.mcpServers\`. Read [references/mcp.md](references/mcp.md).
 - A kind of project with its own template: \`contributes.projectTypes\`. Read [references/project-types.md](references/project-types.md).
 - A menu, toolbar or slash entry: \`contributes.commands\`. A command can send a prompt, call a tool, open a panel or the plugin's settings, open a link, or run native code.
-- Anything else the manifest takes, such as \`themes\`, \`canvasNodes\`, \`canvasPresets\`, \`previewDevices\`, \`previewFilters\`, \`inputMaps\`, \`providers\`, \`agents\` or \`settings\`: its section in [references/manifest.md](references/manifest.md), the JSON Schema the app checks every field against.
+- Anything else the manifest takes, such as \`themes\`, \`canvasNodes\`, \`canvasPresets\`, \`assetSources\`, \`previewDevices\`, \`previewFilters\`, \`inputMaps\`, \`providers\`, \`agents\` or \`settings\`: its section in [references/manifest.md](references/manifest.md), the JSON Schema the app checks every field against.
 
 ## Manifest
 
@@ -85,6 +85,7 @@ const NATIVE = `# Native code
 - \`context.project.folder\` is the project's folder and \`context.dataFolder\` one only this plugin uses, kept between projects. \`context.onDispose(fn)\` runs when it stops.
 - A tool's \`input\` is a JSON Schema file. A command that never changes the project's files sets \`changesFiles: false\`; one that does can be undone. \`timeoutSeconds\`, up to 3600, is for calls that take long.
 - Hooks: \`asset.added\`, \`turn.completed\`, \`build.started\`, \`build.completed\` and \`files.changed\` only hear, and may return \`{ notice, tone }\` to show a toast. \`image.beforeGenerate\` may return a changed \`prompt\`, \`imageModel\`, \`size\`, \`resolution\`, \`aspectRatio\` or \`transparentBackground\`.
+- An asset source (\`contributes.assetSources\`) is a tab beside Local in the Library, outside any project, so \`context.project\` is unset. Its \`search\` command gets \`{ query, media, cursor }\` and returns \`{ items: [{ id, name, mediaType, thumbnail, author, license, url }], next }\`, with \`thumbnail\` an \`https:\` or \`data:image/…\` URL. Its \`fetch\` command gets \`{ id, mediaType }\`, saves the file in \`context.dataFolder\` and returns \`{ file, name, author, license, url }\` with \`file\` relative to that folder; the Library takes the file from there.
 - List the hosts the code reaches in \`capabilities.network\` and the programs it runs in \`capabilities.processes\`.
 `;
 

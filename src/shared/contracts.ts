@@ -1116,6 +1116,59 @@ export interface LibraryAsset {
   saved?: boolean;
   /** The Library video this one was cut from, and the part of it kept, in seconds. */
   derivedFrom?: LibraryAssetDerivation;
+  /** The plugin source it was added from, and what that source said about it. */
+  sourcedFrom?: LibraryAssetSourcing;
+}
+
+export interface LibraryAssetSourcing {
+  /** `publisher/name:source`. */
+  source: string;
+  /** The source's own id for it. */
+  item: string;
+  author?: string;
+  license?: string;
+  /** Its page at the source, `https:` only. */
+  url?: string;
+}
+
+/** A place the Library browses beside Local, contributed by a plugin. */
+export interface LibrarySource {
+  /** `publisher/name:source`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
+  media: LibraryAsset["mediaType"][];
+}
+
+export interface LibrarySourceSearchRequest {
+  source: string;
+  query: string;
+  media?: LibraryAsset["mediaType"];
+  /** The `next` of the page before. */
+  cursor?: string;
+}
+
+/** One result of a source's search; nothing is downloaded until it is added. */
+export interface LibrarySourceItem {
+  id: string;
+  name: string;
+  mediaType: LibraryAsset["mediaType"];
+  /** An `https:` or `data:image/…` picture of it. */
+  thumbnail?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  author?: string;
+  license?: string;
+  url?: string;
+}
+
+export interface LibrarySourceResults {
+  items: LibrarySourceItem[];
+  /** Pass back as `cursor` for the next page; absent on the last. */
+  next?: string;
 }
 
 export interface LibraryAssetDerivation {

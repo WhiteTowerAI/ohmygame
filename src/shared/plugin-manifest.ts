@@ -18,7 +18,7 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.3.0";
+export const PLUGIN_HOST_API_VERSION = "2.4.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -370,6 +370,26 @@ const CanvasNode = Type.Object(
       { native: CamelId, timeoutSeconds: Type.Optional(TimeoutSeconds) },
       { additionalProperties: false },
     ),
+  },
+  { additionalProperties: false },
+);
+
+export const ASSET_SOURCE_MEDIA = ["image", "video", "audio", "model"] as const;
+
+/**
+ * A place the Library browses for media, such as a free asset site, shown as
+ * a tab beside Local. Its `search` and `fetch` are native command handlers
+ * (API 2.4.0).
+ */
+const AssetSource = Type.Object(
+  {
+    id: Slug,
+    title: Text(60),
+    description: Type.Optional(Text(500)),
+    media: Type.Array(Literals(ASSET_SOURCE_MEDIA), { minItems: 1, uniqueItems: true }),
+    search: CamelId,
+    fetch: CamelId,
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
   },
   { additionalProperties: false },
 );
@@ -749,6 +769,7 @@ export const PluginManifestV2Schema = Type.Object(
           ),
           canvasNodes: list(CanvasNode),
           canvasPresets: list(CanvasPreset),
+          assetSources: list(AssetSource),
         },
         { additionalProperties: false },
       ),
@@ -864,6 +885,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "inputMaps",
     "canvasNodes",
     "canvasPresets",
+    "assetSources",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -951,6 +973,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!keys.length) issue(`/contributes/inputMaps/${index}`, "presses no keys");
   });
 
+  contributes.assetSources?.forEach((_, index) => {
+    if (!native) issue(`/contributes/assetSources/${index}/search`, "needs a native entrypoint");
+  });
   contributes.canvasNodes?.forEach((node, index) => {
     const path = `/contributes/canvasNodes/${index}`;
     if (!native) issue(`${path}/run/native`, "needs a native entrypoint");

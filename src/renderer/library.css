@@ -209,6 +209,26 @@
   font-size: var(--text-sm);
 }
 
+.library-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent);
+}
+
+/* A plugin source: what it offers, then its results a page at a time. */
+.library-source-description {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.library-source-more {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--space-6);
+}
+
 .library-sheet-section {
   display: flex;
   flex-direction: column;

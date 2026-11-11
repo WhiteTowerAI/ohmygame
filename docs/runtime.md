@@ -642,7 +642,13 @@ projects:
 
 - files uploaded on the page, with **Upload** or by dropping them on it;
 - project files saved with **Save to Library** in the project's file tree;
-- game recordings, and videos trimmed on the Library page.
+- game recordings, and videos trimmed on the Library page;
+- items added from a plugin's source.
+
+These are its **Local** tab. Each [Library source](plugins.md#library-sources)
+a plugin offers gets a tab beside it, searched with the page's search box;
+nothing from a source is stored until the person adds it, and then it shows
+in Local with its author, license and link.
 
 Media a project generates or uploads, on the canvas or in chat, stays with
 that project and doesn't show in the Library until someone saves it. The

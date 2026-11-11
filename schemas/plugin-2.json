@@ -1834,6 +1834,79 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "assetSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "media",
+              "search",
+              "fetch"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "media": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "image"
+                    },
+                    {
+                      "type": "string",
+                      "const": "video"
+                    },
+                    {
+                      "type": "string",
+                      "const": "audio"
+                    },
+                    {
+                      "type": "string",
+                      "const": "model"
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "search": {
+                "type": "string",
+                "pattern": "^[a-z][a-zA-Z0-9]*$",
+                "maxLength": 64
+              },
+              "fetch": {
+                "type": "string",
+                "pattern": "^[a-z][a-zA-Z0-9]*$",
+                "maxLength": 64
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
         }
       },
       "additionalProperties": false
