@@ -160,7 +160,7 @@ const client = createMultiplayerClient(
     onSnapshot: (snapshot) => render(snapshot),
     onCommandResult: (result) => {}, // { commandId, accepted, error? }
     onHost: (hosting) => {}, // host mode: this page started or stopped running the rules
-    onMessage: (from, message) => {}, // owner mode: another page's emit()
+    onMessage: (from, message) => {}, // another player's emit()
     onError: (error) => showError(error),
   },
   { rules },
@@ -180,11 +180,20 @@ if (!(await client.reconnect())) await client.createRoom({ displayName });
 | `sendCommand(type, payload?)`                                        | `start`, `restart`, `close`, `kick` (owner only), or `action`      |
 | `status`, `playerId`, `roomCode`, `snapshot`, `hosting`, `confirmed` | Current values                                                     |
 | `tickMs`                                                             | The room's tick: how often others' updates arrive at most          |
+| `emit(message)`                                                      | One-off message to the room's other players; see below             |
 
 Try `reconnect()` first on page load: one browser is one player across tabs
 and refreshes. Starting: the room owner sends `client.sendCommand("start")` once
 `players.min` players are connected; after a match ends, `sendCommand("restart")`.
 Drop-in rooms start and restart on their own.
+
+`client.emit({ emote: "wave" })` sends every other player in the room a small
+JSON object (≤ 1024 chars), which arrives through `onMessage(from, message)`.
+It works in every mode, also before the match starts, for emotes, quick phrases
+or ready checks. It never reaches the rules and is not kept: a player who is
+away misses it. Never change the game with a message; use a move, input or
+action, especially in lockstep, where pages get it at different moments. More
+than 5 a second throws `rate_limited`.
 
 ### Snapshot
 

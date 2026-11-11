@@ -24,6 +24,7 @@ import {
   type SnapshotDelta,
   normalizeDisplayName,
   REALTIME_ACTIONS_PER_TICK,
+  ROOM_MESSAGES_PER_SECOND,
   TICK_MS_RANGE,
   type JoinRoomOptions,
   type LockstepEarlyInput,
@@ -173,6 +174,8 @@ interface LockstepRound {
 export class GameRoom extends Room {
   private record!: StoredRoom;
   private readonly controls = new Map<string, string>();
+  /** Messages each player sent in the current second, against ROOM_MESSAGES_PER_SECOND. */
+  private readonly messagesSent = new Map<string, { second: number; count: number }>();
   /**
    * Connections that look open to the service while their player reconnects, such as a
    * page refreshed before its old socket's close arrived. Colyseus closes them with
@@ -323,7 +326,7 @@ export class GameRoom extends Room {
     this.onMessage("lockstep.finish", (client, value: unknown) => this.lockstepFinish(client, value));
     this.onMessage("owner.state", (client, value: unknown) => this.ownerState(client, value));
     this.onMessage("owner.shared", (client, value: unknown) => this.ownerShared(client, value));
-    this.onMessage("owner.emit", (client, value: unknown) => this.ownerEmit(client, value));
+    this.onMessage("owner.emit", (client, value: unknown) => this.emitMessage(client, value));
     this.onMessage("owner.finish", (client, value: unknown) => this.ownerFinish(client, value));
     this.onMessage("p2p.signal", (client, value: unknown) => this.p2pSignal(client, value));
     this.onMessage("lockstep.checkpoint", (client, value: unknown) => this.lockstepCheckpoint(client, value));
@@ -805,6 +808,7 @@ export class GameRoom extends Room {
     this.lockstepRound?.inputs.delete(playerId);
     this.lockstepRound?.pending.delete(playerId);
     this.actions = this.actions.filter((entry) => entry.playerId !== playerId);
+    this.messagesSent.delete(playerId);
   }
   /** Runs every tick of a round, so rules can move things nobody is steering. */
   private tick(): void {
@@ -1006,10 +1010,20 @@ export class GameRoom extends Room {
     answer(true);
     this.record.updatedAt = Date.now();
   }
-  /** A one-off message for every other player, such as a collision only one page saw. */
-  private ownerEmit(client: Client, value: unknown): void {
+  /**
+   * A one-off message from a seated player to every other connection in the room, in any
+   * kind of room and phase: an emote or a ready check, or in an owner room a collision only
+   * one page saw. It never reaches the rules, and nothing keeps it: a player who is away
+   * misses it.
+   */
+  private emitMessage(client: Client, value: unknown): void {
     const id = this.controls.get(client.sessionId);
-    if (!id || !this.ownerRound || !isOwnerEmit(value)) return;
+    if (!id || !isOwnerEmit(value) || !this.record.snapshot.state.players.some((player) => player.playerId === id)) return;
+    const second = Math.floor(Date.now() / 1000);
+    const sent = this.messagesSent.get(id);
+    const count = sent?.second === second ? sent.count + 1 : 1;
+    this.messagesSent.set(id, { second, count });
+    if (count > ROOM_MESSAGES_PER_SECOND) return;
     const event: OwnerMessageEvent = { from: id, id: value.id, message: value.message };
     for (const other of this.clients) if (other !== client) other.send("owner.message", event);
   }
