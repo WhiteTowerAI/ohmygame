@@ -162,11 +162,10 @@ describe("plugin catalog browsing", () => {
     expect(unreal.querySelector('[role="switch"]')).toBeNull();
     expect(sections[0].querySelector('[aria-label="Turn Unity on in every project"]')?.getAttribute("aria-checked")).toBe("false");
 
-    // What the person made, or added from this computer, is also under Mine, as a list to edit.
+    // What the person made is also under Mine, a card each, to edit; one added from this computer isn't.
     await click("Mine");
     const mine = container.querySelector('section[aria-label="Your plugins"]')!;
     expect(cards(mine)).toEqual(["Alpha", "Zebra"]);
-    expect(mine.querySelectorAll(".plugins-row")).toHaveLength(2);
     expect(mine.querySelector('[role="switch"]')).toBeNull();
     expect(container.querySelector(".plugins-create")?.textContent).toContain("Create a plugin with AI");
   });

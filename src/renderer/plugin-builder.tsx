@@ -7,7 +7,7 @@ import { AppRail } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
-import { groupStorePlugins, PluginExportDialog, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, PluginExportDialog, type StorePluginGroup, storePluginSearchText, useEveryProjectSwitch } from "./plugin-store.js";
 import { draftCheck, draftCheckLabel, PluginOverview } from "./plugin-builder-overview.js";
 import { ProjectFrame, ProjectTop } from "./project-frame.js";
 import { ProjectShell, type ProjectWorkspaceView } from "./project-shell.js";
@@ -23,12 +23,21 @@ import { language, t } from "./i18n.js";
 const RECENT_LIMIT = 8;
 
 /**
- * The AI workspaces under the Plugins page: each conversation that creates,
- * edits or configures a plugin, to pick up again.
+ * Mine: the plugins the person makes, a card each, as projects are. A plugin
+ * made with AI opens its workspace, whose conversations are all about it; a
+ * draft not installed yet is one too. One made in a folder (Develop) opens its
+ * page. A plugin's newest workspace stands for it, and its menu opens any
+ * earlier one.
  */
-export function PluginBuilderSessions() {
+export function MinePlugins({ plugins, query, onOpenPlugin }: {
+  /** Installed plugins the person makes: their own, and those developed from a folder. */
+  plugins: readonly StorePluginGroup[];
+  /** The page's search, lowercase. */
+  query: string;
+  onOpenPlugin: (id: string) => void;
+}) {
   const generation = useReadyRuntimeGeneration();
-  const [sessions, setSessions] = useState<PluginSetupSummary[]>([]);
+  const [sessions, setSessions] = useState<PluginSetupSummary[]>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
@@ -36,25 +45,45 @@ export function PluginBuilderSessions() {
       .catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
   }, [generation]);
-  if (error) return <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} />;
-  if (!sessions.length) return null;
-  return <section className="plugins-section" aria-label={t("pluginBuilder.workspaces")}>
-    <h2>{t("pluginBuilder.continue")}<span className="plugins-count">{sessions.length}</span></h2>
-    <div className="plugins-list">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
-      onDeleted={() => setSessions(current => current.filter(item => item.id !== session.id))}
+  // Newest first, so each plugin's first workspace is its newest.
+  const byPlugin = new Map<string, PluginSetupSummary[]>();
+  for (const session of sessions ?? []) if (session.pluginId) byPlugin.set(session.pluginId, [...byPlugin.get(session.pluginId) ?? [], session]);
+  const items = [
+    ...(sessions ?? []).filter(session => !session.pluginId || byPlugin.get(session.pluginId)![0] === session)
+      .map(session => ({ key: session.id, session, group: plugins.find(group => group.plugin.id === session.pluginId),
+        earlier: session.pluginId ? byPlugin.get(session.pluginId)!.slice(1) : [] })),
+    ...plugins.filter(group => !byPlugin.has(group.plugin.id)).map(group => ({ key: group.plugin.id, session: undefined, group, earlier: [] })),
+  ].filter(({ session, group }) => (group ? storePluginSearchText(group.plugin) : workspaceTitle(session!.title).toLowerCase()).includes(query));
+  // The plugins show even if the workspaces couldn't be read, or one couldn't be deleted.
+  const alert = error ? <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} /> : null;
+  if ((!sessions && !error) || !items.length) return alert;
+  return <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
+    <h2>{t("plugins.minePlugins")}<span className="plugins-count">{items.length}</span></h2>
+    {alert}
+    <div className="plugins-grid">{items.map(item => <MinePluginCard key={item.key} session={item.session} group={item.group} earlier={item.earlier} onOpenPlugin={onOpenPlugin}
+      onDeleted={() => { setError(undefined); setSessions(current => current?.filter(session => session.id !== item.session?.id)); }}
       onError={cause => setError(message(cause))} />)}</div>
   </section>;
 }
 
-function PluginBuilderSessionCard({ session, onDeleted, onError }: {
-  session: PluginSetupSummary;
+/** A plugin the person makes, which opens where it's made; its menu opens its page or deletes the workspace. */
+function MinePluginCard({ session, group, earlier, onOpenPlugin, onDeleted, onError }: {
+  session: PluginSetupSummary | undefined;
+  group: StorePluginGroup | undefined;
+  /** The plugin's other workspaces, newest first. */
+  earlier: readonly PluginSetupSummary[];
+  onOpenPlugin: (id: string) => void;
   onDeleted: () => void;
   onError: (cause: unknown) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const working = session.status === "working";
+  const plugin = group?.plugin;
+  const working = session?.status === "working";
+  const developed = plugin?.origin?.type === "development";
+  const name = plugin?.displayName ?? workspaceTitle(session?.title ?? "");
   const remove = () => {
+    if (!session) return;
     setConfirming(false);
     setRemoving(true);
     void deletePluginSetup(session.id).then(onDeleted, cause => {
@@ -62,32 +91,55 @@ function PluginBuilderSessionCard({ session, onDeleted, onError }: {
       setRemoving(false);
     });
   };
-  const updated = new Date(session.updatedAt).toLocaleDateString(language, { month: "short", day: "numeric" });
-  return <article className="plugins-row plugin-builder-session-card">
-    <a className="plugins-row-main" href={pluginBuilderHash(session.id)}>
-      <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}</span>
-      <span className="plugins-row-text">
-        <strong><span className="plugin-card-name">{workspaceTitle(session.title)}</span></strong>
-        <small>{t(`pluginBuilder.mode.${session.mode ?? "create"}`)} · {statusLabel(session.status)}</small>
+  // A plugin made with AI whose workspace was deleted gets a new one; one from a folder opens its page.
+  const open = () => {
+    if (session) window.location.hash = pluginBuilderHash(session.id);
+    else if (plugin && !developed) void openPluginBuilder(plugin.id, "edit").catch(onError);
+    else if (plugin) onOpenPlugin(plugin.id);
+  };
+  const status = working ? t("pluginMine.status.working")
+    : developed ? t("plugins.inDevelopment")
+    : plugin ? t("pluginMine.status.installed", { version: plugin.version })
+    : t(session?.status === "ready" ? "pluginMine.status.draft" : "pluginMine.status.idle");
+  const date = (time: number) => new Date(time).toLocaleDateString(language, { month: "short", day: "numeric" });
+  const updated = session ? date(session.updatedAt) : undefined;
+  const menu: MenuEntry[] = [
+    // One from a folder opens its page already.
+    ...(plugin && (session || !developed) ? [{ label: t("pluginBuilder.open"), icon: <ExternalLink size={14} />, onSelect: () => onOpenPlugin(plugin.id) }] : []),
+    ...earlier.map(other => ({ label: t("pluginMine.openEarlier", { date: date(other.updatedAt) }), icon: <Sparkles size={14} />,
+      onSelect: () => { window.location.hash = pluginBuilderHash(other.id); } })),
+    ...(session ? [
+      ...(plugin && (session || !developed) || earlier.length ? ["separator" as const] : []),
+      { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },
+    ] : []),
+  ];
+  return <article className="plugin-card plugin-mine-card">
+    <button type="button" className="plugin-card-link" onClick={open}>
+      <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} />
+        : session && !plugin ? <PluginGlyph plugin={session} size={24} setupId={session.id} name={name} />
+        : <PluginGlyph plugin={plugin ?? session!} size={24} name={name} />}</span>
+      <span className="plugin-card-text">
+        <strong><span className="plugin-card-name">{name}</span></strong>
+        <small>{plugin?.description || t(session?.pluginId === undefined && session?.status !== "ready" ? "pluginMine.startHint" : "pluginMine.draftHint")}</small>
+        <span className="plugins-meta">
+          <span>{status}</span>
+          {updated ? <span>{t("pluginMine.edited", { date: updated })}</span> : null}
+        </span>
       </span>
-      <span className="plugins-row-version">{updated}</span>
-    </a>
-    <DropdownMenu placement="bottom-end" items={[
-      { label: t("common.delete"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },
-    ]} trigger={(props) => (
-      <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: workspaceTitle(session.title) })}>
+    </button>
+    {menu.length ? <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
+      <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: name })}>
         <MoreHorizontal size={16} />
       </IconButton>
-    )} />
+    )} /> : null}
     <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
-      title={t("pluginBuilder.deleteTitle", { title: workspaceTitle(session.title) })} description={t("pluginBuilder.deleteDescription")}
+      title={t("pluginBuilder.deleteTitle", { title: name })} description={t(plugin ? "pluginMine.deleteKeepsPlugin" : "pluginBuilder.deleteDescription")}
       footer={<>
         <Button onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={remove}>{t("common.delete")}</Button>
       </>} />
   </article>;
 }
-
 
 /** A new workspace is unnamed, and the daemon's name for that is English. */
 function workspaceTitle(title: string): string {
@@ -181,7 +233,8 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
     onNavigate={onNavigate} onHome={() => { window.location.hash = pluginsTabHash("mine"); }} homeLabel={t("navigation.backTo", { page: t("plugins.title") })}
     workspace={{
       rail,
-      placeholder: t(summary.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder"),
+      // Once its plugin is installed, a workspace edits it, however it began.
+      placeholder: t(summary.mode === "edit" || summary.pluginId ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder"),
       render: view => <BuilderView sessionId={sessionId} view={view} onChange={setSummary} />,
     }} />;
 }
@@ -298,7 +351,4 @@ function BuilderView({ sessionId, view, onChange }: { sessionId: string; view: P
   </>;
 }
 
-function statusLabel(status: PluginSetupSummary["status"]): string {
-  return t(`pluginBuilder.status.${status}`);
-}
 function message(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }

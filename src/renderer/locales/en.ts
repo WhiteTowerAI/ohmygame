@@ -2920,12 +2920,24 @@ const en = {
     chooseIcon: "Choose a plugin icon",
     invalidFile: "Choose a PNG, WebP, or SVG image up to 1 MB",
   },
+  pluginMine: {
+    status: {
+      idle: "Not started",
+      working: "Working…",
+      draft: "Draft, not installed",
+      installed: "Installed · v{{version}}",
+    },
+    startHint: "Say what the plugin should do to start.",
+    draftHint: "A draft made with AI.",
+    edited: "Edited {{date}}",
+    openEarlier: "Open the workspace from {{date}}",
+    deleteKeepsPlugin: "Its conversations and draft files are deleted for good. The installed plugin stays, and Edit with AI starts a new workspace.",
+  },
   pluginBuilder: {
     mode: { create: "Create", edit: "Edit" },
     editPlaceholder: "Describe the changes you want to make to this plugin…",
     loadFailed: "Could not load builder workspaces. {{error}}",
     workspaces: "Plugin workspaces",
-    continue: "AI workspaces",
     workspaceActions: "Actions for {{title}}",
     startTitle: "What should your plugin do?",
     starter: {
@@ -2965,10 +2977,7 @@ const en = {
     notTested: "Not tested",
     testServer: "Test {{name}} connection",
     status: {
-      idle: "Ready",
       working: "Working…",
-      ready: "Draft ready to review",
-      installed: "Installed",
     },
   },
   canvas: {

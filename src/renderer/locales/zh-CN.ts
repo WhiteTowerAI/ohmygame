@@ -2871,12 +2871,24 @@ const zhCN: typeof en = {
     chooseIcon: "请选择插件图标",
     invalidFile: "请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片",
   },
+  pluginMine: {
+    status: {
+      idle: "还没开始",
+      working: "正在制作…",
+      draft: "草稿，未安装",
+      installed: "已安装 · v{{version}}",
+    },
+    startHint: "说说这个插件要做什么，就可以开始了。",
+    draftHint: "用 AI 制作的草稿。",
+    edited: "{{date}} 编辑",
+    openEarlier: "打开 {{date}} 的工作区",
+    deleteKeepsPlugin: "它的对话和草稿文件会被永久删除。已安装的插件会保留，用 AI 编辑时会新建一个工作区。",
+  },
   pluginBuilder: {
     mode: { create: "创建", edit: "编辑" },
     editPlaceholder: "描述你想对这个插件进行的修改…",
     loadFailed: "无法加载插件构建工作区。{{error}}",
     workspaces: "插件工作区",
-    continue: "AI 工作区",
     workspaceActions: "{{title}} 的操作",
     startTitle: "你的插件要做什么？",
     starter: {
@@ -2916,10 +2928,7 @@ const zhCN: typeof en = {
     notTested: "未测试",
     testServer: "测试 {{name}} 连接",
     status: {
-      idle: "就绪",
       working: "正在处理…",
-      ready: "草稿可以检查了",
-      installed: "已安装",
     },
   },
   canvas: {

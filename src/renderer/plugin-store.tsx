@@ -189,35 +189,6 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
   </article>;
 }
 
-/**
- * One of the person's own plugins, as a row of the Mine list: what it is and
- * its version, opening its page, with Edit with AI for one they made. It is
- * switched on and off with the others, under Installed.
- */
-export function StorePluginRow({ group, onOpen, onError }: { group: StorePluginGroup; onOpen: () => void; onError: (cause: unknown) => void }): ReactNode {
-  const { plugin } = group;
-  const enabled = storePluginEnabled(plugin);
-  const personal = plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`);
-  return <article className={`plugins-row${enabled ? "" : " is-off"}`}>
-    <button className="plugins-row-main" type="button" onClick={onOpen}>
-      <StoreTile plugin={plugin} />
-      <span className="plugins-row-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          <PluginMarks marks={[
-            plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
-            !enabled && "off",
-            enabled && plugin.quarantined && "stopped",
-          ]} />
-        </strong>
-        <small>{plugin.description}</small>
-      </span>
-      <span className="plugins-row-version">v{plugin.version}{group.versions.length > 1 ? ` +${group.versions.length - 1}` : ""}</span>
-    </button>
-    {personal ? <Button size="sm" icon={<WandSparkles size={14} />} onClick={() => void openPluginBuilder(plugin.id, "edit").catch(onError)}>{t("plugins.editWithAi")}</Button> : null}
-  </article>;
-}
-
 /** One of a plugin's Skills, on the page that lists every plugin's; opens the plugin. */
 export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin; skill: StorePlugin["skills"][number]; onOpen: () => void }): ReactNode {
   return <article className={`plugin-card${storePluginEnabled(plugin) ? "" : " is-off"}`}>

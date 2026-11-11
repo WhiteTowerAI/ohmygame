@@ -8,7 +8,8 @@ export function openPluginBuilder(pluginId?: string, mode: PluginSetupMode = plu
     await waitForRuntime();
     const sessions = fresh ? [] : await listPluginSetups();
     // A new plugin picks up a workspace nothing was said in, rather than leaving another one behind.
-    const existing = sessions.find(session => pluginId ? session.pluginId === pluginId && session.mode === mode
+    // A plugin has one workspace, like a project, whichever way it began: its newest, as the list is newest first.
+    const existing = sessions.find(session => pluginId ? session.pluginId === pluginId
       : !session.pluginId && session.title === NEW_PLUGIN_TITLE && session.status === "idle");
     const session = existing ?? await createPluginSetup(pluginId, mode);
     window.location.hash = pluginBuilderHash(session.id);

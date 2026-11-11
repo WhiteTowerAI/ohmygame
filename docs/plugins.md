@@ -78,11 +78,15 @@ that failed).
     page. A link to a plugin that isn't installed opens the same dialog over
     Discover.
 - **Mine** is for making plugins: **Create a plugin with AI** across the top,
-  then two lists. **Your plugins** are those they made (`personal/<name>`) or
-  added from this computer, each a row with its version that opens its page,
-  and **Edit with AI** for one they made; they're switched on and off under
-  Installed with the rest. **AI workspaces** are the builder's conversations,
-  each with when it was last changed.
+  then **Your plugins**, a card for each plugin the person makes, as projects
+  are (`MinePlugins` in `plugin-builder.tsx`). A plugin made with AI
+  (`personal/<name>`) opens its AI workspace without a dialog, and a draft not
+  installed yet is a card too; each says whether it's installed, and when its
+  workspace was last changed. One developed from a folder opens its page. A
+  package added from a folder or file is someone's release, so it's only under
+  Installed, where every plugin is switched on and off. A card's menu opens the
+  plugin's page, any earlier workspace of the plugin, or deletes its workspace,
+  which keeps the installed plugin.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -605,6 +609,10 @@ refuses any other publisher, so it can't replace what the app or a publisher
 ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
 as any package is checked.
 
+- A plugin has one AI workspace, as a game has one project: **Edit with AI**
+  and its card open its newest workspace, however it began
+  (`openPluginBuilder`), and that workspace's conversations are all about it.
+  Deleting the workspace keeps the plugin; Edit with AI then starts a new one.
 - Each AI workspace is a hidden project of type `plugin`, made with the
   workspace's folder (`PluginWorkspaceProjects` in `plugin-setup.ts`). Its
   conversations are the project's, so they run, queue, undo and pick models and

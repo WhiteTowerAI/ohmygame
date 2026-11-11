@@ -1,12 +1,12 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { PluginBuilderSessions } from "./plugin-builder.js";
+import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, StorePluginRow, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
@@ -17,8 +17,12 @@ import { PluginMarketSettingsDialog } from "./plugin-file-settings.js";
 import { Alert, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
-/** The person's own: one they made, or one added from this computer. Installed lists them with the rest; Mine is where they're edited. */
-const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || (!plugin.bundled && !plugin.preinstalled && !plugin.origin);
+/**
+ * One the person makes: made with AI, or developed from a folder. Installed
+ * lists them with the rest; Mine is where they're made. A package added from a
+ * folder or file is someone's release, so it's only under Installed.
+ */
+const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || plugin.origin?.type === "development";
 
 export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
@@ -226,23 +230,18 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </div>} />}
   </>;
 
-  // Mine: what the person makes: a new plugin with AI, their own plugins, and the AI workspaces, each a list.
-  const mine = matching.filter(({ plugin }) => isMine(plugin));
+  // Mine: a new plugin with AI, then a card for each plugin the person makes, as projects are.
   const mineTab = <>
     <div className="plugins-create">
       <span className="plugin-tile"><Sparkles size={18} /></span>
-      <span className="plugins-row-text">
+      <span className="plugins-create-text">
         <strong>{t("plugins.createPluginWithAi")}</strong>
         <small>{t("plugins.createWithAiHint")}</small>
       </span>
       <Button variant="primary" icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
     </div>
-    {mine.length ? <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
-      <h2>{t("plugins.minePlugins")}<span className="plugins-count">{mine.length}</span></h2>
-      <div className="plugins-list">{mine.map((group) => <StorePluginRow key={group.plugin.id} group={group}
-        onOpen={() => onPluginChange(group.plugin.id)} onError={(cause) => setError(errorMessage(cause))} />)}</div>
-    </section> : null}
-    <PluginBuilderSessions />
+    <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin)).sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName))}
+      query={normalizedQuery} onOpenPlugin={onPluginChange} />
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
