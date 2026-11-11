@@ -2,7 +2,9 @@
 
 OhMyGame browser multiplayer uses Colyseus rooms over WebSocket. The service
 owns game rules, player membership, turn order, state, and command validation.
-PeerJS and WebRTC are not part of this integration.
+PeerJS and WebRTC are not part of this integration, apart from the SDK's own p2p
+option for owner rooms. Games that bring their own networking, such as PeerJS,
+still build, publish and export as before; OhMyGame does not check for it.
 
 ## Local playtests
 

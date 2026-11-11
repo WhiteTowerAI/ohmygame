@@ -154,9 +154,6 @@ export class ArtifactBuilder {
           ? await publishStartupDirectory(project)
           : project.workspacePath;
         declared = (await readOptionalManifest(workspacePath, "multiplayer.json")).multiplayer;
-        const dependencies = await readPackageJson(workspacePath);
-        if ([...Object.keys(dependencies?.dependencies ?? {}), ...Object.keys(dependencies?.devDependencies ?? {})].some(name => name === "peerjs" || name.startsWith("@peerjs/")))
-          throw new PublishError("This game uses PeerJS. OhMyGame multiplayer requires Colyseus and a registered server rules adapter. Migrate the game before publishing.");
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
       const updates: Record<string, unknown> = {};
@@ -166,7 +163,6 @@ export class ArtifactBuilder {
       // registers the same rooms with OhMyGame's game service once the game has its ID.
       let register: MultiplayerManifestConfig | undefined;
       if (project.type !== "interactive-story") {
-        await assertSupportedNetworking(source);
         register = purpose === "publish" && !multiplayer ? await localDeployment(source, declared) : undefined;
         if (register && !this.#gameServiceUrl)
           throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
@@ -322,16 +318,6 @@ async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, loc
     if (!isMultiplayerManifestConfig(value, { allowLocalhost: local }) || !sameMultiplayerConfig(config, value)) throw new Error("The registered deployment does not match.");
   } catch (cause) {
     throw new PublishError(`Multiplayer deployment check failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
-}
-
-/** Catch the known default-stack regression, including games importing PeerJS from a CDN. */
-async function assertSupportedNetworking(source: string): Promise<void> {
-  for (const file of await filesIn(source)) {
-    if (!/\.(?:html|[cm]?js)$/i.test(file)) continue;
-    const text = await readFile(path.join(source, file), "utf8");
-    if (/\b(?:0\.peerjs\.com|turn\.peerjs\.com)\b|(?:unpkg\.com|cdn\.jsdelivr\.net)[^\s"'`<>]*\bpeerjs\b/i.test(text))
-      throw new PublishError("The build includes PeerJS networking. Use the Colyseus SDK and declare its multiplayer deployment before publishing.");
   }
 }
 

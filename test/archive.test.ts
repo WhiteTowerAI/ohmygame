@@ -21,12 +21,12 @@ describe("publish archives", () => {
   };
   const projectAt = (workspacePath: string) => ({ id: "local-board", name: "Board", type: "web-game" as const, updatedAt: new Date(0).toISOString(), workspacePath, preview: { status: "stopped" as const } });
 
-  it("rejects PeerJS dependencies and CDN builds without a multiplayer declaration", async () => {
+  it("publishes and exports games that bring their own networking, such as PeerJS", async () => {
+    // Games made before OhMyGame's multiplayer may use PeerJS; they keep publishing and exporting.
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-peerjs-publish-"));
     await writeFile(path.join(directory, "index.html"), '<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>');
-    await expect(new ArtifactBuilder().create(projectAt(directory))).rejects.toThrow(/PeerJS networking/);
-    await writeFile(path.join(directory, "package.json"), JSON.stringify({ dependencies: { peerjs: "1.5.5" } }));
-    await expect(new ArtifactBuilder().create(projectAt(directory))).rejects.toThrow(/uses PeerJS/);
+    await expect(new ArtifactBuilder().create(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
+    await expect(new ArtifactBuilder().build(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
   });
 
   it("requires the build to retain the declared multiplayer deployment", async () => {
