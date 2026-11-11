@@ -10,7 +10,7 @@ const MODELS = [
   { model_id: "music_v2_5", name: "Eleven Music v2.5" },
   { model_id: "scribe_v2", name: "Scribe v2" },
 ];
-const OPENAPI = { components: { schemas: { SFXModelId: { enum: ["eleven_text_to_sound_v3"] }, MusicModelID: { enum: ["music_v2_5"] } } } };
+const OPENAPI = { components: { schemas: { SFXModelId: { enum: ["eleven_text_to_sound_v2", "eleven_text_to_sound_v3"] }, MusicModelID: { enum: ["music_v2_5"] } } } };
 
 function provider(response: Response, loadModels = true) {
   const request = vi.fn<typeof fetch>();
@@ -25,6 +25,24 @@ function sent(request: ReturnType<typeof vi.fn<typeof fetch>>) {
 }
 
 describe("ElevenLabs audio provider", () => {
+  it("does not expose retired sound-effect models and retries a failed catalog lookup", async () => {
+    let fail = true;
+    const request = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).endsWith("/v1/models")) {
+        if (fail) { fail = false; throw new Error("offline"); }
+        return Response.json(MODELS);
+      }
+      return Response.json(OPENAPI);
+    });
+    const adapter = new ElevenLabsAudioProvider(() => "eleven-key", request);
+
+    await expect(adapter.models()).rejects.toMatchObject({ statusCode: 502 });
+    await expect(adapter.models()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "eleven_text_to_sound_v3" }),
+    ]));
+    expect((await adapter.models()).some((model) => model.id === "eleven_text_to_sound_v2")).toBe(false);
+  });
+
   it("sends speech to the voice's text-to-speech endpoint with mapped settings", async () => {
     const { request, adapter } = provider(new Response(MP3, { headers: { "request-id": "req-1" } }));
     await expect(adapter.generate({ model: speech, prompt: "  Hello there  ", voiceId: "voice/1", language: "zh-cn", speed: 50 })).resolves.toMatchObject({

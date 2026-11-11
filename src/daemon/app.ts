@@ -3500,12 +3500,14 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     try {
       const result = await elevenLabsSettings.update(request.body);
+      elevenLabsProvider.invalidateModels();
       catalogRefresh.invalidate("elevenlabs");
       return result;
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
     await elevenLabsSettings.clear();
+    elevenLabsProvider.invalidateModels();
     catalogRefresh.invalidate("elevenlabs");
     return reply.code(204).send();
   });

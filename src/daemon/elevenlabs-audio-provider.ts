@@ -32,6 +32,7 @@ const model = (id: string, name: string, capabilities: Omit<AudioModel["capabili
 
 type ElevenModelRecord = { model_id?: unknown; name?: unknown; description?: unknown; can_do_text_to_speech?: unknown; maximum_text_length_per_request?: unknown };
 const MODELS_TTL_MS = 10 * 60_000;
+const RETIRED_SOUND_EFFECT_MODELS = new Set(["eleven_text_to_sound_v2"]);
 
 /** The official model list reports TTS explicitly; ElevenLabs names the two creative model families consistently. */
 function elevenModels(value: unknown, specification: unknown): AudioModel[] {
@@ -40,7 +41,7 @@ function elevenModels(value: unknown, specification: unknown): AudioModel[] {
     if (!entry || typeof entry !== "object") return [];
     const { model_id: rawId, name: rawName, description: rawDescription, can_do_text_to_speech: tts, maximum_text_length_per_request: limit } = entry as ElevenModelRecord;
     const id = typeof rawId === "string" && rawId.trim() ? rawId.trim() : undefined;
-    if (!id) return [];
+    if (!id || RETIRED_SOUND_EFFECT_MODELS.has(id)) return [];
     const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : id;
     const description = typeof rawDescription === "string" ? rawDescription : "";
     if (tts === true) return [model(id, name, { produces: ["speech"], readsText: true, ...(typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0 ? { maxTextCharacters: limit } : {}), supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE })];
@@ -51,7 +52,8 @@ function elevenModels(value: unknown, specification: unknown): AudioModel[] {
   });
   // /v1/models lists voice synthesis models. The official OpenAPI document owns
   // the SFX and Music endpoint enums, so these are not application-maintained IDs.
-  const endpointModels = ["SFXModelId", "MusicModelID"].flatMap((schema) => openApiEnum(specification, schema).reverse());
+  const endpointModels = ["SFXModelId", "MusicModelID"].flatMap((schema) => openApiEnum(specification, schema).reverse())
+    .filter((id) => !RETIRED_SOUND_EFFECT_MODELS.has(id));
   return [...listed, ...endpointModels
     .filter((id) => !listed.some((candidate) => candidate.id === id))
     .flatMap((id) => elevenModels([{ model_id: id, name: displayModelName(id) }], {}))];
@@ -86,12 +88,17 @@ export class ElevenLabsAudioProvider implements AudioProviderAdapter {
 
   configured(): boolean { return Boolean(this.apiKey()); }
   enabled(): boolean { return this.enabledState(); }
+  /** Credentials or a failed lookup changed; the next request must load the current account's catalog. */
+  invalidateModels(): void { this.#catalog = undefined; }
   async models(signal?: AbortSignal): Promise<AudioModel[]> {
     if (!this.#catalog || Date.now() - this.#catalog.loadedAt > MODELS_TTL_MS) {
-      this.#catalog = { loadedAt: Date.now(), models: Promise.all([
+      const entry = { loadedAt: Date.now(), models: Promise.all([
         this.#fetch("/v1/models", { method: "GET" }, signal).then(async (response) => await response.json() as unknown),
         this.#fetch("/openapi.json", { method: "GET" }, signal).then(async (response) => await response.json() as unknown),
       ]).then(([listed, specification]) => elevenModels(listed, specification)) };
+      // Do not let one bad key, cancelled request, or transient network failure poison this account for the TTL.
+      entry.models.catch(() => { if (this.#catalog === entry) this.#catalog = undefined; });
+      this.#catalog = entry;
     }
     return (await this.#catalog.models).map((candidate) => structuredClone(candidate));
   }
