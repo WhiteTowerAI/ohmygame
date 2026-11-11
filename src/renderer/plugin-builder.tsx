@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import { deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
-import { AppRail } from "./app-sidebar.js";
+import { AppRail, RailConversationsItem, type RailConversations } from "./app-sidebar.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
@@ -156,8 +156,10 @@ const STARTERS = [
 let railSessions: PluginSetupSummary[] = [];
 
 /** The rail: the recent AI workspaces and a new plugin. The rest are on the Plugins page. */
-function BuilderRail({ sessionId, revision, onNavigate, onError }: {
+function BuilderRail({ sessionId, revision, conversations, onNavigate, onError }: {
   sessionId: string;
+  /** The open workspace's conversations, for its item's hover list. */
+  conversations?: RailConversations;
   /** What the rail shows of the open workspace: the list loads again when it changes. */
   revision?: string;
   onNavigate: (page: AppNavigationTarget) => void;
@@ -176,15 +178,13 @@ function BuilderRail({ sessionId, revision, onNavigate, onError }: {
   // The list comes newest first; the open workspace stays on it however old.
   const listed = sessions.filter((session, index) => index < RECENT_LIMIT || session.id === sessionId);
   return <AppRail label={t("pluginBuilder.workspaces")} onNavigate={onNavigate}>
-    {listed.map(session => {
-      const current = session.id === sessionId;
-      const name = workspaceTitle(session.title);
-      return <Tooltip key={session.id} content={name} placement="right-start">
-        <a className={`sidebar-app plugin-builder-rail-item${current ? " is-active" : ""}`} href={pluginBuilderHash(session.id)} aria-label={name} aria-current={current ? "page" : undefined}>
-          {session.status === "working" ? <LoaderCircle className="spin" size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
-        </a>
-      </Tooltip>;
-    })}
+    {/* Each lists its conversations on hover, as a project does. */}
+    {listed.map(session => <RailConversationsItem key={session.id} className="plugin-builder-rail-item"
+      projectId={session.projectId} name={workspaceTitle(session.title)} updatedAt={new Date(session.updatedAt).toISOString()}
+      cover={session.status === "working" ? <LoaderCircle className="spin" size={16} /> : <PluginGlyph plugin={session} size={18} setupId={session.id} />}
+      hash={pluginBuilderHash(session.id)} conversationHash={id => pluginBuilderHash(session.id, id)}
+      open={hash => { window.location.hash = hash; }}
+      conversations={session.id === sessionId ? conversations : undefined} />)}
     <Tooltip content={t("pluginBuilder.newPlugin")} placement="right-start">
       <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("pluginBuilder.newPlugin")} onClick={() => void openPluginBuilder().catch(onError)}><CirclePlus size={16} /></button>
     </Tooltip>
@@ -223,9 +223,9 @@ export function PluginBuilder({ sessionId, conversationId, onOpenConversation, o
       .catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
   }, [sessionId, generation, retry]);
-  const rail = <BuilderRail sessionId={sessionId} revision={summary && `${summary.title}:${summary.status}:${summary.icon?.path}`} onNavigate={onNavigate}
-    onError={cause => setError(message(cause))} />;
-  if (!summary) return <ProjectFrame rail={rail} top={null}><div className="plugin-builder-card">
+  const rail = (conversations?: RailConversations) => <BuilderRail sessionId={sessionId} revision={summary && `${summary.title}:${summary.status}:${summary.icon?.path}`}
+    conversations={conversations} onNavigate={onNavigate} onError={cause => setError(message(cause))} />;
+  if (!summary) return <ProjectFrame rail={rail()} top={null}><div className="plugin-builder-card">
     {error ? <Alert tone="danger" title={error} action={<Button size="sm" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</Button>} />
       : <p className="plugin-builder-working" role="status"><LoaderCircle className="spin" size={13} />{t("pluginBuilder.opening")}</p>}
   </div></ProjectFrame>;

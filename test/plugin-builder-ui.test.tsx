@@ -24,7 +24,7 @@ vi.mock("../src/renderer/project-shell.js", async () => {
       const [top, setTop] = useState<HTMLElement | null>(null);
       const [panel] = useState(createPanelNodes);
       return <div className="project-frame">
-        {props.workspace.rail}
+        {props.workspace.rail({ items: [], current: undefined, onOpen: () => {}, onNew: () => {} })}
         <header className="project-top"><span ref={setTop} /></header>
         <div className="workspace-panel" ref={node => { if (node && !node.contains(panel.body)) node.append(panel.toolbar, panel.body); }} />
         {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), top, panel }) : null}
@@ -61,7 +61,8 @@ let draftAsks: string[];
 let updated: boolean;
 let hasDraft: boolean;
 let working: boolean;
-let sessions: Array<{ id: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
+let sessions: Array<{ id: string; projectId?: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
+let spoken: Record<string, number>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -71,7 +72,7 @@ beforeEach(() => {
   requests = [];
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
-  hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = [];
+  hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -83,6 +84,8 @@ beforeEach(() => {
     }
     if (route === "/health") return Response.json({ status: "ok" });
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
+    const listed = /^\/projects\/([^/]+)\/conversations$/.exec(route);
+    if (listed) return Response.json(spoken[listed[1]!] === undefined ? [] : [{ id: "c", projectId: listed[1], title: "Chat", createdAt: "", updatedAt: "", messageCount: spoken[listed[1]!] }]);
     if (route === "/plugins/setup-sessions" && method === "POST") return Response.json({ ...state, id: "created" });
     if (route === `/plugins/setup-sessions/${sessionId}/draft` && !hasDraft) return Response.json({ files: [], errors: [] });
     if (route === `/plugins/setup-sessions/${sessionId}` && !hasDraft) return Response.json({ ...state, pluginId: undefined, title: "New plugin", status: working ? "working" : "idle", busy: working });
@@ -274,11 +277,13 @@ describe("Plugin Builder layout", () => {
       { id: "other", title: "Older", status: "ready", createdAt: 0, updatedAt: 1 },
     ];
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
-    const items = [...container.querySelectorAll<HTMLAnchorElement>(".plugin-builder-rail-item")];
+    const items = [...container.querySelectorAll<HTMLButtonElement>(".plugin-builder-rail-item")];
     expect(items.map(item => item.getAttribute("aria-label"))).toEqual(["Review", "Older"]);
     expect(items[0]?.getAttribute("aria-current")).toBe("page");
-    expect(items[1]?.getAttribute("href")).toBe("#/plugins/builder/other");
-    expect(container.querySelectorAll(".project-rail .sidebar-recent a")).toHaveLength(2);
+    // Each lists its conversations on hover, as a project does.
+    expect(items[1]?.getAttribute("aria-haspopup")).toBe("dialog");
+    await act(async () => items[1]!.click());
+    expect(window.location.hash).toBe("#/plugins/builder/other");
   });
 
   it("opens a workspace nothing was said in for a new plugin, and only then makes one", async () => {
@@ -287,10 +292,17 @@ describe("Plugin Builder layout", () => {
     expect(requests).toContain("POST /plugins/setup-sessions");
     expect(window.location.hash).toBe("#/plugins/builder/created");
     requests = [];
-    sessions = [{ id: "blank", title: "New plugin", status: "idle", createdAt: 0, updatedAt: 0 }];
+    sessions = [{ id: "blank", projectId: "blank-project", title: "New plugin", status: "idle", createdAt: 0, updatedAt: 0 }];
+    spoken = { "blank-project": 0 };
     await act(async () => button("New plugin").click());
     expect(requests).not.toContain("POST /plugins/setup-sessions");
     expect(window.location.hash).toBe("#/plugins/builder/blank");
+    // One something was said in is left as it is, though it couldn't be named.
+    spoken = { "blank-project": 2 };
+    window.location.hash = "";
+    await act(async () => button("New plugin").click());
+    expect(requests).toContain("POST /plugins/setup-sessions");
+    expect(window.location.hash).toBe("#/plugins/builder/created");
   });
 });
 

@@ -150,7 +150,7 @@ import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, typ
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
-import { ProjectRail } from "./app-sidebar.js";
+import { ProjectRail, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
@@ -185,7 +185,8 @@ interface ProjectShellProps {
 
 /** What a workspace that isn't a game puts around the project's chat. */
 export interface ProjectWorkspace {
-  rail: ReactNode;
+  /** Given the open project's conversations, for its item's hover list. */
+  rail: (conversations: RailConversations) => ReactNode;
   placeholder: string;
   /** The top bar and the `plugin` panel, rendered into the nodes given. */
   render: (view: ProjectWorkspaceView) => ReactNode;
@@ -1569,6 +1570,12 @@ export function ProjectShell({
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
   }
+  const railConversations: RailConversations = {
+    items: conversations,
+    current: conversation?.id,
+    onOpen: (id) => onOpenConversation(id),
+    onNew: () => void newConversation(),
+  };
 
   return (
     <>
@@ -1594,12 +1601,7 @@ export function ProjectShell({
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
       onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     <ProjectFrame
-      rail={workspace?.rail ?? <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
-        items: conversations,
-        current: conversation?.id,
-        onOpen: (id) => onOpenConversation(id),
-        onNew: () => void newConversation(),
-      }} />}
+      rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
         {/* Play stays in place from every view. A Web preview or a story fills
             the slot with Play in its own window; an external preview can only be shown. */}
