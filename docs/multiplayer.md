@@ -643,6 +643,13 @@ registered deployment. The service takes registrations when created with
 `registration`; the hosted entry enables it with `GAME_SERVICE_PUBLIC_URL` (its
 own HTTPS origin) and `OHMYGAME_CLOUD_API_URL`. A deployment passed explicitly
 in the publish request must instead already be registered and match exactly.
+
+Export web build, and a plugin command that takes the web build, register
+nothing: an export has no OhMyGame game to register rooms for. Its manifest keeps
+the deployment the build names, usually the local service, so whoever hosts the
+export points it at their own game service. The build must still carry the
+deployment the game declares.
+
 See [the multiplayer service guide](google-playground-multiplayer.md) for public
 backend operation; public deployment is independent of local testing.
 

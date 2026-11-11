@@ -49,6 +49,20 @@ describe("publish archives", () => {
     vi.stubGlobal("fetch", fetchDeployment);
     await expect(builder.createLocal(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
     expect(fetchDeployment).toHaveBeenCalledWith(new URL("http://127.0.0.1:43130/v1/games/gomoku/deployments/local-v1"), expect.objectContaining({ redirect: "error" }));
+
+    // An export has no OhMyGame game to register rooms for: it keeps the deployment the
+    // build names, with or without a game service, and asks no service about it.
+    fetchDeployment.mockClear();
+    for (const exporter of [builder, new ArtifactBuilder({ gameServiceUrl: "https://games.example" })]) {
+      await expect(exporter.build(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
+      const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-export-multiplayer-"));
+      await exporter.buildFolder(projectAt(directory), folder);
+      expect(JSON.parse(fs.readFileSync(path.join(folder, "manifest.json"), "utf8")).multiplayer).toEqual(localConfig);
+    }
+    expect(fetchDeployment).not.toHaveBeenCalled();
+    // It still refuses a build that names another deployment than the game declares.
+    await writeFile(path.join(directory, "multiplayer.json"), JSON.stringify({ multiplayer: { ...localConfig, deploymentId: "other" } }));
+    await expect(builder.build(projectAt(directory))).rejects.toThrow(/do not match/);
   });
 
   it("uses OhMyGame's production game service for the production cloud unless told otherwise", () => {

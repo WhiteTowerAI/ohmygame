@@ -30,6 +30,9 @@ interface PackageJson {
 /** Why a story made before web stories cannot be built or published yet. */
 const STORY_NEEDS_UPGRADE = "This story was made before stories played as their own web page. Open it in the Story editor, which upgrades it, then try again.";
 
+/** What a build is for: OhMyGame's publishing, the local debug publisher, or an export to host elsewhere. */
+type BuildPurpose = "publish" | "local" | "export";
+
 export class PublishError extends Error {
   constructor(message: string, readonly statusCode = 409) {
     super(message);
@@ -89,19 +92,23 @@ export class ArtifactBuilder {
 
   /** Only the authenticated local debug publisher may use a loopback backend. */
   async createLocal(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
-    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer, true);
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer, "local");
   }
 
-  /** The game as it would publish, without the size limit, for hosting elsewhere. */
+  /**
+   * The game as it would publish, without the size limit, for hosting elsewhere. A game
+   * set up for multiplayer keeps the deployment its build names: an export has no OhMyGame
+   * game to register rooms for, so whoever hosts it points the manifest at their own service.
+   */
   async build(project: ProjectState): Promise<Buffer> {
     assertBuildable(project);
-    return this.#create(project);
+    return this.#create(project, undefined, undefined, undefined, "export");
   }
 
   /** The same build as `build`, as files in `destination`, an empty folder. */
   async buildFolder(project: ProjectState, destination: string): Promise<void> {
     assertBuildable(project);
-    const prepared = await this.#prepare(project);
+    const prepared = await this.#prepare(project, undefined, undefined, undefined, "export");
     try {
       const source = await prepared.folder();
       for (const file of await filesIn(source)) {
@@ -114,8 +121,8 @@ export class ArtifactBuilder {
     }
   }
 
-  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<Buffer> {
-    const prepared = await this.#prepare(project, cover, maxBytes, multiplayer, localTesting);
+  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, purpose: BuildPurpose = "publish"): Promise<Buffer> {
+    const prepared = await this.#prepare(project, cover, maxBytes, multiplayer, purpose);
     try {
       return await prepared.package();
     } finally {
@@ -123,7 +130,8 @@ export class ArtifactBuilder {
     }
   }
 
-  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<PreparedArtifact & { folder(): Promise<string> }> {
+  async #prepare(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, purpose: BuildPurpose = "publish"): Promise<PreparedArtifact & { folder(): Promise<string> }> {
+    const localTesting = purpose === "local";
     const temporaries: string[] = [];
     const media = maxBytes !== undefined && project.type === "interactive-story"
       ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
@@ -159,11 +167,12 @@ export class ArtifactBuilder {
       let register: MultiplayerManifestConfig | undefined;
       if (project.type !== "interactive-story") {
         await assertSupportedNetworking(source);
-        register = !localTesting && !multiplayer ? await localDeployment(source, declared) : undefined;
+        register = purpose === "publish" && !multiplayer ? await localDeployment(source, declared) : undefined;
         if (register && !this.#gameServiceUrl)
           throw new PublishError("Publishing a multiplayer game needs OhMyGame's game service. Set OHMYGAME_GAME_SERVICE_URL.");
-        const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, localTesting);
-        if (configured) {
+        // An export may name the local service; it is still checked to match what the game declares.
+        const configured = register ? undefined : await readMultiplayerConfig(source, multiplayer, declared, purpose !== "publish");
+        if (configured && purpose !== "export") {
           await checkMultiplayerDeployment(configured, localTesting, this.#gameServiceUrl);
           if (multiplayer) updates.multiplayer = configured;
         }
