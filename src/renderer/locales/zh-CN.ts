@@ -2696,7 +2696,7 @@ const zhCN: typeof en = {
       testing: "测试",
       learning: "教学",
       agent: "Agent",
-      provider: "语言模型",
+      provider: "模型服务商",
       workflow: "工作流",
       integration: "服务集成",
       theme: "外观",

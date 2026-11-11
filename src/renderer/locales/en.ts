@@ -2742,7 +2742,7 @@ const en = {
       testing: "Testing",
       learning: "Learning",
       agent: "Agents",
-      provider: "Language models",
+      provider: "Model providers",
       workflow: "Workflow",
       integration: "Services",
       theme: "Appearance",
