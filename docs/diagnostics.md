@@ -85,6 +85,18 @@ A log that cannot be written stops quietly; logging never fails the app
 A daemon started on its own (`bun run dev`, `bun run start`) writes no log
 files; its output stays in the terminal.
 
+## Crash reports
+
+Release desktop builds report crashes and errors to Sentry: uncaught errors
+from the main process and the renderer, and native crashes as minidumps, each
+with the app release, platform, and a stack trace.
+
+**Settings → About → Send usage data** turns crash reporting off together with
+usage data: immediately while the app runs, and on later starts. The main
+process keeps the last choice in `crash-reports.json` under the app's
+user-data directory, so a start applies it before the renderer has spoken.
+Development builds report nothing unless `SENTRY_DSN` is set.
+
 ## Diagnostics export
 
 **Settings → About → Diagnostics → Export diagnostics** saves a ZIP from

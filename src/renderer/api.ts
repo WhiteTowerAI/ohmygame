@@ -150,6 +150,8 @@ declare global {
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      /** Turns desktop crash reports on or off, following the Usage data switch in Settings → About. */
+      setCrashReports?: (enabled: boolean) => Promise<void>;
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;

@@ -34,6 +34,7 @@ import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
+import { setCrashReportingEnabled } from "./crash-reports.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
@@ -286,6 +287,11 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
+});
+handle("ohmygame:set-crash-reports", (event, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid crash report source");
+  if (typeof value !== "boolean") throw new Error("Invalid crash report choice");
+  setCrashReportingEnabled(value);
 });
 if (process.platform === "win32") {
   handle("ohmygame:window-control", (event, action: unknown) => {

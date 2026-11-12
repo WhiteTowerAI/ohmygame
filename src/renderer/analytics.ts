@@ -8,6 +8,7 @@ let client: PostHog | undefined;
 let loading: Promise<void> | undefined;
 // Undefined until sign-in state is known; null while signed out.
 let accountId: string | null | undefined;
+const usageDataListeners = new Set<(enabled: boolean) => void>();
 
 export function initializeAnalytics(): void {
   configured = true;
@@ -33,6 +34,12 @@ export function setUsageDataEnabled(value: boolean): void {
   } catch { /* The choice still applies until the app restarts. */ }
   if (!value) client?.opt_out_capturing();
   else if (configured) void loadClient().then(synchronize);
+  for (const listener of usageDataListeners) listener(value);
+}
+
+/** Called with the Usage data choice whenever it changes, such as by desktop crash reporting. */
+export function onUsageDataChange(listener: (enabled: boolean) => void): void {
+  usageDataListeners.add(listener);
 }
 
 /** Links usage data to the signed-in OhMyGame account, by account id only. */

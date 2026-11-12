@@ -396,7 +396,7 @@ const en = {
     },
     usageData: {
       title: "Usage data",
-      description: "Helps us see which features work and fix errors faster. When you're signed in, it is linked to your OhMyGame account.",
+      description: "Helps us see which features work and fix errors faster. Also turns crash reporting on or off. When you're signed in, it is linked to your OhMyGame account.",
       toggle: "Send usage data",
     },
   },

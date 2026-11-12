@@ -1,19 +1,16 @@
 import { app } from "electron";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { init as initSentry } from "@sentry/electron/main";
 
-const sentryDsn = readSentryDsn();
-initSentry({
-  dsn: sentryDsn,
-  enabled: Boolean(sentryDsn),
-  sendDefaultPii: false,
-});
-
-void import("./main.js").catch((error) => {
-  console.error(error);
-  app.exit(1);
-});
+// Crash reporting gates every Sentry envelope on the Usage data choice, so it
+// must be installed before main runs and before anything can be sent.
+void import("./crash-reports.js")
+  .then(({ initCrashReporting }) => initCrashReporting(readSentryDsn()))
+  .then(() => import("./main.js"))
+  .catch((error) => {
+    console.error(error);
+    app.exit(1);
+  });
 
 function readSentryDsn(): string | undefined {
   const configured = process.env.SENTRY_DSN?.trim();

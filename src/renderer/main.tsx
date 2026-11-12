@@ -1,5 +1,4 @@
 import { createRoot } from "react-dom/client";
-import { init as initSentry } from "@sentry/electron/renderer";
 import { App } from "./app.js";
 import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
@@ -10,6 +9,7 @@ import { applyAppearance, applyChatFont, applyPalette, applyPluginTheme, readApp
 import { sendNotificationPreferences } from "./agent-notifications.js";
 import { DesktopWindowFrame, sendApplicationMenuLabels } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
+import { updateCrashReporting } from "./crash-reports.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
 import { RuntimeNotice } from "./runtime-notice.js";
 import { ErrorBoundary } from "./error-boundary.js";
@@ -25,7 +25,7 @@ if (!root) throw new Error("Renderer root was not found");
 const reopen = !window.location.hash || window.location.hash === "#/" ? launchProject() : undefined;
 if (reopen) window.history.replaceState(window.history.state, "", projectHash(reopen));
 const route = parseAppRoute(window.location.hash);
-if (window.ohMyGameDesktop) initSentry();
+if (window.ohMyGameDesktop) updateCrashReporting();
 // A hidden thumbnail window runs Scene code, so the desktop app lets it only
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
