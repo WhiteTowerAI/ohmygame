@@ -56,7 +56,8 @@ imports nothing but `client.js` or `@ohmygame/sdk`, such as a single-player game
 carries no Colyseus code in its build. `multiplayer.js` takes the shared modules from
 `client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. In a game published to OhMyGame,
 `game.auth.signIn()` signs the player in with their OhMyGame account and rooms use that
-account; see [Game sign-in](game-sign-in.md). Local builds have no sign-in
+account; see [Game sign-in](game-sign-in.md). A signed-in player who joins without a
+`displayName` shows in the room under their account name. Local builds have no sign-in
 (`game.auth.available` is false). Without a signed-in player, a deployment that allows
 guests joins as one. The service accepts accounts only when it is started with
 `OHMYGAME_ACCOUNT_ISSUER`. Creating the client already asks for the player's token, a
