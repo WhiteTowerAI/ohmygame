@@ -303,6 +303,7 @@ export function PublicationDetails({ publication: initialPublication, name, just
     {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
     {renaming && auth ? <GameNameField
       publication={publication}
+      signedIn={auth.state.status === "signed-in"}
       requestAccessToken={auth.requestAccessToken}
       onCancel={() => setRenaming(false)}
       onRenamed={(renamed) => {
@@ -333,8 +334,9 @@ export function PublicationDetails({ publication: initialPublication, name, just
 type NameCheck = { name: string; status: "checking" | "available" | "error" | NonNullable<GameNameAvailability["reason"]> };
 
 /** Edits the name at the end of the game's page address. The address before keeps leading to it. */
-function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }: {
+function GameNameField({ publication, signedIn, requestAccessToken, onCancel, onRenamed }: {
   publication: PublicationState;
+  signedIn: boolean;
   requestAccessToken: () => Promise<string | undefined>;
   onCancel: () => void;
   onRenamed: (renamed: GameRename) => void;
@@ -351,17 +353,21 @@ function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }:
   const valid = GAME_NAME_PATTERN.test(name);
 
   useEffect(() => input.current?.select(), []);
+  // The token callback changes with each sign-in; the check below shouldn't restart for that.
+  const tokenRequest = useRef(requestAccessToken);
+  tokenRequest.current = requestAccessToken;
 
   // Asks the Cloud once typing pauses; the answer is only advice, as saving checks again.
+  // Signed out, it waits: asking for a token would open sign-in, and take over Save's.
   useEffect(() => {
-    if (unchanged || !valid) {
+    if (unchanged || !valid || !signedIn) {
       setCheck(undefined);
       return;
     }
     let active = true;
     setCheck({ name, status: "checking" });
     const timer = setTimeout(() => {
-      void requestAccessToken().then(async (token) => {
+      void tokenRequest.current().then(async (token) => {
         if (!token) return;
         const answer = await communityGameNameAvailability(name, publication.gameId, token);
         if (!active) return;
@@ -374,7 +380,7 @@ function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }:
       active = false;
       clearTimeout(timer);
     };
-  }, [name, unchanged, valid, publication.gameId, requestAccessToken]);
+  }, [name, unchanged, valid, signedIn, publication.gameId]);
 
   async function save(event: FormEvent): Promise<void> {
     event.preventDefault();

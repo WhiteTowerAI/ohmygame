@@ -239,13 +239,10 @@ export function registerCommunityRoutes(
           request.body.accessToken,
           request.body.name,
         );
+        // Merged when each project saves, so a publish finishing meanwhile keeps its deployment.
         for (const project of projects.list()) {
           if (project.publication?.gameId === request.params.gameId) {
-            await projects.setPublication(project.id, {
-              ...project.publication,
-              ...(game.name ? { name: game.name } : {}),
-              ...(game.pageUrl ? { pageUrl: game.pageUrl } : {}),
-            });
+            await projects.renamePublication(project.id, { gameId: game.id, name: game.name, pageUrl: game.pageUrl });
           }
         }
         return { name: game.name, pageUrl: game.pageUrl };
