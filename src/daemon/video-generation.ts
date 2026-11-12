@@ -18,7 +18,11 @@ export interface GeneratedVideo {
 }
 
 export interface VideoGenerationOptions {
-  /** Keeps a submitted task under the generation's recovery id, so a retry resumes it. */
+  /**
+   * Keeps a submitted task under the generation's recovery id, so a retry
+   * resumes it. A generation that succeeds leaves the vendor's result in it:
+   * the caller clears it once the video is stored.
+   */
   journal?: MediaTaskJournal;
 }
 

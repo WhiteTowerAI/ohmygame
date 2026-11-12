@@ -35,7 +35,7 @@ import {
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
-import { GenerationShutdown, mediaTaskJournal } from "./media-task-journal.js";
+import { GenerationShutdown, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import { inspectModel3D } from "./model3d-inspect.js";
 import type { Model3DExecution } from "./model3d.js";
@@ -540,6 +540,7 @@ export class ToolRunner {
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
+    let journal: MediaTaskJournal | undefined;
     try {
       signal?.throwIfAborted();
       const model = input.model;
@@ -549,8 +550,8 @@ export class ToolRunner {
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal,
-        { journal: await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId) });
+      journal = await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal, { journal });
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
@@ -576,6 +577,8 @@ export class ToolRunner {
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });

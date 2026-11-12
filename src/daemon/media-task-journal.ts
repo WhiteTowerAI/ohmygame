@@ -5,8 +5,9 @@ import path from "node:path";
 // Keeps the task a plugin's media adapter left with its vendor, under the
 // generation's recovery id, so retrying a generation the daemon's restart cut
 // off checks that task again instead of paying for a new one. It is written
-// before `start` and after every answer that changes the task, and removed
-// once the generation ends for good. Like 3D (`model3d-journal.ts`), a start
+// before `start` and after every answer that changes the task, then holds the
+// vendor's result until the video is stored, and is removed once the
+// generation ends for good. Like 3D (`model3d-journal.ts`), a start
 // whose answer was lost isn't repeated.
 
 /** Why the daemon stopped a generation: it is shutting down, and the task stays to resume. */
@@ -17,12 +18,14 @@ export class GenerationShutdown extends Error {
   }
 }
 
-type Entry = { fingerprint: string; task?: unknown };
+type Entry = { fingerprint: string; task?: unknown; outputs?: unknown };
 
 /** How an earlier run of the same request left it. */
 export type MediaTaskStart =
   | { state: "new" }
   | { state: "resume"; task: unknown }
+  /** The vendor finished: only fetching and storing its result is left. */
+  | { state: "done"; outputs: unknown }
   /** The request or provider differs from the one that started the task. */
   | { state: "changed" }
   /** A start was sent, but whether the vendor took it is unknown. */
@@ -33,6 +36,8 @@ export interface MediaTaskJournal {
   begin(request: unknown): Promise<MediaTaskStart>;
   /** The task the vendor now holds. */
   save(task: unknown): Promise<void>;
+  /** The vendor's result, kept until it is stored, so a retry fetches it again rather than paying anew. */
+  finish(outputs: unknown): Promise<void>;
   /** The generation ended for good: there's nothing to resume. */
   clear(): Promise<void>;
   /** Lets another run of the same request begin. */
@@ -73,6 +78,7 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       }
       if (entry) {
         if (entry.fingerprint !== fingerprint) return { state: "changed" };
+        if ("outputs" in entry) return { state: "done", outputs: entry.outputs };
         return "task" in entry ? { state: "resume", task: entry.task } : { state: "unconfirmed" };
       }
       await write({ fingerprint });
@@ -80,6 +86,9 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     },
     async save(task) {
       if (fingerprint) await write({ fingerprint, task });
+    },
+    async finish(outputs) {
+      if (fingerprint) await write({ fingerprint, outputs });
     },
     async clear() {
       await rm(file, { force: true });

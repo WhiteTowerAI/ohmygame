@@ -45,9 +45,9 @@ behind them (#649) move onto it.
         "auth": { "header": "authorization", "scheme": "Bearer" },
         "image": { "models": [{ "id": "Kwai-Kolors/Kolors", "title": "Kolors",
           "aspectRatios": ["1:1", "16:9", "9:16"], "maxReferenceImages": 1, "maxOutputs": 4 }] },
-        "video": { "models": [{ "id": "Wan-AI/Wan2.2-T2V-A14B", "title": "Wan 2.2",
-          "durations": [5], "resolutions": ["720p"], "aspectRatios": ["16:9"],
-          "maxReferenceImages": 1, "referenceModes": ["frame"] }] }
+        "video": { "maxMinutes": 30, "models": [{ "id": "MiniMaxAI/MiniMax-H3", "title": "MiniMax-H3",
+          "durations": [5, 10, 15], "resolutions": ["768p", "480p"], "aspectRatios": ["16:9", "9:16"],
+          "maxReferenceImages": 2, "referenceModes": ["frame"] }] }
       }
     }]
   }
@@ -209,6 +209,11 @@ one:
 - A paid `start` is never repeated for the same request. If a `start` request
   was sent but no answer came back, the retry is refused with a message to
   check the vendor's site. So is a retry whose provider or request changed.
+  An adapter keeps this guard by throwing, not returning `{ error }`, when
+  the vendor may have taken the request (a 5xx, or a success it can't read).
+- Once the vendor has the result, the app keeps its address until the video
+  is stored in the project. A download or a write that failed is retried by
+  fetching the same result, not by paying for a new one.
 
 Agent tool calls that a restart cut off aren't retried, since the agent's turn
 ended with them. Images, which rarely take a task, start again.

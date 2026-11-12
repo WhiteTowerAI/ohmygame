@@ -253,6 +253,8 @@ export class PluginMediaProviders {
     try {
       let answer: Answer;
       if (begun.state === "resume") answer = { task, retryAfter: 1 };
+      // The vendor finished in an earlier run: fetch its result again.
+      else if (begun.state === "done") answer = answerOf({ outputs: begun.outputs }, undefined, Failure);
       else {
         try {
           answer = answerOf(await call("start", [input], stopped), undefined, Failure);
@@ -286,14 +288,18 @@ export class PluginMediaProviders {
       settled = true;
       if ("error" in answer) throw new Failure(`${name}: ${answer.error}`);
       ready = true;
-      return await finish(answer.outputs, stopped);
+      // Kept until the caller stores the result; without it, a task saved above still resumes.
+      if (journal && begun.state !== "done") await journal.finish(answer.outputs).catch(() => {});
+      const result = await finish(answer.outputs, stopped);
+      keep = true;
+      return result;
     } catch (cause) {
       const shutdown = signal?.aborted && signal.reason instanceof GenerationShutdown;
       if (shutdown) {
         // The app is closing: keep the task for a retry to resume, and let the vendor go on.
-        if (task !== undefined) keep = true;
-      } else if (ready && task !== undefined && !signal?.aborted) {
-        // Done, but its result couldn't be had: a retry checks the task again rather than paying anew.
+        if (task !== undefined || ready) keep = true;
+      } else if (ready && !signal?.aborted) {
+        // Done, but its result couldn't be had: a retry fetches it again rather than paying anew.
         keep = true;
       } else if (!settled && task !== undefined) {
         // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
