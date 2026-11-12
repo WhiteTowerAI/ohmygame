@@ -808,6 +808,11 @@
   background: var(--color-surface-raised);
 }
 
+/* A long model list keeps its own scroll (styles.css caps its height); its corners still clip. */
+.settings-body .provider-models-list {
+  overflow-y: auto;
+}
+
 .settings-body :is(.provider-models-list, .settings-provider-connection, .settings-method-list, .cloud-quota-details) > * + * {
   border-top: 0;
   box-shadow: inset 0 1px 0 var(--color-border);
