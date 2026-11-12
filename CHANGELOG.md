@@ -4,6 +4,47 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.7] - 2026-11-12
+
+### Added
+
+- Play Web Games online with friends: the agent sets up turn-based or realtime
+  rooms, and players' sign-in, cloud saves and leaderboards, on OhMyGame's game
+  service, so publishing needs no server of your own.
+  ([#759](https://github.com/WhiteTowerAI/ohmygame/pull/759) by @xinyang6879)
+- Browse plugins as in an app store: Discover with categories, recommended
+  order, and a page for each plugin with screenshots and details; Installed
+  with updates first; and Mine for the plugins you make with AI.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Check pixel art in Image tools: logical size, colours, stray pixels, outline
+  and feet row, and whether several sprites match.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Add a Japanese README.
+  ([#753](https://github.com/WhiteTowerAI/ohmygame/pull/753) by @eltociear)
+
+### Changed
+
+- Give each plugin one switch: adding a plugin or turning it on allows what it
+  asks for, with no second approval, and projects can still turn it off for
+  themselves. Plugins that use newer manifest fields still install, and a new
+  version removes older ones no project uses.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Fix pixel art finds the real pixel grid, even when its cells are uneven, so
+  generated pixel art no longer comes out as a mosaic.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Shorten the README to a landing page that links to the website's docs.
+  ([#757](https://github.com/WhiteTowerAI/ohmygame/pull/757) by @dogxii)
+
+### Fixed
+
+- Find coding agents that npm installed, such as Gemini CLI, on Windows.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Title successful Canvas actions, such as Created and Downloaded, as results
+  rather than failures.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Say when a copy button could not copy to the clipboard.
+  ([#738](https://github.com/WhiteTowerAI/ohmygame/pull/738) by @jay23606)
+
 ## [0.0.0-beta.5.6] - 2026-11-11
 
 ### Added
