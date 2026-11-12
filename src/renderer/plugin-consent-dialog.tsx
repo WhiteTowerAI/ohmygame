@@ -1,6 +1,6 @@
 import { t } from "./i18n.js";
 import { Bot, Clipboard, Cpu, FileText, Gamepad2, Globe2, History, Key, MousePointer2, Terminal, type IconComponent } from "./icons.js";
-import { Alert, Badge, Button, Dialog } from "./ui/index.js";
+import { Alert, Badge } from "./ui/index.js";
 
 /** Native code isn't sandboxed, so asking for it gets a warning wherever it is allowed. */
 export function NativeCodeWarning({ asks }: { asks: readonly string[] }) {
@@ -61,29 +61,4 @@ export function PluginCapabilityList({ capabilities, newAsks }: { capabilities: 
       </span>
     </li>)}
   </ul>;
-}
-
-/**
- * Asks the person to allow what a plugin asks for before it is turned on: in
- * a project, or in every project it suits, where it then runs in each one.
- */
-export function PluginConsentDialog({ name, capabilities, everyProject = false, onAllow, onCancel }: {
-  name: string;
-  capabilities: readonly string[];
-  everyProject?: boolean;
-  onAllow: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <Dialog open title={t("projectPlugins.consentTitle", { name })}
-      description={everyProject ? t("projectPlugins.consentEveryProject") : undefined}
-      onClose={onCancel}
-      footer={<>
-        <Button variant="ghost" onClick={onCancel}>{t("common.cancel")}</Button>
-        <Button variant="primary" onClick={onAllow}>{t("projectPlugins.allow")}</Button>
-      </>}>
-      <PluginCapabilityList capabilities={capabilities} />
-      <NativeCodeWarning asks={capabilities} />
-    </Dialog>
-  );
 }

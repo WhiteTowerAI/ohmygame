@@ -3,6 +3,7 @@ import {
   ChevronRight,
   ExternalLink,
   LoaderCircle,
+  Plug,
   RefreshCw,
   Terminal,
 } from "./icons.js";
@@ -36,7 +37,7 @@ import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
-import { pluginHash } from "./routes.js";
+import { pluginHash, pluginsTabHash } from "./routes.js";
 
 type PermissionModeKey =
   | "claudeDefault"
@@ -224,11 +225,15 @@ export function CodingAgentsGroup({
       })}
       {agents ? (
         <SettingsRow
-          className="settings-agent-row is-coming-soon"
-          icon={<AgentMark id="gemini-cli" />}
-          title={<>Gemini CLI<Badge tone="outline">{t("codingAgents.comingSoon")}</Badge></>}
-          description={t("codingAgents.geminiHint")}
-        />
+          className="settings-agent-row"
+          icon={<Plug size={18} />}
+          title={t("codingAgents.more")}
+          description={t("codingAgents.moreHint")}
+        >
+          <Button size="sm" onClick={() => { window.location.hash = pluginsTabHash("discover"); }}>
+            {t("codingAgents.browsePlugins")}
+          </Button>
+        </SettingsRow>
       ) : null}
       {error ? (
         <div className="settings-pad">
@@ -559,7 +564,7 @@ function Diagnostic({
   );
 }
 
-export function AgentMark({ id }: { id: AgentRuntimeId | "gemini-cli" }) {
+export function AgentMark({ id }: { id: AgentRuntimeId }) {
   const icon = PROVIDER_ICONS[id];
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">

@@ -39,7 +39,7 @@ import {
 } from "./compatibility.js";
 import {
   privateFolder,
-  isCodexNpmShim,
+  isReadableShim,
   probeAuth,
   probeModels,
   probeVersion,
@@ -364,16 +364,12 @@ export class AgentRuntimeService {
       !path.isAbsolute(request.binaryPath)
     )
       throw new Error("The executable path must be absolute");
-    // Codex shims (.cmd/.ps1) resolve to the packaged native executable; other
-    // CLIs still require a direct .exe path.
-    const isCodexShim =
-      id === "codex-cli" &&
-      request.binaryPath &&
-      isCodexNpmShim(request.binaryPath);
+    // Codex shims (.cmd/.ps1) resolve to the packaged native executable, and an
+    // ACP agent's npm shim to what it runs; other CLIs need a direct .exe path.
     if (
       request.binaryPath &&
       /\.(?:cmd|bat|ps1)$/i.test(request.binaryPath) &&
-      !isCodexShim
+      !isReadableShim(id, request.binaryPath)
     )
       throw new Error(
         "Choose the program itself (.exe); Windows command scripts cannot be started directly",

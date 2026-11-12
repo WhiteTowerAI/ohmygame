@@ -11,7 +11,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, OHMYGAME_PUBLISHER, RESERVED_PUBLISHERS, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -142,6 +142,8 @@ export interface PluginServicesOptions {
   projectKind?: PluginScope["kind"];
   /** Runs no plugin: each reads as turned off, while what the person chose is kept for a normal start. */
   safeMode?: boolean;
+  /** The person's project folders, so a new version can replace the older ones none of them uses; undefined when some couldn't be read. */
+  projectFolders?: () => readonly string[] | undefined;
 }
 
 /** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
@@ -197,6 +199,7 @@ export class PluginServices {
   #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
   readonly #projectKind: PluginScope["kind"];
+  readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
@@ -228,6 +231,7 @@ export class PluginServices {
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);
     this.#projectKind = options.projectKind;
+    this.#projectFolders = options.projectFolders;
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
@@ -258,7 +262,15 @@ export class PluginServices {
       this.index.load(),
       this.grants.load(),
       this.values.load(),
-    ]).then(() => {});
+    ]).then(() => {
+      // What installed plugins asked for, which older grants left waiting. The
+      // agent's own installs (`personal/`) still wait until the person turns them on.
+      const installed = new Map<string, string[]>();
+      for (const entry of this.index.entries())
+        if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
+          installed.set(entry.id, [...installed.get(entry.id) ?? [], ...capabilityGrants(entry.manifest)]);
+      return this.grants.upgrade(installed);
+    });
     this.#files.catch(() => (this.#files = undefined));
     return this.#files;
   }
@@ -324,14 +336,14 @@ export class PluginServices {
 
   /**
    * The newest version of each installed plugin that this app can run and
-   * that isn't disabled everywhere. What a plugin adds to the app itself,
-   * such as model providers, comes from these, whatever projects turn on.
+   * whose switch is on. What a plugin adds to the app itself, such as model
+   * providers and agents, comes from these, whatever projects turn on.
    */
   async installed(): Promise<PluginIndexEntry[]> {
     await this.ready();
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false ? [entry] : [];
+      return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false && this.onInEveryProject(id) ? [entry] : [];
     });
   }
 
@@ -722,8 +734,8 @@ export class PluginServices {
 
   /**
    * Indexes the plugins that ship with the app, in place. They are
-   * OhMyGame's own, so what they ask for is allowed at install, unless the
-   * person turned one off; each project still allows them in its folder.
+   * OhMyGame's own, so what they ask for is allowed at install; one that
+   * starts off is still off until the person turns it on.
    */
   async addBundled(directory: string): Promise<PluginPackageResult[]> {
     // `ready()` runs this, so it waits only for the files.
@@ -742,10 +754,6 @@ export class PluginServices {
       // goes; a version installed apart stays.
       for (const other of this.index.versions(result.entry.id))
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
-      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
-      // One that starts off asks for consent when the person turns it on, and
-      // only that consent counts: a record of where it is on allows nothing.
-      if (this.#bundledOff.has(result.entry.id)) continue;
       await this.grants.consent(
         result.entry.id,
         capabilityGrants(result.entry.manifest),
@@ -822,27 +830,56 @@ export class PluginServices {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    return this.#replacingAppWide(await this.installManaged(source, options));
+    return this.#replacingOlder(await this.installManaged(source, options));
   }
 
   /**
-   * Installs a package the person added from npm, GitHub or a file. It allows
-   * nothing: what it asks for waits for the person, in a project's Plugins
-   * sheet. It can't take a name the app or the Plugin Builder uses, unless
+   * Installs a package the person added from npm, GitHub or a file, after its
+   * review listed what it asks for, so adding it allows that and turns it on
+   * in every project it suits, unless the person turned it off before. It can't take a
+   * name the app or the Plugin Builder uses, unless
    * `origin` vouches for it (`assertAddablePlugin`). `before` runs first, with
    * no other package changing, to call the install off.
    */
   async installAdded(source: string, before?: () => Promise<void>, origin?: PluginOrigin): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok) assertAddablePlugin(checked.entry.id, origin);
-    return this.#replacingAppWide(await this.installManaged(source, { consent: false, before }));
+    const entry = await this.installManaged(source, { consent: true, before });
+    if (this.grants.plugin(entry.id)?.everyProject === undefined) {
+      await this.grants.setEveryProject(entry.id, true);
+      await this.changed();
+    }
+    return this.#replacingOlder(entry);
   }
 
-  /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
-  async #replacingAppWide(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
-    if (isAppWidePlugin(entry.manifest))
-      for (const older of this.index.versions(entry.id))
-        if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);
+  /**
+   * A new version replaces its older versions. A plugin that only adds Skills
+   * replaces every other; any other replaces only older ones no project still
+   * runs, as one that names an older version keeps it. When a project or its
+   * plugins can't be read, every older version is kept.
+   */
+  async #replacingOlder(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
+    const skillsOnly = isAppWidePlugin(entry.manifest);
+    const others = this.index.versions(entry.id).filter((item) => skillsOnly
+      ? item.version !== entry.version && isAppWidePlugin(item.manifest)
+      : isNewerPluginVersion(entry.version, item.version));
+    const used = new Set<string>();
+    let known = true;
+    if (!skillsOnly && others.length) {
+      const folders = this.#projectFolders?.();
+      known = Boolean(folders);
+      for (const folder of folders ?? []) {
+        const resolved = await this.resolve(folder).catch(() => undefined);
+        if (!resolved?.ok) { known = false; break; }
+        const state = resolved.plugins.find((item) => item.id === entry.id);
+        if (state) used.add(state.version);
+      }
+    }
+    for (const item of others) {
+      // Never the last one: something else may have removed the new version meanwhile.
+      if (!this.index.get(entry.id, entry.version)) break;
+      if (skillsOnly || (known && !used.has(item.version))) await this.uninstall(entry.id, item.version);
+    }
     return entry;
   }
 
@@ -925,20 +962,24 @@ export class PluginServices {
     await this.changed();
   }
 
-  /** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+  /**
+   * Turns a plugin on or off in every project it suits; projects that set it
+   * themselves keep that. Turning it on allows what it asks for.
+   */
   async setEveryProject(id: string, on: boolean): Promise<void> {
     await this.ready();
-    if (!this.index.get(id)) throw new Error(`${id} is not installed`);
+    const entry = this.index.get(id);
+    if (!entry) throw new Error(`${id} is not installed`);
+    if (on) await this.grants.consent(id, capabilityGrants(entry.manifest));
     await this.grants.setEveryProject(id, on);
     await this.changed();
   }
 
-  /** The switch that stops a plugin everywhere; turning it back on releases a quarantine. */
-  async setEnabled(id: string, enabled: boolean): Promise<void> {
+  /** Starts a plugin again after it stopped from crashing too often. */
+  async restart(id: string): Promise<void> {
     await this.ready();
-    if (enabled && this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
-    await this.grants.setEnabled(id, enabled);
-    if (enabled) this.native.release(id);
+    if (this.safeMode) throw new Error("Plugins stay off in safe mode. Restart OhMyGame normally to turn one on.");
+    this.native.release(id);
     await this.changed();
   }
 

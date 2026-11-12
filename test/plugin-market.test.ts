@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { indexImage, marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import type { MarketPlugin } from "../src/shared/plugins.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
 const cleanup: string[] = [];
@@ -36,11 +37,11 @@ const version = (name: string, ver: string, id: string, fields: object = {}) => 
 });
 const index = (fields: object = {}) => ({ schemaVersion: 1, versions: [], packages: {}, featured: [], ...fields });
 
-/** Serves an index as the job writes it, counting what's read. */
+/** Serves an index as the job writes it, and any other files beside it, counting what's read. */
 function server(body: unknown) {
   const reads: string[] = [];
-  const state = { body, up: true };
-  const fetcher = (async (input: string | URL) => {
+  const state = { body, up: true, files: {} as Record<string, Buffer>, redirects: [] as Array<RequestRedirect | undefined> };
+  const fetcher = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     reads.push(url);
     if (!state.up) throw new Error("offline");
@@ -48,7 +49,9 @@ function server(body: unknown) {
     const digest = createHash("sha256").update(text).digest("hex");
     if (url === URL_INDEX) return Response.json({ schemaVersion: 1, latest: `index.${digest}.json`, sha256: digest });
     if (url.endsWith(`/index.${digest}.json`)) return new Response(text);
-    return new Response("", { status: 404 });
+    const file = state.files[url];
+    if (file) state.redirects.push(init?.redirect);
+    return file ? new Response(new Uint8Array(file)) : new Response("", { status: 404 });
   }) as typeof fetch;
   return { fetcher, reads, state };
 }
@@ -56,7 +59,10 @@ function server(body: unknown) {
 async function market(body: unknown, options: { now?: () => number; directory?: string; fetcher?: typeof fetch } = {}) {
   const { fetcher, reads, state } = server(body);
   return {
-    market: new PluginMarket({ url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: { test: { key: KEY } }, ...(options.now ? { now: options.now } : {}) }),
+    market: new PluginMarket({
+      url: URL_INDEX, directory: options.directory ?? await temporary(), fetch: options.fetcher ?? fetcher, keys: { test: { key: KEY } },
+      ...(options.now ? { now: options.now } : {}),
+    }),
     reads,
     state,
   };
@@ -74,20 +80,21 @@ describe("PluginMarket listing", () => {
     expect(reads).toEqual([]);
   });
 
-  it("lists each plugin's newest installable version with its facts, featured first, then by downloads", async () => {
+  it("lists each plugin's newest installable version with its facts, featured first, then by score", async () => {
     const { market: subject } = await market(index({
       versions: [
         version("@a/low", "1.0.0", "a/low"),
         version("@a/top", "1.1.0", "a/top"),
-        version("@a/top", "1.2.0", "a/top"),
+        version("@a/top", "1.2.0", "a/top", { unpackedSize: 2048 }),
         { ...version("@a/top", "1.3.0", "a/top", { rejected: ["no"] }), plugin: undefined },
         version("@a/picked", "1.0.0", "a/picked"),
         version("@ohmygame/studio", "1.0.0", "ohmygame/studio"),
         version("@personal/mine", "1.0.0", "personal/mine"),
       ].map((item) => JSON.parse(JSON.stringify(item))),
       packages: {
-        "@a/top": { repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500 },
-        "@a/low": { weeklyDownloads: 5 },
+        "@a/top": { repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500, avatar: "https://avatars.githubusercontent.com/u/42?v=4", createdAt: "2025-06-01T00:00:00.000Z" },
+        // An avatar is shown only for a verified source: anyone can name any repository.
+        "@a/low": { weeklyDownloads: 5, repository: "https://github.com/famous/thing", avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
       },
       featured: ["a/picked", "a/gone"],
     }));
@@ -100,8 +107,31 @@ describe("PluginMarket listing", () => {
     expect(plugins[1]).toMatchObject({
       package: "@a/top", displayName: "a/top 名字", description: "A plugin", asks: ["network:api.example.com"],
       adds: { skills: 2, mcpServers: 1 }, repository: "https://github.com/a/top", sourceVerified: true, stars: 9, weeklyDownloads: 500,
+      avatar: "42", createdAt: "2025-06-01T00:00:00.000Z", size: 2048,
     });
     expect(plugins[0]!.sourceVerified).toBe(false);
+    expect(plugins[2]).not.toHaveProperty("avatar");
+  });
+
+  it("scores plugins by downloads most, but also by stars, how recently they were updated and their page", () => {
+    const now = Date.parse("2026-11-11T00:00:00.000Z");
+    const plugin = (fields: Partial<MarketPlugin>): MarketPlugin => ({
+      id: "a/b", package: "@a/b", version: "1.0.0", displayName: "B", description: "", asks: [], adds: {}, featured: false, sourceVerified: false, ...fields,
+    });
+    const most = { downloads: 1000, stars: 100 };
+    const score = (fields: Partial<MarketPlugin>) => marketScore(plugin(fields), most, now);
+    expect(score({})).toBe(0);
+    expect(score({ weeklyDownloads: 1000, stars: 100, publishedAt: "2026-11-01T00:00:00.000Z", sourceVerified: true, longDescription: "L", screenshots: [{ path: "a.png" }], categories: ["art"] })).toBeCloseTo(1);
+    // Downloads weigh most, on a log scale: ten times as many isn't ten times the score.
+    expect(score({ weeklyDownloads: 1000 })).toBeCloseTo(0.5);
+    expect(score({ weeklyDownloads: 100 })).toBeGreaterThan(0.3);
+    // Freshness fades from a month to a year.
+    expect(score({ publishedAt: "2026-10-20T00:00:00.000Z" })).toBeCloseTo(0.15);
+    expect(score({ publishedAt: "2025-10-01T00:00:00.000Z" })).toBe(0);
+    expect(score({ publishedAt: "not a date" })).toBe(0);
+    // A well-kept page lifts a quiet plugin over one only downloaded a little more.
+    expect(score({ weeklyDownloads: 20, sourceVerified: true, longDescription: "L", categories: ["art"] })).toBeGreaterThan(score({ weeklyDownloads: 40 }));
+    expect(score({ weeklyDownloads: 1000, beta: true })).toBeCloseTo(0.425);
   });
 
   it("shows the greatest version, whatever order they were published in", async () => {
@@ -176,6 +206,104 @@ describe("PluginMarket listing", () => {
     const restarted = await market(index(), { directory, fetcher: offline.fetcher, now: () => now });
     expect((await restarted.market.listing("en")).plugins).toHaveLength(1);
     await vi.waitFor(async () => expect(await restarted.market.listing("en")).toMatchObject({ status: "stale", plugins: [{ id: "a/b" }] }));
+  });
+
+  it("lists what an index says about a plugin's place and pictures, leaving out what this app doesn't know", async () => {
+    const { market: subject } = await market(index({ versions: [version("@a/b", "1.0.0", "a/b", { plugin: {
+      ...version("@a/b", "1.0.0", "a/b").plugin,
+      categories: ["art", "hologram", "3d"], appliesTo: ["web-game"], beta: true,
+      longDescription: { en: "Long", "zh-CN": "长" },
+      // An index field from a later schema is passed over.
+      rating: 5,
+      icon: "assets/icon.svg",
+      screenshots: [
+        { path: "assets/one.png", caption: { en: "One", "zh-CN": "一" } },
+        { path: "../elsewhere.png" }, { path: "https://evil.example/x.png" }, { path: "./assets/x.png" }, { path: "assets/two.webp" },
+      ],
+    } })] }));
+    const [plugin] = (await subject.listing("zh-CN")).plugins;
+    expect(plugin).toMatchObject({
+      categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长",
+      icon: "assets/icon.svg",
+      screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
+    });
+    expect(plugin).not.toHaveProperty("rating");
+  });
+
+  it("reads only the icon and screenshots its index lists, from beside the index, checking each", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M0 0h32v32H0z"/></svg>');
+    const plugin = (icon: string, screenshots: string[]) => ({ plugin: { ...version("@a/b", "1.0.0", "a/b").plugin, icon, screenshots: screenshots.map((path) => ({ path })) } });
+    const { market: subject, reads, state } = await market(index({ versions: [
+      version("@a/b", "1.0.0", "a/b", plugin("assets/icon.svg", ["assets/one.png", "assets/page.png", "assets/script.svg"])),
+      version("@a/c", "1.0.0", "a/c", plugin("assets/bad.svg", [])),
+      version("@a/d", "1.0.0", "a/d", plugin("assets/icon.png", [])),
+    ] }));
+    const at = (file: string) => new URL(file, URL_INDEX).href;
+    state.files[at("assets/icon.svg")] = svg;
+    state.files[at("assets/one.png")] = png;
+    state.files[at("assets/page.png")] = Buffer.from("<html></html>");
+    state.files[at("assets/script.svg")] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0Z"/></svg>');
+    state.files[at("assets/other.png")] = png;
+    state.files[at("assets/bad.svg")] = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    expect(await subject.image("assets/icon.svg", "icon")).toMatchObject({ mediaType: "image/svg+xml", bytes: svg });
+    expect(await subject.image("assets/one.png", "screenshot")).toMatchObject({ mediaType: "image/png", bytes: png });
+    // Kept once read: they're named by their contents.
+    await subject.image("assets/one.png", "screenshot");
+    expect(reads.filter((url) => url.endsWith("one.png"))).toHaveLength(1);
+    // A screenshot is a PNG, JPEG or WebP; an icon is checked as an installed one's is.
+    await expect(subject.image("assets/page.png", "screenshot")).rejects.toThrow();
+    await expect(subject.image("assets/script.svg", "screenshot")).rejects.toThrow();
+    await expect(subject.image("assets/bad.svg", "icon")).rejects.toThrow();
+    // An icon is the type its name says.
+    state.files[at("assets/icon.png")] = svg;
+    await expect(subject.image("assets/icon.png", "icon")).rejects.toThrow();
+    // Each as the role it's asked for: one screenshot isn't read as an icon.
+    expect(await subject.image("assets/one.png", "icon")).toBeUndefined();
+    // Nothing the index doesn't list.
+    expect(await subject.image("assets/other.png", "screenshot")).toBeUndefined();
+    expect(reads.some((url) => url.endsWith("other.png"))).toBe(false);
+    // A redirect could lead anywhere, so it isn't followed.
+    expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("reads a verified publisher's GitHub avatar, from GitHub's avatar host only", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const { market: subject, reads, state } = await market(index({
+      versions: [version("@a/b", "1.0.0", "a/b"), version("@a/c", "1.0.0", "a/c")],
+      packages: {
+        "@a/b": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" },
+        "@a/c": { avatar: "https://avatars.githubusercontent.com/u/7?v=4" },
+      },
+    }));
+    state.files["https://avatars.githubusercontent.com/u/42?s=96"] = png;
+    state.files["https://avatars.githubusercontent.com/u/7?s=96"] = png;
+    expect(await subject.avatar("42")).toMatchObject({ mediaType: "image/png", bytes: png });
+    await subject.avatar("42");
+    expect(reads.filter((url) => url.includes("/u/42"))).toHaveLength(1);
+    // Not for an unverified source, nor for anyone the index doesn't name.
+    expect(await subject.avatar("7")).toBeUndefined();
+    expect(await subject.avatar("1")).toBeUndefined();
+    expect(reads.some((url) => url.includes("/u/7") || url.includes("/u/1?"))).toBe(false);
+    expect(new Set(state.redirects)).toEqual(new Set(["error"]));
+  });
+
+  it("passes over an avatar that isn't on GitHub's avatar host", async () => {
+    const { market: subject } = await market(index({
+      versions: [version("@a/b", "1.0.0", "a/b")],
+      packages: { "@a/b": { sourceVerified: true, avatar: "https://evil.example/u/42" } },
+    }));
+    const listing = await subject.listing("en");
+    expect(listing.status).toBe("ready");
+    expect(listing.plugins[0]).not.toHaveProperty("avatar");
+    expect(await subject.avatar("42")).toBeUndefined();
+  });
+
+  it("keeps an image below the index's folder, on its host", () => {
+    expect(indexImage(URL_INDEX, "assets/ab12.png")).toBe("https://plugins.example.com/plugins/assets/ab12.png");
+    for (const file of ["../a.png", "assets/../../a.png", "./a.png", "/a.png", "//evil.example/a.png", "https://evil.example/a.png", "a\\b.png", "", "a.png?x", "a%2e%2e/b.png", "a b.png"]) {
+      expect(indexImage(URL_INDEX, file)).toBeUndefined();
+    }
   });
 
   it("stops reading an answer larger than allowed", async () => {

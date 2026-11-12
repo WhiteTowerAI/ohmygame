@@ -56,6 +56,34 @@ describe("Publish v1 client contract", () => {
     } finally { dispatch.mockRestore(); }
   });
 
+  it("creates the game before building, so the build can name it", async () => {
+    const requests: string[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(`${request.method} ${new URL(request.url).pathname}`);
+      if (request.method === "POST" && request.url.endsWith("/v1/games")) return Response.json(game(), { status: 201 });
+      if (request.method === "POST") return Response.json({ game: { ...game(), currentDeploymentId: "deployment-1" }, deployment: deployment() }, { status: 201 });
+      return Response.json(game());
+    };
+    const publisher = new RemotePublisher({ apiUrl: "https://publish.ohmygame.test", fetch: fetcher });
+    const built: string[] = [];
+    await publisher.publish(project(), async (gameId) => {
+      built.push(gameId);
+      requests.push("build");
+      return Buffer.from("zip");
+    }, "token", { title: "Game" });
+    expect(built).toEqual(["game-1"]);
+    expect(requests.indexOf("build")).toBe(requests.indexOf("PUT /v1/games/game-1") + 1);
+    expect(requests.at(-2)).toBe("POST /v1/games/game-1/deployments");
+
+    // A build that fails publishes nothing.
+    requests.length = 0;
+    await expect(publisher.publish(project(), async () => {
+      throw new Error("The build failed.");
+    }, "token", { title: "Game" })).rejects.toThrow("The build failed.");
+    expect(requests.some((request) => request.endsWith("/deployments"))).toBe(false);
+  });
+
   it("preserves listing state when publishing an existing work", async () => {
     const requests: Request[] = [];
     const fetcher: typeof fetch = async (input, init) => {

@@ -45,7 +45,7 @@ OhMyGame 不内置模型。首次启动时，连接一个模型服务商，或�
 
 - **让 Agent 来做游戏。** Agent 起草设计文档、编写代码、在实时预览里运行游戏，然后亲自上手玩，发现问题就尝试修复。
 - **所有素材在一块画布上。** 用 AI 生成图片、视频、3D 模型、动画、配音、音效和音乐，在同一块画布上整理，直接用进游戏。
-- **发布成一个链接。** 任何人都能在浏览器里玩，游戏也会出现在[社区](https://ohmygame.ai/zh/community/)里。
+- **发布成一个链接。** 任何人都能在浏览器里玩，游戏也会出现在[社区](https://ohmygame.ai/zh/community/)里。多人游戏的房间，以及玩家的登录、存档和排行榜，也会一起上线。
 - **用插件扩展。** 插件可以教 Agent 新技能、给它新工具，也可以给应用添加面板和项目类型。内置插件已覆盖 Godot、Unity、Unreal Engine、Blender、Aseprite、Tiled，以及微信小游戏、抖音小游戏等平台。也可以[自己做插件](https://ohmygame.ai/docs/plugins/make/)。
 - **自带 Agent。** 用 Claude Code、Codex 或 OpenCode 来驱动 OhMyGame，也可以接入 40 多家模型服务商，用你自己的密钥。不按次收费。反过来也行：通过 MCP，在你的 Agent 里使用 OhMyGame 的画布、媒体生成和试玩能力。[模型](https://ohmygame.ai/docs/models/) · [外部 Agent](docs/external-agents.md)
 
@@ -66,7 +66,7 @@ OhMyGame 不内置模型。首次启动时，连接一个模型服务商，或�
   </tr>
 </table>
 
-**网页游戏**（Phaser、Three.js、React Three Fiber）最适合入门。**互动故事**适合做视觉小说、互动电影和剧情游戏。**General Game** 不限引擎和技术栈。[去玩玩别人做的游戏](https://ohmygame.ai/zh/community/)。
+**网页游戏**（Phaser、Three.js、React Three Fiber）最适合入门。**互动故事**适合做视觉小说、互动电影和剧情游戏。**General Game** 不限引擎和技术栈。网页游戏可以做成**多人联机**，从棋牌到实时对战，和朋友在线一起玩，不用自己架服务器，详见[多人联机](docs/multiplayer.md)。[去玩玩别人做的游戏](https://ohmygame.ai/zh/community/)。
 
 ## 文档
 

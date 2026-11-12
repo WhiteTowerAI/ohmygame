@@ -25,13 +25,20 @@ export class LocalPublisher {
   readonly #games = new Map<string, LocalPublishedGame>();
   readonly #directories = new Map<string, { gameId: string; directory: string; token: string }>();
 
-  async publish(project: ProjectState, artifact: Buffer, accessToken: string, metadata: { title: string; description?: string }): Promise<PublishResult> {
+  /** Takes the artifact, or a function that builds it for the game's ID, as RemotePublisher does. */
+  async publish(
+    project: ProjectState,
+    artifact: Buffer | ((gameId: string) => Promise<Buffer>),
+    accessToken: string,
+    metadata: { title: string; description?: string },
+  ): Promise<PublishResult> {
     if (accessToken !== LOCAL_DEBUG_ACCESS_TOKEN) throw new RemotePublishError("Sign in with the local debug account", 401);
+    const gameId = project.publication?.gameId.startsWith("local-") ? project.publication.gameId : `local-${randomUUID()}`;
+    if (typeof artifact === "function") artifact = await artifact(gameId);
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-local-publish-"));
     let mount: { token: string; url: string } | undefined;
     try {
       await extractArtifact(artifact, directory);
-      const gameId = project.publication?.gameId.startsWith("local-") ? project.publication.gameId : `local-${randomUUID()}`;
       const deploymentId = `local-${randomUUID()}`;
       mount = await this.#files.mount(directory, () => {
         const current = this.#games.get(gameId);

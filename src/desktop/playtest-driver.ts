@@ -19,6 +19,7 @@ import {
 import { AGENT_RECORDING_MAX_SECONDS, type GameRecordingSaved } from "../shared/game-recording.js";
 import { analyzeBitmap } from "../shared/capture-analysis.js";
 import type { GameRecorder } from "./game-recorder.js";
+import { isLocalSignInPage } from "./game-sign-in.js";
 
 interface PlaytestSession {
   id: string;
@@ -152,8 +153,9 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       if (this.#sessions.delete(id)) this.#publishWatchState();
     });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // The game may leave for its local test sign-in page and come back; nowhere else.
     const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
-      if (!sameOrigin(destination, state.origin)) event.preventDefault();
+      if (!sameOrigin(destination, state.origin) && !isLocalSignInPage(destination)) event.preventDefault();
     };
     window.webContents.on("will-navigate", preventCrossOriginNavigation);
     window.webContents.on("will-redirect", preventCrossOriginNavigation);

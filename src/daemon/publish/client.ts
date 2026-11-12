@@ -53,9 +53,21 @@ export class RemotePublisher {
     this.#visitorTokenFile = options.visitorTokenFile;
   }
 
-  async publish(project: ProjectState, artifact: Buffer, accessToken: string, metadata: { title: string; description?: string }): Promise<PublishResult> {
-    const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
+  /**
+   * Publishes a deployment of the project's game. A function builds the artifact once the
+   * game exists, so the build can name the game, as manifest.json's "cloud" does. The game
+   * record is created first; a build that fails leaves it unpublished, and the next
+   * attempt reuses it.
+   */
+  async publish(
+    project: ProjectState,
+    artifact: Buffer | ((gameId: string) => Promise<Buffer>),
+    accessToken: string,
+    metadata: { title: string; description?: string },
+  ): Promise<PublishResult> {
     const game = await this.#game(project, metadata, accessToken);
+    if (typeof artifact === "function") artifact = await artifact(game.id);
+    const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
     const created = await this.#createDeployment(project, game.id, artifact, artifactSha256, accessToken);
     if (!project.publication || project.publication.gameId !== game.id) await this.#listGame(game.id, accessToken);
     return publishResult(created.game, created.deployment);
