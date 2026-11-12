@@ -145,7 +145,8 @@ plugin API. A JavaScript section is named as the kind, so 3D is
   model that reads text, a description for the rest), `format` (one of the
   model's), `voiceId` for a model that reads text (one of its `voices`, the
   first by default), and when asked and the model takes them,
-  `durationSeconds`, `instrumental`, `loop` and `language`.
+  `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
+  `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
 - **3D:** `model`, `operation` (`text` or `image`), `prompt` for `text`,
   `references` (`[{ mediaType, base64 }]`, the first the front) for `image`,
   `targetPolycount` (in the model's range), and `texture` and `pbr`, each

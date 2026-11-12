@@ -394,9 +394,11 @@ describe("plugin media providers: audio", () => {
     const speech = await media.generateAudio(voice!, { prompt: "Hello there" });
     expect(speech).toMatchObject({ bytes: WAV, mediaType: "audio/wav", model: { provider: "plugin.acme.flow.flow", id: "voice" }, metadata: { durationMs: 100, sampleRate: 8000, channels: 1 } });
     expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "voice", kind: "speech", prompt: "Hello there", format: "wav", voiceId: "amy" });
+    await media.generateAudio(voice!, { prompt: "Faster", voiceId: "bo", speed: 50 });
+    expect(JSON.parse(requests[2]!.body!)).toMatchObject({ voiceId: "bo", speed: 50 });
     // A model that makes more than one kind hears which; a loop goes only where the model takes one.
     await media.generateAudio(foley!, { prompt: "rain", kind: "music", durationSeconds: 5, loop: true });
-    expect(JSON.parse(requests[2]!.body!)).toEqual({ model: "foley", kind: "music", prompt: "rain", format: "wav", durationSeconds: 5, loop: true });
+    expect(JSON.parse(requests[4]!.body!)).toEqual({ model: "foley", kind: "music", prompt: "rain", format: "wav", durationSeconds: 5, loop: true });
     await expect(media.generateAudio(voice!, { prompt: "x".repeat(101) })).rejects.toThrow("up to 100 characters");
     await expect(media.generateAudio(voice!, { prompt: "Hi", voiceId: "zed" })).rejects.toThrow("isn't one this model speaks in");
     await expect(media.generateAudio(foley!, { prompt: "rain", durationSeconds: 20 })).rejects.toThrow("1 to 10 seconds");

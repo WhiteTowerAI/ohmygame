@@ -266,6 +266,8 @@ export class PluginMediaProviders {
       ...(input.instrumental && model.capabilities.supportsInstrumental ? { instrumental: true } : {}),
       ...(input.loop && model.capabilities.supportsLoop ? { loop: true } : {}),
       ...(input.language ? { language: input.language } : {}),
+      // The canvas offers a speed for every speech model, on the shared -50…100 scale.
+      ...(kind === "speech" && input.speed ? { speed: input.speed } : {}),
     }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped);
       const audio = await inspectAudio(bytes, format, 502);
