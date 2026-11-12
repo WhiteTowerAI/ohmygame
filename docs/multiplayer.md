@@ -615,8 +615,8 @@ a plain JSON object of at most `OWNER_VALUE_MAX_LENGTH` (1024) characters, which
 arrives through `onMessage(from, message)`. Every kind of room passes messages
 on, in any phase, so a game can send emotes, quick phrases or a ready check
 before a match starts. Only seated players send them; every other connection in
-the room receives them. A message never reaches the rules and nothing keeps it:
-a player who is away or joins later misses it. Change the game with a move,
+the room receives them. A message never reaches the rules and is not saved, so
+there is no chat history: a player who is away or joins later misses it. Change the game with a move,
 input or action instead, above all in a lockstep room, where pages receive a
 message at different moments and would drift apart. The service drops a
 player's messages beyond `ROOM_MESSAGES_PER_SECOND` (5) a second, and the SDK

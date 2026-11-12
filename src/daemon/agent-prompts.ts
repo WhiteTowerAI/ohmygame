@@ -17,6 +17,7 @@ const COMMON_AGENT_INSTRUCTIONS = [
 /** Saves and multiplayer in short; the guides that game_sdk_setup and multiplayer_setup write carry the details. */
 const GAME_SERVICES = [
   "To keep a player's progress or rank scores, call game_sdk_setup (multiplayer_setup includes it) and use game.storage and game.leaderboard as its guide describes, rather than your own localStorage persistence or score service.",
+  "Players in the same multiplayer room can send each other emotes, quick phrases and chat with client.emit and onMessage, as the multiplayer guide describes. Messages are not saved, so there is no chat history.",
   "For online multiplayer, call multiplayer_setup and follow the SDK guide it writes: OhMyGame's Colyseus + WebSocket service keeps the room, and local testing needs no cloud deployment. A game no built-in rules fit writes its own in server/rules.ts first. Do not silently substitute PeerJS, your own WebRTC or public signaling/STUN/TURN services; the SDK's built-in p2p option for owner rooms is the one exception. If the service, SDK or rules are missing, report a setup error rather than inventing a networking backend. An alternative stack the user explicitly asks for takes precedence.",
 ] as const;
 

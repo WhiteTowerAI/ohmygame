@@ -14,7 +14,7 @@ npm install @ohmygame/sdk
 - **Leaderboards**: a best score per player and board, public for signed-in players (`game.leaderboard`)
 - **Multiplayer rooms** (`@ohmygame/sdk/multiplayer`): invite codes, quick play and
   reconnect; built-in or custom rules (`@ohmygame/sdk/game`); room messages for
-  emotes and chat (`emit`); smooth drawing of other players (`Smoother`)
+  emotes and chat (`emit`, not saved); smooth drawing of other players (`Smoother`)
 
 ## Usage
 

@@ -190,13 +190,15 @@ Drop-in rooms start and restart on their own.
 `client.emit({ emote: "wave" })` sends every other player in the room a small
 JSON object (≤ 1024 chars), which arrives through `onMessage(from, message)`.
 It works in every mode, also before the match starts, for emotes, quick phrases
-or ready checks. It never reaches the rules and is not kept: a player who is
-away misses it. Never change the game with a message; use a move, input or
-action, especially in lockstep, where pages get it at different moments. More
+or ready checks, and reaches the players in the same room; there is no channel
+across rooms. Messages are not saved, so there is no chat history: a player who
+is away, reloads or joins later misses them. A message never reaches the rules,
+so the game itself changes through moves, inputs and actions; in lockstep,
+pages get a message at different moments. More
 than 5 a second throws `rate_limited`. The sender does not receive its own
 message, so a chat adds its own line itself; check every field that arrives in
-`onMessage`, since other pages send it. Chat that must survive a reconnect is a
-move (`{ run, by: "any" }`) keeping the last few dozen lines in `G` instead.
+`onMessage`, since other pages send it. A game that wants chat history can keep it
+as a move (`{ run, by: "any" }`) holding the last few dozen lines in `G`.
 
 ### Snapshot
 
