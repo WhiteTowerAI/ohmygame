@@ -87,7 +87,17 @@ export function registerCommunityRoutes(
   app.get("/community/me/games", async (request, reply) =>
     respond(reply, async () => {
       const token = requiredToken(request);
-      return publisher.myGames(token);
+      const profile = await publisher.myGames(token);
+      // Publications saved before the Cloud named games, or before a rename elsewhere, catch up.
+      for (const game of profile.games) {
+        if (!game.name) continue;
+        for (const project of projects.list()) {
+          const publication = project.publication;
+          if (publication?.gameId !== game.id || (publication.name === game.name && publication.pageUrl === game.pageUrl)) continue;
+          await projects.renamePublication(project.id, { gameId: game.id, name: game.name, pageUrl: game.pageUrl });
+        }
+      }
+      return profile;
     }),
   );
 

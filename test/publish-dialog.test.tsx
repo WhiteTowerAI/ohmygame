@@ -41,6 +41,13 @@ describe("publication feedback", () => {
     expect(html).not.toContain("play.example");
   });
 
+  it("offers no rename while the Cloud gives the game no page on the site", () => {
+    const bare = { ...publication, name: "ybn25b", pageUrl: publication.playUrl };
+    const html = renderToStaticMarkup(<PublicationDetails publication={bare} name={project.name} onClose={() => undefined} onUpdate={() => undefined} />);
+    expect(html).toContain('value="play.example/game-1"');
+    expect(html).not.toContain("Change page name");
+  });
+
   it("identifies local snapshots when reopening an existing publication", () => {
     const html = renderToStaticMarkup(<PublishDialog project={{ ...project, publication: { ...publication, gameId: "local-project-1", playUrl: "http://127.0.0.1:43199/snapshot/index.html" } }} publishing={false} onClose={() => undefined} onPublish={async () => false} />);
     expect(html).toContain("Published game");
