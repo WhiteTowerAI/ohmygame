@@ -49,7 +49,7 @@ coding agent you already use: [first run](https://ohmygame.ai/docs/first-run/).
 
 ## Features
 
-- **Let the agent build the game.** Agent drafts the design doc, writes the
+- **Let the agent build the game.** The agent drafts the design doc, writes the
   code, runs the game in a live preview, then plays it and tries a fix when something breaks.
 - **One canvas for every asset.** Generate images, video, 3D models, animation,
   voices, sound effects, and music with AI, and keep them organized on one

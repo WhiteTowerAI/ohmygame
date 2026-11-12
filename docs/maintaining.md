@@ -93,9 +93,6 @@ remaining work and an actionable next step before closing it.
    and PR into `dev`. Collect changes from merged PRs since the previous release;
    ordinary PRs do not update the changelog. Follow the
    [changelog format and checks](desktop-releases.md#release-notes).
-   For a major release (for example beta 5), also add a one-line entry to the
-   **News** section of both `README.md` and `README.zh-CN.md`, linking its
-   release notes, and remove the oldest entry so at most three remain.
    Also list compatibility code that is due with `git grep -n "compat:"` and
    remove it in a PR into `dev` first; see [compatibility](compatibility.md).
 2. Verify the release candidate's public checks and relevant platform, model,
