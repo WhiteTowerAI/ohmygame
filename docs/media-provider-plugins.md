@@ -220,8 +220,8 @@ better, and the adapter decides the pace:
   Streaming answers (`text/event-stream`) can be added to `host.fetch` when a
   vendor needs them.
 
-A video's or a 3D model's task survives a restart, as a built-in 3D job's
-does (`model3d-journal.ts`).
+A video's, a 3D model's or an audio file's task survives a restart, as a
+built-in 3D job's does (`model3d-journal.ts`).
 The app keeps the task value under the generation's recovery id
 (`media-tasks/<id>.json` in the app's data), writing it before `start` and
 whenever `check` changes it. A generation the restart cut off shows as
@@ -242,7 +242,7 @@ one:
   with no task, the app keeps the result's address instead.
 
 Agent tool calls that a restart cut off aren't retried, since the agent's turn
-ended with them. Images and audio, which rarely take a task, start again.
+ended with them. Images, which rarely take a task, start again.
 
 ## In the app
 

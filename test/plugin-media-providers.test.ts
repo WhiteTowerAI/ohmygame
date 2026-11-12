@@ -405,6 +405,25 @@ describe("plugin media providers: audio", () => {
     await expect(media.generateAudio(voice!, { prompt: "Hi", output: { format: "mp3" } })).rejects.toThrow("doesn't make mp3");
   }, 15_000);
 
+  it("keeps a paid result whose download failed, so a retry fetches it without starting again", async () => {
+    let downloads = 0;
+    const { media, requests } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? (++downloads === 1 ? new Response("busy", { status: 503 }) : new Response(new Uint8Array(WAV))) : undefined });
+    const voice = (await media.audioProviders())[0]!.models[0]!;
+    await expect(media.generateAudio(voice, { prompt: "Hello" }, undefined, await journalAt("audio-1"))).rejects.toThrow("answered 503");
+    const again = await media.generateAudio(voice, { prompt: "Hello" }, undefined, await journalAt("audio-1"));
+    expect(again.mediaType).toBe("audio/wav");
+    expect(requests.filter((request) => request.url === "https://api.flow.example/v1/audio")).toHaveLength(1);
+  }, 15_000);
+
+  it("refuses a request without a prompt, and a length below a model's minimum", async () => {
+    const minimumOnly = { audio: { models: [{ id: "long", kinds: ["music"], formats: ["wav"], minDurationSeconds: 10 }] } } as unknown as Partial<Media>;
+    const { media, requests } = await setup(AUDIO_START, { media: minimumOnly });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    await expect(audio.generate({ prompt: "   " })).rejects.toThrow("needs a prompt");
+    await expect(audio.generate({ prompt: "a march", durationSeconds: 2 })).rejects.toThrow("10 to any number of seconds");
+    expect(requests).toEqual([]);
+  }, 15_000);
+
   it("refuses a file that isn't the audio asked for", async () => {
     const { media } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(PNG)) : undefined });
     const voice = (await media.audioProviders())[0]!.models[0]!;

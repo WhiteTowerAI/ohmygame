@@ -10,6 +10,7 @@ import {
 } from "../shared/audio.js";
 import { currentAudioModel } from "../shared/audio-legacy.js";
 import type { ModelRef } from "../shared/contracts.js";
+import type { MediaTaskJournal } from "./media-task-journal.js";
 
 export class AudioGenerationError extends Error {
   constructor(
@@ -27,9 +28,11 @@ export interface AudioProviderAdapter {
   configured(): boolean;
   enabled(): boolean;
   models(): AudioModel[];
+  /** `journal` keeps a plugin provider's task or result, so a retry doesn't pay again. */
   generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
+    journal?: MediaTaskJournal,
   ): Promise<GeneratedAudio>;
   /** Lists voices from the account, for providers without a built-in list. */
   voices?(query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage>;
@@ -42,6 +45,7 @@ export interface AudioGenerator {
   generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
+    journal?: MediaTaskJournal,
   ): Promise<GeneratedAudio>;
   voices?(provider: string, query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage>;
   transcribe?(input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription>;
@@ -111,6 +115,7 @@ export class ProviderAudio implements AudioGenerator {
   async generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
+    journal?: MediaTaskJournal,
   ): Promise<GeneratedAudio> {
     const model = await this.resolveModel(input.model, input.kind);
     if (!model) {
@@ -129,7 +134,7 @@ export class ProviderAudio implements AudioGenerator {
         "The selected audio provider is unavailable",
         503,
       );
-    return adapter.generate({ ...forModel(input, model), model: { provider: model.provider, id: model.id } }, signal);
+    return adapter.generate({ ...forModel(input, model), model: { provider: model.provider, id: model.id } }, signal, journal);
   }
 
   /** One page of a provider's account voices. */
@@ -170,7 +175,7 @@ function forModel(input: AudioGenerationRequest, model: AudioModel): AudioGenera
     ...rest,
     // Which of its kinds is wanted, for a model that makes more than one.
     ...(kind && caps.produces.length > 1 && caps.produces.includes(kind) ? { kind } : {}),
-    ...(durationSeconds !== undefined && caps.maxDurationSeconds !== undefined ? { durationSeconds } : {}),
+    ...(durationSeconds !== undefined && (caps.maxDurationSeconds !== undefined || caps.minDurationSeconds !== undefined) ? { durationSeconds } : {}),
     ...(loop !== undefined && caps.supportsLoop ? { loop } : {}),
     ...(instrumental !== undefined && caps.supportsInstrumental ? { instrumental } : {}),
     ...(voiceId !== undefined && caps.supportsSpeaker ? { voiceId } : {}),

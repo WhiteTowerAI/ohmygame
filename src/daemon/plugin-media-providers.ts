@@ -208,10 +208,10 @@ export class PluginMediaProviders {
         defaultVoiceId: () => provider.voices[0]!.id,
         voices: async () => ({ voices: provider.voices }),
       } : {}),
-      generate: (input, signal) => {
+      generate: (input, signal, journal) => {
         const model = provider.models.find((candidate) => candidate.id === input.model?.id);
         if (!model) throw new AudioGenerationError("The selected audio model is unavailable", 400);
-        return this.generateAudio(model, input, signal);
+        return this.generateAudio(model, input, signal, journal);
       },
     }));
   }
@@ -240,10 +240,11 @@ export class PluginMediaProviders {
   }
 
   /** Makes one audio file with a provider's adapter. */
-  async generateAudio(model: AudioModel, input: AudioGenerationRequest, signal?: AbortSignal): Promise<GeneratedAudio> {
+  async generateAudio(model: AudioModel, input: AudioGenerationRequest, signal?: AbortSignal, journal?: MediaTaskJournal): Promise<GeneratedAudio> {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     const declared = item?.media.audio?.models.find((candidate) => candidate.id === model.id);
     if (!item?.media.audio || !declared) throw new AudioGenerationError("The selected audio provider is unavailable. Check its plugin and key.", 503);
+    if (typeof input.prompt !== "string" || !input.prompt.trim()) throw new AudioGenerationError("Audio needs a prompt", 400);
     const formats = model.capabilities.formats;
     const format = input.output?.format ?? formats[0]!;
     if (!formats.includes(format)) throw new AudioGenerationError(`The selected audio model doesn't make ${format}`, 400);
@@ -268,7 +269,7 @@ export class PluginMediaProviders {
       ...(input.language ? { language: input.language } : {}),
       // The canvas offers a speed for every speech model, on the shared -50…100 scale.
       ...(kind === "speech" && input.speed ? { speed: input.speed } : {}),
-    }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure }, async (outputs, stopped) => {
+    }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped);
       const audio = await inspectAudio(bytes, format, 502);
       return {

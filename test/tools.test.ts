@@ -214,7 +214,7 @@ describe("tool runner", () => {
 
     const run = await runner.run("generate-audio", { prompt: "  Welcome, traveler  ", voiceId: "narrator", model });
 
-    expect(generate).toHaveBeenCalledWith({ prompt: "  Welcome, traveler  ", voiceId: "narrator", model }, undefined);
+    expect(generate).toHaveBeenCalledWith({ prompt: "  Welcome, traveler  ", voiceId: "narrator", model }, undefined, expect.objectContaining({ begin: expect.any(Function) }));
     expect(run).toMatchObject({
       toolId: "generate-audio",
       model,

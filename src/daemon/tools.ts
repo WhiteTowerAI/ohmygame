@@ -322,7 +322,7 @@ export class ToolRunner {
     }
     if (toolId === "generate-audio") {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
-      return this.#runAudio(input as AudioGenerationRequest, signal);
+      return this.#runAudio(input as AudioGenerationRequest, signal, await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId));
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
@@ -594,7 +594,8 @@ export class ToolRunner {
     }
   }
 
-  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's paid result until the audio is stored, as for video. */
+  async #runAudio(input: AudioGenerationRequest, signal: AbortSignal | undefined, journal: MediaTaskJournal): Promise<ToolRun> {
     const toolId = "generate-audio";
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
@@ -603,7 +604,7 @@ export class ToolRunner {
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const generated = await this.audioGenerator.generate(input, signal);
+      const generated = await this.audioGenerator.generate(input, signal, journal);
       signal?.throwIfAborted();
       const extension = audioExtension(generated.mediaType);
       const fileName = `output.${extension}`;
@@ -637,6 +638,8 @@ export class ToolRunner {
       for (const companion of companions) await writeFile(path.join(temporary, companion.name), companion.text, "utf8");
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
+      // Stored: there's nothing left for a retry to fetch.
+      await journal.clear().catch(() => undefined);
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
