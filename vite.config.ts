@@ -51,8 +51,6 @@ export default defineConfig({
     },
   },
   test: {
-    // Colyseus's optional PM2 metrics write to process.send in forked workers.
-    pool: "threads",
     include: ["test/**/*.test.{ts,tsx}"],
     setupFiles: ["test/provider-environment.ts", "test/dom-environment.ts"],
     // Real compiler builds and grammar initialization need bounded parallelism on Bun.
