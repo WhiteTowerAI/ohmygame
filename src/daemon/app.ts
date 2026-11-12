@@ -12,7 +12,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions } from "./plugin-agents.js";
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
@@ -44,6 +44,7 @@ import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { MULTIPLAYER_MANIFEST_SCHEMA } from "@ohmygame/sdk/protocol";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -54,6 +55,8 @@ import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
+import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -73,13 +76,16 @@ import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, assertBuildable, PublishError } from "./publish/archive.js";
+import { gameServiceUrlFor } from "./publish/game-service.js";
+import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
+import { isCloudConfig } from "@ohmygame/sdk/cloud-protocol";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
-import { ProjectAssetError, ProjectManager, ProjectWorkspaceError } from "./projects.js";
+import { ProjectAssetError, ProjectManager, projectFolderType, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -91,7 +97,7 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
@@ -106,14 +112,15 @@ import { modelUsageList } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
-import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
+import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
-import type { AudioOperation } from "../shared/audio.js";
-import { SeedanceSettingsStore } from "./seedance-settings.js";
-import { MinimaxSettingsStore } from "./minimax-settings.js";
+import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
+import { AUDIO_KINDS, type AudioGenerationRequest } from "../shared/audio.js";
 import { MediaProviderRegistry } from "./providers/registry.js";
 import { builtInMediaProviders } from "./providers/built-in.js";
+import { SeedanceSettingsStore } from "./seedance-settings.js";
+import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
@@ -121,7 +128,7 @@ import { PluginHooks } from "./plugin-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, pluginAdds, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -354,6 +361,7 @@ const publishProjectSchema = {
       accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
       title: { type: "string", minLength: 1, maxLength: 200 },
       description: { type: "string", maxLength: 2_000 },
+      multiplayer: MULTIPLAYER_MANIFEST_SCHEMA,
     },
   },
 } as const;
@@ -544,7 +552,6 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-      text: { type: "string", minLength: 1, maxLength: 10_000 },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -555,8 +562,7 @@ const toolRunSchema = {
       durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
       loop: { type: "boolean" },
       instrumental: { type: "boolean" },
-      lyrics: { type: "string", maxLength: 20_000 },
-      negativePrompt: { type: "string", maxLength: 4_000 },
+      kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -642,7 +648,36 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   // Projects whose web build is being exported; a build and a publish share the build output.
   const building = new Set<string>();
-  const artifacts = new ArtifactBuilder();
+  const artifacts = new ArtifactBuilder({
+    account: publishedGameAccount(process.env.OHMYGAME_ACCOUNT_ISSUER ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL),
+    gameServiceUrl: publishedGameService(gameServiceUrlFor(process.env, options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)),
+  });
+  const localMultiplayer = new LocalMultiplayerRuntime();
+  /**
+   * The local service and its registrations end with OhMyGame, so a game set
+   * up earlier gets its deployment back before it plays or publishes. Best
+   * effort: the game's own connection and the publish check report what is left.
+   */
+  /** A game's own multiplayer rules, server/rules.ts in its startup directory. */
+  const gameRulesFile = async (project: ProjectState) => {
+    const [{ findGameRules }, { absolutePath }] = await Promise.all([
+      import("@ohmygame/server"),
+      resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? "."),
+    ]);
+    return findGameRules(absolutePath);
+  };
+  const restoreLocalMultiplayer = async (project: ProjectState) => {
+    if (project.type !== "web-game" && project.type !== "general") return;
+    try {
+      const config = await readWorkspaceMultiplayer(project);
+      const restored = config && await localMultiplayer.restore(project.id, config, await gameRulesFile(project));
+      if (config && restored && restored.serverUrl !== config.serverUrl) await moveWorkspaceMultiplayer(project, config, restored);
+    } catch {}
+    // Local sign-in, saves and leaderboards follow the local service to its current address.
+    try {
+      await moveLocalGameServices(project, () => localMultiplayer.gameServices(project.id));
+    } catch {}
+  };
   const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
   const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
@@ -672,6 +707,7 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
+  const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
@@ -781,9 +817,12 @@ export function createApp(options: AppOptions = {}) {
   /** The built-in media providers, listed once; summaries, removal and the audio adapters read from this list. */
   const mediaProviders = new MediaProviderRegistry(builtInMediaProviders({
     native3D: native3DProviders, seedance: seedanceSettings, minimax: minimaxSettings, doubaoVoice: doubaoVoiceSettings,
-    audioFetch: options.audioFetch, enabled: providerEnabled,
+    elevenLabs: elevenLabsSettings, audioFetch: options.audioFetch, enabled: providerEnabled,
   }), providerEnabled);
-  const providerAudio = new ProviderAudio(mediaProviders.audioAdapters());
+  const providerAudio = new ProviderAudio(mediaProviders.audioAdapters(), () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+    const model = providerModelSettings.defaultMediaModel(kind);
+    return model ? [[kind, model]] : [];
+  })));
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -794,15 +833,12 @@ export function createApp(options: AppOptions = {}) {
       if (toolId === "animate-3d") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
-      const audioOperation: AudioOperation | undefined = toolId === "generate-speech" ? "speech"
-        : toolId === "generate-sound-effect" ? "sound-effect"
-          : toolId === "generate-music" ? "music" : toolId === "generate-audio" ? "audio-scene" : undefined;
-      if (audioOperation) {
-        const explicit = (input as { model?: AgentModelRef }).model;
-        const selected = providerAudio.resolveModel(audioOperation, explicit);
+      if (toolId === "generate-audio") {
+        const { model: explicit, kind } = input as AudioGenerationRequest;
+        const selected = providerAudio.resolveModel(explicit, kind, project?.mediaModelDefaults);
         if (!selected) {
           if (options.audioGenerator) return input;
-          throw new ToolRunError(`No ${audioOperation === "sound-effect" ? "sound effect" : audioOperation} model is available. Connect an audio provider first.`, 503);
+          throw new ToolRunError(`No ${kind ? `${kind.replace("-", " ")} ` : ""}audio model is available. Connect an audio provider first.`, 503);
         }
         return { ...input, model: { provider: selected.provider, id: selected.id } };
       }
@@ -852,11 +888,14 @@ export function createApp(options: AppOptions = {}) {
     }
     return undefined;
   };
+  let projectsSkipped = false;
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
     projectKind: projectKindAtFolder,
+    // Unknown while a project couldn't be loaded, since it may run an older version.
+    projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
     ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
@@ -987,12 +1026,20 @@ export function createApp(options: AppOptions = {}) {
       playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
+      async (adapterId, options) => localMultiplayer.configure(
+        project.id,
+        adapterId,
+        options,
+        adapterId === "custom" ? await gameRulesFile(project) : undefined,
+      ),
+      () => localMultiplayer.gameServices(project.id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    await restoreLocalMultiplayer(project);
     // Until the playtest page connects and holds its own lease, this one keeps
     // the preview from counting as unused.
     const url = await previews.holdWhile(project, "playtest:opening", () => previews.ensureStarted(project, false), signal);
@@ -1282,14 +1329,31 @@ export function createApp(options: AppOptions = {}) {
         void syncFileWatch(project.workspacePath);
   });
   /** Packs the project for export or publishing, and tells its plugins before and after. */
-  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+  /**
+   * Tells plugins a build started; the result reports how it ended, once. Publishing builds
+   * before the game's record exists and packages after, so its build ends in two steps.
+   */
+  const startBuild = (project: ProjectState, purpose: "export" | "publish") => {
     void pluginHooks.notify(project.workspacePath, "build.started", { purpose });
+    let ended = false;
+    return {
+      succeeded(artifact: Buffer): Buffer {
+        if (!ended) void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
+        ended = true;
+        return artifact;
+      },
+      failed(cause: unknown): void {
+        if (!ended) void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+        ended = true;
+      },
+    };
+  };
+  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+    const report = startBuild(project, purpose);
     try {
-      const artifact = await build();
-      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
-      return artifact;
+      return report.succeeded(await build());
     } catch (cause) {
-      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+      report.failed(cause);
       throw cause;
     }
   };
@@ -1309,7 +1373,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1324,6 +1388,12 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const entry = pluginServices.index.get(id);
     return entry?.manifest.icon ? readPluginIconAsset(entry.root, { type: "asset", path: entry.manifest.icon }) : undefined;
+  }, async (id, index) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    const screenshot = entry?.manifest.screenshots?.[index];
+    return entry && screenshot ? readPluginScreenshot(entry.root, screenshot.path) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
@@ -1349,8 +1419,9 @@ export function createApp(options: AppOptions = {}) {
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+      projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -1476,7 +1547,8 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = pluginServices.index.get(id);
-      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false) return [];
+      // Themes are the app's, so they follow the plugin's switch for every project.
+      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false || !pluginServices.onInEveryProject(id)) return [];
       return (entry.manifest.contributes?.themes ?? []).map((theme) => ({
         id: `${id}:${theme.id}`,
         plugin: id,
@@ -1512,6 +1584,7 @@ export function createApp(options: AppOptions = {}) {
         ...(entry.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
         ...(entry.manifest.longDescription ? { longDescription: text(entry.manifest.longDescription) } : {}),
         examples: (entry.manifest.examples ?? []).map(text),
+        ...(entry.manifest.screenshots ? { screenshots: entry.manifest.screenshots.map((shot) => ({ ...(shot.caption ? { caption: text(shot.caption) } : {}) })) } : {}),
         ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
         ...(entry.manifest.links?.homepage ? { homepage: entry.manifest.links.homepage } : {}),
         skills: storeSkills(entry),
@@ -1524,6 +1597,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.options ? { options: field.options } : {}),
         })),
         adds: pluginAdds(entry, text),
+        ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
     }));
   });
@@ -1574,6 +1648,32 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
+  app.get<{ Querystring: { path: string; role: "icon" | "screenshot" } }>("/plugin-market/images", {
+    schema: { querystring: { type: "object", required: ["path", "role"], additionalProperties: false, properties: {
+      path: { type: "string", maxLength: 500 }, role: { enum: ["icon", "screenshot"] },
+    } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.image(request.query.path, request.query.role).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Image not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400, immutable")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
+  app.get<{ Params: { id: string } }>("/plugin-market/avatars/:id", {
+    schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", pattern: "^[0-9]{1,12}$" } } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.avatar(request.params.id).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Avatar not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
   app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
     schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
   }, async (request, reply) => {
@@ -1627,18 +1727,7 @@ export function createApp(options: AppOptions = {}) {
         directory: pluginServices.packagesDirectory,
         download: downloadRelease,
       });
-      // What it asks for still needs the person's consent.
       return { id: entry.id, version: entry.version, capabilities: capabilityGrants(entry.manifest) };
-    } catch (cause) {
-      return storeReply(reply, cause);
-    }
-  });
-  app.post<{ Params: { publisher: string; name: string }; Body: { allowed: string[] } }>("/plugin-store/:publisher/:name/consent", {
-    schema: { body: { type: "object", required: ["allowed"], additionalProperties: false, properties: { allowed: { type: "array", maxItems: 100, items: { type: "string", maxLength: 300 } } } } },
-  }, async (request, reply) => {
-    try {
-      await pluginServices.consent(`${request.params.publisher}/${request.params.name}`, request.body.allowed);
-      return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
     }
@@ -1653,11 +1742,10 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
-  app.put<{ Params: { publisher: string; name: string }; Body: { enabled: boolean } }>("/plugin-store/:publisher/:name/enabled", {
-    schema: { body: { type: "object", required: ["enabled"], additionalProperties: false, properties: { enabled: { type: "boolean" } } } },
-  }, async (request, reply) => {
+  // Starts a plugin again after it stopped from crashing too often.
+  app.post<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/restart", async (request, reply) => {
     try {
-      await pluginServices.setEnabled(`${request.params.publisher}/${request.params.name}`, request.body.enabled);
+      await pluginServices.restart(`${request.params.publisher}/${request.params.name}`);
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
@@ -2289,7 +2377,7 @@ export function createApp(options: AppOptions = {}) {
       schema: toolRunSchema,
       bodyLimit: TOOL_RUN_BODY_LIMIT,
       preValidation: async (request, reply) => {
-        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
         const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
         if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
       },
@@ -2328,6 +2416,15 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
+  });
+
+  // The type a folder chosen to open names, so the new-project dialog starts on it.
+  app.post<{ Body: { workspacePath: string } }>("/projects/folder-type", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["workspacePath"], properties: { workspacePath: { type: "string", minLength: 1 } } } },
+  }, async (request, reply) => {
+    if (!path.isAbsolute(request.body.workspacePath)) return reply.code(400).send({ error: "Workspace path must be absolute" });
+    const type = await projectFolderType(request.body.workspacePath);
+    return type ? { type } : {};
   });
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
@@ -2811,13 +2908,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{ Params: { projectId: string }; Body: MediaModelDefaults }>(
     "/projects/:projectId/settings/generation-models",
-    { schema: { body: { type: "object", additionalProperties: true, properties: {
-      image: modelRefSchema, video: modelRefSchema, "3d": modelRefSchema,
-    } } } },
+    { schema: { body: { type: "object", additionalProperties: true, properties: Object.fromEntries(MEDIA_MODEL_USAGES.map((usage) => [usage, modelRefSchema])) } } },
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (Object.keys(request.body).some((key) => !["image", "video", "3d"].includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
+      if (Object.keys(request.body).some((key) => !(MEDIA_MODEL_USAGES as readonly string[]).includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
       for (const [usage, generator] of [["image", providerImages], ["video", providerVideos], ["3d", providerModels3D]] as const) {
         const ref = request.body[usage];
         const previous = project.mediaModelDefaults?.[usage];
@@ -2825,6 +2920,14 @@ export function createApp(options: AppOptions = {}) {
         const catalog = await generator.catalog();
         if (!catalog.models.some((model) => model.provider === ref.provider && model.id === ref.id)) {
           return reply.code(400).send({ error: `The selected ${usage === "3d" ? "3D" : usage} model is not available` });
+        }
+      }
+      for (const kind of AUDIO_KINDS) {
+        const ref = request.body[kind];
+        const previous = project.mediaModelDefaults?.[kind];
+        if (!ref || (ref.provider === previous?.provider && ref.id === previous.id)) continue;
+        if (!providerAudio.catalog().models.some((model) => model.provider === ref.provider && model.id === ref.id && model.capabilities.produces.includes(kind))) {
+          return reply.code(400).send({ error: `The selected ${kind.replace("-", " ")} model is not available` });
         }
       }
       return projects.setMediaModelDefaults(project.id, request.body);
@@ -2842,6 +2945,8 @@ export function createApp(options: AppOptions = {}) {
     if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
       const imported = await importProjectArchive(projects, upload, { name: request.query.name });
+      // A plugin's type previews as the version its `ohmygame.json` pins says.
+      await syncPluginType(imported).catch((err) => app.log.warn({ err, projectId: imported.id }, "Could not update the project's plugin type"));
       return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -3403,6 +3508,48 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
   app.get("/audio-models/catalog", async () => providerAudio.catalog());
+  for (const kind of AUDIO_KINDS) {
+    app.put<{ Body: AgentModelRef }>(`/audio-models/${kind}/default`, { schema: { body: modelRefSchema } }, async (request, reply) => {
+      if (!providerAudio.catalog().models.some((model) => model.provider === request.body.provider && model.id === request.body.id && model.capabilities.produces.includes(kind))) {
+        return reply.code(400).send({ error: `Audio model is not available for ${kind.replace("-", " ")}` });
+      }
+      await providerModelSettings.setDefaultMediaModel(kind, request.body);
+      return reply.code(204).send();
+    });
+    app.delete(`/audio-models/${kind}/default`, async (_request, reply) => {
+      await providerModelSettings.setDefaultMediaModel(kind);
+      return reply.code(204).send();
+    });
+  }
+  app.get("/settings/models/providers/elevenlabs", async () => elevenLabsSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/elevenlabs", {
+    schema: { body: { type: "object", additionalProperties: false, minProperties: 1, properties: {
+      apiKey: { type: "string", minLength: 1, maxLength: 10_000 },
+    } } },
+  }, async (request, reply) => {
+    try {
+      const result = await elevenLabsSettings.update(request.body);
+      catalogRefresh.invalidate("elevenlabs");
+      return result;
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
+    await elevenLabsSettings.clear();
+    catalogRefresh.invalidate("elevenlabs");
+    return reply.code(204).send();
+  });
+  app.get<{ Params: { provider: string }; Querystring: { search?: string; pageToken?: string } }>("/audio-providers/:provider/voices", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: {
+      search: { type: "string", maxLength: 200 },
+      pageToken: { type: "string", minLength: 1, maxLength: 2_000 },
+    } } },
+  }, async (request, reply) => {
+    try { return await providerAudio.voices(request.params.provider, request.query); }
+    catch (cause) {
+      if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {
@@ -3437,6 +3584,36 @@ export function createApp(options: AppOptions = {}) {
     catch (cause) { if (cause instanceof Error && "statusCode" in cause) return reply.code(Number(cause.statusCode)).send({ error: cause.message }); throw cause; }
   });
 
+  // The model a conversation with none of its own uses, in the picker's order:
+  // the saved default, Pi's preferred model, then the first coding agent's.
+  async function defaultPiModel(): Promise<RuntimeModel | undefined> {
+    const runtime = await getModelRuntime();
+    return preferredAgentModel(
+      resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
+      undefined,
+      configuredDefaultModel(dataDirectory, piAgentDirectory),
+    );
+  }
+  async function firstAgentModel(): Promise<AgentModelRef | undefined> {
+    const first = (await agentRuntimes.models()).models[0];
+    return first && { provider: first.provider, id: first.id };
+  }
+  /** Gives a conversation with no model the one a new conversation would start with, with its effort and account. */
+  async function startConversationOnDefault(project: ProjectState, conversation: StoredConversation): Promise<AgentModelRef | undefined> {
+    const defaults = agentRuntimes.settings.defaultModel();
+    const native = defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
+    const pi = native ? undefined : await defaultPiModel();
+    const model = native ? defaults!.model : pi ? { provider: pi.provider, id: pi.id } : await firstAgentModel();
+    if (!model) return undefined;
+    conversations.setModel(project, conversation, model);
+    if (pi) conversations.setReasoningLevel(project, conversation, effectiveReasoningLevel(pi, undefined, defaultReasoningLevel(dataDirectory, piAgentDirectory)));
+    if (isAccountRuntimeId(model.provider)) conversations.setAccountProfile(project, conversation, model.provider, agentRuntimes.settings.get(model.provider).defaultProfileId ?? "system");
+    if (native && defaults?.nativeReasoningLevel && native.nativeReasoningLevels?.includes(defaults.nativeReasoningLevel)) {
+      conversations.setNativeReasoningLevel(project, conversation, model, defaults.nativeReasoningLevel);
+    }
+    return model;
+  }
+
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
     async (request, reply) => {
@@ -3448,7 +3625,10 @@ export function createApp(options: AppOptions = {}) {
       }
       const defaults = agentRuntimes.settings.defaultModel();
       const defaultModel = !request.body?.model && defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
-      const requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      let requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      const piModel = requestedModel ? undefined : await defaultPiModel();
+      // With no Pi model the picker shows the first coding agent's, so start with that one too.
+      if (!requestedModel && !piModel) requestedModel = await firstAgentModel();
       if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {
         const agentModel = await agentRuntimes.model(requestedModel.provider, requestedModel.id);
         if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
@@ -3468,12 +3648,7 @@ export function createApp(options: AppOptions = {}) {
       if (requestedModel) {
         selectedModel = await availableModel(requestedModel.provider, requestedModel.id);
       } else {
-        const runtime = await getModelRuntime();
-        selectedModel = preferredAgentModel(
-          resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model))),
-          undefined,
-          configuredDefaultModel(dataDirectory, piAgentDirectory),
-        );
+        selectedModel = piModel;
       }
       if (requestedModel && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
@@ -3874,6 +4049,7 @@ export function createApp(options: AppOptions = {}) {
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
     } catch (cause) {
@@ -3924,9 +4100,11 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const selectedModel = await conversations.model(project, conversation);
+      let selectedModel = await conversations.model(project, conversation);
       if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
+      // A conversation started before any model was available runs on the one its picker shows now.
+      if (!selectedModel && !agents.sessionRuntime(project.id, conversation.summary.id)) selectedModel = await startConversationOnDefault(project, conversation);
       let mentions;
       try {
         mentions = await validateMentions(request.body.mentions ?? []);
@@ -4330,13 +4508,20 @@ export function createApp(options: AppOptions = {}) {
       if (building.has(project.id)) return reply.code(409).send({ error: "Wait for the web build to finish before publishing" });
       publishing.add(project.id);
       events.publish(project.id, "publish.started", {});
+      const build = startBuild(project, "publish");
       try {
+        const localDebug = localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN;
+        if (localDebug) await restoreLocalMultiplayer(project);
+        const cover = await projectCover(project.id);
+        // The game is built and checked first, then packaged once its record exists, so a
+        // published build can name the game for cloud saves.
+        const prepared = localDebug ? undefined : await artifacts.prepare(project, cover, request.body.multiplayer);
         const result = await publisher.publish(
           project,
-          await buildArtifact(project, "publish", async () => artifacts.create(project, await projectCover(project.id))),
+          prepared ? async (gameId) => build.succeeded(await prepared.package(gameId, { accessToken: request.body.accessToken })) : build.succeeded(await artifacts.createLocal(project, cover, request.body.multiplayer)),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
-        );
+        ).finally(() => prepared?.dispose());
         await projects.setPublication(project.id, {
           gameId: result.game.id,
           deploymentId: result.game.deploymentId,
@@ -4348,6 +4533,7 @@ export function createApp(options: AppOptions = {}) {
         events.publish(project.id, "publish.completed", { game: result.game });
         return reply.code(201).send(result);
       } catch (cause) {
+        build.failed(cause);
         const error = cause instanceof Error ? cause.message : String(cause);
         events.publish(project.id, "publish.error", { error });
         const statusCode = cause instanceof PublishError || cause instanceof RemotePublishError ? cause.statusCode : 502;
@@ -4480,11 +4666,28 @@ export function createApp(options: AppOptions = {}) {
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();
+    await localMultiplayer.close();
     await artifacts.close();
     await examples.close();
     await localPublisher?.close();
   });
   return app;
+}
+
+/**
+ * Published games sign players in through the OhMyGame cloud, which also hosts their pages.
+ * A development cloud on plain HTTP offers no sign-in.
+ */
+function publishedGameAccount(issuer: string | undefined): GameAccountConfig | undefined {
+  const account = issuer ? { issuer: issuer.replace(/\/+$/, "") } : undefined;
+  return isGameAccountConfig(account) ? account : undefined;
+}
+
+/** The game service published games keep cloud saves on; only an HTTPS origin qualifies. */
+function publishedGameService(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const origin = url.replace(/\/+$/, "") + "/";
+  return isCloudConfig({ serverUrl: origin, gameId: "check" }) ? origin : undefined;
 }
 
 

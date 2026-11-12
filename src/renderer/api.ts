@@ -32,6 +32,7 @@ import {
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type MediaModelDefaults,
+  type MediaModelUsage,
   type ImageModel,
   type ImageModelCatalog,
   type ModelAuthEvent,
@@ -86,7 +87,7 @@ import {
   ScheduleMessageRequest,
 } from "../shared/contracts.js";
 import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentAccountProfileRequest, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
-import type { AudioModelCatalog } from "../shared/audio.js";
+import type { AudioModelCatalog, AudioVoicePage } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -240,6 +241,11 @@ declare global {
 
 export async function createProject(input: CreateProjectRequest = {}): Promise<ProjectState> {
   return request("/projects", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** The type a folder chosen to open names, as the new-project dialog lists types; none when it doesn't say. */
+export async function getProjectFolderType(workspacePath: string): Promise<{ type?: string }> {
+  return request("/projects/folder-type", { method: "POST", body: JSON.stringify({ workspacePath }) });
 }
 
 export async function listProjects(): Promise<ProjectState[]> {
@@ -593,14 +599,21 @@ export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ confi
   notifyAgentModelsChanged();
   return result;
 }
-
-export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
-  const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {
-    method: "PUT",
-    body: JSON.stringify({ apiKey }),
-  });
+export async function updateElevenLabsSettings(apiKey: string): Promise<{ configured: boolean }> {
+  const result = await request<{ configured: boolean }>("/settings/models/providers/elevenlabs", { method: "PUT", body: JSON.stringify({ apiKey }) });
   notifyAgentModelsChanged();
   return result;
+}
+export async function removeElevenLabsSettings(): Promise<void> {
+  await request("/settings/models/providers/elevenlabs/credential", { method: "DELETE" });
+  notifyAgentModelsChanged();
+}
+/** One page of the voices an audio provider lists from its account. */
+export async function listAudioVoices(provider: string, query: { search?: string; pageToken?: string } = {}): Promise<AudioVoicePage> {
+  const params = new URLSearchParams();
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.pageToken) params.set("pageToken", query.pageToken);
+  return request(`/audio-providers/${encodeURIComponent(provider)}/voices${params.size ? `?${params}` : ""}`);
 }
 
 export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | null): Promise<{ configured: boolean; defaultVoiceId?: string }> {
@@ -611,6 +624,8 @@ export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | n
 }
 
 export interface VolcengineTtsPreviewInput {
+  /** The Doubao Speech model to test; speech synthesis when unset. Seed Audio reads the text as a description. */
+  model?: "seed-tts-2.0" | "seed-audio-1.0";
   text: string;
   voiceId?: string;
   language?: string;
@@ -669,8 +684,8 @@ export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
   return request("/image-models/catalog");
 }
 
-export async function setDefaultMediaModel(usage: "image" | "video" | "3d", model?: AgentModelRef): Promise<void> {
-  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : "/model3d-models/default";
+export async function setDefaultMediaModel(usage: MediaModelUsage, model?: AgentModelRef): Promise<void> {
+  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : usage === "3d" ? "/model3d-models/default" : `/audio-models/${usage}/default`;
   await request(endpoint, model ? { method: "PUT", body: JSON.stringify(model) } : { method: "DELETE" });
   notifyAgentModelsChanged();
 }
@@ -809,11 +824,6 @@ export async function turnOnProjectPlugin(projectId: string, id: string): Promis
   return undefined;
 }
 
-/** Allows what a plugin asks for, as the person agreed in the app. */
-export async function consentToPlugin(id: string, allowed: string[]): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
-}
-
 /** Installed plugins, one row per version. */
 /** Themes of the plugins the person has on, for Settings › Appearance. */
 export async function listPluginThemes(): Promise<import("../shared/plugins.js").PluginTheme[]> {
@@ -824,15 +834,18 @@ export async function listStorePlugins(): Promise<import("../shared/plugins.js")
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }
 
-/** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+/**
+ * Turns a plugin on or off in every project it suits, which allows what it
+ * asks for; projects that set it themselves keep that. Its themes follow it.
+ */
 export async function setStorePluginEveryProject(id: string, on: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/every-project`, { method: "PUT", body: JSON.stringify({ on }) });
+  void syncPluginTheme(listPluginThemes, on ? undefined : id);
 }
 
-/** The switch that stops a plugin everywhere, whatever projects say. */
-export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
-  await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
-  void syncPluginTheme(listPluginThemes, enabled ? undefined : id);
+/** Starts a plugin again after it stopped from crashing too often. */
+export async function restartStorePlugin(id: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/restart`, { method: "POST" });
 }
 
 /** Copies a plugin made in the Plugin Builder into `<folder>/<name>`, as a package to publish under `publisher`. */
@@ -1780,6 +1793,24 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
+/** The icon or a screenshot the market lists for a plugin version, by its path in the package. */
+export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role })}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+/** A market publisher's GitHub avatar, by GitHub's id for them. */
+export async function readPluginMarketAvatar(id: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/avatars/${encodeURIComponent(id)}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+/** One of an installed plugin's screenshots, by its place in the manifest. */
+export async function readPluginScreenshotImage(pluginId: string, index: number, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(pluginId)}/screenshots/${index}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);
 }
@@ -1819,12 +1850,8 @@ export async function inspectProjectPreview(projectId: string, settings: Project
 }
 
 
-export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
-export async function previewSeedAudio(prompt: string): Promise<Blob> {
-  const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
+/** The Doubao Speech connection; `distinctKeys` means the two services still use keys saved apart. */
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; distinctKeys?: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 
 /** A plugin panel a project's plugins offer, with its page's address. */
 export interface PluginPanel {

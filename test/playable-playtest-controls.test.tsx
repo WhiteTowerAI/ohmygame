@@ -104,18 +104,18 @@ describe("editor Playtest controls", () => {
 
     await act(async () => button("Playtest actions").click());
     const items =
-      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
     expect(Array.from(items, (item) => item.textContent)).toEqual([
       "Replay Playtest",
       "Forget seen Scenes",
     ]);
     await act(async () => items[0]!.click());
     expect(action).toHaveBeenCalledExactlyOnceWith("replay");
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
 
     await act(async () => button("Playtest actions").click());
     await act(async () =>
-      container
+      document
         .querySelectorAll<HTMLButtonElement>('[role="menuitem"]')[1]!
         .click(),
     );
@@ -130,7 +130,7 @@ describe("editor Playtest controls", () => {
     expect(button("试玩").dataset.tooltip).toBe("在新窗口中试玩");
     await act(async () => button("试玩操作").click());
     const items =
-      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
     expect(Array.from(items, (item) => item.textContent)).toEqual([
       "重新开始试玩",
       "清除已看过的场景",
@@ -156,7 +156,7 @@ describe("editor Playtest controls", () => {
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
       ),
     );
-    const items = container.querySelectorAll('[role="menuitem"]');
+    const items = document.querySelectorAll('[role="menuitem"]');
     expect(document.activeElement).toBe(items[0]);
     await act(async () =>
       items[0]!.dispatchEvent(
@@ -167,7 +167,7 @@ describe("editor Playtest controls", () => {
     await act(async () =>
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
     );
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     await act(async () => trigger.click());
     await act(async () =>
@@ -175,10 +175,10 @@ describe("editor Playtest controls", () => {
         new PointerEvent("pointerdown", { bubbles: true }),
       ),
     );
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     await act(async () => trigger.click());
     await act(async () => window.dispatchEvent(new Event("blur")));
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("disables both entry points while opening and closes a previously open menu", async () => {
@@ -193,7 +193,7 @@ describe("editor Playtest controls", () => {
     );
     expect(button("Playtest").disabled).toBe(true);
     expect(button("Playtest actions").disabled).toBe(true);
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 });
 

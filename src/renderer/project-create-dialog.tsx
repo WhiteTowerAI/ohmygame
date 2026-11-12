@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
+import { createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
@@ -17,7 +17,6 @@ import type {
 } from "../shared/contracts.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
-import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import "./project-create-dialog.css";
 
 /** What Home's prompt box hands over: it becomes the project's first message. */
@@ -115,17 +114,9 @@ export function ProjectCreateDialog({
   const wanted = chosenType ?? preferred;
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
-  // The plugin that adds the type turns on with the project, so creating allows what it asks for.
-  const typeOption = pluginTypes.find((option) => option.id === type);
-  const typePluginConsent = typeOption?.plugin && typeOption.asks?.length
-    ? { id: typeOption.plugin.id, displayName: typeOption.title, capabilities: typeOption.asks }
-    : undefined;
   // The mentioned plugins that are off and work in the type: creating the project turns them on.
   // What the prompt and type are now decides, not what Home sent.
   const turnOn = referenced.filter((plugin) => plugin.off && appWidePluginSuits(plugin.appliesTo, newProjectKind(type)));
-  // Those asking for more than the person allowed on Home say here what creating allows.
-  const allowedOnHome = new Map((firstMessage?.turnOn ?? []).map((plugin) => [plugin.id, plugin.asks ?? []]));
-  const turnOnConsent = turnOn.filter((plugin) => plugin.asks?.some((capability) => !allowedOnHome.get(plugin.id)?.includes(capability)));
   // Home's plugin type loads apart from the plugins.
   const ready = pluginsPhase === "ready"
     && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined);
@@ -137,6 +128,15 @@ export function ProjectCreateDialog({
     void getProjectLocation().then((value) => { if (active) setDefaultLocation(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+  // A folder that names its type starts on it; creating it as another type is refused.
+  useEffect(() => {
+    if (!workspacePath) return;
+    let active = true;
+    void getProjectFolderType(workspacePath).then(({ type: named }) => {
+      if (active && named) setChosenType(named);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [workspacePath]);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
   const [creating, setCreating] = useState(false);
@@ -172,12 +172,12 @@ export function ProjectCreateDialog({
   useEffect(() => {
     if (shown) return;
     // The type Home asked for may be gone; the person picks another rather than get the first.
-    if (loadFailed || typePluginConsent?.capabilities.length || turnOnConsent.length || (ready && type !== preferred)) setShown(true);
+    if (loadFailed || (ready && type !== preferred)) setShown(true);
     else if (ready && !started.current) {
       started.current = true;
       void submit();
     }
-  }, [shown, ready, loadFailed, typePluginConsent, turnOnConsent.length, type]);
+  }, [shown, ready, loadFailed, type]);
 
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
@@ -198,16 +198,12 @@ export function ProjectCreateDialog({
         ...(isAppProjectType(type) ? { type } : { projectType: type }),
         ...(workspacePath ? { workspacePath } : {}),
       };
-      if (typePluginConsent) await consentToPlugin(typePluginConsent.id, typePluginConsent.capabilities);
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
       const project = created.current.project;
-      // The person allowed what these ask for on Home, or by creating it here.
-      for (const plugin of turnOn) {
-        if (plugin.asks?.length) await consentToPlugin(plugin.id, plugin.asks);
-        await setProjectPlugin(project.id, plugin.id, true);
-      }
+      // Turning them on, and the type's plugin with the project, allows what they ask for.
+      for (const plugin of turnOn) await setProjectPlugin(project.id, plugin.id, true);
       const text = prompt.trim();
       if (!firstMessage || (!text && !firstMessage.attachments.length)) {
         onCreated(project);
@@ -278,20 +274,6 @@ export function ProjectCreateDialog({
             }}
             options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
         </Field>
-        {typePluginConsent?.capabilities.length ? (
-          <div className="new-project-consent">
-            <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
-            <PluginCapabilityList capabilities={typePluginConsent.capabilities} />
-            <NativeCodeWarning asks={typePluginConsent.capabilities} />
-          </div>
-        ) : null}
-        {turnOnConsent.map((plugin) => (
-          <div className="new-project-consent" key={plugin.id}>
-            <p>{t("createDialog.pluginConsent", { name: plugin.displayName })}</p>
-            <PluginCapabilityList capabilities={plugin.asks!} />
-            <NativeCodeWarning asks={plugin.asks!} />
-          </div>
-        ))}
         {/* Only a folder shown by its path needs saying how it is used. */}
         <Field label={t("creator.workspace")} hint={workspacePath ? t("createDialog.usesFolder") : locationPath ? t("createDialog.newFolder") : undefined}>
           {(props) => (

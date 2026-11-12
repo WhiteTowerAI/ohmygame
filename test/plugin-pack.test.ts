@@ -129,10 +129,12 @@ describe("plugin template", () => {
     expect(packed).toContain("template/gitignore");
   });
 
-  it("refuses a publisher the app keeps, and names that can't be ids", () => {
+  it("refuses the Plugin Builder's publisher, and names that can't be ids", async () => {
     const make = (publisher: string, name = "maker") => () => pluginTemplate({ publisher, name, displayName: "Maker", description: "Makes", parts: [] });
     expect(make("personal")).toThrow("kept for OhMyGame");
-    expect(make("ohmygame")).toThrow("kept for OhMyGame");
+    // OhMyGame makes its own plugins for its npm scope, and the check takes them.
+    expect(make("ohmygame")).not.toThrow();
+    expect(await checkFolder(await folder(make("ohmygame")()))).toEqual([]);
     expect(make("Acme")).toThrow("isn't a publisher");
     expect(make("acme", "my_plugin")).toThrow("isn't a plugin name");
   });
@@ -150,9 +152,12 @@ describe("plugin packages for authors", () => {
   });
 
 
-  it("version with the plugin API they check for", async () => {
-    for (const name of ["plugin-cli", "create-ohmygame-plugin", "plugin-ui"])
+  it("version with the plugin API they check for, under the app's license", async () => {
+    const license = await readFile("LICENSE", "utf8");
+    for (const name of ["plugin-cli", "create-ohmygame-plugin", "plugin-ui"]) {
       expect(JSON.parse(await readFile(path.join("packages", name, "package.json"), "utf8")).version, name).toBe(PLUGIN_HOST_API_VERSION);
+      expect(await readFile(path.join("packages", name, "LICENSE"), "utf8"), name).toBe(license);
+    }
   });
 
   it.skipIf(!npm)("make a plugin, check it and pack it from their built files", { timeout: 60_000 }, async () => {
@@ -168,6 +173,8 @@ describe("plugin packages for authors", () => {
     const packed = run("plugin-cli/dist/cli.mjs", "pack", "maker", "--pack-destination", ".");
     expect(packed.status, packed.stderr).toBe(0);
     expect(await readdir(work)).toContain("acme-maker-0.1.0.tgz");
+    for (const script of ["plugin-cli", "create-ohmygame-plugin"])
+      expect(await readFile(path.join("packages", script, "dist", "THIRD_PARTY_LICENSES.md"), "utf8"), script).toContain("## typebox ");
     await writeFile(path.join(work, "maker", "package.json"), JSON.stringify({ name: "@acme/maker", version: "0.2.0" }));
     const refused = run("plugin-cli/dist/cli.mjs", "pack", "maker", "--pack-destination", "refused");
     expect(refused.status).toBe(1);

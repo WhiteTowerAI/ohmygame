@@ -31,15 +31,17 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
-Community plugins may carry native code. The add review and a project's
-Plugins sheet say so plainly, and nothing native runs until the person
-approves `native` for that plugin.
+Community plugins may carry native code. The add review says so plainly,
+and nothing native runs until the person adds or turns on that plugin.
 
 ## What the person approves
 
-Adding a package allows nothing (`PluginGrants`). What the manifest asks for
-(`capabilityGrants`) waits until the person approves it on the plugin's page
-or when they turn it on in a project:
+Adding a plugin, after its review, or turning it on is the person's approval:
+what the manifest asks for (`capabilityGrants`) is allowed then
+(`PluginGrants`), with no second prompt. A plugin the agent installed with
+`install_plugin` is allowed nothing until the person turns it on. A project's
+file can turn on a plugin the person never turned on for every project, so a
+project from someone else asks for **Allow** once for its folder:
 
 | Grant | Allows |
 | --- | --- |
@@ -59,14 +61,22 @@ What was allowed stays with the app's data for that project, so a project that
 comes from someone else asks again.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
-An update asks again only for what the new version adds (`newAsks`). Uninstalling
-a plugin's last version forgets what was allowed.
+An update the person adds allows what the new version adds (`newAsks`), shown
+in its review. Uninstalling a plugin's last version forgets what was allowed.
 
 ## Who can publish what
 
 - The publishers `ohmygame` and `personal` can't be added from outside the
-  app (`PluginServices.installAdded`), so no package stands in for a bundled
-  plugin or one the Plugin Builder made.
+  app (`assertAddablePlugin`), so no package stands in for a bundled plugin or
+  one the Plugin Builder made. The one exception is OhMyGame's own plugins
+  from its `@ohmygame` npm scope, on npmjs or npmmirror, which only the
+  OhMyGame organization can publish to, and a folder in development. GitHub,
+  a file, a plain folder and another registry can claim any publisher, so
+  they can't use `ohmygame`. Such a package never replaces a bundled plugin
+  of the same id: it comes from another source (below). Keep each
+  `ohmygame/` id either bundled or on npm, never both: a plugin that moves
+  between them takes a new id, since one installed from npm stays beside the
+  bundled copy and its newer version wins.
 - A package joins an installed plugin only from the same source, the same
   npm scope or GitHub repository; from anywhere else the person uninstalls
   it first, which clears its approvals and settings. Settings and data kept
@@ -78,6 +88,17 @@ a plugin's last version forgets what was allowed.
   reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
+- Market icons, screenshots and avatars come through the daemon, not the
+  page, and are served with `nosniff` and a sandboxing CSP. Icons and
+  screenshots are only those the current index lists, read from beside the
+  index on its own host, by a path that stays below the index's folder. An
+  icon is the type its name says, and is checked like an installed plugin's
+  (PNG, WebP, or static SVG without scripts, styles or outside references);
+  a screenshot must be a PNG, JPEG or WebP. Avatars are only from
+  `avatars.githubusercontent.com`, for a package whose source is verified, so
+  a package can't borrow someone else's face by naming their repository. An
+  index can't make the app read from anywhere else, and no redirect is
+  followed.
 
 ## Credentials and logs
 
@@ -96,7 +117,8 @@ a plugin's last version forgets what was allowed.
 ## When something goes wrong
 
 A plugin blamed for three host crashes or hangs within five minutes is
-quarantined; a panel that stops answering can be reloaded or turned off; and
+quarantined until **Restart**; a panel that stops answering can be reloaded or
+turned off; and
 safe mode starts the app with every plugin off. See
 [When a plugin misbehaves](plugins.md#when-a-plugin-misbehaves).
 

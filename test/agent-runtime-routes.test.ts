@@ -17,6 +17,7 @@ import {
   type AgentAccountProfileStatus,
 } from "../src/shared/agent-runtimes.js";
 import type { AgentModelCatalog, ConversationDetail, ConversationSummary, ProjectState } from "../src/shared/contracts.js";
+import type { StorePlugin } from "../src/shared/plugins.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 beforeEach(() => {
@@ -166,6 +167,8 @@ describe("coding agent routes", () => {
     const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
     expect(inspected.status).toBe(200);
     expect((await call("POST", "/plugin-sources/install", { ...payload, digest: inspected.body.digest })).status).toBe(201);
+    // It adds only an agent, which projects' switches don't reach.
+    expect((await call<StorePlugin[]>("GET", "/plugin-store/plugins")).body.find((plugin) => plugin.id === "acme/fake-acp")).toMatchObject({ appOnly: true });
     const id = "agent.acme.fake-acp.fake";
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
@@ -187,11 +190,31 @@ describe("coding agent routes", () => {
     expect(await call("POST", `${base}/turns`, { prompt: "Hello" })).toMatchObject({ status: 202 });
     await vi.waitFor(async () => expect(JSON.stringify((await call<ConversationDetail>("GET", base)).body)).toContain("ACP reply"), { timeout: 10_000 });
 
-    expect((await call("PUT", "/plugin-store/acme/fake-acp/enabled", { enabled: false })).status).toBe(204);
+    expect((await call("PUT", "/plugin-store/acme/fake-acp/every-project", { on: false })).status).toBe(204);
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.some((agent) => agent.id === id)).toBe(false),
     );
     expect((await call("POST", `/agent-runtimes/${id}/recheck`)).status).toBe(404);
+  });
+
+  it.skipIf(process.platform === "win32")("gives a conversation with no model the coding agent's the picker shows when Pi has none", async () => {
+    const { call, claude } = await start();
+    const project = (await call<ProjectState>("POST", "/projects", { type: "web-game" })).body;
+    const earlier = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    const earlierBase = `/projects/${project.id}/conversations/${earlier.id}`;
+    expect((await call<ConversationDetail>("GET", earlierBase)).body.settings.model).toBeUndefined();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    expect((await call<AgentModelCatalog>("GET", "/models?runtimes=1")).body.models[0]).toMatchObject({ provider: "claude-code-cli", id: "sonnet" });
+    const sonnet = { provider: "claude-code-cli", id: "sonnet" };
+
+    const created = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    expect((await call<ConversationDetail>("GET", `/projects/${project.id}/conversations/${created.id}`)).body.settings.model).toEqual(sonnet);
+
+    // One made before any model was set up runs on the default from its next message, with its effort.
+    expect((await call("PUT", "/models/default", { model: sonnet, nativeReasoningLevel: "high" })).status).toBe(204);
+    expect((await call("POST", `${earlierBase}/turns`, { prompt: "Make a game" })).status).toBe(202);
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", earlierBase)).body.agent.status).toBe("running"), { timeout: 10_000 });
+    expect((await call<ConversationDetail>("GET", earlierBase)).body.settings).toMatchObject({ model: sonnet, nativeReasoningLevel: "high" });
   });
 
   it("accepts only the agent's own permission modes", async () => {

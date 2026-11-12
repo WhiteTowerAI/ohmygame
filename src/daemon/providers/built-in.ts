@@ -1,8 +1,14 @@
 import {
-  DOUBAO_SEED_AUDIO_PROVIDER_NAME,
+  DOUBAO_SPEECH_PROVIDER_ID,
   DOUBAO_SPEECH_PROVIDER_NAME,
 } from "../../shared/audio.js";
+import { DoubaoSpeechProvider } from "../doubao-speech-provider.js";
 import type { DoubaoVoiceSettingsStore } from "../doubao-voice-settings.js";
+import {
+  ELEVENLABS_PROVIDER_NAME,
+  ElevenLabsAudioProvider,
+} from "../elevenlabs-audio-provider.js";
+import type { ElevenLabsSettingsStore } from "../elevenlabs-settings.js";
 import type { MediaProviderKeyStore } from "../media-provider-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "../minimax-models.js";
 import type { MinimaxSettingsStore } from "../minimax-settings.js";
@@ -11,8 +17,6 @@ import {
   SEEDANCE_PROVIDERS,
 } from "../seedance-models.js";
 import type { SeedanceSettingsStore } from "../seedance-settings.js";
-import { VolcengineSeedAudioProvider } from "../volcengine-seed-audio-provider.js";
-import { VolcengineTtsProvider } from "../volcengine-tts-provider.js";
 import type { MediaProviderEntry } from "./registry.js";
 
 /** The stores that keep each built-in provider's key, and what their adapters need. */
@@ -26,6 +30,7 @@ export interface BuiltInProviderSources {
   seedance: SeedanceSettingsStore;
   minimax: MinimaxSettingsStore;
   doubaoVoice: DoubaoVoiceSettingsStore;
+  elevenLabs: ElevenLabsSettingsStore;
   /** Network function for the audio services, injectable by tests. */
   audioFetch?: typeof fetch;
   enabled: (providerId: string) => boolean;
@@ -62,33 +67,28 @@ export function builtInMediaProviders(
       clear: () => sources.minimax.clear(id),
     })),
     {
-      id: "volcengine-tts",
+      id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       capabilities: ["audio"] as const,
-      configured: () => Boolean(sources.doubaoVoice.key("volcengine-tts")),
-      // Disconnecting one Doubao service keeps the other's key and the default voice.
-      clear: () => sources.doubaoVoice.setService("volcengine-tts", null),
-      audio: new VolcengineTtsProvider(
-        () => sources.doubaoVoice.key("volcengine-tts"),
-        sources.audioFetch,
-        undefined,
-        () => sources.enabled("volcengine-tts"),
-        () => sources.doubaoVoice.defaultVoiceId(),
-      ),
+      configured: () => sources.doubaoVoice.get().configured,
+      clear: () => sources.doubaoVoice.clear(),
+      audio: new DoubaoSpeechProvider({
+        key: (service) => sources.doubaoVoice.key(service),
+        defaultVoiceId: () => sources.doubaoVoice.defaultVoiceId(),
+        enabled: () => sources.enabled(DOUBAO_SPEECH_PROVIDER_ID),
+        request: sources.audioFetch,
+      }),
     },
     {
-      id: "volcengine-seed-audio",
-      name: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
+      id: "elevenlabs",
+      name: ELEVENLABS_PROVIDER_NAME,
       capabilities: ["audio"] as const,
-      configured: () =>
-        Boolean(sources.doubaoVoice.key("volcengine-seed-audio")),
-      clear: () =>
-        sources.doubaoVoice.setService("volcengine-seed-audio", null),
-      audio: new VolcengineSeedAudioProvider(
-        () => sources.doubaoVoice.key("volcengine-seed-audio"),
+      // Disconnected through its own credential route, so it has no `clear` here.
+      configured: () => Boolean(sources.elevenLabs.key()),
+      audio: new ElevenLabsAudioProvider(
+        () => sources.elevenLabs.key(),
         sources.audioFetch,
-        undefined,
-        () => sources.enabled("volcengine-seed-audio"),
+        () => sources.enabled("elevenlabs"),
       ),
     },
   ];

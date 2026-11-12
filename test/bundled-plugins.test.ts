@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -47,7 +47,8 @@ describe("bundled plugins", () => {
         ["wechat-minigame", "wechat-minigame"],
       ] as const) {
         // Off in every project until the person turns it on there, but not stopped.
-        expect(services.grants.plugin(`ohmygame/${name}`), name).toBeUndefined();
+        // Allowed with the app, yet off until the person turns it on.
+        expect(services.grants.plugin(`ohmygame/${name}`)?.everyProject, name).toBeUndefined();
         expect(services.onInEveryProject(`ohmygame/${name}`), name).toBe(false);
         expect(skillNames(services, `ohmygame/${name}`)).toEqual([skill]);
         expect(names(services, `ohmygame/${name}`)).toEqual(name === "aseprite" || name === "tiled"
@@ -70,10 +71,35 @@ describe("bundled plugins", () => {
       expect(names(services, "ohmygame/game-studio")).toEqual(["general", "godot-game", "interactive-story"]);
       expect(skillNames(services, "ohmygame/game-studio")).toEqual(["game-foundations", "game-qa", "game-studio"]);
       expect(services.grants.plugin("ohmygame/game-studio")?.enabled).toBe(true);
-      expect(names(services, "ohmygame/threejs-world")).toEqual(["web-game"]);
-      expect(skillNames(services, "ohmygame/threejs-world")).toEqual(["threejs-world"]);
     } finally {
       await services.close();
+    }
+  });
+
+  it("forgets a bundled plugin the app no longer brings", async () => {
+    const store = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-gone-")), "store");
+    const folders = async (names: string[]) => {
+      const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
+      for (const name of names) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
+      return directory;
+    };
+    const start = async (directory: string) => {
+      const services = new PluginServices({ directory: store, bundled: directory });
+      await services.ready();
+      return services;
+    };
+    // The update also moved the app, as installers that keep each version apart do.
+    const before = await folders(["game-studio", "tiled"]);
+    const first = await start(before);
+    expect(first.index.get("ohmygame/tiled")).toBeDefined();
+    await first.close();
+    await rm(before, { recursive: true });
+    const second = await start(await folders(["game-studio"]));
+    try {
+      expect(second.index.get("ohmygame/tiled")).toBeUndefined();
+      expect(second.index.get("ohmygame/game-studio")).toBeDefined();
+    } finally {
+      await second.close();
     }
   });
 });

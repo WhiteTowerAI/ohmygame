@@ -93,9 +93,6 @@ remaining work and an actionable next step before closing it.
    and PR into `dev`. Collect changes from merged PRs since the previous release;
    ordinary PRs do not update the changelog. Follow the
    [changelog format and checks](desktop-releases.md#release-notes).
-   For a major release (for example beta 5), also add a one-line entry to the
-   **News** section of both `README.md` and `README.zh-CN.md`, linking its
-   release notes, and remove the oldest entry so at most three remain.
    Also list compatibility code that is due with `git grep -n "compat:"` and
    remove it in a PR into `dev` first; see [compatibility](compatibility.md).
 2. Verify the release candidate's public checks and relevant platform, model,
@@ -135,7 +132,9 @@ For an urgent released-version fix, start a `fix/<short-name>` branch from
 carry the plugin API version, `PLUGIN_HOST_API_VERSION` in
 `src/shared/plugin-manifest.ts`, and a test keeps their `version` equal to it.
 When a release raises that version, publish all three from that release's
-commit, signed in to npm as a member of the `@ohmygame` organization:
+commit once the release is out, since a plugin they make needs its plugin API.
+Sign in to npm as a member of the `@ohmygame` organization, and check each
+package's files with `npm pack --dry-run` first:
 
 ```sh
 (cd packages/plugin-ui && npm publish --access public)
@@ -145,3 +144,28 @@ commit, signed in to npm as a member of the `@ohmygame` organization:
 
 The last two build their `dist/` from the app's code before packing
 (`prepack`), so run them from a checkout with dependencies installed.
+
+## Publishing the SDK
+
+`@ohmygame/sdk` is released on its own, from the
+[SDK release workflow](../.github/workflows/release-sdk.yml), whenever its
+changes should reach games; the desktop app copies the SDK from this repository
+and does not wait for it.
+
+1. In a PR into `dev`, raise `version` in `packages/sdk/package.json` and add
+   its section to `packages/sdk/CHANGELOG.md`, `## [0.0.3] - YYYY-MM-DD`,
+   listing what games and their developers can notice. Run `bun install` so
+   `bun.lock` records the new version. A change to the room protocol also
+   follows [protocol versions](multiplayer.md#protocol-versions): add a version,
+   never change one games already speak.
+2. Optionally run the workflow by hand on that branch: it runs every check and
+   packs the package without publishing it. GitHub offers the manual run only
+   once the workflow is on `main`.
+3. Once the PR is merged, tag the merge commit `sdk-v<version>`, for example
+   `git tag sdk-v0.0.3 <commit> && git push origin sdk-v0.0.3`. The workflow
+   checks that the tag, `package.json` and the changelog agree, runs the SDK's
+   tests, and publishes with npm provenance.
+
+The workflow publishes with the `NPM_TOKEN` repository secret, an npm
+automation token of a member of the `@ohmygame` organization. A tag whose
+version is already on npm fails at the publish step; raise the version instead.

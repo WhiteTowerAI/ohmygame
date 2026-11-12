@@ -1,5 +1,5 @@
 {
-  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "$schema": "https://www.ohmygame.ai/schema/plugin-2.json",
   "id": "ohmygame/wechat-minigame",
   "version": "0.1.0",
   "engines": {
@@ -14,9 +14,7 @@
   ],
   "beta": true,
   "icon": "./assets/icon.svg",
-  "categories": [
-    "publishing"
-  ],
+  "categories": ["engine", "publishing"],
   "appliesTo": [
     "general"
   ],

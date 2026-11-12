@@ -14,26 +14,77 @@ from the [plugin market](#the-plugin-market).
 ## Browse plugins
 
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
-the route as `#/plugins?tab=installed|discover|mine`. Tabs show no counts;
-**Installed** has a dot when an installed plugin has an update.
+the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
+default. Tabs show no counts; **Installed** has a dot when an installed plugin
+has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
+Installed share: the category chips, sorting, cards, the front page and the
+market plugin dialog.
 
-- **Installed** holds what others made: bundled, prepared, and added from npm or
-  GitHub. It groups them by their `categories` into **Game creation**,
-  **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
-  shows up to six cards and a **View all**. A **Category** filter narrows them
-  to what they add; **Skills** lists each of their Skills on its own instead.
-  Search shows every match in one list.
+Plugins are sorted into the [categories](#more-manifest-fields) they declare.
+A plugin is listed in each category it names but grouped under its first, and
+one with none is under **Other**. Search shows every match in one list. An
+installed plugin without an icon shows its first letter on a colour its id
+picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
+
+The marks beside a plugin's name are defined once (`src/renderer/plugin-marks.tsx`).
+**Official** is the only icon: a solid blue seal on OhMyGame's own plugins,
+bundled or from its `@ohmygame` npm scope. Everything else is a quiet text
+label (**Beta**, **Included**, **In development**, **Update available**), red
+only when it needs the person (**Stopped**, **Blocked**, a development build
+that failed).
+
+- **Installed** holds every installed plugin: bundled, prepared, added from
+  npm, GitHub or this computer, and the person's own. It is where plugins are
+  switched on and off. A row of chips offers **All** and each category something here is
+  in. Plugins with an update come first, under **Updates**, then a group for
+  each category, each with up to six cards and a **View all**. A
+  **Contains** filter narrows them to what they add; **Skills** lists each of
+  their Skills on its own instead.
   Each card says whether the plugin is on in every project or in chosen ones,
-  and its switch changes that without moving the card. Turning on one that
-  asks for more than was allowed asks first, saying it will run in every
-  project it suits. One stopped everywhere from its page says **Disabled** and
-  has no switch.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins under
-  **Featured** and **On npm**, filtered by what they add. One that's installed
-  says so and opens its page.
-- **Mine** holds what the person can edit: **Create a plugin with AI**, the
-  plugins they made (`personal/<name>`) or added from this computer, then the AI
-  workspaces.
+  and its switch changes that without moving the card. Turning one on is
+  what allows it: there is no second prompt.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
+  from a side list as in an app store (`MarketRail`): **Overview**, **All
+  plugins**, each category with how many plugins it has, and two filters,
+  **Official** and **Source verified**. The counts follow the search and
+  filters, and a category nothing is in is left out. On a narrow window the
+  side list becomes a row above the cards.
+  - **Overview** with more than twelve plugins is the same few rows however
+    many there are (`marketFront`): **Featured** (picked by the index),
+    **Recommended** (the market's score, below), **New** (first published in
+    the last 90 days) and **Recently updated**. Each plugin shows once, in the
+    first row that takes it, and each row has **View all**. A search or filter
+    shows one list instead.
+  - Any other view is one list with its count, a **Contains** filter and an
+    order: **Recommended**, **Most downloaded**, **Newest**, **Recently
+    updated** or **Name**. It shows 24 cards at a time with **Show more**.
+  - A card is one button. It shows the plugin's icon, or its first letter,
+    then its name and marks (**Installed** among them) and description. Its
+    last line has the publisher at the left, cut short if long, and the
+    version and weekly downloads at the right.
+  - A card opens the plugin in a dialog over the list, from the index alone:
+    its description and publisher (after their GitHub avatar); a row of its
+    numbers, as an app store shows them (weekly downloads, stars, version,
+    size, when it was updated); its screenshots, long description (**About**),
+    what it adds and asks for; and its categories, project types, first
+    publish, npm package and repository, with whether its source is verified.
+    It doesn't load the package's README: that is written for developers,
+    often only in English, and would need its Markdown and pictures made safe;
+    the manifest's localized `longDescription` and screenshots are the page,
+    and the npm link leads to the README. The dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
+    the listed version, or **Manage** for an installed plugin, which opens its
+    page. A link to a plugin that isn't installed opens the same dialog over
+    Discover.
+- **Mine** is for making plugins: **Create a plugin with AI** across the top,
+  then **Your plugins**, a card for each plugin the person makes, as projects
+  are (`MinePlugins` in `plugin-builder.tsx`). A plugin made with AI
+  (`personal/<name>`) opens its AI workspace without a dialog, and a draft not
+  installed yet is a card too; each says whether it's installed, and when its
+  workspace was last changed. One developed from a folder opens its page. A
+  package added from a folder or file is someone's release, so it's only under
+  Installed, where every plugin is switched on and off. A card's menu opens the
+  plugin's page, any earlier workspace of the plugin, or deletes its workspace,
+  which keeps the installed plugin.
 
 A project's **Plugins…** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -43,34 +94,52 @@ plugin stays on. **Manage all plugins** opens the Plugins page.
 
 A plugin's page has **About** (the long description and Try it prompts),
 **Skills**, and **Settings** tabs, beside a **Management** card with the
-**Every project** switch, **Disable everywhere** (which stops it in every
-project, whatever they say, until **Enable**), version, source, and actions. A
-Try it prompt turns the plugin on in the project it starts in, mentions it,
-and waits until what the plugin asks for is allowed.
+**Every project** switch, version, source, and actions. A plugin that stopped
+after crashing shows **Restart** there. A Try it prompt turns the plugin on in
+the project it starts in and mentions it.
 
 ## Files
 
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
-  `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
+  `schemas/plugin-2.json`, and `ohmygame.json`'s is `schemas/project-1.json`
+  (`bun run plugin:schema` rebuilds both; a test fails when one is out of
+  date). Each file's `$schema` names it on the website,
+  `https://www.ohmygame.ai/schema/…`, which serves `schemas/` from this
+  repository's `main` branch (a rewrite in the `ohmygame-web` repository), so
+  a release publishes it. Ids are
   `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
   says so and, in the desktop app, offers the update; one made for an API this
-  app has left says its author needs to update it.
+  app has left says its author needs to update it. That range alone decides
+  whether a plugin needs a newer app: `validatePluginManifest` leaves out a
+  field, a `categories` or `contributes.hooks` value, or a theme token this app
+  doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
+  something newer as a nice-to-have still installs on an older app, without it.
+  A value whose form can't be told apart, such as an unknown key in a choice of
+  objects, is still refused, and so are names in a map, which stay the
+  plugin's own. `ohmygame-plugin check` warns about each ignored entry, so a
+  typo doesn't go unnoticed, and the Plugin Builder treats them as errors.
 - **Project file:** `ohmygame.json` at a project's root names its type and how
   its plugins differ from the person's choice for every project
   (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
   plugin that asks for nothing) or `false` (off here). The type's plugin is
   always listed at a version. It asks for plugins; it never allows them.
+  Every project has one, and its type is the project's: see
+  [runtime persistence](runtime.md#persistence). Publishing a game leaves it
+  out.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
   - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
-  - `grants.json`: per plugin what the person allowed, whether it is stopped
-    everywhere (`enabled`) and their choice for every project
-    (`everyProject`), and what each project folder allows (by real path);
+  - `grants.json` (`schema` 2): per plugin what the person allowed and their
+    choice for every project (`everyProject`), and which plugins each project
+    folder allows (by real path). Schema 1 is upgraded where it loads: a
+    plugin stopped everywhere becomes off in every project, and projects that
+    turn it on ask again; what the installed plugins ask for is allowed, since
+    adding them now allows it;
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
@@ -186,8 +255,8 @@ prompt used.
   **Copy log**.
 - **Quarantine.** A plugin blamed for three host crashes or hangs within
   five minutes is quarantined (`ExtensionHosts`): its calls are refused, its
-  page and card say it stopped, and it stays so until it is turned on again
-  or the app restarts.
+  page and card say it stopped, and it stays so until **Restart** on its page
+  (`POST /plugin-store/:publisher/:name/restart`) or the app restarts.
 - **A panel that stops answering.** While a page with the bridge shows, the
   app pings it every five seconds and the bridge answers by itself. After
   fifteen seconds without an answer the app offers to wait, reload the
@@ -273,14 +342,14 @@ was opened.
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
-| Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts` |
+| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -375,9 +444,9 @@ was opened.
   are on, each from its newest version.
 - Store: `GET /plugin-store/plugins` (each with `everyProject`),
   `POST /plugin-store/releases`,
-  `POST /plugin-store/:publisher/:name/consent`,
-  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`),
-  `PUT /plugin-store/:publisher/:name/enabled` (stops it everywhere),
+  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`, which allows
+  what it asks for when turning it on),
+  `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
 - A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
@@ -390,10 +459,10 @@ was opened.
   version moves the project to another installed one, which is both an
   update and a rollback. It writes only what differs
   from the every-project choice, and turning one on allows it for the
-  folder. A project without `ohmygame.json` gets one the first time it
-  needs one, typed `general`, or its own core type. Turning on one never
-  allowed asks first in the app, then posts the consent. The type's plugin
-  can't be turned off.
+  folder. A project without `ohmygame.json`, from before every project had
+  one, gets one the first time it needs one, typed `general`, or its own core
+  type. Turning one on allows what it asks for. The type's plugin can't be
+  turned off.
 - A plugin's page reads `GET /plugin-store/plugins`: its icon, long
   description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
   Skill contents and folder come through their own routes
@@ -411,19 +480,17 @@ was opened.
   `not-applicable`, so it doesn't run.
 - Mentions: `@` offers the plugins that suit the project, marking those off
   there (`off`) with what they ask for that isn't allowed yet (`asks`).
-  Picking one that is off turns it on in the project first, asking for
-  consent if needed; a prompt that mentions a plugin not on in its project
-  gets a 409.
+  Picking one that is off turns it on in the project first; a prompt that
+  mentions a plugin not on in its project gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
   from `GET /project-types` (with what each type's plugin `asks` for), then
   a link to the plugins that add types (`#/plugins?adds=projectType`). There
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
-  except those that add types, which are picked as the type. Mentioning one
-  that is off asks for its consent, if needed. The new-project dialog then
-  turns on the mentioned plugins that are off and work in the type it
-  creates, going by the prompt and type it ends with, and lists there what
-  creating allows for any whose consent Home didn't ask for.
+  except those that add types, which are picked as the type. The new-project
+  dialog turns on the mentioned plugins that are off and work in the type it
+  creates, going by the prompt and type it ends with. It shows itself only
+  when the types failed to load or the type it would create isn't Home's.
 
 ## Plugins for every project
 
@@ -437,13 +504,12 @@ plugin itself in `ohmygame.json`.
 
 `resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
 plugins from the plugins its `ohmygame.json` names, then those on in every
-project that it suits and doesn't turn off, at their newest version. Turning
-one that asks for anything on in every project shows what it asks for and that
-it will run in each of those projects; the person's consent, once, is all it
-needs, with no approval per folder. A bundled plugin that starts off is never
-allowed at startup, only by that consent.
-A plugin a project's file names needs that approval too, unless it only adds
-Skills, since the file may come from someone else. `PluginServices.everyProject`
+project that it suits and doesn't turn off, at their newest version. Adding a
+plugin or turning it on, in every project or in one, allows what it asks for;
+a bundled plugin is allowed when the app installs it. A plugin on in every
+project needs no approval per folder. One that only a project's file turns on
+needs **Allow** once for that folder, unless it only adds Skills, since
+the file may come from someone else. `PluginServices.everyProject`
 and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
@@ -451,15 +517,18 @@ then the others by id. They have no per-Skill switches. Mentions keep
 `plugin://web-game-studio@ohmygame` names a bundled one.
 
 A project that names an older version keeps running it, in place of the newest.
-**Disable everywhere** on a plugin's page (`enabled: false`) stops it in every
-project, whatever its file says.
 
 `src/daemon/preinstalled-plugins.ts` installs the versions in
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
 same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled.
+removed, later releases included. One the app stops bringing is listed in
+`RETIRED` there: the copy it installed is uninstalled once, and a version
+installed apart is kept. Bundled plugins are indexed from `plugins/`
+and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
+index from there, outside the store, is dropped if its folder is gone, which
+covers a plugin the app stopped bringing and one an earlier install kept
+elsewhere.
 
 ## Model providers
 
@@ -523,34 +592,53 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
 
 ## Making a plugin
 
-The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
-(`src/daemon/pi-agent.ts`) follow the rules in `src/daemon/plugin-authoring.ts`.
+Agents make plugins with the `plugin-creator` Skill
+(`src/daemon/plugin-authoring.ts`), which `src/daemon/pi-agent.ts` writes to
+the Pi agent folder at startup and every coding agent gets with OhMyGame's
+other Skills. Its `SKILL.md` holds what every plugin needs; each part (Skills,
+panels, native code, MCP servers, project types) is a reference the agent
+reads only when the plugin has that part. The references are built from what
+the app already keeps up to date, so they can't fall behind it: examples from
+the package [template](#tools-for-plugin-authors) (`pluginPackageFiles`, which
+`test/pi-agent.test.ts` checks as personal plugins), every field's schema from
+`PluginManifestV2Schema`, and the page APIs copied from `@ohmygame/plugin-ui`.
 What they make is always `personal/<name>`: `PluginServices.installPersonal`
 refuses any other publisher, so it can't replace what the app or a publisher
 ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
 as any package is checked.
 
+- A plugin has one AI workspace, as a game has one project: **Edit with AI**
+  and its card open its newest workspace, however it began
+  (`openPluginBuilder`), and that workspace's conversations are all about it.
+  Deleting the workspace keeps the plugin; Edit with AI then starts a new one.
 - Each AI workspace is a hidden project of type `plugin`, made with the
   workspace's folder (`PluginWorkspaceProjects` in `plugin-setup.ts`). Its
   conversations are the project's, so they run, queue, undo and pick models and
   coding agents as any project's do; `PluginSetupManager.agentTools` adds
-  `plugin_manage` for that project, and `agent-prompts.ts` gives it the authoring
-  rules. `GET /projects` leaves these projects out, and deleting the workspace
+  `plugin_manage` for that project in place of `install_plugin`, and
+  `agent-prompts.ts` tells the agent to follow the Skill and hand drafts over
+  with `plugin_manage prepare`. `GET /projects` leaves these projects out, and deleting the workspace
   deletes its project. A workspace from before this gets its project, with its
   conversation moved in, the first time it is read.
 - Installing from the builder allows what the plugin asks for, since the person
-  reviewed it and chose Install. `install_plugin`, which the agent calls in a
-  game conversation, allows nothing: the person turns such a plugin on in a
-  project's Plugins sheet, which asks them to approve it. A plugin that only
-  adds Skills asks for nothing and applies right away.
-- A new version of a plugin that only adds Skills replaces its older versions.
-  Any other keeps them for the projects that name them.
+  reviewed it and chose Install; a draft with native code shows the
+  `NativeCodeWarning` first. `install_plugin`, which the agent calls in a
+  game conversation, allows nothing: what it asks for is allowed when the
+  person turns it on. A plugin that only adds Skills asks for nothing and
+  applies right away.
+- A new version replaces its older versions, whether it comes from the builder
+  or is added again: one that only adds Skills replaces them all, and any
+  other keeps only those a project still runs (`PluginServices`
+  `projectFolders`). A newer version is never removed by installing an older
+  one. When a project or its file can't be read, every older version is kept,
+  since it might name one.
 - A draft has no settings of its own; they are saved for the installed plugin.
   A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](#connections)).
-- **Export as a package…** on a personal plugin's page
+- **Export as a package…** on a personal plugin's page, and in its Plugin
+  Builder workspace's name menu once it's installed
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
   `package.json`, README and publish workflow a new package gets from the
@@ -570,9 +658,10 @@ like `@ohmygame/plugin-ui`:
   adding it would, and keeps it only without errors. Both run
   `src/daemon/plugin-check.ts`: `indexPluginPackage`, then the npm name and
   version adding from npm refuses (the scope must be the publisher, and
-  `ohmygame` and `personal` are kept), then the page checks against the page
+  `personal` is kept), then the page checks against the page
   components' contracts, which ship in the package. It also ships the manifest's
-  JSON Schema as `plugin.schema.json`. In this repository, `bun run
+  JSON Schema as `plugin.schema.json`. It warns about a manifest without an
+  `icon` and about fields this app ignores. In this repository, `bun run
   plugin:check <folder>` does the same as `check`.
 - **`create-ohmygame-plugin`** (`packages/create-ohmygame-plugin/`), for
   `npm create ohmygame-plugin [folder]`. It writes `src/shared/plugin-template.ts`:
@@ -580,6 +669,9 @@ like `@ohmygame/plugin-ui`:
   both locales, a README, a GitHub Actions workflow that publishes with
   provenance, and any of a Skill, a panel with a command, native code with a
   tool, a local MCP server and a project type. Every combination passes `check`.
+- Each package carries the app's `LICENSE` and a README, and each bundle a
+  `THIRD_PARTY_LICENSES.md` with the license of every package bundled into it;
+  the build fails for a bundled package without a license file.
 - **Examples** in `packages/plugin-examples/`, one for each part, made from the
   template under the publisher `example`.
 
@@ -595,7 +687,9 @@ Tests compare it with `npm pack --dry-run` where npm is installed.
 package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
 each one into a temporary folder and never runs anything in it, so npm's install
 scripts don't apply. The person reviews what it does, then adds it: adding reads
-the source again and refuses a package whose digest isn't the one reviewed.
+the source again and refuses a package whose digest isn't the one reviewed. The
+review lists what it asks for and what it adds, the same `pluginAdds` rows as
+the plugin's page.
 
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
@@ -613,10 +707,9 @@ the source again and refuses a package whose digest isn't the one reviewed.
   where a mirror points a version it hasn't copied yet; either way it has to
   match the registry's SHA-512. The origin stays the registry chosen, even when a
   market version came from npm instead, so updates are looked for there.
-- A package allows nothing when it's added. What it asks for waits for the person
-  to approve it, on its page or when they turn it on in a project's Plugins sheet.
-  One that only adds Skills asks for nothing, so it applies right away and replaces
-  its older versions.
+- Adding a package allows what its review showed it asks for, and turns it on in
+  every project unless the person chose otherwise before. One that only adds
+  Skills asks for nothing. A new version replaces older ones no project runs.
 - A package joins an installed plugin only from the same source: the same npm
   scope or GitHub repository. npm and npmmirror count as one source; another
   registry counts only as itself, since it can publish under any scope. Approvals and settings belong to the id, so from
@@ -640,8 +733,10 @@ the source again and refuses a package whose digest isn't the one reviewed.
   At startup each folder is added again for edits made meanwhile. A theme in
   use isn't refreshed: its new colours show after the app reloads.
 - The publishers `ohmygame` and `personal` can't be added this way
-  (`PluginServices.installAdded`), so a package can't stand in for what the app or
-  the Plugin Builder provides.
+  (`assertAddablePlugin`), so a package can't stand in for what the app or
+  the Plugin Builder provides. OhMyGame's own plugins can: from its `@ohmygame`
+  npm scope on npmjs or npmmirror, and from a folder in development; never
+  from GitHub, a file, a plain folder or another registry.
 - Archives come out through `extractTarball`, which takes only files and folders
   within the destination. The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
@@ -704,21 +799,61 @@ nothing is read.
   way, even by name through Add plugin. Add plugin can still add a package the index
   doesn't list, with the registry's own checksum, as before.
 - **Source verified** means npm's provenance names the repository, or the
-  repository's `package.json` names the package. Stars show only then. Weekly
-  downloads come from npm.
+  repository's `package.json` names the package. Stars and the owner's avatar
+  show only then, since anyone can name any repository. Weekly downloads come
+  from npm.
+- **Recommended order.** Featured plugins come first, in the index's order,
+  then by `marketScore`, from 0 to 1: weekly downloads 0.5 and GitHub stars
+  0.15, each on a log scale against the market's most; how recently it was
+  updated 0.15, full within a month and none after a year; and its page 0.2, a
+  quarter each for a verified source, a long description, screenshots and a
+  category. A beta keeps 85%. So downloads count most without deciding alone.
 - **After installing.** A plugin added from npm or npmmirror shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
 - Browse shows each plugin's greatest version, a prerelease only when there's no
-  release, and an open page picks up new answers every two minutes. A market card
-  shows the default icon, since the package hasn't been downloaded. The publishers
-  `ohmygame` and `personal` aren't listed, nor is anything whose name isn't
+  release, and an open page picks up new answers every two minutes. The publisher
+  `personal` isn't listed, nor is anything whose name isn't
   `@publisher/name` or whose version isn't exact.
+- **What a listing shows.** Besides its name, description, grants and counts of
+  what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
+  `beta`, a localized `longDescription`, and the manifest's `icon` and
+  `screenshots` (up to ten `{ path, caption? }`), as paths beside the index. A
+  version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
+  facts can carry `createdAt`, its first publish, and `avatar`, the repository
+  owner's `avatar_url` from GitHub's API. The app reads fields it doesn't know
+  past, keeps only categories it knows, and passes over a path that leaves the
+  index's folder and an avatar that isn't
+  `https://avatars.githubusercontent.com/u/<id>`.
+- **Market images.** The index job copies each version's icon and screenshots
+  out of its package to the index's own storage, beside the index, named by
+  their contents (`assets/<sha256>.<ext>`), and lists them by those paths. So
+  wherever the market can be read, so can its pictures, with no setting of
+  their own. A path is letters, digits, `.`, `_` and `-` in parts below the
+  index's folder, never `..` or another host (`indexImage`).
+  `GET /plugin-market/images?path=&role=icon|screenshot` serves only an image
+  the current index lists in that role, without following redirects: an icon up to 1 MB, of
+  the type its name says and checked like an
+  installed plugin's (PNG, WebP or static SVG); a screenshot up to 1 MB as a
+  PNG, JPEG or WebP. `GET /plugin-market/avatars/<id>` serves only an avatar
+  the current index gives a verified package, read from GitHub's avatar host
+  at 96 pixels, up to 256 KB, without following redirects. Avatars show only
+  in the dialog, so a card doesn't wait on GitHub.
 
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`. `projectFiles` (API 2.3.0)
+on the plugin's page, and mark itself `beta`. `categories` sorts it on the
+Plugins page, grouped under the first: `engine` (engines and platforms),
+`templates` (starter games and presets), `publishing`, `online` (multiplayer,
+leaderboards, saves, analytics, ads and purchases), `design` (game design and
+level tools), `story` (narrative, dialogue and translation), `art`, `3d`,
+`audio`, `video`, `testing`, `learning` (tutorials and classes), `agent`
+(coding agents), `provider` (model providers), `workflow`, `integration`
+(other apps and services) and `theme`. `screenshots` (API 2.4.0)
+lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
+an optional `caption`, shown on its page through
+`GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)
 names up to 20 files or folders, such as `./.maker/`, the plugin leaves in
 projects: uninstalling lists them and leaves them in place. `contributes.themes` each give
 values for the theme tokens (`THEME_TOKENS` in
@@ -821,7 +956,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   blur, on disconnect and when the map changes. A game that reads the gamepad
   itself stops the map, so the same input doesn't arrive twice. The events
   aren't trusted ones, so a game that checks `isTrusted` ignores them.
-- **Plugin changes…** in the project menu lists `GET
+- **Change history**, in the project's **Plugins…** sheet, lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It
@@ -1052,8 +1187,10 @@ A project can hold panels of its own, without a plugin: each is a folder in
 `panel.json` and its page (`src/shared/project-panels.ts`,
 `src/daemon/project-panels.ts`). They travel with the project, in its
 [snapshots](checkpoints.md) and [archives](project-archives.md), so the
-project's agent can write and change them like any other file. A project
-shows at most 12, each of at most 500 files and folders.
+project's agent can write and change them like any other file. The Code
+panel shows them under `.ohmygame/panels/`, the only part of `.ohmygame/` it
+shows, and Assets leaves them out. A project shows at most 12, each of at most
+500 files and folders.
 
 ```json
 {
@@ -1169,8 +1306,8 @@ project, or only in the project types a connection is limited to.
 
 Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
-Three.js World and the Beta workflows below), applies to every project it suits;
+like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
 project. See [TapTap Maker](#taptap-maker)

@@ -2,8 +2,9 @@
 // code: @ohmygame/plugin-cli (`ohmygame-plugin check` and `pack`, with the
 // manifest's JSON Schema and the page components' contracts) and
 // create-ohmygame-plugin. `bun run plugin-packages:build`; npm runs it before
-// packing either package.
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+// packing either package. Each bundle ships with the licenses of the packages
+// bundled into it, in THIRD_PARTY_LICENSES.md beside it.
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -16,7 +17,16 @@ const packages = path.join(root, "packages");
 const banner = `#!/usr/bin/env node\nimport { createRequire as __createRequire } from "node:module";\nconst require = __createRequire(import.meta.url);`;
 
 async function bundle(entry: string, outfile: string): Promise<void> {
-  await build({ entryPoints: [entry], outfile, bundle: true, platform: "node", format: "esm", target: "node20", banner: { js: banner }, legalComments: "none", logLevel: "warning" });
+  const { metafile } = await build({ entryPoints: [entry], outfile, bundle: true, platform: "node", format: "esm", target: "node20", banner: { js: banner }, legalComments: "none", logLevel: "warning", metafile: true, absWorkingDir: root });
+  const folders = new Set(Object.keys(metafile.inputs).flatMap((input) => /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//.exec(input)?.[1] ?? []));
+  const notices: string[] = [];
+  for (const folder of [...folders].sort()) {
+    const { name, version, license } = JSON.parse(await readFile(path.join(root, folder, "package.json"), "utf8")) as { name: string; version: string; license?: string };
+    const file = (await readdir(path.join(root, folder))).find((entry) => /^(licen[cs]e|copying)/i.test(entry));
+    if (!file) throw new Error(`${name} has no license file to ship with ${path.basename(outfile)}.`);
+    notices.push(`## ${name} ${version}\n\n${license ?? ""}\n\n\`\`\`\`text\n${(await readFile(path.join(root, folder, file), "utf8")).trim()}\n\`\`\`\``);
+  }
+  await writeFile(path.join(path.dirname(outfile), "THIRD_PARTY_LICENSES.md"), `# Third-party licenses\n\n${path.basename(outfile)} includes code from these packages.\n\n${notices.join("\n\n")}\n`);
 }
 
 export async function buildPluginPackages(): Promise<void> {

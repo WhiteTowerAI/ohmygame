@@ -104,6 +104,17 @@
   transition: filter var(--duration-fast);
 }
 
+/* The first list's shapes: the same card, with a cover and two lines of text. */
+.community-card-skeleton > .ui-skeleton:first-child {
+  aspect-ratio: 16 / 9;
+}
+
+.community-skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .community-card-cover.is-empty {
   display: grid;
   place-items: center;
@@ -298,6 +309,7 @@
 }
 
 .community-player {
+  position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
   border-radius: var(--radius-lg);
@@ -316,6 +328,31 @@
   border-radius: 0;
 }
 
+/* The game's loading screen, drawn on black whatever the theme, over the
+   game until its page has loaded. */
+.community-loader {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: #000;
+  transition: opacity 400ms var(--ease-out);
+}
+
+.community-loader[hidden] {
+  display: none;
+}
+
+.community-loader.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.community-loader canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .community-game-info {
   display: flex;
   flex-wrap: wrap;
@@ -328,6 +365,15 @@
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+}
+
+/* Keeps the details' height while they load, so the page doesn't shift. */
+.community-game-info[aria-busy="true"] {
+  min-height: 52px;
+}
+
+.community-game-info[aria-busy="true"] .community-game-title {
+  gap: var(--space-2);
 }
 
 .community-game-title h1,

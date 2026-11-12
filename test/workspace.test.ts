@@ -30,6 +30,23 @@ describe("workspace inspection", () => {
     expect((await listWorkspaceFiles(workspace)).some((file) => file.path === "src/deep/hidden.ts")).toBe(true);
   });
 
+  it("shows the project's panels and nothing else of OhMyGame's folder", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    await mkdir(path.join(workspace, ".ohmygame", "local"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "settings.json"), "{}");
+    await writeFile(path.join(workspace, ".ohmygame", "cover.webp"), "cover");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([]);
+    await mkdir(path.join(workspace, ".ohmygame", "panels", "board", "node_modules"), { recursive: true });
+    await writeFile(path.join(workspace, ".ohmygame", "panels", "board", "panel.json"), "{}");
+    await expect(listWorkspaceFiles(workspace, "")).resolves.toEqual([{ path: ".ohmygame", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace, ".ohmygame")).resolves.toEqual([{ path: ".ohmygame/panels", size: 0, directory: true }]);
+    await expect(listWorkspaceFiles(workspace, ".ohmygame/panels/board")).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+    for (const directory of [".ohmygame/local", ".ohmygame/panels/board/node_modules"]) {
+      await expect(listWorkspaceFiles(workspace, directory)).rejects.toThrow("excluded");
+    }
+    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([{ path: ".ohmygame/panels/board/panel.json", size: 2 }]);
+  });
+
   it("lists source files and ignores generated directories", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "src"));
@@ -43,10 +60,10 @@ describe("workspace inspection", () => {
     await writeFile(path.join(workspace, "dist", "bundle.js"), "ignored");
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
-      { path: "src/cover.PNG", size: 5, mediaType: "image" },
-      { path: "src/logo.svg", size: 6, mediaType: "image" },
+      { path: "src/cover.PNG", size: 5, mediaType: "image", modifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      { path: "src/logo.svg", size: 6, mediaType: "image", modifiedAt: expect.any(String) },
       { path: "src/main.ts", size: 26 },
-      { path: "src/model.glb", size: 5, mediaType: "model" },
+      { path: "src/model.glb", size: 5, mediaType: "model", modifiedAt: expect.any(String) },
     ]);
   });
 
@@ -75,7 +92,7 @@ describe("workspace inspection", () => {
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       {
-        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg",
+        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".ohmygame/asset-previews/image.jpg", modifiedAt: expect.any(String),
       },
     ]);
   });

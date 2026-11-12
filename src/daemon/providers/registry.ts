@@ -11,8 +11,11 @@ export interface MediaProviderEntry {
   readonly capabilities: readonly ProviderCapability[];
   /** Whether the saved settings are enough to call the service. */
   configured(): boolean;
-  /** Forgets the saved credential. The caller resets the provider's model preferences. */
-  clear(): Promise<void>;
+  /**
+   * Forgets the saved credential when the provider is removed; the caller resets its model preferences.
+   * A provider without it is disconnected through its own route only.
+   */
+  clear?(): Promise<void>;
   /** The audio generator this connection contributes. */
   readonly audio?: AudioProviderAdapter;
 }
@@ -44,8 +47,13 @@ export class MediaProviderRegistry {
     return this.#entry(id).configured();
   }
 
-  clear(id: string): Promise<void> {
-    return this.#entry(id).clear();
+  /** Whether removing the provider goes through this list. */
+  removable(id: string): boolean {
+    return Boolean(this.#entries.get(id)?.clear);
+  }
+
+  async clear(id: string): Promise<void> {
+    await this.#entry(id).clear?.();
   }
 
   /** The same summary shape for every entry, in registration order. */

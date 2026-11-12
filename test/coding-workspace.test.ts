@@ -79,6 +79,14 @@ describe("coding workspace", () => {
     expect(filterAssets(files, "audio", "", { origin: "generated" })).toEqual([]);
   });
 
+  it("filters project assets by when they last changed", () => {
+    const now = Date.parse("2026-11-09T12:00:00Z");
+    const recent = { path: "recent.png", size: 1, mediaType: "image" as const, modifiedAt: "2026-11-08T12:00:00Z" };
+    const old = { path: "old.png", size: 1, mediaType: "image" as const, modifiedAt: "2026-09-01T12:00:00Z" };
+    expect(filterAssets([recent, old], "all", "", { period: "week" }, now)).toEqual([recent]);
+    expect(filterAssets([recent, old], "all", "", { period: "all" }, now)).toEqual([recent, old]);
+  });
+
   it("keeps selection attached to renamed files/folders and clears deleted paths", () => {
     expect(workspacePathAfterChange("art/hero.png", { from: "art", to: "media" })).toBe("media/hero.png");
     expect(workspacePathAfterChange("art/hero.png", { from: "art" })).toBeUndefined();
@@ -108,7 +116,6 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
-    // Project settings moved into the More menu, beside picking an element.
     expect(html).toContain('aria-label="More"');
     expect(html).toContain('aria-label="Pick an element in the game"');
     expect(html).not.toContain('aria-label="View publication"');
@@ -223,7 +230,8 @@ describe("coding workspace", () => {
     };
     const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
     const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
-    expect(blank).toContain('aria-label="Project settings"');
+    // Its settings, where the web preview turns on, are in the top bar.
+    expect(blank).not.toContain('aria-label="Project settings"');
     expect(blank).toContain('data-active-tab="code"');
     expect(blank).not.toContain("<iframe");
 

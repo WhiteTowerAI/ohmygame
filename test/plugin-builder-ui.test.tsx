@@ -24,10 +24,10 @@ vi.mock("../src/renderer/project-shell.js", async () => {
       const [top, setTop] = useState<HTMLElement | null>(null);
       const [panel] = useState(createPanelNodes);
       return <div className="project-frame">
-        {props.workspace.rail}
+        {props.workspace.rail({ items: [], current: undefined, onOpen: () => {}, onNew: () => {} })}
         <header className="project-top"><span ref={setTop} /></header>
         <div className="workspace-panel" ref={node => { if (node && !node.contains(panel.body)) node.append(panel.toolbar, panel.body); }} />
-        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), layoutMenu: [], top, panel }) : null}
+        {top ? props.workspace.render({ busy: shell.busy, revision: 0, ask: text => shell.asked.push(text), openFile: path => shell.opened.push(path), top, panel }) : null}
       </div>;
     },
   };
@@ -57,10 +57,12 @@ const draftFiles = [{ path: "SKILL.md" }, { path: "assets/logo.svg" }, { path: "
 let iconChanged: boolean;
 let savedIcon: unknown;
 let hasSettings: boolean;
+let draftAsks: string[];
 let updated: boolean;
 let hasDraft: boolean;
 let working: boolean;
-let sessions: Array<{ id: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
+let sessions: Array<{ id: string; projectId?: string; title: string; status: string; pluginId?: string; createdAt: number; updatedAt: number }>;
+let spoken: Record<string, number>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -70,7 +72,7 @@ beforeEach(() => {
   requests = [];
   everyProject = true; shell.busy = false; shell.asked = []; shell.opened = []; shell.props = undefined;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
-  hasSettings = false; updated = false; hasDraft = true; working = false; sessions = [];
+  hasSettings = false; draftAsks = []; updated = false; hasDraft = true; working = false; sessions = []; spoken = {};
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -82,6 +84,9 @@ beforeEach(() => {
     }
     if (route === "/health") return Response.json({ status: "ok" });
     if (route === "/plugins/setup-sessions" && method === "GET") return Response.json(sessions);
+    if (/^\/projects\/[^/]+\/conversations\/archived$/.test(route)) return Response.json([]);
+    const listed = /^\/projects\/([^/]+)\/conversations$/.exec(route);
+    if (listed) return Response.json(spoken[listed[1]!] === undefined ? [] : [{ id: "c", projectId: listed[1], title: "Chat", createdAt: "", updatedAt: "", messageCount: spoken[listed[1]!] }]);
     if (route === "/plugins/setup-sessions" && method === "POST") return Response.json({ ...state, id: "created" });
     if (route === `/plugins/setup-sessions/${sessionId}/draft` && !hasDraft) return Response.json({ files: [], errors: [] });
     if (route === `/plugins/setup-sessions/${sessionId}` && !hasDraft) return Response.json({ ...state, pluginId: undefined, title: "New plugin", status: working ? "working" : "idle", busy: working });
@@ -111,7 +116,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: draftFiles, errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon, asks: draftAsks }, files: draftFiles, errors: [] });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -167,6 +172,9 @@ describe("Plugin Builder removal controls", () => {
 
   it("honors cancellation and changes the installed view back to an installable draft after uninstalling", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    await choose("Export as a package…");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Export Review as a package");
+    await answer("Cancel");
     await choose("Uninstall plugin");
     await answer("Cancel");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
@@ -174,6 +182,7 @@ describe("Plugin Builder removal controls", () => {
     await answer("Uninstall");
     expect(requests).toContain(`DELETE /plugin-store/${storeId}/0.1.0`);
     expect(await menuEntry("Uninstall plugin")).toBeUndefined();
+    expect(await menuEntry("Export as a package…")).toBeUndefined();
     expect(await menuEntry("Delete plugin draft")).toBeDefined();
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin");
     expect(install?.disabled).toBe(false);
@@ -248,6 +257,15 @@ describe("Plugin Builder layout", () => {
     expect([...container.querySelectorAll(".plugin-builder-overview h2")].filter(heading => heading.textContent === "Settings")).toHaveLength(1);
   });
 
+  it("lists what a draft asks for as its plugin page does, and warns when it runs its own code", async () => {
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
+    expect(container.querySelector(".plugin-builder-overview")?.textContent).not.toContain("It runs its own code on this computer");
+    draftAsks = ["native"];
+    await act(async () => button("Refresh plugin preview").click());
+    expect(container.querySelector(".plugin-builder-overview .plugin-capability-list")?.textContent).toContain("Run its own code on this computer");
+    expect(container.querySelector(".plugin-builder-overview")?.textContent).toContain("It runs its own code on this computer");
+  });
+
   it("says in the top bar when the draft has changes that are not installed", async () => {
     iconChanged = true;
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
@@ -260,11 +278,13 @@ describe("Plugin Builder layout", () => {
       { id: "other", title: "Older", status: "ready", createdAt: 0, updatedAt: 1 },
     ];
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} {...routing} />));
-    const items = [...container.querySelectorAll<HTMLAnchorElement>(".plugin-builder-rail-item")];
+    const items = [...container.querySelectorAll<HTMLButtonElement>(".plugin-builder-rail-item")];
     expect(items.map(item => item.getAttribute("aria-label"))).toEqual(["Review", "Older"]);
     expect(items[0]?.getAttribute("aria-current")).toBe("page");
-    expect(items[1]?.getAttribute("href")).toBe("#/plugins/builder/other");
-    expect(container.querySelectorAll(".project-rail .sidebar-recent a")).toHaveLength(2);
+    // Each lists its conversations on hover, as a project does.
+    expect(items[1]?.getAttribute("aria-haspopup")).toBe("dialog");
+    await act(async () => items[1]!.click());
+    expect(window.location.hash).toBe("#/plugins/builder/other");
   });
 
   it("opens a workspace nothing was said in for a new plugin, and only then makes one", async () => {
@@ -273,10 +293,17 @@ describe("Plugin Builder layout", () => {
     expect(requests).toContain("POST /plugins/setup-sessions");
     expect(window.location.hash).toBe("#/plugins/builder/created");
     requests = [];
-    sessions = [{ id: "blank", title: "New plugin", status: "idle", createdAt: 0, updatedAt: 0 }];
+    sessions = [{ id: "blank", projectId: "blank-project", title: "New plugin", status: "idle", createdAt: 0, updatedAt: 0 }];
+    spoken = { "blank-project": 0 };
     await act(async () => button("New plugin").click());
     expect(requests).not.toContain("POST /plugins/setup-sessions");
     expect(window.location.hash).toBe("#/plugins/builder/blank");
+    // One something was said in is left as it is, though it couldn't be named.
+    spoken = { "blank-project": 2 };
+    window.location.hash = "";
+    await act(async () => button("New plugin").click());
+    expect(requests).toContain("POST /plugins/setup-sessions");
+    expect(window.location.hash).toBe("#/plugins/builder/created");
   });
 });
 

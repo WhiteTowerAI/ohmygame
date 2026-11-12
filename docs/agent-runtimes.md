@@ -102,7 +102,12 @@ own mode, which is kept.
 Discovery is lazy; Pi requests do not wait for it. An explicit executable wins.
 Otherwise choose the newest installed SemVer among PATH, login-shell PATH,
 common install directories, and known bundled copies. Resolve the executable
-to an absolute path and deduplicate real paths. Version/probe caches are
+to an absolute path and deduplicate real paths. On Windows only `.exe` files
+are run, since a `.cmd` script needs `cmd.exe` and its quoting; Codex's npm
+shim resolves to the native program in its package. A plugin's ACP agent that
+npm installed is found by its `.cmd` shim, which is read, not run
+(`agent-runtimes/npm-shim.ts`): the JavaScript file it names starts with
+Node, or a program inside the package starts as it is. Version/probe caches are
 bounded, expire failed results, honor Recheck, and discard in-flight catalog
 results after configuration changes. Paginated native catalogs must be read
 completely. A successful model listing is not proof of account entitlement;
@@ -328,7 +333,12 @@ file; what Claude would ask about while planning is refused without asking.
 The staged Skills plugin is also a working directory (`--add-dir`), so reading
 its files is not a request outside the project. Background tasks and scheduled
 prompts are disabled, because their reports would arrive after the turn ends.
-Bridge tools are marked always loaded so tool search does not hide them. Discover
+Bridge tools are marked always loaded so tool search does not hide them.
+Claude Code runs an MCP tool beside others only when it carries
+`readOnlyHint`, and otherwise one call at a time, so the media generation
+tools are listed with that hint for Claude Code alone. They are not read-only;
+the hint is the only switch. Claude's own plan mode also lets a read-only tool
+through, which is one more reason planning must not use it. Discover
 models from `initialize` or `list_models` as supported; expose failed/empty
 catalogs as diagnostics. A sole callback path is not a sufficient assumption.
 

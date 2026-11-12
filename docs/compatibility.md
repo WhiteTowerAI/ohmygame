@@ -9,7 +9,7 @@ it is removed. The audit behind these rules is
 | Kind | Examples | Rule |
 | --- | --- | --- |
 | Internal code | Functions, modules, HTTP routes between the renderer and its own daemon | None. Change every caller in the same PR; leave no wrapper for the old shape. |
-| Stored data | Settings in the data directory, project files such as `.data/assets.json` and `canvas/`, conversations, browser storage, project archives | Migrate it when it loads, as below. |
+| Stored data | Settings in the data directory, project files such as `.ohmygame/assets.json` and `canvas/`, conversations, browser storage, project archives | Migrate it when it loads, as below. |
 | Contracts with others | Plugin API and manifest, page components, the page bridge, the project archive format | Semantic versions: add without breaking, mark what goes as deprecated, remove it only in a new major version. See [plugins](plugins.md). |
 
 ## Stored data

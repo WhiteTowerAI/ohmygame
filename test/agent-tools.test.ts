@@ -118,7 +118,7 @@ describe("agent tools", () => {
 
   it.each([
     { skills: true, count: "1 Skill", next: "applies by itself" },
-    { skills: false, count: "1 MCP service", next: "approve what it asks for" },
+    { skills: false, count: "1 panel · 1 MCP service", next: "approve what it asks for" },
   ])("reports what it installed and only installs from the current workspace ($count)", async ({ skills, count, next }) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
@@ -134,9 +134,17 @@ describe("agent tools", () => {
       displayName: "Character Workflow", description: "Characters",
       ...(skills
         ? { contributes: { skills: "./skills/" } }
-        : { capabilities: { network: ["example.com"] }, contributes: { mcpServers: [{ id: "api", title: "API", url: "https://example.com/mcp", tools: ["search"] }] } }),
+        : { icon: "./icon.svg", capabilities: { network: ["example.com"] }, contributes: {
+          panels: [{ id: "main", title: "Characters", area: "right", entry: "./panel/index.html" }],
+          mcpServers: [{ id: "api", title: "API", url: "https://example.com/mcp", tools: ["search"] }],
+        } }),
     }));
     if (skills) await mkdir(path.join(pluginDirectory, "skills/character"), { recursive: true });
+    else {
+      await mkdir(path.join(pluginDirectory, "panel"));
+      await writeFile(path.join(pluginDirectory, "panel/index.html"), "<!doctype html><title>Characters</title>");
+      await writeFile(path.join(pluginDirectory, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24"/></svg>');
+    }
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     let installedPath = "";
@@ -165,6 +173,18 @@ describe("agent tools", () => {
       .rejects.toThrow("inside the current workspace");
     await expect(tool.execute("call-linked", { path: "linked-plugin" }, undefined, undefined, {} as never))
       .rejects.toThrow("inside the current workspace");
+  });
+
+  it("leaves installing to the Plugin Builder's preview in its own projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Builder");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const install = async () => { throw new Error("Expected no install"); };
+    expect(createAgentTools(project, runner, projects, undefined, install).map(({ name }) => name)).toContain("install_plugin");
+    expect(createAgentTools({ ...project, type: "plugin" }, runner, projects, undefined, install).map(({ name }) => name)).not.toContain("install_plugin");
   });
 
   it("generates an image into the current project workspace", async () => {
@@ -338,17 +358,17 @@ describe("agent tools", () => {
       catalog: () => ({ models: [], providers: [] }), generate,
     });
     await runner.load();
-    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_speech");
-    if (!tool) throw new Error("Expected speech tool");
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_audio");
+    if (!tool) throw new Error("Expected audio tool");
 
-    const result = await tool.execute("call-speech", { text: "Welcome", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-speech", { prompt: "Welcome", kind: "speech", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.split("\n")[0]!.replace("Generated audio saved to ", "");
 
     expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
     expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
   it("registers standalone image and frame processing tools", async () => {

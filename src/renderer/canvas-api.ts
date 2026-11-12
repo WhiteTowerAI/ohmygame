@@ -3,6 +3,7 @@ import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationRespo
 import type { CanvasDocumentDetail, CanvasDocumentGenerationRequest, CanvasDocumentGenerationResponse } from "../shared/canvas-document.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail, CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import type { CanvasMediaOperation } from "../shared/media-tools.js";
+import type { PixelArtCheckBatch } from "../shared/pixel-art-check.js";
 import { request } from "./api.js";
 import type { WorkspaceRequestInit } from "./workspace-version.js";
 import { t } from "./i18n.js";
@@ -46,7 +47,9 @@ export interface CanvasMediaRequest {
 export type CanvasMediaResult =
   | { kind: "asset"; assetId: string; name: string; mediaType: string }
   | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
-  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
+  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
+  | { kind: "text"; text: string }
+  | { kind: "pixel-check"; checks: PixelArtCheckBatch };
 export const runCanvasMedia = (id: string, input: CanvasMediaRequest): Promise<CanvasMediaResult> => request(`${base(id)}/media`, { method: "POST", body: JSON.stringify(input) });
 
 export const createCanvasTable = (id: string, title: string, version?: string): Promise<CanvasTableDetail> => canvasRequest(`${base(id)}/tables`, { method: "POST", body: JSON.stringify({ title }), workspaceVersion: version });

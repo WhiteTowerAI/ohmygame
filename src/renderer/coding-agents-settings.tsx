@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Check,
   ChevronRight,
-  Copy,
   ExternalLink,
   LoaderCircle,
+  Plug,
   RefreshCw,
   Terminal,
 } from "./icons.js";
@@ -31,13 +30,14 @@ import {
   updateAgentRuntime,
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { openModelAuthExternal } from "./use-model-provider-auth.js";
+import { CommandText } from "./command-text.js";
+import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Dialog, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
-import { pluginHash } from "./routes.js";
+import { pluginHash, pluginsTabHash } from "./routes.js";
 
 type PermissionModeKey =
   | "claudeDefault"
@@ -225,11 +225,15 @@ export function CodingAgentsGroup({
       })}
       {agents ? (
         <SettingsRow
-          className="settings-agent-row is-coming-soon"
-          icon={<AgentMark id="gemini-cli" />}
-          title={<>Gemini CLI<Badge tone="outline">{t("codingAgents.comingSoon")}</Badge></>}
-          description={t("codingAgents.geminiHint")}
-        />
+          className="settings-agent-row"
+          icon={<Plug size={18} />}
+          title={t("codingAgents.more")}
+          description={t("codingAgents.moreHint")}
+        >
+          <Button size="sm" onClick={() => { window.location.hash = pluginsTabHash("discover"); }}>
+            {t("codingAgents.browsePlugins")}
+          </Button>
+        </SettingsRow>
       ) : null}
       {error ? (
         <div className="settings-pad">
@@ -252,6 +256,7 @@ export function CodingAgentDetail({
   const [busy, setBusy] = useState<"recheck" | "login" | "save">();
   const [login, setLogin] = useState<{ url?: string; command?: string }>();
   const [binaryPath, setBinaryPath] = useState("");
+  const link = useExternalLink();
   useEffect(() => {
     let active = true;
     void listAgentRuntimes()
@@ -294,8 +299,7 @@ export function CodingAgentDetail({
     run("login", async () => {
       const started = await loginAgentRuntime(id, profileId);
       setLogin(started);
-      if (started.url)
-        await openModelAuthExternal(started.url).catch(() => undefined);
+      if (started.url) await link.open(started.url);
     });
   const [turningOn, setTurningOn] = useState(false);
   const update = (change: Parameters<typeof updateAgentRuntime>[1]) =>
@@ -387,7 +391,8 @@ export function CodingAgentDetail({
         setAgent((await listAgentRuntimes()).find((item) => item.id === id));
         notifyAgentModelsChanged();
       }} disabled={busy !== undefined} /> : null}
-      {login ? <LoginHint login={login} /> : null}
+      {login ? <LoginHint login={login} onOpen={link.open} failed={link.failedUrl === login.url} /> : null}
+      <ExternalLinkFallback url={link.failedUrl} />
       {agent.installed && agent.id !== "opencode-cli" && !agent.plugin ? (
         // OpenCode bills each model provider; its account has no quota of its own.
         <SettingsGroup title={t("agentUsage.title")}>
@@ -488,7 +493,9 @@ function PluginAgentTurnOn({ agent, onClose, onConfirm }: { agent: AgentRuntimeS
   );
 }
 
-function LoginHint({ login }: { login: { url?: string; command?: string } }) {
+function LoginHint({ login, onOpen, failed }: { login: { url?: string; command?: string }; onOpen: (url: string) => Promise<void>; failed: boolean }) {
+  // A sign-in page that could not open is offered to copy instead.
+  if (login.url && failed) return null;
   if (login.url) {
     return (
       <SettingsNote role="status">
@@ -496,7 +503,7 @@ function LoginHint({ login }: { login: { url?: string; command?: string } }) {
         <button
           type="button"
           className="coding-agent-link"
-          onClick={() => void openModelAuthExternal(login.url!)}
+          onClick={() => void onOpen(login.url!)}
         >
           {t("codingAgents.openAgain")}
         </button>
@@ -522,64 +529,42 @@ function Diagnostic({
   const blocking =
     diagnostic.code === "not-installed" ||
     diagnostic.code === "runtime-incompatible";
+  const link = useExternalLink();
   return (
-    <div
-      className={`settings-note coding-agent-diagnostic${blocking ? " is-danger" : ""} is-${diagnostic.code}`}
-      role={blocking ? "alert" : "status"}
-    >
-      <Terminal size={14} aria-hidden="true" />
-      <span>
-        {text}
-        {diagnostic.command && diagnostic.code === "not-installed" ? (
-          <>
-            {" "}
-            <button
-              type="button"
-              className="coding-agent-link"
-              onClick={() => void openModelAuthExternal(diagnostic.command!)}
-            >
-              {t("codingAgents.installGuide")}
-            </button>
-          </>
-        ) : null}
-        {diagnostic.command && diagnostic.code === "signed-out" ? (
-          <>
-            {" "}
-            <CommandText command={diagnostic.command} />
-          </>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
-export function CommandText({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1_500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-  return (
-    <span className="settings-command coding-agent-command">
-      <code>{command}</code>
-      <IconButton
-        size="sm"
-        label={copied ? t("codingAgents.copied") : t("codingAgents.copyCommand")}
-        onClick={() =>
-          void navigator.clipboard.writeText(command).then(
-            () => setCopied(true),
-            () => undefined,
-          )
-        }
+    <>
+      <div
+        className={`settings-note coding-agent-diagnostic${blocking ? " is-danger" : ""} is-${diagnostic.code}`}
+        role={blocking ? "alert" : "status"}
       >
-        {copied ? <Check size={13} /> : <Copy size={13} />}
-      </IconButton>
-    </span>
+        <Terminal size={14} aria-hidden="true" />
+        <span>
+          {text}
+          {diagnostic.command && diagnostic.code === "not-installed" ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="coding-agent-link"
+                onClick={() => void link.open(diagnostic.command!)}
+              >
+                {t("codingAgents.installGuide")}
+              </button>
+            </>
+          ) : null}
+          {diagnostic.command && diagnostic.code === "signed-out" ? (
+            <>
+              {" "}
+              <CommandText command={diagnostic.command} />
+            </>
+          ) : null}
+        </span>
+      </div>
+      <ExternalLinkFallback url={link.failedUrl} />
+    </>
   );
 }
 
-export function AgentMark({ id }: { id: AgentRuntimeId | "gemini-cli" }) {
+export function AgentMark({ id }: { id: AgentRuntimeId }) {
   const icon = PROVIDER_ICONS[id];
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">

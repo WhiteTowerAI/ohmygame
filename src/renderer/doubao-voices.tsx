@@ -5,7 +5,7 @@ import {
   type VolcengineTtsVoice,
 } from "../shared/audio.js";
 import { language as uiLanguage, t } from "./i18n.js";
-import { Play, Square } from "./icons.js";
+import { LoaderCircle, Play, Square } from "./icons.js";
 
 const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 const voicesByLanguage = VOLCENGINE_TTS_VOICES.reduce((groups, voice) => {
@@ -38,20 +38,35 @@ export function DoubaoVoiceSample({
   voiceId?: string;
   className?: string;
 }) {
-  const url = findVolcengineTtsVoice(voiceId)?.trialUrl;
+  return <VoiceSample url={findVolcengineTtsVoice(voiceId)?.trialUrl} className={className} />;
+}
+
+/** Plays a provider's hosted voice sample; it spends no generation quota. */
+export function VoiceSample({
+  url,
+  className,
+}: {
+  url?: string;
+  className?: string;
+}) {
   const audio = useRef<HTMLAudioElement>(undefined);
-  const [playing, setPlaying] = useState(false);
+  // The sample downloads on the first press, which can take a while, so the
+  // button says so instead of looking as if nothing happened.
+  const [state, setState] = useState<"idle" | "loading" | "playing" | "failed">("idle");
   useEffect(
     () => () => {
       audio.current?.pause();
       audio.current = undefined;
-      setPlaying(false);
+      setState("idle");
     },
     [url],
   );
   if (!url) return null;
   const label = t(
-    playing ? "audioStudio.stopSample" : "audioStudio.playSample",
+    state === "playing" ? "audioStudio.stopSample"
+      : state === "loading" ? "audioStudio.loadingSample"
+      : state === "failed" ? "audioStudio.sampleFailed"
+      : "audioStudio.playSample",
   );
   return (
     <button
@@ -59,22 +74,33 @@ export function DoubaoVoiceSample({
       className={className}
       aria-label={label}
       title={label}
+      aria-busy={state === "loading" || undefined}
+      data-state={state}
       onClick={() => {
-        if (playing) {
+        // A press while it loads or plays stops it.
+        if (state === "playing" || state === "loading") {
           audio.current?.pause();
-          setPlaying(false);
+          setState("idle");
           return;
         }
-        audio.current ??= new Audio(url);
-        audio.current.currentTime = 0;
-        audio.current.onended = () => setPlaying(false);
-        void audio.current.play().then(
-          () => setPlaying(true),
-          () => setPlaying(false),
+        const sample = (audio.current ??= new Audio(url));
+        sample.currentTime = 0;
+        sample.onended = () => setState("idle");
+        setState("loading");
+        void sample.play().then(
+          () => { if (audio.current === sample && !sample.paused) setState("playing"); },
+          (cause: unknown) => {
+            if (audio.current !== sample) return;
+            // Stopped by the person before it started: not a failure.
+            if (cause instanceof DOMException && cause.name === "AbortError") return setState("idle");
+            // A failed element stays failed, so a retry downloads afresh.
+            audio.current = undefined;
+            setState("failed");
+          },
         );
       }}
     >
-      {playing ? <Square size={13} /> : <Play size={13} />}
+      {state === "playing" ? <Square size={13} /> : state === "loading" ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />}
     </button>
   );
 }

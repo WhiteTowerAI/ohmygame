@@ -10,7 +10,7 @@ import { ProjectCard, ProjectRow, useProjectActions } from "./project-card.js";
 import { useProjectsSelection } from "./projects-selection.js";
 import { pickProjectFolder, ProjectCreateDialog } from "./project-create-dialog.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
-import { publishRecentProjects } from "./app-sidebar.js";
+import { publishSidebarProjects } from "./sidebar-projects.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
@@ -43,7 +43,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   // Renames, removals and automatic names reach the sidebar too.
-  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
+  useEffect(() => { if (phase === "ready") publishSidebarProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [actionError, setActionError] = useState<string>();

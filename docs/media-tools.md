@@ -1,6 +1,7 @@
 # Media processing tools
 
-The image-node toolbar shows three menus: **Image tools** (AI image cutout and crop),
+The image-node toolbar shows three menus: **Image tools** (AI image cutout, crop,
+and fixing and checking pixel art),
 **Grid split**, and **Frame Animation** (GIF extraction and GIF/video composition).
 The shared catalog is `src/shared/media-tools.ts`.
 
@@ -8,6 +9,35 @@ AI image cutout creates a new image generation node, uses the selected image as
 its reference, fills a background-removal prompt, and starts the configured
 image generation model automatically. The result is written back to the new
 node through the normal canvas generation job flow.
+
+Fix pixel art runs immediately on the first selected image and creates a new
+PNG node; the original is unchanged. It uses the grid detection of
+[perfect-pixel](https://github.com/theamusing/perfectPixel) 0.1.4 (MIT),
+ported to TypeScript in `src/daemon/perfect-pixel.ts` with the settings of the
+perfect-pixel web demo, so results match what users see there. Generated pixel
+art rarely has cells of one exact size, so the cell size is estimated from the
+image's frequency spectrum (or, failing that, from the spacing of edges) and
+every grid line is then moved to the strongest edge within a third of a cell.
+Grid lines continue to the left and top edges; the web demo stops adding lines
+once it has as many as the estimated cell count, which cuts off the left of
+the image when the real cells are smaller than the estimate. Each cell takes
+the colour at its centre. Generated images then hold hundreds or thousands of
+near-identical colours from noise and compression, so colours within an RGB
+distance of 24 are merged, most common first: each region takes its most
+common real colour, while hair shading, eye colours, and highlights stay. As in the web demo, images with a
+short side under 64 pixels are first enlarged by a whole number and images
+longer than 1024 pixels are reduced to 1024 by sampling the four nearest
+pixels. The spectrum estimate is used only when cells measure 4–20 working
+pixels; otherwise edge spacing decides. Unlike the library, an edge-spacing
+result also needs at least 16 cells along the longer side and cells of at
+least 4 pixels: dividers and frames in a character sheet can otherwise yield a
+12 × 9 result. Coarse 32 × 32 art on a 1024 canvas still passes. Alpha becomes fully transparent or
+opaque, and the result is enlarged with nearest-neighbour scaling to about the
+source size. An image in which no grid can be found, such as a flat colour, is
+refused with an error, where the web demo would assume 8-pixel cells. Images
+that mix pixel sizes, such as a large portrait beside small sprites, have no
+single grid; the detected size can change with small differences in the input,
+and the larger pixels come out uneven.
 
 GIF extraction runs immediately and creates a node for each extracted frame.
 Crop enters selection mode directly on the original canvas image. Drag anywhere
@@ -90,6 +120,30 @@ are also saved to Library. The dialog shows
 processing status and any error, and remains open on failure so the operation
 can be retried. Media processing is not subject to the 10-second canvas file
 I/O timeout.
+
+## Check pixel art
+
+**Check pixel art** measures every selected image and shows a report; it
+creates no assets. Each image is measured on its own pixel grid: the largest
+uniform nearest-neighbour enlargement is removed first, and images checked
+together share one scale, since a plain shape enlarged 2× is also a valid 4×
+enlargement. For each image the report lists the logical size and
+enlargement, semi-transparent pixels, colours, lone pixels (no neighbour of
+the same colour), the share of the outermost ring that is dark, the feet row
+(lowest opaque row), and the horizontal centre. Semi-transparent pixels fail
+above zero, and lone pixels fail above 12% of opaque pixels: hand-corrected
+96 × 96 character sprites measure 5–12%, because eye highlights and small
+accents are single pixels on purpose. The colour count passes or fails
+against the colour budget of the selected node's density (8, 16 or 48), or of
+the density group that holds it; without a density it is only measured.
+Several images also report whether they share a size and a feet row, and
+their combined colour count.
+
+The Canvas media API operation `check-pixel-art` returns
+`{ kind: "pixel-check", checks }` and accepts optional settings to compare
+against: `width` and `height`, `colors`, `baseline` (feet row), and `outline`
+(`#rrggbb`, which then counts the share of the outer ring in that colour and
+requires 80%). The implementation is `src/daemon/pixel-art-check.ts`.
 
 ## Character image generation
 

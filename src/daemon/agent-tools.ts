@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -20,22 +20,27 @@ import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { CanvasError } from "./canvas-files.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
+import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings, type AudioGenerationRequest } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
+import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
+import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
-  "generate-speech": "generate_speech",
-  "generate-sound-effect": "generate_sound_effect",
-  "generate-music": "generate_music",
   "generate-audio": "generate_audio",
 };
+/**
+ * The tools that make media through a provider. A call waits minutes on the
+ * provider and then saves its own new files, so several may run at once.
+ */
+export const GENERATION_TOOL_NAMES: ReadonlySet<string> = new Set([...Object.values(PI_TOOL_NAMES), "generate_canvas_media"]);
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
@@ -118,15 +123,17 @@ export function createAgentTools(
   },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
+  configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
+  /** The local service's test accounts, saves and leaderboards for this game. */
+  localGameServices?: () => Promise<LocalGameServices>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
-    toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio",
-    request: RunToolRequest,
+    request: AudioGenerationRequest,
     prompt: string,
     prefix: string,
     signal?: AbortSignal,
   ) => {
-    const run = await tools.run(toolId, request, signal, project.id);
+    const run = await tools.run("generate-audio", request, signal, project.id);
     try {
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output) throw new Error("Audio generator returned no output");
@@ -171,7 +178,54 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [defineTool({
+  return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+    name: "multiplayer_setup",
+    label: "Set up multiplayer",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS or your own WebRTC. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    parameters: Type.Object({
+      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom"), Type.Literal("owner")], {
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load. owner: realtime casual and co-op games where each page runs its own player, such as a platformer for two, snake or a party game: no rules file; every player's state reaches the others, and shared things such as food or doors go through the service, first come first served. Prefer it for realtime games with physics or players touching each other, unless results must be the same on every screen.",
+      }),
+      maxClients: Type.Optional(Type.Integer({
+        minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,
+        maximum: LOCAL_MULTIPLAYER_MAX_CLIENTS,
+        description: `Players per room, ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}. Gomoku is always 2; the others default to 4.`,
+      })),
+      dropIn: Type.Optional(Type.Boolean({
+        description: "Realtime rules only, including custom realtime rules. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
+      })),
+      tickMs: Type.Optional(Type.Integer({
+        minimum: 20,
+        maximum: 1000,
+        description: "owner only: how often players' states go out, in milliseconds. Defaults to 100; 50 suits fast action.",
+      })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn, ...(input.tickMs === undefined ? {} : { tickMs: input.tickMs }) });
+      signal?.throwIfAborted();
+      const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
+      return {
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        details: { multiplayer: result },
+      };
+    },
+  })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
+    name: "game_sdk_setup",
+    label: "Set up the OhMyGame SDK",
+    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _input, signal) => {
+      signal?.throwIfAborted();
+      const services = await localGameServices?.();
+      const result = await installGameSdk(project, services);
+      const viewer = services ? ` Local saves and leaderboards are kept by OhMyGame's local service until it quits; see them at ${services.cloud.serverUrl}dev/games/${encodeURIComponent(services.cloud.gameId)}.` : "";
+      return {
+        content: [{ type: "text" as const, text: `Read ${result.guidePath} and import init from ${result.sdkPath}/client.js. ${result.manifestPath} must be copied into the build output so init() can load it.${viewer}` }],
+        details: { sdk: result },
+      };
+    },
+  })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
     description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",
@@ -218,7 +272,8 @@ export function createAgentTools(
         details: { webSearch: { provider: result.provider, providerName: result.providerName, ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}) } },
       };
     },
-  })] : []), defineTool({
+  })] : []), ...(project.type === "plugin" ? [] : [defineTool({
+    // The Plugin Builder's own projects hand a draft over with plugin_manage instead.
     name: "install_plugin",
     label: "Install Plugin",
     description: "Validate and install an OhMyGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
@@ -239,12 +294,12 @@ export function createAgentTools(
       const draft = await inspectPluginDraft(sourcePath);
       if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
-      const servers = plugin.manifest.contributes?.mcpServers?.length ?? 0;
-      const counts = [
-        plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        servers ? `${servers} MCP service${servers === 1 ? "" : "s"}` : undefined,
-      ].filter(Boolean).join(" · ") || "No components";
       const displayName = localizePluginString(plugin, plugin.manifest.displayName, "en");
+      const adds = pluginAdds(plugin, (value) => localizePluginString(plugin, value, "en"));
+      const counts = Object.entries({
+        Skill: adds.skills, panel: adds.panels.length, command: adds.commands.length, tool: adds.tools, hook: adds.hooks?.length ?? 0,
+        "MCP service": adds.mcpServers.length, "project type": adds.projectTypes.length, "model provider": adds.modelProviders.length, agent: adds.agents.length,
+      }).filter(([, count]) => count).map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`).join(" · ") || "No components";
       const next = isAppWidePlugin(plugin.manifest)
         ? "It applies by itself to every project it suits."
         : "The person turns it on in a project's Plugins sheet, which also asks them to approve what it asks for.";
@@ -253,7 +308,7 @@ export function createAgentTools(
         details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
-  }), defineTool({
+  })]), defineTool({
     name: "update_plan",
     label: "Update Plan",
     description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",
@@ -496,63 +551,6 @@ export function createAgentTools(
       }
     },
   }), defineTool({
-    name: PI_TOOL_NAMES["generate-speech"],
-    label: "Generate Speech",
-    description: "Generate character or narrator speech and save it into the current project. Use an exact voice ID supported by the connected speech provider.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      text: Type.String({ minLength: 1, maxLength: 10_000, description: "The words to speak" }),
-      voiceId: Type.Optional(Type.String({ minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN, description: "Provider Speaker ID; omit to use the configured default" })),
-      model: Type.Optional(mediaModelParameter()),
-      language: Type.Optional(Type.String({ maxLength: 40 })),
-      style: Type.Optional(Type.String({ maxLength: 2_000, description: "Delivery or emotional direction" })),
-      speed: Type.Optional(Type.Number({ minimum: -50, maximum: 100 })),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")], { description: "Output format supported by the selected model; Doubao Speech supports mp3 only" })),
-      sampleRate: Type.Optional(Type.Union([8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000].map((value) => Type.Literal(value)))),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-speech", {
-      ...audioSettings(input),
-      text: input.text, voiceId: input.voiceId, model: input.model, language: input.language, style: input.style, speed: input.speed,
-      output: input.output ?? { format: input.format, sampleRate: input.sampleRate },
-    }, input.text, "speech", signal),
-  }), defineTool({
-    name: PI_TOOL_NAMES["generate-sound-effect"],
-    label: "Generate Sound Effect",
-    description: "Generate a sound effect with a compatible connected audio provider and save it into the current project.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe the sound, environment, timing, and intensity" }),
-      model: Type.Optional(mediaModelParameter()),
-      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
-      loop: Type.Optional(Type.Boolean()),
-      negativePrompt: Type.Optional(Type.String({ maxLength: 4_000 })),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-sound-effect", {
-      ...audioSettings(input),
-      prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds, loop: input.loop,
-      negativePrompt: input.negativePrompt, output: input.output ?? { format: input.format },
-    }, input.prompt, "sound-effect", signal),
-  }), defineTool({
-    name: PI_TOOL_NAMES["generate-music"],
-    label: "Generate Music",
-    description: "Generate music with a compatible connected audio provider and save it into the current project.",
-    parameters: Type.Object({
-      ...audioToolSettings,
-      prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe genre, mood, tempo, instrumentation, and structure" }),
-      model: Type.Optional(mediaModelParameter()),
-      instrumental: Type.Boolean({ description: "Generate without vocals" }),
-      lyrics: Type.Optional(Type.String({ maxLength: 20_000 })),
-      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
-      loop: Type.Optional(Type.Boolean()),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
-    }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-music", {
-      ...audioSettings(input),
-      prompt: input.prompt, model: input.model, instrumental: input.instrumental, lyrics: input.lyrics,
-      durationSeconds: input.durationSeconds, loop: input.loop, output: input.output ?? { format: input.format },
-    }, input.prompt, "music", signal),
-  }), defineTool({
     name: "crop_image",
     label: "Crop Image",
     description: "Extract a rectangle in source pixels.",
@@ -682,9 +680,25 @@ export function createAgentTools(
     },
   }), defineTool({
     name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
-    description: "Create game scene audio combining dialogue, sound effects, ambience and music. Use Seed Audio with a text prompt or a Speaker ID. Duration is a target, not an exact cut. Save audio and metadata companions to the project.",
-    parameters: Type.Object({ ...audioToolSettings, prompt: Type.String({ minLength: 1, maxLength: 2744 }), model: Type.Optional(mediaModelParameter()), durationSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 120 })) }),
-    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-audio", { ...audioSettings(input), prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds }, input.prompt, "audio", signal),
+    description: [
+      "Generate speech, a sound effect, music, or audio that mixes them, and save it with its metadata companion into the current project.",
+      "Set kind to what you need and OhMyGame uses the default model set for that kind, or else picks a connected model that makes it; for speech it prefers one that reads the prompt word for word.",
+      "For speech, prompt is the exact line to speak; give voiceId when the model needs a voice. For everything else, prompt describes the sound, mood, timing and instrumentation.",
+      "Options a model doesn't take, such as a length or loop, are ignored. Duration is a target, not an exact cut.",
+    ].join(" "),
+    parameters: Type.Object({
+      ...audioToolSettings,
+      prompt: Type.String({ minLength: 1, maxLength: AUDIO_PROMPT_MAX_LENGTH, description: "The words to speak, or a description of the audio" }),
+      kind: Type.Optional(Type.Union(AUDIO_KINDS.map((kind) => Type.Literal(kind)), { description: "What to make; picks a model when model is omitted" })),
+      model: Type.Optional(mediaModelParameter()),
+      durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
+      loop: Type.Optional(Type.Boolean({ description: "A seamless loop, for models that make one" })),
+      instrumental: Type.Optional(Type.Boolean({ description: "Music without vocals, for models that offer the choice" })),
+    }),
+    execute: async (_toolCallId, input, signal) => saveGeneratedAudio({
+      ...audioSettings(input), prompt: input.prompt, kind: input.kind, model: input.model,
+      durationSeconds: input.durationSeconds, loop: input.loop, instrumental: input.instrumental,
+    }, input.prompt, input.kind ?? "audio", signal),
   }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",

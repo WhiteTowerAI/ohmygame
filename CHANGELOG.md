@@ -4,6 +4,211 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.7] - 2026-11-12
+
+### Added
+
+- Play Web Games online with friends: the agent sets up turn-based or realtime
+  rooms, and players' sign-in, cloud saves and leaderboards, on OhMyGame's game
+  service, so publishing needs no server of your own.
+  ([#759](https://github.com/WhiteTowerAI/ohmygame/pull/759) by @xinyang6879)
+- Browse plugins as in an app store: Discover with categories, recommended
+  order, and a page for each plugin with screenshots and details; Installed
+  with updates first; and Mine for the plugins you make with AI.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Check pixel art in Image tools: logical size, colours, stray pixels, outline
+  and feet row, and whether several sprites match.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Add a Japanese README.
+  ([#753](https://github.com/WhiteTowerAI/ohmygame/pull/753) by @eltociear)
+
+### Changed
+
+- Give each plugin one switch: adding a plugin or turning it on allows what it
+  asks for, with no second approval, and projects can still turn it off for
+  themselves. Plugins that use newer manifest fields still install, and a new
+  version removes older ones no project uses.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Fix pixel art finds the real pixel grid, even when its cells are uneven, so
+  generated pixel art no longer comes out as a mosaic.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Shorten the README to a landing page that links to the website's docs.
+  ([#757](https://github.com/WhiteTowerAI/ohmygame/pull/757) by @dogxii)
+
+### Fixed
+
+- Find coding agents that npm installed, such as Gemini CLI, on Windows.
+  ([#769](https://github.com/WhiteTowerAI/ohmygame/pull/769) by @dogxii)
+- Title successful Canvas actions, such as Created and Downloaded, as results
+  rather than failures.
+  ([#774](https://github.com/WhiteTowerAI/ohmygame/pull/774) by @xinyang6879)
+- Say when a copy button could not copy to the clipboard.
+  ([#738](https://github.com/WhiteTowerAI/ohmygame/pull/738) by @jay23606)
+
+## [0.0.0-beta.5.6] - 2026-11-11
+
+### Added
+
+- Add ElevenLabs for speech, sound effects, music and transcription, with your
+  account's voices, Transcribe to text on an audio node, and the newer Sound
+  Effects v3 and Music v2.5 models.
+  ([#748](https://github.com/WhiteTowerAI/ohmygame/pull/748) by @dihuangdh,
+  [#768](https://github.com/WhiteTowerAI/ohmygame/pull/768) by @idontcarethishahaha)
+- Set default models for speech, sound effects and music, for every project or
+  for one.
+  ([#756](https://github.com/WhiteTowerAI/ohmygame/pull/756) by @dihuangdh)
+- Add a pixel art fixer to Canvas images, which makes a clean pixel-art copy
+  and leaves the source untouched.
+  ([#743](https://github.com/WhiteTowerAI/ohmygame/pull/743) by @idontcarethishahaha)
+- Sort Library and project assets by date, size or name, and filter them by
+  when they were added or changed.
+  ([#742](https://github.com/WhiteTowerAI/ohmygame/pull/742) by @dogxii)
+- Keep the sidebar's projects in an order you choose: drag them, or use Alt
+  with the arrow keys, and pick how many show. The section is now Quick access.
+  ([#745](https://github.com/WhiteTowerAI/ohmygame/pull/745) by @dogxii)
+- Let a General project without a web preview add the Game panel, and show a
+  project's own panels in Code.
+  ([#733](https://github.com/WhiteTowerAI/ohmygame/pull/733) by @dogxii)
+- Add OhMyGame's own plugins from its `@ohmygame` npm scope.
+  ([#766](https://github.com/WhiteTowerAI/ohmygame/pull/766) by @dogxii)
+
+### Changed
+
+- Make audio one Canvas node and one agent tool for speech, sound effects and
+  music, choose from compact controls under the node, and give the node the
+  16:9 media shape. Existing boards open in the new form.
+  ([#748](https://github.com/WhiteTowerAI/ohmygame/pull/748) by @dihuangdh,
+  [#752](https://github.com/WhiteTowerAI/ohmygame/pull/752) by @dihuangdh,
+  [#749](https://github.com/WhiteTowerAI/ohmygame/pull/749) by @dihuangdh,
+  [#768](https://github.com/WhiteTowerAI/ohmygame/pull/768) by @idontcarethishahaha,
+  [#770](https://github.com/WhiteTowerAI/ohmygame/pull/770) by @xinyang6879)
+- Set up Doubao Speech as one provider for TTS 2.0 and Seed Audio, with one API
+  key, switch and voice.
+  ([#751](https://github.com/WhiteTowerAI/ohmygame/pull/751) by @dihuangdh,
+  [#755](https://github.com/WhiteTowerAI/ohmygame/pull/755) by @dihuangdh)
+- Show generated images, videos and 3D models as small thumbnails beside the
+  tool calls that made them, instead of large previews after the reply.
+  ([#763](https://github.com/WhiteTowerAI/ohmygame/pull/763) by @dihuangdh)
+- Run Claude Code's media generation calls side by side, and label calls
+  waiting behind a running one as queued.
+  ([#765](https://github.com/WhiteTowerAI/ohmygame/pull/765) by @dihuangdh)
+- Give each project action one home: one Project settings dialog for every
+  project type, and Play in the top bar for interactive stories too.
+  ([#741](https://github.com/WhiteTowerAI/ohmygame/pull/741) by @dogxii,
+  [#739](https://github.com/WhiteTowerAI/ohmygame/pull/739) by @dihuangdh,
+  [#740](https://github.com/WhiteTowerAI/ohmygame/pull/740) by @dihuangdh)
+- Show Community pages you've seen at once while they refresh, with card
+  skeletons and a loading screen while a game starts.
+  ([#746](https://github.com/WhiteTowerAI/ohmygame/pull/746) by @dogxii)
+- Show 3D preview controls only for models with animations, and play the clip
+  without turning the model.
+  ([#762](https://github.com/WhiteTowerAI/ohmygame/pull/762) by @dihuangdh)
+- Point plugin and project `$schema` links at ohmygame.ai.
+  ([#729](https://github.com/WhiteTowerAI/ohmygame/pull/729) by @dogxii)
+
+### Removed
+
+- Remove the Three.js World and Image to Three.js plugins. The copy OhMyGame
+  installed is uninstalled once.
+  ([#734](https://github.com/WhiteTowerAI/ohmygame/pull/734) by @dogxii)
+
+### Fixed
+
+- Offer a link to copy when the system can't open it, such as on Windows
+  without a default browser, and ignore copies that fail because the window
+  lost focus.
+  ([#758](https://github.com/WhiteTowerAI/ohmygame/pull/758) by @dihuangdh)
+- Start a conversation without a model on the one its picker shows.
+  ([#724](https://github.com/WhiteTowerAI/ohmygame/pull/724) by @dogxii)
+- Open a project's Canvas even when the project has its own `design/` folder
+  or `canvas.json`.
+  ([#761](https://github.com/WhiteTowerAI/ohmygame/pull/761) by @dogxii)
+- Ready the plugin author packages for npm, and list every part of a plugin
+  when you review it before adding.
+  ([#731](https://github.com/WhiteTowerAI/ohmygame/pull/731) by @dogxii)
+- Fix spacing and colors in the AI workspace Overview, plugin lists, the audio
+  panel in light mode and the media submenu.
+  ([#754](https://github.com/WhiteTowerAI/ohmygame/pull/754) by @dogxii,
+  [#750](https://github.com/WhiteTowerAI/ohmygame/pull/750) by @dihuangdh,
+  [#747](https://github.com/WhiteTowerAI/ohmygame/pull/747) by @xinyang6879)
+
+## [0.0.0-beta.5.5] - 2026-11-06
+
+### Added
+
+- Open the plugin market, read from its published index, and offer only
+  updates the market allows.
+  ([#710](https://github.com/WhiteTowerAI/ohmygame/pull/710) by @dogxii)
+- Let plugins do much more: run, capture and play the game and extend its
+  preview; react to hooks such as a finished turn or an image about to be
+  generated; publish projects and add themes; add canvas nodes, presets and
+  chains; and bring their own model providers and agents.
+  ([#688](https://github.com/WhiteTowerAI/ohmygame/pull/688) by @dogxii,
+  [#701](https://github.com/WhiteTowerAI/ohmygame/pull/701) by @dogxii,
+  [#702](https://github.com/WhiteTowerAI/ohmygame/pull/702) by @dogxii,
+  [#703](https://github.com/WhiteTowerAI/ohmygame/pull/703) by @dogxii,
+  [#704](https://github.com/WhiteTowerAI/ohmygame/pull/704) by @dogxii)
+- Add tools for plugin authors: the `ohmygame-plugin` CLI, a
+  `create-ohmygame-plugin` template, a development mode and export.
+  ([#707](https://github.com/WhiteTowerAI/ohmygame/pull/707) by @dogxii)
+- Let a project hold panels of its own in `.ohmygame/panels/`, which its agent
+  can write, shown beside the chat once you allow what each asks for.
+  ([#722](https://github.com/WhiteTowerAI/ohmygame/pull/722) by @dogxii)
+- Rename, reorder and repoint coding agent accounts from a menu on each
+  account.
+  ([#709](https://github.com/WhiteTowerAI/ohmygame/pull/709) by @dogxii)
+
+### Changed
+
+- Record each project's type in its root `ohmygame.json` and use it when
+  opening folders and importing archives, preserving the project's settings
+  and refusing to reopen it as a different type.
+  ([#726](https://github.com/WhiteTowerAI/ohmygame/pull/726) by @dogxii)
+- Run the Plugin Builder as a project with the full project chat, let it make
+  every kind of plugin, and split the Plugins page by what you want to do.
+  ([#713](https://github.com/WhiteTowerAI/ohmygame/pull/713) by @dogxii,
+  [#725](https://github.com/WhiteTowerAI/ohmygame/pull/725) by @dogxii)
+- Make plugin uninstalls, updates, errors and safe mode clearer and safer, and
+  describe what a plugin asks for in plain, grouped lines.
+  ([#695](https://github.com/WhiteTowerAI/ohmygame/pull/695) by @dogxii,
+  [#714](https://github.com/WhiteTowerAI/ohmygame/pull/714) by @dogxii)
+- Keep everything OhMyGame stores for a project in its folder's `.ohmygame/`,
+  so the folder is the whole project. Existing projects move over when opened.
+  ([#721](https://github.com/WhiteTowerAI/ohmygame/pull/721) by @dogxii)
+- Show generated images as thumbnails in the tool details instead of a large
+  gallery after the reply.
+  ([#699](https://github.com/WhiteTowerAI/ohmygame/pull/699) by @dogxii)
+- Keep 3D previews still until you press Play, and load large 3D files and
+  canvas media only when needed.
+  ([#684](https://github.com/WhiteTowerAI/ohmygame/pull/684) by @82228,
+  [#712](https://github.com/WhiteTowerAI/ohmygame/pull/712) by @dogxii)
+- Report OhMyGame as Claude Code's client, with a switch to turn it off.
+  ([#708](https://github.com/WhiteTowerAI/ohmygame/pull/708) by @dogxii)
+
+### Fixed
+
+- Make streaming chat replies much lighter on the app, and stop game stills
+  from stalling tab switches.
+  ([#711](https://github.com/WhiteTowerAI/ohmygame/pull/711) by @dogxii,
+  [#712](https://github.com/WhiteTowerAI/ohmygame/pull/712) by @dogxii,
+  [#718](https://github.com/WhiteTowerAI/ohmygame/pull/718) by @dogxii)
+- Load the Code file tree one folder at a time, so large projects open fast,
+  and add a Refresh files button.
+  ([#698](https://github.com/WhiteTowerAI/ohmygame/pull/698) by @82228)
+- Continue the same Codex conversation after a stop or a failed request.
+  ([#700](https://github.com/WhiteTowerAI/ohmygame/pull/700) by @dogxii)
+- Restore drag-to-select on an empty canvas.
+  ([#697](https://github.com/WhiteTowerAI/ohmygame/pull/697) by @dogxii)
+- Keep the Windows Back and Forward buttons visible and clickable.
+  ([#694](https://github.com/WhiteTowerAI/ohmygame/pull/694) by @idontcarethishahaha)
+- Find Godot on Windows by its release file names, WinGet, Scoop and every
+  Steam library.
+  ([#705](https://github.com/WhiteTowerAI/ohmygame/pull/705) by @xinyang6879)
+- Use the plain refresh icon for Restart to update.
+  ([#696](https://github.com/WhiteTowerAI/ohmygame/pull/696) by @xinyang6879)
+- Leave stored data that can't be read as it is instead of overwriting it.
+  ([#719](https://github.com/WhiteTowerAI/ohmygame/pull/719) by @dogxii)
+
 ## [0.0.0-beta.5.4] - 2026-11-04
 
 ### Changed

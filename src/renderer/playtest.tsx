@@ -93,7 +93,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     setPageStart({
       ...(request?.action === "replay" && !nextStart ? { "ohmygame-new-game": "1" } : {}),
       ...(request?.action === "forget-seen" ? { "ohmygame-forget-seen": "1" } : {}),
-      // Play from here leaves the saved game as it was.
+      // Playtest from a chosen Scene leaves the saved game as it was.
       ...(nextStart ? { "ohmygame-save": "none" } : {}),
     });
     history.current.reset();

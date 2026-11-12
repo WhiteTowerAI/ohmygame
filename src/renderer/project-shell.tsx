@@ -4,8 +4,6 @@ import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type Agent
 import {
   Play,
   Plug,
-  History,
-  Palette,
   ArrowLeft,
   Download,
   FolderOpen,
@@ -19,7 +17,7 @@ import {
   Gamepad2,
   Layers3,
   LayoutGrid,
-  Pencil,
+  Settings,
   RefreshCw,
   Globe2,
   Share2,
@@ -44,7 +42,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -65,15 +63,14 @@ import {
   branchConversation,
   getConversation,
   getConversationContextUsage,
-  consentToPlugin,
   getConversationCapabilities,
   turnOnProjectPlugin,
+  setProjectPlugin,
   getCheckpointChanges,
   getCheckpointFile,
   getProject,
   getUnfinishedChanges,
   getUnfinishedRestore,
-  listModels,
   listConversations,
   publishProject,
   removePendingPrompt,
@@ -113,7 +110,6 @@ import {
   pluginNetFetch,
   reportPluginPanelError,
   reportProjectPanelError,
-  setStorePluginEnabled,
   undoProjectPluginChange,
   type PluginPanel,
   skipLimitResume,
@@ -123,8 +119,7 @@ import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
-import { PluginConsentDialog } from "./plugin-consent-dialog.js";
-import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
+import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
@@ -148,18 +143,18 @@ import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
-import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
+import { ProjectRail, type RailConversations } from "./app-sidebar.js";
+import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -190,7 +185,8 @@ interface ProjectShellProps {
 
 /** What a workspace that isn't a game puts around the project's chat. */
 export interface ProjectWorkspace {
-  rail: ReactNode;
+  /** Given the open project's conversations, for its item's hover list. */
+  rail: (conversations: RailConversations) => ReactNode;
   placeholder: string;
   /** The top bar and the `plugin` panel, rendered into the nodes given. */
   render: (view: ProjectWorkspaceView) => ReactNode;
@@ -204,8 +200,6 @@ export interface ProjectWorkspaceView {
   /** Puts a prompt in the chat's box. */
   ask: (text: string) => void;
   openFile: (path: string) => void;
-  /** The project's layouts and panels, for the top bar. */
-  layoutMenu: MenuEntry[];
   top: HTMLElement;
   panel: PanelNodes;
 }
@@ -277,7 +271,13 @@ export function ProjectShell({
   useEffect(() => { if (capabilitiesRevision) announceProjectPluginsChanged(); }, [capabilitiesRevision]);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
-  const offered: PanelId[] = state.project ? [...panelsOf(state.project), ...pluginPanels.keys()] : [];
+  // A General project without Web preview leaves the Game panel out until the
+  // person adds it, here and only for this project.
+  const [gameAddedTo, setGameAddedTo] = useState<string>();
+  const gameAddable = !!state.project && gamePanelAddable(state.project);
+  const offered: PanelId[] = state.project ? [...panelsOf(state.project, gameAddedTo === state.project.id), ...pluginPanels.keys()] : [];
+  /** What the panel menu lists: what the project offers, and the Game panel it can add. */
+  const listed: PanelId[] = state.project ? [...panelsOf(state.project, gameAddable), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
   const opening = useMemo(() => state.project ? openingLayout(offered, homes) : undefined, [!!state.project]);
   const current = saved ?? opening;
@@ -304,6 +304,14 @@ export function ProjectShell({
   function revealPanel(id: PanelId): void {
     const { layout, offered, homes } = latestLayout.current;
     if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id, homes)));
+    // The Game panel joins once added, then shows on the next render.
+    else if (id === "game" && gameAddable && state.project) setGameAddedTo(state.project.id);
+  }
+  useEffect(() => { if (gameAddedTo && gameAddedTo === state.project?.id) revealPanel("game"); }, [gameAddedTo]);
+  /** The + menu lists the Game panel a project can add; picking it adds it first. */
+  function changeLayoutOrAddGame(next: Layout): void {
+    if (gameAddable && !latestLayout.current.offered.includes("game") && areaOf(next, "game")) revealPanel("game");
+    else changeLayout(next);
   }
   /** A panel's name and icon; a plugin's panel shows its title with the plugin icon. */
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
@@ -337,7 +345,12 @@ export function ProjectShell({
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [playSlot, setPlaySlot] = useState<HTMLSpanElement | null>(null);
-  const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
+  // The project's settings, on this tab while they are open. A game or story shows its own tab through the slot.
+  const [settingsTab, setSettingsTab] = useState<ProjectSettingsTab>();
+  const [settingsNode, setSettingsNode] = useState<HTMLDivElement | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const closeSettings = useCallback(() => { setSettingsTab(undefined); setSettingsBusy(false); }, []);
+  const settingsSlot = useMemo<ProjectSettingsSlot | undefined>(() => settingsNode ? { node: settingsNode, onBusyChange: setSettingsBusy, onClose: closeSettings } : undefined, [settingsNode, closeSettings]);
   /** A plugin command's link, shown with its host before it opens. */
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
@@ -366,7 +379,6 @@ export function ProjectShell({
     if (pluginConfirm && !pluginPanels.has(pluginConfirm.panel)) answerPluginConfirm(false);
   }, [pluginConfirm, plugins.panels]);
   const toast = useToast();
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
@@ -444,15 +456,9 @@ export function ProjectShell({
     return () => { disposed = true; };
   }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision]);
 
-  // A plugin mentioned while it is off here is turned on first, once the person allows what it asks for.
-  const [pluginConsent, setPluginConsent] = useState<{ plugin: ConversationCapabilities["plugins"][number]; answer: (allowed: boolean) => void }>();
+  // A plugin mentioned while it is off here is turned on first; mentioning it is turning it on, which allows it.
   async function turnOnMentionedPlugin(plugin: ConversationCapabilities["plugins"][number]): Promise<boolean> {
     if (agentBusy) throw new Error(t("projectPlugins.busy"));
-    if (plugin.asks?.length) {
-      const allowed = await new Promise<boolean>((answer) => setPluginConsent({ plugin, answer }));
-      if (!allowed) return false;
-      await consentToPlugin(plugin.id, plugin.asks);
-    }
     const blocked = await turnOnProjectPlugin(projectId, plugin.id);
     if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
     setCapabilitiesRevision((value) => value + 1);
@@ -594,9 +600,7 @@ export function ProjectShell({
         const requestedConversation = availableConversations.find((item) => item.id === conversationId);
         let selected = requestedConversation ?? availableConversations[0];
         if (!selected) {
-          const model = await initialConversationModel();
-          if (disposed) return;
-          selected = await createConversation(projectId, model);
+          selected = await createConversation(projectId);
         }
         if (disposed) return;
         if (!requestedConversation) {
@@ -693,6 +697,7 @@ export function ProjectShell({
     setSendingInitialPrompt(true);
     notifyPromptSent();
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
+      readStartingSettings(project.id, conversation.id);
       if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
       onInitialPromptHandled?.();
     }, (error) => {
@@ -792,6 +797,14 @@ export function ProjectShell({
   const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
     ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
+  // Sending gives a conversation with no model the one its picker shows; read it back so the controls follow it.
+  function readStartingSettings(projectId: string, conversationId: string): void {
+    if (state.settings.model) return;
+    void getConversation(projectId, conversationId)
+      .then((detail) => dispatch({ type: "conversation-settings", conversationId, settings: detail.settings }))
+      .catch(() => undefined);
+  }
+
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
@@ -807,6 +820,7 @@ export function ProjectShell({
       notifyPromptSent();
       const picks = previewPicks;
       await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
+      readStartingSettings(project.id, conversation.id);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
@@ -839,6 +853,7 @@ export function ProjectShell({
       await saveDesign.current?.();
       notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
+      readStartingSettings(project.id, conversation.id);
       revealPanel("chat");
       return true;
     } catch (error) {
@@ -1169,10 +1184,8 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     });
   }
-  const requestHome = () => leave(onHome);
   useLeaveGuard(leave);
 
-  const [renaming, setRenaming] = useState(false);
   const [exporting, setExporting] = useState<"project" | "web">();
   const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
   // The project file from the project menu, or the web build from Publish.
@@ -1199,13 +1212,12 @@ export function ProjectShell({
     }
   }
   async function renameTo(input: string): Promise<void> {
-    setRenaming(false);
     const name = input.trim();
     if (!project || !name || name === project.name) return;
     try {
       const updated = await renameProject(project.id, name);
       dispatch({ type: "project-updated", project: updated });
-      refreshRecentProject(updated);
+      refreshSidebarProject(updated);
     } catch (cause) {
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
@@ -1255,9 +1267,9 @@ export function ProjectShell({
       return { error };
     }
   }
-  /** Turns a plugin off everywhere, as from a panel that stopped responding. */
+  /** Turns a plugin off in this project, as from a panel that stopped responding. */
   function turnPluginOff(plugin: string): void {
-    void setStorePluginEnabled(plugin, false).then(
+    void setProjectPlugin(projectId, plugin, false).then(
       () => setCapabilitiesRevision((value) => value + 1),
       (cause: unknown) => toast({ title: plugin, description: errorMessage(cause), tone: "danger" }),
     );
@@ -1324,7 +1336,8 @@ export function ProjectShell({
         toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
-      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : { turnOff: () => turnPluginOff(panel.plugin) }),
+      // The type's own plugin can't be turned off in its project; Reload is left.
+      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
@@ -1385,18 +1398,18 @@ export function ProjectShell({
       for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
   }
+  // Stories and web projects add a tab of their own to the project's settings.
+  const workspaceSettingsTab = story ? t("projectSettings.tab.screen")
+    : project && coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? t("projectSettings.tab.preview") : undefined;
   const projectMenu: MenuEntry[] = [
-    { label: t("projectShell.renameProject"), icon: <Pencil size={14} />, disabled: !project, onSelect: () => setRenaming(true) },
+    { label: t("projectShell.settings"), icon: <Settings size={14} />, disabled: !project, onSelect: () => setSettingsTab("general") },
+    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    "separator",
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
-    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
-    { label: t("pluginChanges.menu"), icon: <History size={14} />, disabled: !project, onSelect: () => setPluginChangesOpen(true) },
     ...pluginCommandEntries("project.menu"),
-    { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
-    "separator",
-    { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
   const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
@@ -1441,20 +1454,9 @@ export function ProjectShell({
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
 
-  const toggleMenu: MenuEntry[] = offered.length ? [
-    { heading: t("panels.layout") },
-    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered, homes)) })),
-    "separator",
-    { heading: t("panels.list") },
-    ...offered.map((id) => {
-      const { title, icon: Icon } = panelInfo(id);
-      const open = !!layout && !!areaOf(layout, id);
-      return { label: title, icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id, homes))) };
-    }),
-  ] : [];
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
-    ...offered.map((id): Command => {
+    ...listed.map((id): Command => {
       const { title, icon: Icon } = panelInfo(id);
       return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: title }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
     }),
@@ -1569,12 +1571,16 @@ export function ProjectShell({
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
   }
+  const railConversations: RailConversations = {
+    items: conversations,
+    current: conversation?.id,
+    onOpen: (id) => onOpenConversation(id),
+    onNew: () => void newConversation(),
+  };
 
   return (
     <>
     {chatInput}
-    {project ? <PluginChangesSheet projectId={project.id} open={pluginChangesOpen} busy={agentBusy} onClose={() => setPluginChangesOpen(false)}
-      onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
       <Button variant="primary" onClick={() => { openExternalLink(pluginLink.url.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
@@ -1591,26 +1597,17 @@ export function ProjectShell({
     </Dialog> : null}
     {pluginLog ? <PluginLogDialog plugin={pluginLog} displayName={pluginLog} onClose={() => setPluginLog(undefined)}
       onChanged={() => setCapabilitiesRevision((value) => value + 1)} /> : null}
-    {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
-      onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
-      onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
-    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
-    {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
-    {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
+    {project && settingsTab ? <ProjectSettings project={project} initialTab={settingsTab} workspaceTab={workspaceSettingsTab} workspaceRef={setSettingsNode} busy={settingsBusy}
+      onRename={(name) => void renameTo(name)} onClose={closeSettings} /> : null}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
+      onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     <ProjectFrame
-      rail={workspace?.rail ?? <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
-        items: conversations,
-        current: conversation?.id,
-        onOpen: (id) => onOpenConversation(id),
-        onNew: () => void newConversation(),
-      }} />}
+      rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
-        {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
-          <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
-        )} /> : null}
-        {/* Play stays in place from every view. A Web preview fills the slot
-            with Play in its own window; an external preview can only be shown. */}
-        {project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
+        {/* Play stays in place from every view. A Web preview or a story fills
+            the slot with Play in its own window; an external preview can only be shown. */}
+        {project && story ? <span className="project-top-play" ref={setPlaySlot} />
+          : project && offered.includes("game") && !gameAddable ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
           : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
@@ -1634,8 +1631,8 @@ export function ProjectShell({
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
-    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
-      panels={(project ? offered : ["chat" as const]).map((id) => {
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayoutOrAddGame} onReset={project ? () => changeLayout(presetLayout("default", offered, homes)) : undefined}
+      panels={(project ? listed : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
         const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
         return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
@@ -1757,6 +1754,8 @@ export function ProjectShell({
           pickingClient={pickingClient}
           onPickingChange={setPickingClient}
           previewDevices={plugins.previewDevices}
+          settingsSlot={settingsSlot}
+          onOpenSettings={() => setSettingsTab("workspace")}
           previewFilters={plugins.previewFilters}
           inputMaps={plugins.inputMaps}
           panels={{
@@ -1785,10 +1784,12 @@ export function ProjectShell({
         referencedDocument={referencedDocument}
         onReferenceDocument={referenceDocument}
         onQuoteDocument={quoteDocument}
+        settingsSlot={settingsSlot}
         panels={{
           nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
           visible: storyVisible,
           onShow: revealPanel,
+          play: playSlot,
         }}
       /> : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
@@ -1804,7 +1805,7 @@ export function ProjectShell({
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       {project && workspace && workspaceTop ? workspace.render({
-        busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, layoutMenu: toggleMenu, top: workspaceTop, panel: nodes.plugin,
+        busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, top: workspaceTop, panel: nodes.plugin,
       }) : null}
       {project && codeBeside && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
         <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>
@@ -1911,16 +1912,6 @@ function openExternalLink(url: string): void {
 /** Whether a restore or an undo failed part way and could not take back what it had already changed. */
 function leftUnfinished(error: unknown): boolean {
   return error instanceof ApiError && (error.code === "CHECKPOINT_INCOMPLETE" || error.code === "workspace_recovery");
-}
-
-async function initialConversationModel(): Promise<AgentModelRef | undefined> {
-  try {
-    // OhMyGame's own models come first; with none connected, the first coding agent that is set up.
-    const catalog = await listModels({ agentRuntimes: true });
-    return catalog.defaultModel ?? catalog.models[0];
-  } catch {
-    return undefined;
-  }
 }
 
 /** Two batches of changed files as one, with no more paths than one event carries. */

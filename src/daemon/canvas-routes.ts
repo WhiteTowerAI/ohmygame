@@ -1,5 +1,7 @@
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
@@ -10,15 +12,19 @@ import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
+import { fixPixelArt, PixelArtFixerError } from "./pixel-art-fixer.js";
+import { checkPixelArtImages, PixelArtCheckError } from "./pixel-art-check.js";
+import type { PixelArtCheckBatch, PixelArtCheckExpectations } from "../shared/pixel-art-check.js";
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
+import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;
@@ -121,7 +127,9 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.post<{ Params: { projectId: string }; Body: CanvasMediaRequest }>(`${base}/media`, {
     bodyLimit: 64 * 1024,
   }, async (request, reply) => {
-    try { return reply.code(200).send(await withMediaTask(() => runCanvasMedia({ ...options, store }, request.params.projectId, request.body))); } catch (cause) { return failure(cause, reply); }
+    // Transcription waits on the provider rather than this machine, so it doesn't hold a media slot.
+    const run = () => runCanvasMedia({ ...options, store }, request.params.projectId, request.body);
+    try { return reply.code(200).send(await (request.body?.operation === "transcribe-audio" ? run() : withMediaTask(run))); } catch (cause) { return failure(cause, reply); }
   });
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
@@ -149,16 +157,24 @@ interface CanvasMediaRequest {
     left?: number;
     top?: number;
     format?: "png" | "jpg" | "jpeg" | "webp" | "mp4" | "gif";
+    /** The spoken language for transcribe-audio, as an ISO 639 code; detected when absent. */
+    language?: string;
+    /** check-pixel-art: settings to compare against (`width` and `height` above give the size). */
+    colors?: number;
+    baseline?: number;
+    outline?: string;
   };
 }
 
 type CanvasMediaResult =
   | { kind: "asset"; assetId: string; name: string; mediaType: string }
   | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
-  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
+  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
+  | { kind: "text"; text: string }
+  | { kind: "pixel-check"; checks: PixelArtCheckBatch };
 
 async function runCanvasMedia(
-  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore },
+  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore; audio?: AudioGenerator },
   projectId: string,
   request: CanvasMediaRequest,
 ): Promise<CanvasMediaResult> {
@@ -190,10 +206,16 @@ async function runCanvasMedia(
     const expectedNodes = request.operation === "split-image-grid"
       ? input.selectedFrames?.length ?? (input.columns ?? 2) * (input.rows ?? 2)
       : request.operation === "video-frame-strip" && input.selectedFrames
-        ? input.selectedFrames.length : 1;
+        ? input.selectedFrames.length
+        : request.operation === "check-pixel-art" ? 0 : 1;
     if (expectedNodes > await availableNodes()) throw new CanvasError("Canvas is full", 409);
   }
   const first = sources[0]!;
+  if (request.operation === "transcribe-audio") return { kind: "text", text: await transcribe(options.audio, first, input.language) };
+  if (request.operation === "check-pixel-art") {
+    for (const source of sources) requireMedia(source.contentType, "image");
+    return { kind: "pixel-check", checks: await checkPixelArtImages(await Promise.all(sources.map((source) => readFile(source.absolutePath))), pixelArtExpectations(input)) };
+  }
   let output: { name: string; bytes: Buffer; mediaType: string } | undefined;
   let outputs: Awaited<ReturnType<typeof splitImageGrid>> | undefined;
   if (request.operation === "split-image-grid") {
@@ -215,6 +237,10 @@ async function runCanvasMedia(
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
     output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
+  } else if (request.operation === "fix-pixel-art") {
+    requireMedia(first.contentType, "image");
+    const fixed = await fixPixelArt(await readFile(first.absolutePath));
+    output = { name: "pixel-art-fixed.png", bytes: fixed.bytes, mediaType: fixed.mediaType };
   } else if (request.operation === "crop-image" || request.operation === "extract-gif-frames") {
     requireMedia(first.contentType, "image");
     const imageInput = { inputPath: first.absolutePath, format: input.format === "jpg" ? "jpeg" as const : input.format as "png" | "jpeg" | "webp" | undefined };
@@ -257,7 +283,37 @@ async function runCanvasMedia(
   return { kind: "asset", assetId: asset.id, name: asset.name, mediaType: asset.mediaType };
 }
 
-function requireMedia(contentType: string, expected: "image" | "video"): void {
+/** What a pixel-art check compares against: only valid settings the request names. */
+function pixelArtExpectations(input: { width?: unknown; height?: unknown; colors?: unknown; baseline?: unknown; outline?: unknown }): PixelArtCheckExpectations {
+  const whole = (value: unknown, min: number) => typeof value === "number" && Number.isInteger(value) && value >= min ? value : undefined;
+  const width = whole(input.width, 1);
+  const height = whole(input.height, 1);
+  const colors = whole(input.colors, 1);
+  const baseline = whole(input.baseline, 0);
+  return {
+    ...(width && height ? { width, height } : {}),
+    ...(colors ? { colors } : {}),
+    ...(baseline === undefined ? {} : { baseline }),
+    ...(typeof input.outline === "string" && /^#[0-9a-f]{6}$/i.test(input.outline) ? { outline: input.outline } : {}),
+  };
+}
+
+/** The words spoken in an audio asset, for a Text node beside it. */
+async function transcribe(audio: AudioGenerator | undefined, source: { absolutePath: string; contentType: string }, language: unknown): Promise<string> {
+  requireMedia(source.contentType, "audio");
+  if (!audio?.transcribe) throw new CanvasError("Audio transcription is not available", 503);
+  if (language !== undefined && (typeof language !== "string" || !/^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})?$/.test(language))) throw new CanvasError("Invalid language code", 400);
+  try {
+    const { text } = await audio.transcribe({ bytes: await readFile(source.absolutePath), mediaType: source.contentType, name: path.basename(source.absolutePath), ...(language ? { language } : {}) });
+    if (!text) throw new CanvasError("No speech was found in this audio", 422);
+    return text;
+  } catch (cause) {
+    if (cause instanceof AudioGenerationError) throw new CanvasError(cause.message, cause.statusCode);
+    throw cause;
+  }
+}
+
+function requireMedia(contentType: string, expected: "image" | "video" | "audio"): void {
   if (!contentType.startsWith(`${expected}/`)) throw new CanvasError(`This operation requires a ${expected}`, 400);
 }
 

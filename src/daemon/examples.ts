@@ -2,6 +2,7 @@ import { cp, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, ToolJob } from "../shared/contracts.js";
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
+import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { LoopbackFileServer } from "./loopback-file-server.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
@@ -100,10 +101,12 @@ export class ExampleStore {
       // fs.cp treats that as a conflict when overwriting is disabled.
       const source = path.join(this.#directory!, example.directory);
       for (const entry of await readdir(source)) {
+        // The project already names its type; an example's own file says it as the example wants.
+        const named = entry === PROJECT_FILE_NAME;
         await cp(path.join(source, entry), path.join(project.workspacePath, entry), {
           recursive: true,
-          force: false,
-          errorOnExist: true,
+          force: named,
+          errorOnExist: !named,
         });
       }
       // Keep copied boards and layouts verbatim. Historical jobs belong to the

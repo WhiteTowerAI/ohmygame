@@ -32,6 +32,7 @@ const explicitTestGroups = {
   "network-runtime.test.ts": "daemon",
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",
+  "renderer-styles.test.ts": "renderer",
   "blender-export.test.ts": "daemon",
   "desktop-typebox.test.ts": "desktop",
   "readme-translations.test.ts": "shared",
@@ -43,6 +44,15 @@ const explicitTestGroups = {
   "desktop-update-ranges.test.ts": "desktop",
   "taptap-maker.test.ts": "daemon",
   "godot-plugin.test.ts": "daemon",
+  // The game service and the browser SDK live in packages/; the daemon runs and installs both.
+  "built-in-rules.test.ts": "daemon",
+  "client-address.test.ts": "daemon",
+  "cloud-saves.test.ts": "daemon",
+  "game-data.test.ts": "daemon",
+  "game-sign-in.test.ts": "daemon",
+  "multiplayer-client.test.ts": "daemon",
+  "multiplayer-host.test.ts": "daemon",
+  "multiplayer-protocol.test.ts": "daemon",
 };
 // These skip without a local Blender or a platform-specific process feature.
 // Cloud contract tests are not listed: skipping them means the cloud root is

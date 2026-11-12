@@ -8,9 +8,9 @@ import cloudflare from "@lobehub/icons-static-svg/icons/cloudflare-color.svg";
 import codex from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import claudeCode from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import deepSeek from "@lobehub/icons-static-svg/icons/deepseek-color.svg";
+import elevenLabs from "@lobehub/icons-static-svg/icons/elevenlabs.svg";
 import fireworks from "@lobehub/icons-static-svg/icons/fireworks-color.svg";
 import githubCopilot from "@lobehub/icons-static-svg/icons/githubcopilot.svg";
-import gemini from "@lobehub/icons-static-svg/icons/gemini-color.svg";
 import google from "@lobehub/icons-static-svg/icons/google-color.svg";
 import googleVertex from "@lobehub/icons-static-svg/icons/vertexai-color.svg";
 import groq from "@lobehub/icons-static-svg/icons/groq.svg";
@@ -56,6 +56,7 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "cloudflare-ai-gateway": color(cloudflare),
   "cloudflare-workers-ai": color(cloudflare),
   deepseek: color(deepSeek),
+  elevenlabs: monochrome(elevenLabs),
   fireworks: color(fireworks),
   "github-copilot": monochrome(githubCopilot),
   google: color(google),
@@ -84,7 +85,6 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "codex-cli": color(codex),
   "opencode-cli": monochrome(openCode),
   // Not supported yet; Agents lists it as coming soon.
-  "gemini-cli": color(gemini),
   opencode: monochrome(openCode),
   "opencode-go": monochrome(openCode),
   openrouter: monochrome(openRouter),
@@ -95,7 +95,6 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "vercel-ai-gateway": monochrome(vercel),
   "volcengine-ark": color(volcengine),
   "volcengine-tts": color(volcengine),
-  "volcengine-seed-audio": color(volcengine),
   "byteplus-modelark": color(byteDance),
   xai: monochrome(xAI),
   xiaomi: monochrome(xiaomi),

@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { indexPluginPackage } from "./plugin-index.js";
 import { PluginPackError, stagePublished } from "./plugin-pack.js";
-import { npmPackagePluginIds } from "../shared/plugins.js";
-import { RESERVED_PUBLISHERS } from "../shared/plugin-manifest.js";
+import { npmPackagePluginIds, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PAGE_TOKENS } from "../shared/plugin-ui-protocol.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS, PLUGIN_UI_RETIRING } from "../shared/plugin-ui-versions.js";
 
@@ -118,9 +118,12 @@ export async function checkFolder(folder: string, options: PluginCheckOptions): 
 /** Checks a package; `root` is its folder, as installed. */
 export async function checkPlugin(root: string, options: PluginCheckOptions): Promise<PluginCheckFinding[]> {
   const indexed = await indexPluginPackage(root);
-  if (!indexed.ok) return indexed.issues.map((issue) => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() }));
-  const findings: PluginCheckFinding[] = [];
+  // Fields this app doesn't know are left out, not refused, so a typo would go unnoticed without these.
+  const ignored = (indexed.ignored ?? []).map((issue): PluginCheckFinding => ({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: `${issue.path} ${issue.message}` }));
+  if (!indexed.ok) return [...indexed.issues.map((issue): PluginCheckFinding => ({ level: "error", message: `${issue.path} ${issue.message}`.trim() })), ...ignored];
+  const findings: PluginCheckFinding[] = [...ignored];
   const { manifest } = indexed.entry;
+  if (!manifest.icon) findings.push({ level: "warning", file: PLUGIN_MANIFEST_PATH, message: "There is no icon, so the Plugins page shows the plugin's first letter: set \"icon\" to a square PNG, WebP or SVG in the package" });
   findings.push(...await npmFindings(root, indexed.entry.id, indexed.entry.version));
   const panels = manifest.contributes?.panels ?? [];
   if (!panels.length) return findings;
@@ -249,7 +252,8 @@ async function npmFindings(root: string, id: string, version: string): Promise<P
   if (pkg?.private === true) return [];
   const findings: PluginCheckFinding[] = [];
   const publisher = id.split("/")[0]!;
-  if (RESERVED_PUBLISHERS.has(publisher)) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your npm scope` });
+  // OhMyGame's own publisher is fine on npm, which only lets its organization publish to `@ohmygame`.
+  if (publisher === PERSONAL_PUBLISHER) findings.push({ level: "error", file: ".ohmygame-plugin/plugin.json", message: `The publisher ${publisher} is kept for OhMyGame, so a package can't use it; use your npm scope` });
   const allowed = typeof pkg.name === "string" ? npmPackagePluginIds(pkg.name) : undefined;
   if (!allowed) findings.push({ level: "error", file: "package.json", message: `The package's name must be scoped by the plugin's publisher: @${id}` });
   else if (!allowed.includes(id)) findings.push({ level: "error", file: "package.json", message: `${String(pkg.name)} can only hold the plugin ${allowed.at(-1)}, not ${id}; name it @${id}` });
