@@ -5,7 +5,7 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginScreenshots } from "./plugin-catalog.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, PluginScreenshots } from "./plugin-catalog.js";
 import { PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
@@ -53,7 +53,7 @@ const isOfficialStorePlugin = (plugin: StorePlugin) =>
   isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm");
 
 export function storePluginSearchText(plugin: StorePlugin): string {
-  return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
+  return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []), ...plugin.adds.modelProviders, ...plugin.adds.agents].join(" ").toLowerCase();
 }
 
 /** What a plugin adds, for the browse page's filter. */
@@ -205,7 +205,7 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
@@ -219,6 +219,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   onChanged: () => Promise<void>;
   /** Its last version was uninstalled. */
   onRemoved: () => void;
+  /** Searches the plugins for one of its keywords. */
+  onSearch?: (keyword: string) => void;
   /** Starts a conversation with one of its examples; without this, they only show. */
   onTry?: TryPlugin;
 }): ReactNode {
@@ -368,6 +370,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
+          {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
           {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}

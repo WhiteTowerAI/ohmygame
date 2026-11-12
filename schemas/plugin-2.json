@@ -124,19 +124,11 @@
           },
           {
             "type": "string",
-            "const": "publishing"
+            "const": "agent"
           },
           {
             "type": "string",
-            "const": "online"
-          },
-          {
-            "type": "string",
-            "const": "design"
-          },
-          {
-            "type": "string",
-            "const": "story"
+            "const": "provider"
           },
           {
             "type": "string",
@@ -156,23 +148,27 @@
           },
           {
             "type": "string",
-            "const": "testing"
+            "const": "design"
           },
           {
             "type": "string",
-            "const": "learning"
-          },
-          {
-            "type": "string",
-            "const": "agent"
-          },
-          {
-            "type": "string",
-            "const": "provider"
+            "const": "story"
           },
           {
             "type": "string",
             "const": "workflow"
+          },
+          {
+            "type": "string",
+            "const": "testing"
+          },
+          {
+            "type": "string",
+            "const": "publishing"
+          },
+          {
+            "type": "string",
+            "const": "online"
           },
           {
             "type": "string",
@@ -181,11 +177,26 @@
           {
             "type": "string",
             "const": "theme"
+          },
+          {
+            "type": "string",
+            "const": "learning"
           }
         ]
       },
       "minItems": 1,
       "maxItems": 3,
+      "uniqueItems": true
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      },
+      "minItems": 1,
+      "maxItems": 8,
       "uniqueItems": true
     },
     "links": {

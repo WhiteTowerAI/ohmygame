@@ -142,6 +142,11 @@ describe("plugin manifest", () => {
     expect(ignored({ ...minimal, categories: ["holograms"] })).toEqual(["/categories/0"]);
     // A list that was empty to begin with is still wrong.
     expect(validatePluginManifest({ ...minimal, categories: [] }).ok).toBe(false);
+    // Keywords: up to eight, each up to 30 characters, none twice.
+    expect(validatePluginManifest({ ...minimal, keywords: ["LLM", "%keyword.cn%"] })).toMatchObject({ ok: true, manifest: { keywords: ["LLM", "%keyword.cn%"] } });
+    expect(validatePluginManifest({ ...minimal, keywords: Array.from({ length: 9 }, (_, index) => `k${index}`) }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, keywords: ["x".repeat(31)] }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, keywords: ["a", "a"] }).ok).toBe(false);
     expect(validatePluginManifest({ ...minimal, contributes: { hooks: [] } }).ok).toBe(false);
     // A value that could be either of two forms keeps what it doesn't know, so it still fails.
     expect(messages({ ...minimal, contributes: { commands: [{ id: "both", title: "Both", run: { prompt: "Hi", tool: "x" } }] } })).not.toEqual([]);

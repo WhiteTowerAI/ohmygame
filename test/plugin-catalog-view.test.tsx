@@ -50,11 +50,11 @@ beforeEach(() => {
     storePlugin("unity", "Unity", { ...off, categories: ["engine"] }),
     storePlugin("wechat-minigame", "WeChat Mini Games", { ...off, categories: ["publishing"] }),
     storePlugin("douyin-minigame", "Douyin Mini Games", { ...off, categories: ["publishing"] }),
-    storePlugin("blender", "Blender", { categories: ["art"] }),
+    storePlugin("blender", "Blender", { categories: ["art"], keywords: ["sculpt"] }),
     storePlugin("img2threejs", "Image to Three.js", { bundled: false, preinstalled: true, categories: ["art"] }),
     storePlugin("aseprite", "Aseprite", { ...off, categories: ["art"] }),
     storePlugin("tiled", "Tiled", { ...off, categories: ["art"] }),
-    storePlugin("unreal-engine", "Unreal Engine", { ...off, grants: { enabled: false, allowed: [] }, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], modelProviders: [], agents: [], tools: 0, skills: 0 } }),
+    storePlugin("unreal-engine", "Unreal Engine", { ...off, grants: { enabled: false, allowed: [] }, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], modelProviders: [], agents: ["Unreal agent"], tools: 0, skills: 0 } }),
   ];
   vi.stubGlobal(
     "fetch",
@@ -141,20 +141,20 @@ describe("plugin catalog browsing", () => {
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
       "Engines & platforms",
-      "Publishing",
       "Art",
       "Workflow",
+      "Publishing",
       "Other",
     ]);
     expect(cards(sections[0])).toEqual(["Cocos Creator", "Unity", "Unreal Engine"]);
-    expect(cards(sections[1])).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
-    expect(cards(sections[2])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
-    expect(cards(sections[3])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
+    expect(cards(sections[1])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
+    expect(cards(sections[2])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
+    expect(cards(sections[3])).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
     // The person's own are listed with the rest, to switch on and off.
     expect(cards(sections[4])).toEqual(["Alpha", "New tool", "Zebra"]);
     // Each says where it is on, and switches that for every project. One
     // stopped everywhere from its page says so and has no switch.
-    expect(sections[3].textContent).toContain("On in every project");
+    expect(sections[2].textContent).toContain("On in every project");
     const unreal = [...sections[0].querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("Unreal Engine"))!;
     expect(unreal.textContent).toContain("On in chosen projects");
     expect(unreal.textContent).toContain("Disabled");
@@ -174,7 +174,7 @@ describe("plugin catalog browsing", () => {
     await renderCatalog();
     const chips = () => [...container.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")];
     // Only categories something here is in, without counts.
-    expect(chips().map((chip) => chip.textContent)).toEqual(["All", "Engines & platforms", "Publishing", "Art", "Workflow", "Other"]);
+    expect(chips().map((chip) => chip.textContent)).toEqual(["All", "Engines & platforms", "Art", "Workflow", "Publishing", "Other"]);
     await click("Engines & platforms");
     expect(cards()).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "Unreal Engine"]);
     expect(container.querySelectorAll(".plugins-section h2")).toHaveLength(0);
@@ -222,6 +222,11 @@ describe("plugin catalog browsing", () => {
     await click("Mine");
     expect(cards()).toContain("Alpha");
     await click("Installed");
+    // Keywords and what a plugin adds by name are searched too.
+    await search("sculpt");
+    expect(cards()).toEqual(["Blender"]);
+    await search("unreal agent");
+    expect(cards()).toEqual(["Unreal Engine"]);
     await search("missing tool");
     expect(cards()).toEqual([]);
     expect(container.textContent).toContain("No matching plugins");
@@ -338,6 +343,33 @@ describe("plugin catalog browsing", () => {
       await search("popular");
       expect(cards()).toEqual(["Market popular"]);
       expect(section("All plugins").querySelector("h2")?.textContent).toBe("All plugins1");
+    });
+
+    it("finds a plugin by its keywords and what it adds, and searches for a keyword from its dialog", async () => {
+      market = { status: "ready", blocked: [], plugins: [
+        listed("agents", { categories: ["agent"], names: ["Gemini CLI"] }),
+        listed("flow", { categories: ["provider"], keywords: ["aggregator", "LLM"] }),
+        listed("router", { categories: ["provider"], keywords: ["aggregator"] }),
+        listed("pixels", { categories: ["art"] }),
+      ] };
+      await renderCatalog(undefined, "discover");
+      await search("gemini");
+      expect(cards()).toEqual(["Market agents"]);
+      await search("llm");
+      expect(cards()).toEqual(["Market flow"]);
+      await search("");
+      // Opened from one category, a keyword searches them all.
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Art"))!.click());
+      await act(async () => container.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      expect(dialog()?.querySelector(".plugin-keywords")).toBeNull();
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Model providers"))!.click());
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market flow"))!.click());
+      expect([...dialog()!.querySelectorAll(".plugin-keyword")].map((item) => item.textContent)).toEqual(["aggregator", "LLM"]);
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".plugin-keyword")!.click());
+      expect(dialog()).toBeNull();
+      expect(container.querySelector<HTMLInputElement>('[aria-label="Search plugins"]')?.value).toBe("aggregator");
+      expect(cards()).toEqual(["Market flow", "Market router"]);
     });
 
     it("reviews a listed plugin from Get in its dialog, which a link opens too", async () => {

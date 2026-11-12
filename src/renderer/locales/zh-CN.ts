@@ -2687,6 +2687,8 @@ const zhCN: typeof en = {
     allPlugins: "全部插件",
     all: "全部",
     categoriesLabel: "分类",
+    keywords: "关键词",
+    searchKeyword: "搜索“{{keyword}}”",
     categories: {
       engine: "引擎和平台",
       templates: "模板",

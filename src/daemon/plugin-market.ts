@@ -4,7 +4,7 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_KEYWORDS_MAX, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { sniffImageType } from "./image-format.js";
 import { validatePluginIconImage } from "./plugin-icons.js";
@@ -59,6 +59,10 @@ const IndexedVersion = Type.Object({
     adds: Type.Record(Type.String(), Type.Number()),
     // Since index schema 1 gained them; an older index has none.
     categories: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 10 })),
+    // Since the index job read them (plugin API 2.5.0).
+    keywords: Type.Optional(Type.Array(Localized, { maxItems: 10 })),
+    /** The titles of the model providers and agents it adds. */
+    names: Type.Optional(Type.Array(Localized, { maxItems: 100 })),
     appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
     beta: Type.Optional(Type.Boolean()),
     longDescription: Type.Optional(Localized),
@@ -193,6 +197,9 @@ export class PluginMarket {
       });
       const categories = plugin.categories?.filter((category): category is PluginCategory => (PLUGIN_CATEGORIES as readonly string[]).includes(category));
       const longDescription = plugin.longDescription && text(plugin.longDescription);
+      const words = (values: Record<string, string>[] | undefined) => [...new Set((values ?? []).map(text).filter(Boolean))];
+      const keywords = words(plugin.keywords).slice(0, PLUGIN_KEYWORDS_MAX);
+      const names = words(plugin.names);
       return {
         id: plugin.id,
         package: version.package,
@@ -202,6 +209,8 @@ export class PluginMarket {
         asks: plugin.grants,
         adds: plugin.adds,
         ...(categories?.length ? { categories } : {}),
+        ...(keywords.length ? { keywords } : {}),
+        ...(names.length ? { names } : {}),
         ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
         ...(plugin.beta ? { beta: true } : {}),
         ...(longDescription ? { longDescription } : {}),

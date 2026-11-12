@@ -1585,6 +1585,7 @@ export function createApp(options: AppOptions = {}) {
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
+        ...(entry.manifest.keywords ? { keywords: entry.manifest.keywords.map(text) } : {}),
         ...(entry.manifest.beta ? { beta: true } : {}),
         // The digest changes with the package, which holds the icon.
         ...(entry.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),

@@ -7,7 +7,7 @@ import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type 
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
+import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -174,7 +174,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // A card opens the plugin in a dialog over the list.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
-  const searched = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
+  const searched = marketPlugins.filter(plugin => marketSearchText(plugin).includes(normalizedQuery)
     && (adds === "all" || marketContributions(plugin).includes(adds)) && marketOnly(plugin, only));
   const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
   const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
@@ -257,7 +257,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       </div>
       {detail
         ? <StorePluginDetail key={page} group={detail} market={market} updates={updates} onUpdate={setAdding}
-          onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
+          onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin}
+          onSearch={(keyword) => { setQuery(keyword); showCatalog(); }} />
         : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
@@ -281,7 +282,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </>}
     {shown && !adding ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
       onGet={() => setAdding(shown)}
-      onManage={() => { setPreview(undefined); onPluginChange(shown.id); }} /> : null}
+      onManage={() => { setPreview(undefined); onPluginChange(shown.id); }}
+      // A keyword searches the whole market, not just the section it was opened from.
+      onSearch={(keyword) => { setQuery(keyword); setMarketSection("all"); closePreview(); }} /> : null}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
     {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}

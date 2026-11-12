@@ -2733,6 +2733,8 @@ const en = {
     allPlugins: "All plugins",
     all: "All",
     categoriesLabel: "Categories",
+    keywords: "Keywords",
+    searchKeyword: "Search for {{keyword}}",
     categories: {
       engine: "Engines & platforms",
       templates: "Templates",

@@ -54,6 +54,10 @@ export interface MarketPlugin {
   adds: Record<string, number>;
   /** The categories this app knows, of those its manifest names. */
   categories?: PluginCategory[];
+  /** Words to find it by, which its page shows. */
+  keywords?: string[];
+  /** The titles of the model providers and agents it adds, which search also reads. */
+  names?: string[];
   /** The project types it works in; absent means every type. */
   appliesTo?: string[];
   beta?: boolean;
@@ -330,6 +334,8 @@ export interface StorePlugin {
   /** It stopped its extension host too often, so it is off until turned on again or OhMyGame restarts. */
   quarantined?: true;
   categories?: PluginCategory[];
+  /** Words to find it by, which its page shows. */
+  keywords?: string[];
   /** Still being checked on real projects. */
   beta?: boolean;
   icon?: PluginIcon;

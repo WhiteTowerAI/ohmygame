@@ -18,7 +18,7 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.4.0";
+export const PLUGIN_HOST_API_VERSION = "2.5.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -61,25 +61,31 @@ const PROJECT_PATH_SEGMENT =
  * app from adding the plugin.
  */
 export const PLUGIN_CATEGORIES = [
+  // Starting a game, the agent and its models, making assets, shaping the game,
+  // building and testing it, shipping it, and the rest.
   "engine",
   "templates",
-  "publishing",
-  "online",
-  "design",
-  "story",
+  "agent",
+  "provider",
   "art",
   "3d",
   "audio",
   "video",
-  "testing",
-  "learning",
-  "agent",
-  "provider",
+  "design",
+  "story",
   "workflow",
+  "testing",
+  "publishing",
+  "online",
   "integration",
   "theme",
+  "learning",
 ] as const;
 export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
+
+/** How many keywords a plugin may name, and how long each may be. */
+export const PLUGIN_KEYWORDS_MAX = 8;
+export const PLUGIN_KEYWORD_MAX_LENGTH = 30;
 
 /** How many screenshots a plugin may show, and how large each file may be. */
 export const PLUGIN_SCREENSHOTS_MAX = 6;
@@ -700,6 +706,10 @@ export const PluginManifestV2Schema = Type.Object(
         maxItems: 3,
         uniqueItems: true,
       }),
+    ),
+    /** Words people may search for it by, shown on its page (API 2.5.0). */
+    keywords: Type.Optional(
+      Type.Array(Text(PLUGIN_KEYWORD_MAX_LENGTH), { minItems: 1, maxItems: PLUGIN_KEYWORDS_MAX, uniqueItems: true }),
     ),
     links: Type.Optional(
       Type.Object(
