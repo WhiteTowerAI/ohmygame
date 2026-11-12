@@ -813,6 +813,11 @@ export function createApp(options: AppOptions = {}) {
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
     minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
+    // Made with the plugin services below, before any request comes.
+    pluginVideos: {
+      videoProviders: () => pluginMediaProviders.videoProviders(),
+      generateVideo: (model, input, signal, journal) => pluginMediaProviders.generateVideo(model, input, signal, journal),
+    },
   });
   const providerModels3D = new ProviderModels3D({
     runtime: getModelRuntime,

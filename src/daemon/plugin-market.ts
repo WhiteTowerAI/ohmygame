@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
+import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, PROVIDER_KINDS, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
 import { OHMYGAME_PUBLISHER, PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_KEYWORDS_MAX, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { sniffImageType } from "./image-format.js";
@@ -69,6 +69,8 @@ const IndexedVersion = Type.Object({
     keywords: Type.Optional(Type.Array(Localized, { maxItems: 10 })),
     /** The titles of the model providers and agents it adds. */
     names: Type.Optional(Type.Array(Localized, { maxItems: 100 })),
+    /** What its model providers make, from its manifest; kinds this app doesn't know are skipped. */
+    providerKinds: Type.Optional(Type.Array(Type.String({ maxLength: 32 }), { maxItems: 10 })),
     appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
     beta: Type.Optional(Type.Boolean()),
     longDescription: Type.Optional(Localized),
@@ -465,6 +467,7 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
     const words = (values: Record<string, string>[] | undefined) => [...new Set((values ?? []).map(text).filter(Boolean))];
     const keywords = words(plugin.keywords).slice(0, PLUGIN_KEYWORDS_MAX);
     const names = words(plugin.names);
+    const providerKinds = PROVIDER_KINDS.filter((kind) => plugin.providerKinds?.includes(kind));
     const repository = main ? facts?.repository : index.packages[version.package]?.repository;
     return {
       id: plugin.id,
@@ -477,6 +480,7 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
       ...(categories?.length ? { categories } : {}),
       ...(keywords.length ? { keywords } : {}),
       ...(names.length ? { names } : {}),
+      ...(providerKinds.length ? { providerKinds } : {}),
       ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
       ...(plugin.beta ? { beta: true } : {}),
       ...(longDescription ? { longDescription } : {}),

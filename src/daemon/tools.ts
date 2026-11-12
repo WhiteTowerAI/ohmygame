@@ -35,6 +35,7 @@ import {
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
+import { GenerationShutdown, mediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import { inspectModel3D } from "./model3d-inspect.js";
 import type { Model3DExecution } from "./model3d.js";
@@ -184,7 +185,7 @@ export class ToolRunner {
     this.#closed = true;
     let changed = false;
     for (const job of this.#jobs.values()) {
-      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry to resume the submitted 3D task."; job.controller.abort(); }
+      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry to resume a submitted 3D task or plugin provider's video."; job.controller.abort(new GenerationShutdown()); }
     }
     if (changed) await this.#saveJobsSafely();
     else await this.#jobWrites.catch((cause) => console.error("Could not save generation history", cause));
@@ -316,7 +317,7 @@ export class ToolRunner {
     }
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
-      return this.#runVideo(input as RunVideoToolRequest, signal);
+      return this.#runVideo(input as RunVideoToolRequest, signal, recoveryId);
     }
     if (toolId === "generate-audio") {
       assertOnlyKeys(input, ["prompt", "model", "kind", "durationSeconds", "loop", "instrumental", ...AUDIO_SETTING_KEYS]);
@@ -526,7 +527,7 @@ export class ToolRunner {
     }
   }
 
-  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
@@ -548,7 +549,8 @@ export class ToolRunner {
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal,
+        { journal: await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId) });
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {

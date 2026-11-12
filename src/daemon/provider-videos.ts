@@ -7,6 +7,7 @@ import {
   VideoGenerationError,
   type GeneratedVideo,
   type VideoGenerationInput,
+  type VideoGenerationOptions,
   type VideoGenerator,
   type VideoReferenceAsset,
 } from "./video-generation.js";
@@ -20,6 +21,7 @@ import { SeedanceProvider } from "./seedance-provider.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS, seedanceModel, seedanceModels, type SeedanceProviderId } from "./seedance-models.js";
 import { MinimaxProvider } from "./minimax-provider.js";
 import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS, minimaxModel, minimaxModels, type MinimaxProviderId } from "./minimax-models.js";
+import type { PluginMediaProviders } from "./plugin-media-providers.js";
 
 const MAX_WAIT_MS = 15 * 60_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -30,7 +32,13 @@ export class ProviderVideos implements VideoGenerator {
     private readonly request: typeof fetch = fetch,
     private readonly seedanceApiKey: (providerId: SeedanceProviderId) => string | undefined = () => undefined,
     private readonly isEnabled: (provider: string) => boolean = () => true,
-    private readonly options: { customProviders?: () => Promise<CustomProviderDetails[]>; defaultModel?: () => VideoModelRef | undefined; minimaxApiKey?: (providerId: MinimaxProviderId) => string | undefined } = {},
+    private readonly options: {
+      customProviders?: () => Promise<CustomProviderDetails[]>;
+      defaultModel?: () => VideoModelRef | undefined;
+      minimaxApiKey?: (providerId: MinimaxProviderId) => string | undefined;
+      /** Installed plugins' providers that make videos through an adapter. */
+      pluginVideos?: Pick<PluginMediaProviders, "videoProviders" | "generateVideo">;
+    } = {},
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
@@ -60,6 +68,7 @@ export class ProviderVideos implements VideoGenerator {
           provider: { provider: definition.id, providerName: definition.name, state: "ready" as const },
         };
       }),
+      this.#pluginCatalog(),
       ...custom.filter((provider) => this.isEnabled(provider.id) && provider.models.some((model) => model.usages?.video)).map(async (provider) => {
         if (!(await this.runtime()).hasConfiguredAuth(provider.id)) return undefined;
         const models = provider.models.filter((model) => !provider.hiddenModelIds.includes(model.id)).flatMap((model) => {
@@ -70,12 +79,23 @@ export class ProviderVideos implements VideoGenerator {
           ...(!models.length ? { message: "Enable video models in Models." } : {}) } };
       }),
     ]);
-    const connected = entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    const connected = entries.flat().filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
     const defaultModel = this.options.defaultModel?.();
     const models = connected.flatMap((entry) => entry.models);
     const index = models.findIndex((model) => sameModel(model, defaultModel));
     if (index > 0) models.unshift(...models.splice(index, 1));
     return { models, providers: connected.map((entry) => entry.provider), ...(defaultModel ? { defaultModel } : {}) };
+  }
+
+  async #pluginProviders() {
+    return (await this.options.pluginVideos?.videoProviders() ?? []).filter((provider) => this.isEnabled(provider.id));
+  }
+
+  async #pluginCatalog(): Promise<Array<{ models: VideoModel[]; provider: MediaModelCatalog<VideoModel>["providers"][number] }>> {
+    return (await this.#pluginProviders()).map((provider) => ({
+      models: provider.models,
+      provider: { provider: provider.id, providerName: provider.name, state: "ready" as const },
+    }));
   }
 
   async #openRouterCatalog(signal?: AbortSignal): Promise<{ models: VideoModel[]; provider: MediaModelCatalog<VideoModel>["providers"][number] } | undefined> {
@@ -95,9 +115,14 @@ export class ProviderVideos implements VideoGenerator {
     }
   }
 
-  async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
+  async generate(input: VideoGenerationInput, signal?: AbortSignal, options: VideoGenerationOptions = {}): Promise<GeneratedVideo> {
     input = { ...input, model: input.model ?? this.options.defaultModel?.() };
     if (!this.isEnabled(input.model?.provider ?? "openrouter")) throw new VideoGenerationError("The selected provider is disabled", 409);
+    if (input.model?.provider.startsWith("plugin.")) {
+      const model = (await this.#pluginProviders()).find((provider) => provider.id === input.model?.provider)?.models.find((candidate) => sameModel(candidate, input.model));
+      if (!model || !this.options.pluginVideos) throw new VideoGenerationError("The selected video model is not available", 503);
+      return this.options.pluginVideos.generateVideo(model, input, signal, options.journal);
+    }
     const custom = (await this.options.customProviders?.() ?? []).find((provider) => provider.id === input.model?.provider);
     if (custom) {
       const selected = custom.models.find((model) => model.id === input.model?.id && !custom.hiddenModelIds.includes(model.id));

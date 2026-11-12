@@ -184,7 +184,7 @@ describe("tool runner", () => {
       duration: 6,
       aspectRatio: "16:9",
       resolution: "720p",
-    }, undefined);
+    }, undefined, { journal: expect.any(Object) });
     expect(run).toMatchObject({
       toolId: "generate-video",
       files: [{ name: "output.mp4", mediaType: "video/mp4", assetId: expect.any(String) }],
@@ -384,7 +384,7 @@ describe("tool runner", () => {
       payload: { prompt: "A nebula", model: TEST_VIDEO_MODEL, duration: 6, aspectRatio: "16:9", resolution: "720p" },
     });
     expect(response.statusCode).toBe(202);
-    await vi.waitFor(() => expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: TEST_VIDEO_MODEL }), expect.anything()));
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: TEST_VIDEO_MODEL }), expect.anything(), { journal: expect.any(Object) }));
   });
 
   it("limits tool request bodies", async () => {

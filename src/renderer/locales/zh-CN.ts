@@ -2704,6 +2704,7 @@ const zhCN: typeof en = {
     categoriesLabel: "分类",
     keywords: "关键词",
     searchKeyword: "搜索“{{keyword}}”",
+    providerKindsLabel: "提供的能力",
     categories: {
       engine: "引擎和平台",
       templates: "模板",

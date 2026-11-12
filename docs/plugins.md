@@ -26,7 +26,10 @@ one with none is under **Other**. Search shows every match in one list: it
 reads a plugin's name, description, id and [keywords](#more-manifest-fields),
 and the titles of the model providers and agents it adds, so "Gemini" finds the
 plugin that adds Gemini CLI. A plugin's page lists its keywords; picking one
-searches for it, on Discover across every category. An
+searches for it, on Discover across every category. Under **Model providers**,
+Discover adds a row of what the providers make (language, image, video), and
+each provider's card shows those as small tags; they come from the manifest,
+so a plugin can't claim a kind it doesn't implement. An
 installed plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
@@ -575,8 +578,9 @@ switches don't apply. It follows installs, updates and setting changes.
   runs in a sandbox and reaches only `capabilities.network`, which a provider
   with `media` must list; the app adds the key to the requests it marks.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
-  models it lists under `image` to the image catalog while the key is set and
-  the provider is on. [Media provider plugins](media-provider-plugins.md) has
+  models it lists under `image` and `video` to the image and video catalogs
+  while the key is set and the provider is on; a video's task survives a
+  restart for a retry to resume. [Media provider plugins](media-provider-plugins.md) has
   the contract.
 
 ## Coding agents
@@ -868,7 +872,9 @@ nothing is read.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
   `beta`, a localized `longDescription`, localized `keywords`, `names` (the
-  localized titles of the model providers and agents it adds, for search), and
+  localized titles of the model providers and agents it adds, for search),
+  `providerKinds` (what its model providers make: `language` for chat, and
+  each `media` kind; kinds the app doesn't know are skipped), and
   the manifest's `icon` and `screenshots` (up to ten `{ path, caption? }`), as
   paths beside the index. A
   version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's

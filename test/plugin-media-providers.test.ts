@@ -2,13 +2,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ImageModel } from "../src/shared/contracts.js";
+import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
+import { GenerationShutdown, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
+import { ProviderVideos } from "../src/daemon/provider-videos.js";
 
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(16)]);
+const MP4 = Buffer.concat([Buffer.from("00000018", "hex"), Buffer.from("ftypisom"), Buffer.alloc(16)]);
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(path.join(tmpdir(), "ohmygame-media-")); });
@@ -41,6 +44,7 @@ async function setup(adapter: string, options: { key?: string | undefined; media
     requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : {}) });
     const reply = options.reply?.(url);
     if (reply) return reply;
+    if (url.startsWith("https://cdn.flow.example/") && url.endsWith(".mp4")) return new Response(MP4, { headers: { "content-type": "video/mp4" } });
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -193,4 +197,148 @@ describe("plugin media providers", () => {
     const off = new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => false, { pluginImages: media });
     expect((await off.catalog()).models).toEqual([]);
   });
+});
+
+const VIDEO_MEDIA = { video: { models: [{ id: "wan", title: "Wan", durations: [5], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2 }] } } as unknown as Partial<Media>;
+
+// Starts a task, checks it once, then has the result.
+const VIDEO_TASK = `export default { video: {
+  async start(input, host) {
+    const answer = await (await host.fetch("https://api.flow.example/v1/videos", { method: "POST", auth: true, json: { model: input.model, seconds: input.duration, frames: input.references.length, mode: input.referenceMode } })).json();
+    return { task: { id: answer.id, checks: 0 }, retryAfter: 0 };
+  },
+  async check(task, host) {
+    await host.fetch("https://api.flow.example/v1/videos/" + task.id, { auth: true });
+    return task.checks < 1 ? { task: { ...task, checks: task.checks + 1 }, retryAfter: 0 } : { outputs: [{ url: "https://cdn.flow.example/" + task.id + ".mp4" }] };
+  },
+  async cancel(task, host) { await host.fetch("https://api.flow.example/v1/videos/" + task.id + "/cancel", { method: "POST", auth: true }); return null; },
+} };`;
+
+const firstVideo = async (media: PluginMediaProviders): Promise<VideoModel> => (await media.videoProviders())[0]!.models[0]!;
+const journalAt = (id = "job-1") => mediaTaskJournal(path.join(root, "media-tasks"), id);
+
+describe("plugin media providers: video", () => {
+  it("lists a provider's video models and makes one through a task", async () => {
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA });
+    const model = await firstVideo(media);
+    expect(model).toEqual({ provider: "plugin.acme.flow.flow", providerName: "Flow", id: "wan", name: "Wan", durations: [5], resolutions: ["720p"], aspectRatios: ["16:9"],
+      maxImageReferences: 2, imageReferenceMode: "frame", referenceModes: ["frame"] });
+    await writeFile(path.join(root, "first.png"), PNG);
+    const video = await media.generateVideo(model, { prompt: "a fox runs", duration: 5, references: [{ type: "image", name: "first.png", mediaType: "image/png", absolutePath: path.join(root, "first.png") }] }, undefined, await journalAt());
+    expect(video).toEqual({ bytes: MP4, mediaType: "video/mp4" });
+    expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "wan", seconds: 5, frames: 1, mode: "frame" });
+    expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1", "https://api.flow.example/v1/videos/t1", "https://cdn.flow.example/t1.mp4"]);
+    // Done, there's nothing left to resume.
+    expect((await journalAt().then((journal) => journal.begin({}))).state).toBe("new");
+    await expect(media.generateVideo(model, { prompt: "x", duration: 10 })).rejects.toThrow("duration is not supported");
+  }, 15_000);
+
+  it("keeps the task when the app shuts down, and a retry checks it instead of starting again", async () => {
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA });
+    const model = await firstVideo(media);
+    const controller = new AbortController();
+    const first = media.generateVideo(model, { prompt: "a fox" }, controller.signal, await journalAt());
+    await expect.poll(() => requests.length).toBe(1);
+    controller.abort(new GenerationShutdown());
+    await expect(first).rejects.toBeInstanceOf(GenerationShutdown);
+    // The vendor isn't told to stop: the task is resumed.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos"]);
+    const video = await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt());
+    expect(video.bytes).toEqual(MP4);
+    expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1", "https://api.flow.example/v1/videos/t1", "https://cdn.flow.example/t1.mp4"]);
+    // A different request under the same id isn't mixed up with it.
+    const changed = await setup(VIDEO_TASK, { media: VIDEO_MEDIA });
+    const journal = await journalAt("job-2");
+    await journal.begin({ plugin: "acme/flow", provider: "flow", kind: "video", input: { other: true } });
+    await journal.save({ id: "t9" });
+    journal.release();
+    await expect(changed.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-2"))).rejects.toThrow("changed since this video started");
+  }, 15_000);
+
+  it("never starts again when a start's answer was lost", async () => {
+    let fail = true;
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
+      if (fail && url === "https://api.flow.example/v1/videos") throw new TypeError("socket hang up");
+      return undefined;
+    } });
+    const model = await firstVideo(media);
+    await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).rejects.toThrow("api.flow.example could not be reached");
+    fail = false;
+    await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).rejects.toThrow("its answer was lost");
+    expect(requests).toHaveLength(1);
+    // A start the adapter refused before sending anything can be tried again.
+    const refused = await setup(`export default { video: { start: () => { throw new Error("bad input"); } } };`, { media: VIDEO_MEDIA });
+    await expect(refused.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-3"))).rejects.toThrow("bad input");
+    await expect(refused.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-3"))).rejects.toThrow("bad input");
+  });
+
+  it("keeps a task whose start may have gone through, or whose result couldn't be fetched", async () => {
+    // The vendor took the start, but the adapter couldn't read its answer: a retry doesn't pay again.
+    const misread = await setup(`export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/videos", { method: "POST", auth: true });
+      throw new Error("unexpected answer");
+    } } };`, { media: VIDEO_MEDIA });
+    const model = await firstVideo(misread.media);
+    await expect(misread.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-4"))).rejects.toThrow("unexpected answer");
+    await expect(misread.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-4"))).rejects.toThrow("its answer was lost");
+    // A read that fails before anything was sent leaves nothing to fear.
+    const lookup = await setup(`export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/quota");
+      return { error: "unreachable" };
+    } } };`, { media: VIDEO_MEDIA, reply: (url) => { if (url.endsWith("/quota")) throw new TypeError("socket hang up"); return undefined; } });
+    await expect(lookup.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-5"))).rejects.toThrow("could not be reached");
+    await expect(lookup.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-5"))).rejects.toThrow("could not be reached");
+    // Done, but the download failed: a retry checks the task again instead of starting one.
+    let down = true;
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => down && url.endsWith(".mp4") ? new Response("busy", { status: 503 }) : undefined });
+    await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).rejects.toThrow("answered 503");
+    down = false;
+    expect((await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).bytes).toEqual(MP4);
+    expect(requests.filter((request) => request.url === "https://api.flow.example/v1/videos")).toHaveLength(1);
+    // A check that failed once (a network blip) is tried again: the task goes on, not cancelled.
+    let blips = 0;
+    const flaky = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
+      if (url === "https://api.flow.example/v1/videos/t1" && blips++ === 0) throw new TypeError("socket hang up");
+      return undefined;
+    } });
+    expect((await flaky.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-8"))).bytes).toEqual(MP4);
+    expect(flaky.requests.map((request) => request.url).filter((url) => url === "https://api.flow.example/v1/videos" || url.endsWith("/cancel"))).toEqual(["https://api.flow.example/v1/videos"]);
+  }, 20_000);
+
+  it("won't check a task with another account's key", async () => {
+    const first = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, key: "sk-one" });
+    const model = await firstVideo(first.media);
+    const controller = new AbortController();
+    const pending = first.media.generateVideo(model, { prompt: "a fox" }, controller.signal, await journalAt("job-7"));
+    await expect.poll(() => first.requests.length).toBe(1);
+    controller.abort(new GenerationShutdown());
+    await expect(pending).rejects.toBeInstanceOf(GenerationShutdown);
+    const other = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, key: "sk-two" });
+    await expect(other.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-7"))).rejects.toThrow("its key or the request changed");
+    expect(other.requests).toEqual([]);
+  });
+
+  it("tells the vendor to stop when the person stops, and starts afresh on retry", async () => {
+    const { media, requests } = await setup(VIDEO_TASK.replaceAll("retryAfter: 0", "retryAfter: 30"), { media: VIDEO_MEDIA });
+    const model = await firstVideo(media);
+    const controller = new AbortController();
+    const first = media.generateVideo(model, { prompt: "a fox" }, controller.signal, await journalAt());
+    await expect.poll(() => requests.length).toBe(1);
+    controller.abort(new Error("stopped by the person"));
+    await expect(first).rejects.toThrow("stopped by the person");
+    await expect.poll(() => requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1/cancel"]);
+    expect((await journalAt().then((journal) => journal.begin({}))).state).toBe("new");
+  });
+
+  it("joins the video catalog and takes requests for its models", async () => {
+    const { media } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA });
+    const videos = new ProviderVideos(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginVideos: media });
+    const catalog = await videos.catalog();
+    expect(catalog.models.map((model) => `${model.provider}/${model.id}`)).toEqual(["plugin.acme.flow.flow/wan"]);
+    expect(catalog.providers).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "ready" }]);
+    const video = await videos.generate({ prompt: "a fox", model: { provider: "plugin.acme.flow.flow", id: "wan" }, duration: 5, resolution: "720p", aspectRatio: "16:9" });
+    expect(video.mediaType).toBe("video/mp4");
+    await expect(videos.generate({ prompt: "a fox", model: { provider: "plugin.acme.flow.flow", id: "nope" } })).rejects.toThrow("not available");
+  }, 15_000);
 });
