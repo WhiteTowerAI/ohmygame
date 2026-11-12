@@ -3,7 +3,7 @@ import type { PluginProviderInfo } from "../shared/contracts.js";
 import { customModelCatalog, knownCustomModel, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
-import { discoverProviderModels } from "./provider-model-discovery.js";
+import { discoverProviderModels, namedNotForChat } from "./provider-model-discovery.js";
 
 // The model providers installed plugins add (`contributes.providers`). Each
 // joins the model runtime as a provider of its own, like one the person adds
@@ -66,8 +66,16 @@ export class PluginModelProviders {
       id: item.entry.id,
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
       baseUrl: item.provider.baseUrl,
-      ...(keyField ? { keyField: localizePluginString(item.entry, keyField.title, locale) } : {}),
+      ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),
+      ...(keyField?.description ? { keyHint: localizePluginString(item.entry, keyField.description, locale) } : {}),
+      ...(item.provider.icon ? { icon: item.entry.digest } : {}),
     };
+  }
+
+  /** Where a provider's icon is in its plugin's package, when it has one. */
+  iconFile(id: string): { root: string; path: string } | undefined {
+    const item = this.#providers.get(id);
+    return item?.provider.icon ? { root: item.entry.root, path: item.provider.icon } : undefined;
   }
 
   title(id: string, locale: PluginLocale): string | undefined {
@@ -158,6 +166,8 @@ export class PluginModelProviders {
       // and Google models it doesn't list as generating content.
       const usages = model.usages;
       if (provider.api === "google-generative-ai" ? !usages?.language : usages && !usages.language && Object.keys(usages).length) continue;
+      // A list of ids alone, such as SiliconFlow's, also holds embedding, speech and image models.
+      if (!usages?.language && namedNotForChat(model.id)) continue;
       // What the endpoint reports replaces a listed model's defaults; the plugin's title stays.
       models.set(model.id, {
         id: model.id, name: models.get(model.id)?.name ?? model.name, api: provider.api,

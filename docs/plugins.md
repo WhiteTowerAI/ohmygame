@@ -539,18 +539,25 @@ installed, runs in this app and isn't disabled everywhere; projects' plugin
 switches don't apply. It follows installs, updates and setting changes.
 
 - `api` and `baseUrl` say how to reach it, as for a provider the person adds.
+  `icon` is its mark in Settings and on the plugin's page, checked as the
+  plugin's own icon is; without one it shows its first letter.
 - `apiKey` names a `secret` configuration field. The provider joins once the
-  person sets that field on the plugin's page, and leaves when it is cleared.
+  person sets that key and leaves when it is cleared.
   The app reads the key itself; the plugin's native code still gets secrets
   only with `capabilities.secrets`. A provider without `apiKey` sends a
   placeholder key, for services that need none.
 - `models` lists models; unless the app knows a model's id, it gets a 128K
   context and 16K output. With `discoverModels`, refreshing the catalog also
   reads the endpoint's model list, as adding a provider does, and skips models
-  that only make media.
-- Settings shows where the provider comes from, its base URL and whether the
-  key is set, with a link to the plugin's page. It can be turned off there
-  like any provider; signing in, removing it or adding models is refused.
+  that only make media, and embedding, reranking and speech models: by what
+  the list says (`model_type`, `metadata.tags`) or, in a list of ids alone,
+  by name (`namedNotForChat`).
+- Settings → Providers lists it like any provider. Its page has the key,
+  base URL, switch and models, and the plugin's Settings tab shows the same
+  rows, opening that page in a dialog; the key's field leaves the plugin's
+  form, and its description shows under the key. Either place saves the key as the plugin's setting, and removing it
+  clears that. Signing in another way, removing the provider or adding models
+  is refused.
 
 ## Coding agents
 
