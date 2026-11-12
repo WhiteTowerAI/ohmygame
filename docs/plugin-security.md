@@ -31,15 +31,17 @@ can. `capabilities.network` and `capabilities.processes` limit the MCP
 servers the manifest declares, not what native code does by itself. Treat a
 plugin that asks for `native` as you would an app you install.
 
-Community plugins may carry native code. The add review and a project's
-Plugins sheet say so plainly, and nothing native runs until the person
-approves `native` for that plugin.
+Community plugins may carry native code. The add review says so plainly,
+and nothing native runs until the person adds or turns on that plugin.
 
 ## What the person approves
 
-Adding a package allows nothing (`PluginGrants`). What the manifest asks for
-(`capabilityGrants`) waits until the person approves it on the plugin's page
-or when they turn it on in a project:
+Adding a plugin, after its review, or turning it on is the person's approval:
+what the manifest asks for (`capabilityGrants`) is allowed then
+(`PluginGrants`), with no second prompt. A plugin the agent installed with
+`install_plugin` is allowed nothing until the person turns it on. A project's
+file can turn on a plugin the person never turned on for every project, so a
+project from someone else asks for **Allow** once for its folder:
 
 | Grant | Allows |
 | --- | --- |
@@ -59,8 +61,8 @@ What was allowed stays with the app's data for that project, so a project that
 comes from someone else asks again.
 
 A plugin that only adds Skills asks for nothing, so it applies once added.
-An update asks again only for what the new version adds (`newAsks`). Uninstalling
-a plugin's last version forgets what was allowed.
+An update the person adds allows what the new version adds (`newAsks`), shown
+in its review. Uninstalling a plugin's last version forgets what was allowed.
 
 ## Who can publish what
 
@@ -86,6 +88,22 @@ a plugin's last version forgets what was allowed.
   reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
+- Indexes the person adds in Plugin sources can only add plugins the main
+  index doesn't list. Their versions still need npm's signature, and their
+  marks (featured, source verified, stars, downloads, avatars) are dropped, so
+  another index can't make a plugin look vetted. A main index the person points
+  elsewhere is trusted as the official one is, which the dialog says.
+- Market icons, screenshots and avatars come through the daemon, not the
+  page, and are served with `nosniff` and a sandboxing CSP. Icons and
+  screenshots are only those the current index lists, read from beside the
+  index on its own host, by a path that stays below the index's folder. An
+  icon is the type its name says, and is checked like an installed plugin's
+  (PNG, WebP, or static SVG without scripts, styles or outside references);
+  a screenshot must be a PNG, JPEG or WebP. Avatars are only from
+  `avatars.githubusercontent.com`, for a package whose source is verified, so
+  a package can't borrow someone else's face by naming their repository. An
+  index can't make the app read from anywhere else, and no redirect is
+  followed.
 
 ## Credentials and logs
 
@@ -104,7 +122,8 @@ a plugin's last version forgets what was allowed.
 ## When something goes wrong
 
 A plugin blamed for three host crashes or hangs within five minutes is
-quarantined; a panel that stops answering can be reloaded or turned off; and
+quarantined until **Restart**; a panel that stops answering can be reloaded or
+turned off; and
 safe mode starts the app with every plugin off. See
 [When a plugin misbehaves](plugins.md#when-a-plugin-misbehaves).
 

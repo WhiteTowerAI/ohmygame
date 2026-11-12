@@ -55,7 +55,7 @@ export function activate(context) {
 `;
 
 const MANIFEST = {
-  id: "acme/shapes", version: "1.0.0", engines: { "ohmygame-api": "^2.4.0" }, displayName: "%name%", description: "Shapes to use.",
+  id: "acme/shapes", version: "1.0.0", engines: { "ohmygame-api": "^2.5.0" }, displayName: "%name%", description: "Shapes to use.",
   entrypoints: { native: "./index.mjs" },
   capabilities: { native: true },
   contributes: {
@@ -80,7 +80,7 @@ async function setup() {
   expect(inspected.statusCode, inspected.body).toBe(200);
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
   expect(added.statusCode, added.body).toBe(201);
-  return { app, dataDirectory, consent: () => app.inject({ method: "POST", url: "/plugin-store/acme/shapes/consent", payload: { allowed: inspected.json().asks } }) };
+  return { app, dataDirectory };
 }
 
 const search = (app: ReturnType<typeof createApp>, query: string, cursor?: string) =>
@@ -99,24 +99,20 @@ it("checks an asset source in the manifest", () => {
   expect(issues({ ...MANIFEST, contributes: { assetSources: [{ ...MANIFEST.contributes.assetSources[0], media: [] }] } })).not.toEqual([]);
 });
 
-it("offers a plugin's source once it is allowed what it asks for, and not while it is off", async () => {
-  const { app, consent } = await setup();
-  // Native code runs outside projects only with the consent given when it was added.
-  expect((await app.inject({ method: "GET", url: "/library/sources" })).json()).toEqual([]);
-  expect((await search(app, "")).statusCode).toBe(404);
-  expect((await consent()).statusCode).toBe(204);
+it("offers a plugin's source once it is added, and not while it is off", async () => {
+  // Adding it allowed what it asks for, so its native code may run outside projects.
+  const { app } = await setup();
   expect((await app.inject({ method: "GET", url: "/library/sources?locale=zh-CN" })).json<LibrarySource[]>()).toEqual([
     { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image"] },
   ]);
 
-  expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/shapes/enabled", payload: { enabled: false } })).statusCode).toBe(204);
+  expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/shapes/every-project", payload: { on: false } })).statusCode).toBe(204);
   expect((await app.inject({ method: "GET", url: "/library/sources" })).json()).toEqual([]);
   expect((await search(app, "")).statusCode).toBe(404);
 });
 
 it("pages through a source's results, keeping only what the Library reads", async () => {
-  const { app, consent } = await setup();
-  await consent();
+  const { app } = await setup();
   const first = await search(app, "");
   expect(first.statusCode, first.body).toBe(200);
   const page = first.json<LibrarySourceResults>();
@@ -132,8 +128,7 @@ it("pages through a source's results, keeping only what the Library reads", asyn
 });
 
 it("adds a result to the Library with where it came from, once", async () => {
-  const { app, dataDirectory, consent } = await setup();
-  await consent();
+  const { app, dataDirectory } = await setup();
   const added = await add(app, "circle");
   expect(added.statusCode, added.body).toBe(201);
   const asset = added.json<LibraryAsset>();
@@ -160,8 +155,7 @@ it("adds a result to the Library with where it came from, once", async () => {
 });
 
 it("refuses a file outside the plugin's data folder or whose data isn't what it says", async () => {
-  const { app, dataDirectory, consent } = await setup();
-  await consent();
+  const { app, dataDirectory } = await setup();
   await mkdir(path.join(dataDirectory, "plugin-store", "data", "acme"), { recursive: true });
   await writeFile(path.join(dataDirectory, "plugin-store", "data", "acme", "outside.png"), Buffer.from(PNG, "base64"));
   const escaped = await add(app, "escape");

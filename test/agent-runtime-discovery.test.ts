@@ -162,3 +162,39 @@ it("keeps the last reported usage limits across a restart", async () => {
   expect(upgraded.cachedLimits("claude-code-cli", profile.id)).toEqual([fiveHour]);
   expect(upgraded.cachedLimits("opencode-cli")).toEqual([fiveHour]);
 });
+
+// npm's Windows shims, read on any platform: what they run is started directly.
+it("reads what an npm .cmd shim runs, and only Node scripts or programs inside it", async () => {
+  const { npmShimTarget } = await import("../src/daemon/agent-runtimes/npm-shim.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-npm-shim-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(path.join(root, "node_modules", "agent", "dist"), { recursive: true });
+  await writeFile(path.join(root, "node_modules", "agent", "dist", "cli.mjs"), "");
+  await writeFile(path.join(root, "node_modules", "agent", "agent.exe"), "");
+  const shim = async (name: string, text: string) => {
+    await writeFile(path.join(root, `${name}.cmd`), text);
+    return path.join(root, `${name}.cmd`);
+  };
+  const npm = (prog: string, target: string) => `@ECHO off\r\nIF EXIST "%dp0%\\${prog}.exe" (\r\n  SET "_prog=%dp0%\\${prog}.exe"\r\n) ELSE (\r\n  SET "_prog=${prog}"\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${target}" %*\r\n`;
+  const nodeDir = path.join(root, "nodejs");
+  await mkdir(nodeDir);
+  await writeFile(path.join(nodeDir, "node.exe"), "");
+  const env = { PATH: ["/nowhere", nodeDir].join(path.delimiter) };
+
+  expect(npmShimTarget(await shim("agent", npm("node", "node_modules\\agent\\dist\\cli.mjs")), env)).toEqual({
+    file: path.join(nodeDir, "node.exe"), args: [path.join(root, "node_modules", "agent", "dist", "cli.mjs")],
+  });
+  // A program in the package runs as it is.
+  expect(npmShimTarget(await shim("native", `@ECHO off\r\n"%~dp0\\node_modules\\agent\\agent.exe"   %*\r\n`), env))
+    .toEqual({ file: path.join(root, "node_modules", "agent", "agent.exe"), args: [] });
+  // Node next to the shim comes first.
+  await writeFile(path.join(root, "node.exe"), "");
+  expect(npmShimTarget(path.join(root, "agent.cmd"), env)?.file).toBe(path.join(root, "node.exe"));
+  // Another interpreter, a missing file, or Node nowhere: not started.
+  expect(npmShimTarget(await shim("sh", npm("sh", "node_modules\\agent\\dist\\cli.mjs")), env)).toBeUndefined();
+  expect(npmShimTarget(await shim("missing", npm("node", "node_modules\\agent\\gone.js")), env)).toBeUndefined();
+  expect(npmShimTarget(await shim("plain", "@echo off\r\ncalc.exe %*\r\n"), env)).toBeUndefined();
+  await rm(path.join(root, "node.exe"));
+  expect(npmShimTarget(path.join(root, "agent.cmd"), { PATH: "/nowhere" })).toBeUndefined();
+});

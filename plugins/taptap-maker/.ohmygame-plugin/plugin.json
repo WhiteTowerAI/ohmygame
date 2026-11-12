@@ -6,7 +6,7 @@
   "displayName": "%displayName%",
   "description": "%description%",
   "icon": "./assets/icon.svg",
-  "categories": ["engine"],
+  "categories": ["engine", "publishing"],
   "links": { "homepage": "https://maker.taptap.cn" },
   "entrypoints": { "native": "./native/index.mjs" },
   "ui": { "major": 1, "accent": { "dark": "#00d8c4", "light": "#00857a" } },

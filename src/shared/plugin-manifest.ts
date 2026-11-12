@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
-import { CUSTOM_MODEL_APIS } from "./contracts.js";
+import { CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
@@ -18,7 +18,7 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.4.0";
+export const PLUGIN_HOST_API_VERSION = "2.5.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -55,17 +55,44 @@ const When = Type.String({ minLength: 1, maxLength: 300 });
 const PROJECT_PATH_SEGMENT =
   "(?!\\.\\.?(?:/|$))[A-Za-z0-9._@+-][A-Za-z0-9._@+ -]*";
 
+/**
+ * What a plugin helps with, in the order the Plugins page lists them. The app
+ * leaves out a category it doesn't know, so a new one never stops an older
+ * app from adding the plugin.
+ */
 export const PLUGIN_CATEGORIES = [
+  // Starting a game, the agent and its models, making assets, shaping the game,
+  // building and testing it, shipping it, and the rest.
   "engine",
-  "art",
-  "audio",
-  "publishing",
+  "templates",
+  "agent",
   "provider",
-  "theme",
+  "art",
+  "3d",
+  "audio",
+  "video",
+  "design",
+  "story",
   "workflow",
+  "testing",
+  "publishing",
+  "online",
   "integration",
+  "theme",
+  "learning",
 ] as const;
 export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
+
+/** The largest media adapter script a provider may have. */
+export const PLUGIN_MEDIA_ADAPTER_MAX_BYTES = 512 * 1024;
+
+/** How many keywords a plugin may name, and how long each may be. */
+export const PLUGIN_KEYWORDS_MAX = 8;
+export const PLUGIN_KEYWORD_MAX_LENGTH = 30;
+
+/** How many screenshots a plugin may show, and how large each file may be. */
+export const PLUGIN_SCREENSHOTS_MAX = 6;
+export const PLUGIN_SCREENSHOT_MAX_BYTES = 1024 * 1024;
 
 export const PLUGIN_SLOTS = [
   "home.starters",
@@ -379,7 +406,7 @@ export const ASSET_SOURCE_MEDIA = ["image", "video", "audio", "model"] as const;
 /**
  * A place the Library browses for media, such as a free asset site, shown as
  * a tab beside Local. Its `search` and `fetch` are native command handlers
- * (API 2.4.0).
+ * (API 2.5.0).
  */
 const AssetSource = Type.Object(
   {
@@ -454,13 +481,64 @@ const Theme = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * How the app adds a provider's key to a request its media adapter marks
+ * `auth: true`: in a header, with a scheme such as `Bearer`, or as a query
+ * parameter. The adapter never sees the key.
+ */
+const MediaAuth = Type.Union([
+  Type.Object(
+    {
+      header: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9-]{0,63}$" }),
+      scheme: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9-]{0,31}$" })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { query: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }) },
+    { additionalProperties: false },
+  ),
+]);
+
+const MediaImageModel = Type.Object(
+  {
+    id: Type.String({ minLength: 1, maxLength: 200 }),
+    title: Type.Optional(Text()),
+    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
+    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
+    /** How many pictures a request may pass along, 0 for none. */
+    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * What a provider makes besides chat (API 2.5.0). `adapter` is a script in
+ * the package that turns OhMyGame's requests into the vendor's API, run in a
+ * sandbox whose only way out is `host.fetch` to `capabilities.network`.
+ */
+const ProviderMedia = Type.Object(
+  {
+    adapter: RelativePath("\\.js"),
+    auth: Type.Optional(MediaAuth),
+    image: Type.Optional(
+      Type.Object(
+        { models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const Provider = Type.Object(
   {
     id: Slug,
     title: Text(),
     icon: Type.Optional(Icon),
-    api: Literals(CUSTOM_MODEL_APIS),
-    baseUrl: HttpsUrl,
+    /** Chat, with `baseUrl`; a provider that only makes media leaves both out. */
+    api: Type.Optional(Literals(CUSTOM_MODEL_APIS)),
+    baseUrl: Type.Optional(HttpsUrl),
     /** A `secret` configuration field holding the key. */
     apiKey: Type.Optional(CamelId),
     models: Type.Optional(
@@ -476,6 +554,7 @@ const Provider = Type.Object(
       ),
     ),
     discoverModels: Type.Optional(Type.Boolean()),
+    media: Type.Optional(ProviderMedia),
   },
   { additionalProperties: false },
 );
@@ -490,6 +569,8 @@ const Agent = Type.Object(
   {
     id: Slug,
     title: Text(),
+    /** Its logo, shown in Settings → Agents and the model menu (API 2.5.0). */
+    icon: Type.Optional(Icon),
     command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
     /** What starts the protocol, such as `["--acp"]`. */
     args: Type.Optional(
@@ -686,12 +767,26 @@ export const PluginManifestV2Schema = Type.Object(
         { minItems: 1, maxItems: 20, uniqueItems: true },
       ),
     ),
+    /** Pictures of it at work, shown on its page in the app and the market (API 2.4.0). */
+    screenshots: Type.Optional(
+      Type.Array(
+        Type.Object(
+          { path: RelativePath("\\.(?:png|jpe?g|webp)"), caption: Type.Optional(Text(120)) },
+          { additionalProperties: false },
+        ),
+        { minItems: 1, maxItems: PLUGIN_SCREENSHOTS_MAX, uniqueItems: true },
+      ),
+    ),
     categories: Type.Optional(
       Type.Array(Literals(PLUGIN_CATEGORIES), {
         minItems: 1,
         maxItems: 3,
         uniqueItems: true,
       }),
+    ),
+    /** Words people may search for it by, shown on its page (API 2.5.0). */
+    keywords: Type.Optional(
+      Type.Array(Text(PLUGIN_KEYWORD_MAX_LENGTH), { minItems: 1, maxItems: PLUGIN_KEYWORDS_MAX, uniqueItems: true }),
     ),
     links: Type.Optional(
       Type.Object(
@@ -812,9 +907,76 @@ export interface PluginManifestIssue {
   message: string;
 }
 
+/**
+ * `ignored` lists what the manifest says that this app doesn't know: fields
+ * and category or hook names from a newer plugin API, or typos. The app reads
+ * the manifest without them; `plugin check` shows them as warnings.
+ */
 export type PluginManifestResult =
-  | { ok: true; manifest: PluginManifestV2 }
-  | { ok: false; issues: PluginManifestIssue[] };
+  | { ok: true; manifest: PluginManifestV2; ignored?: PluginManifestIssue[] }
+  | { ok: false; issues: PluginManifestIssue[]; ignored?: PluginManifestIssue[] };
+
+/** The plain JSON Schema TypeBox builds, as far as reading a manifest needs it. */
+interface SchemaNode {
+  type?: string;
+  properties?: Record<string, SchemaNode>;
+  required?: string[];
+  patternProperties?: Record<string, SchemaNode>;
+  additionalProperties?: boolean | SchemaNode;
+  items?: SchemaNode;
+  anyOf?: SchemaNode[];
+  const?: unknown;
+}
+
+/** Lists whose values a newer app may add to; this one leaves out the names it doesn't know. */
+const OPEN_LISTS = new Set(["/categories", "/contributes/hooks"]);
+const IGNORED = "isn't known to this version of OhMyGame, so it's ignored";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The manifest without what this app doesn't know, so a plugin made for a
+ * newer API still loads; whether it needs that API is up to its
+ * `engines["ohmygame-api"]`. Only fields are left out, never a malformed value:
+ * what remains is checked against the full schema. A value that could be more
+ * than one form keeps its unknown fields, so it still fails as it did.
+ */
+function withoutUnknown(schema: SchemaNode, value: unknown, at: string, ignored: PluginManifestIssue[]): unknown {
+  if (schema.anyOf) {
+    if (!isRecord(value)) return value;
+    const forms = schema.anyOf.filter((form) => form.type === "object" && (form.required ?? []).every((key) => Object.hasOwn(value, key)));
+    return forms.length === 1 ? withoutUnknown(forms[0]!, value, at, ignored) : value;
+  }
+  if (schema.type === "array" && schema.items && Array.isArray(value)) {
+    const names = OPEN_LISTS.has(at) ? schema.items.anyOf?.map((form) => form.const) : undefined;
+    if (names) {
+      const known = value.filter((item, index) => {
+        if (typeof item !== "string" || names.includes(item)) return true;
+        ignored.push({ path: `${at}/${index}`, message: `"${item}" ${IGNORED}` });
+        return false;
+      });
+      return known;
+    }
+    return value.map((item, index) => withoutUnknown(schema.items!, item, `${at}/${index}`, ignored));
+  }
+  if (schema.type !== "object" || !isRecord(value)) return value;
+  const entries: [string, unknown][] = [];
+  for (const [key, item] of Object.entries(value)) {
+    const path = `${at}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
+    const property = Object.hasOwn(schema.properties ?? {}, key) ? schema.properties![key]! : undefined;
+    const pattern = property ? undefined : Object.entries(schema.patternProperties ?? {}).find(([source]) => new RegExp(source, "u").test(key))?.[1];
+    if (property || pattern) {
+      const known = withoutUnknown((property ?? pattern)!, item, path, ignored);
+      // An open list whose every name is unknown says nothing this app can use.
+      if (!(OPEN_LISTS.has(path) && Array.isArray(item) && item.length && Array.isArray(known) && !known.length)) entries.push([key, known]);
+    } else if (schema.additionalProperties === false && !schema.patternProperties) {
+      ignored.push({ path, message: IGNORED });
+    } else entries.push([key, item]);
+  }
+  // fromEntries defines each key, so one named __proto__ stays an ordinary field.
+  return Object.fromEntries(entries);
+}
 
 /** A CSS colour a theme value may be: hex, or an rgb/hsl/oklch function. */
 const COLOR =
@@ -822,14 +984,17 @@ const COLOR =
 
 /** Checks a manifest against the schema and the rules it can't express. */
 export function validatePluginManifest(value: unknown): PluginManifestResult {
-  const schemaIssues = [...Errors(PluginManifestV2Schema, value)]
+  const ignored: PluginManifestIssue[] = [];
+  const known = withoutUnknown(PluginManifestV2Schema as SchemaNode, value, "", ignored);
+  const notes = () => (ignored.length ? { ignored } : {});
+  const schemaIssues = [...Errors(PluginManifestV2Schema, known)]
     .filter((error) => error.keyword !== "boolean")
     .map((error) => ({
       path: error.instancePath,
       message: error.message,
     }));
-  if (schemaIssues.length) return { ok: false, issues: schemaIssues };
-  const manifest = value as PluginManifestV2;
+  if (schemaIssues.length) return { ok: false, issues: schemaIssues, ...notes() };
+  const manifest = known as PluginManifestV2;
   const issues: PluginManifestIssue[] = [];
   const issue = (path: string, message: string) =>
     issues.push({ path, message });
@@ -1033,12 +1198,22 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(path, "a theme needs dark or light values");
     for (const appearance of ["dark", "light"] as const)
       for (const [token, color] of Object.entries(theme[appearance] ?? {})) {
-        if (!tokens.has(token))
-          issue(`${path}/${appearance}/${token}`, "not a theme token");
-        else if (!COLOR.test(color.trim()))
+        // A newer app may let themes set more; this one leaves those alone.
+        if (!tokens.has(token)) {
+          ignored.push({ path: `${path}/${appearance}/${token}`, message: `${token} ${IGNORED}` });
+          delete theme[appearance]![token];
+        } else if (!COLOR.test(color.trim()))
           issue(`${path}/${appearance}/${token}`, "must be a colour");
       }
   });
+  // A theme left with nothing this app knows would change nothing when picked.
+  const emptyThemes = new Set(contributes.themes?.filter((theme) => (theme.dark || theme.light) && !Object.keys({ ...theme.dark, ...theme.light }).length));
+  if (emptyThemes.size) {
+    contributes.themes!.forEach((theme, index) => {
+      if (emptyThemes.has(theme)) ignored.push({ path: `/contributes/themes/${index}`, message: "sets no colour this version of OhMyGame knows, so it's ignored" });
+    });
+    contributes.themes = contributes.themes!.filter((theme) => !emptyThemes.has(theme));
+  }
 
   contributes.providers?.forEach((provider, index) => {
     const path = `/contributes/providers/${index}`;
@@ -1047,8 +1222,21 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       if (field?.type !== "secret")
         issue(`${path}/apiKey`, "must name a secret configuration field");
     }
-    if (!provider.models && !provider.discoverModels)
+    const chat = provider.api !== undefined || provider.baseUrl !== undefined;
+    if (chat && (!provider.api || !provider.baseUrl))
+      issue(path, "chat needs both api and baseUrl");
+    if (chat && !provider.models && !provider.discoverModels)
       issue(path, "list models or discover them");
+    if (!chat && (provider.models || provider.discoverModels))
+      issue(path, "models and discoverModels are for chat, which needs api and baseUrl");
+    if (!chat && !provider.media)
+      issue(path, "a provider needs chat (api and baseUrl) or media");
+    if (provider.media) {
+      if (!provider.media.image)
+        issue(`${path}/media`, "list what it makes, such as image");
+      if (!capabilities.network?.length)
+        issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
+    }
   });
 
   const processes = new Set(capabilities.processes);
@@ -1099,7 +1287,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   if (contributes.panels && !manifest.icon)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
-  return issues.length ? { ok: false, issues } : { ok: true, manifest };
+  return issues.length ? { ok: false, issues, ...notes() } : { ok: true, manifest, ...notes() };
 }
 
 /** What the MCP adapter would expand in a value: `${VAR}`, `$env:VAR` or `{env:VAR}`. */

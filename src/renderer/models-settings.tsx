@@ -7,7 +7,6 @@ import type {
   ModelAuthNotification,
   ImageModel,
   ModelProviderSummary,
-  PluginProviderInfo,
   ProviderCapability,
   ProviderSummary,
   VideoModel,
@@ -34,10 +33,12 @@ import {
   listAudioModelCatalog,
   loginAgentRuntime,
   recheckCodexImages,
+  saveStorePluginConfiguration,
 } from "./api.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { usePluginIcon } from "./plugin-mark-icon.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { OpenAIImageModels } from "./openai-image-models.js";
@@ -47,7 +48,7 @@ import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { useModelProviderAuth } from "./use-model-provider-auth.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
-import { Badge, Button, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { Badge, Button, Dialog, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
@@ -59,6 +60,8 @@ import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, t
 import { groupProviders } from "./provider-groups.js";
 import { pluginHash } from "./routes.js";
 import { t } from "./i18n.js";
+// The plugin page shows providers too, before Settings may have loaded.
+import "./settings.css";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
@@ -253,9 +256,13 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
 }
 
 // A provider without a logo shows its initial, as the model picker does.
-function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset" | "name"> }) {
-  const icon = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
+function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset" | "name" | "plugin"> }) {
+  const pluginIcon = usePluginIcon(provider.plugin?.icon ? provider.id : undefined, provider.plugin?.icon);
+  const known = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
+  const icon = known ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
   const initial = provider.name.trim().charAt(0).toUpperCase();
+  // While a plugin's icon loads, the mark stays empty rather than flashing the initial.
+  if (!icon && provider.plugin?.icon && pluginIcon === undefined) return <span className="settings-mark" aria-hidden="true" />;
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : initial ? " is-initial" : ""}`} aria-hidden="true">
       {icon ? <img src={icon.src} alt="" /> : initial || <Server size={18} />}
@@ -267,7 +274,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "codex-cli") return <CodexImageProviderDetail provider={provider} onBack={onBack} onOpenAgents={onOpenAgents} />;
   if (provider.id === "hyper3d" || provider.id === HYPER3D_CONNECTION_ID) return <Hyper3DProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.managed === "free_cloud") return <FreeCloudProviderDetail provider={provider} onBack={onBack} />;
-  if (provider.plugin) return <PluginProviderDetail provider={provider} plugin={provider.plugin} onBack={onBack} />;
+  if (provider.plugin) return <PluginProviderDetail provider={provider} onBack={onBack} />;
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
@@ -313,38 +320,131 @@ function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provide
   </section>;
 }
 
-/** A provider an installed plugin adds: its key and address are set on the plugin's page. */
-function PluginProviderDetail({ provider, plugin, onBack }: { provider: ProviderSummary; plugin: PluginProviderInfo; onBack: () => void }) {
+/** The model providers a plugin adds, as Settings lists them; kept current as their keys and switches change. */
+export function usePluginProviders(pluginId: string | undefined): { providers?: ProviderSummary[]; error?: string } {
+  const [state, setState] = useState<{ providers?: ProviderSummary[]; error?: string }>({});
+  useEffect(() => {
+    setState({});
+    if (!pluginId) return;
+    let active = true;
+    const stop = followProviderSettings(async () => {
+      try {
+        const providers = (await listProviders()).filter((provider) => provider.plugin?.id === pluginId);
+        if (active) setState({ providers });
+      } catch (cause) {
+        if (active) setState((current) => ({ ...current, error: errorMessage(cause) }));
+      }
+    });
+    return () => { active = false; stop(); };
+  }, [pluginId]);
+  return state;
+}
+
+/** A plugin's model providers as rows like Settings → Providers; each opens its settings in a dialog on the plugin's page. */
+export function PluginProviderList({ providers }: { providers: ProviderSummary[] }) {
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const [switched, setSwitched] = useState<Record<string, boolean>>({});
+  const [openId, setOpenId] = useState<string>();
+  const [error, setError] = useState<string>();
+  // A switch shows where it was turned until the list reloads.
+  useEffect(() => { setSwitched({}); }, [providers]);
+  const shown = providers.map((provider) => provider.id in switched ? { ...provider, enabled: switched[provider.id] } : provider);
+  const open = shown.find((provider) => provider.id === openId);
+  async function toggle(provider: ProviderSummary, enabled: boolean): Promise<void> {
+    setPending((current) => new Set(current).add(provider.id));
+    setSwitched((current) => ({ ...current, [provider.id]: enabled }));
+    setError(undefined);
+    try {
+      await setProviderEnabled(provider.id, enabled);
+    } catch (cause) {
+      setSwitched(({ [provider.id]: _, ...rest }) => rest);
+      setError(errorMessage(cause));
+    } finally {
+      setPending((current) => { const next = new Set(current); next.delete(provider.id); return next; });
+    }
+  }
+  // Settings' look applies inside `settings-body`.
+  return <div className="settings-body plugin-providers">
+    <SettingsGroup label={t("providers.plugin.title")} title={t("providers.plugin.title")}>
+      {shown.map((provider) => <ProviderRow key={provider.id} provider={provider} pending={pending} onProvider={() => setOpenId(provider.id)} onToggle={(item, enabled) => void toggle(item, enabled)} />)}
+    </SettingsGroup>
+    {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+    {open ? <Dialog open size="lg" title={<span className="plugin-provider-dialog-title"><ProviderMark provider={open} />{open.name}</span>} onClose={() => setOpenId(undefined)}>
+      <div className="settings-body plugin-providers"><PluginProviderSettings provider={open} /></div>
+    </Dialog> : null}
+  </div>;
+}
+
+/** A provider an installed plugin adds, in Settings: the same settings its plugin's page opens. */
+function PluginProviderDetail({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
+  const { providers } = usePluginProviders(provider.plugin?.id);
+  return <PluginProviderSettings provider={providers?.find((item) => item.id === provider.id) ?? provider} onBack={onBack} />;
+}
+
+/**
+ * A plugin provider's key, switch and models. Its key is the plugin's own
+ * setting, so it is the same here and on the plugin's page. With `onBack` it
+ * is a Settings page, which also leads to the plugin.
+ */
+function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack?: () => void }) {
+  const plugin = provider.plugin!;
+  const keySetting = plugin.keySetting;
   const [modelsRevision, setModelsRevision] = useState(0);
-  const hint = provider.configured ? t("providers.plugin.hint", { plugin: plugin.name })
-    : plugin.keyField ? t("providers.plugin.needsKey", { field: plugin.keyField })
-    : t("providers.plugin.unavailable");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const saveKey = async (value: string | null) => {
+    await saveStorePluginConfiguration(plugin.id, { [keySetting!]: value });
+    notifyAgentModelsChanged();
+  };
+  const deletion = useProviderDeletion(provider.id, undefined, () => saveKey(null));
+  // A removed key closes its confirmation.
+  useEffect(() => { if (!provider.configured) deletion.setConfirming(false); }, [provider.configured]);
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await saveKey(apiKey.trim());
+      setApiKey("");
+      // Another key may reach other models.
+      setModelsRevision((value) => value + 1);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const actions = provider.configured ? <>
+    {keySetting ? <ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.delete.removeKey")} /> : null}
+    <ProviderEnableControl provider={provider} disabled={deletion.busy || saving} onChanged={() => setModelsRevision((value) => value + 1)} />
+  </> : null;
   return <section className="settings-panel settings-provider-detail">
-    <ProviderDetailHeader provider={provider} onBack={onBack}>
-      {provider.configured ? <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} /> : null}
+    {onBack ? <ProviderDetailHeader provider={provider} onBack={onBack}>
+      <Button size="sm" variant="ghost" onClick={() => { window.location.hash = pluginHash(plugin.id); }}>{t("providers.plugin.open")}</Button>
+      {actions}
     </ProviderDetailHeader>
-    <section className="settings-detail-section" aria-label={t("providers.connection.title")}>
-      <div className="provider-models-heading">
-        <h4>{t("providers.connection.title")}</h4>
-        <div className="provider-models-heading-actions">
-          <Button onClick={() => { window.location.hash = pluginHash(plugin.id); }}>{t("providers.plugin.open")}</Button>
-        </div>
+      : actions ? <div className="settings-detail-actions plugin-provider-actions">{actions}</div> : null}
+    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+    {keySetting ? <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+      <label className="settings-search-field-label" htmlFor={`${provider.id}-api-key`}>{t("providers.apiKey")}</label>
+      <div className="settings-detail-inline">
+        <input id={`${provider.id}-api-key`} className="settings-search-input" type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={(event) => setApiKey(event.target.value)}
+          placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} disabled={saving || deletion.busy} />
+        <Button variant="primary" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
       </div>
-      <p className="settings-detail-hint">{hint}</p>
-      <div className="settings-provider-connection">
-        <div className="settings-provider-setting-row">
-          <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
-          <span className="settings-provider-setting-value" title={plugin.baseUrl}>{plugin.baseUrl}</span>
-          <span />
-        </div>
-        {plugin.keyField ? <div className="settings-provider-setting-row">
-          <span className="settings-search-field-label">{t("providers.apiKey")}</span>
-          <span className="settings-provider-setting-value">{provider.configured ? "••••••••" : t("providers.plugin.keyMissing")}</span>
-          <span />
-        </div> : null}
+      {plugin.keyHint ? <p className="settings-detail-hint">{plugin.keyHint}</p> : null}
+    </form> : provider.configured ? null : <p className="settings-detail-hint">{t("providers.plugin.unavailable")}</p>}
+    {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
+    {plugin.baseUrl ? <div className="settings-provider-connection">
+      <div className="settings-provider-setting-row">
+        <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
+        <span className="settings-provider-setting-value" title={plugin.baseUrl}>{plugin.baseUrl}</span>
+        <span />
       </div>
-    </section>
-    {provider.configured ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+    </div> : null}
+    {/* Chat models only: a provider that only makes media has none in the model runtime. */}
+    {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
   </section>;
 }
 

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { launchCommand } from "./npm-shim.js";
 import readline from "node:readline";
 import { trackAgentProcess } from "./process-recovery.js";
 import {
@@ -50,7 +51,8 @@ export class AgentProcess {
   #stopping?: Promise<void>;
 
   constructor(options: AgentProcessOptions) {
-    this.child = spawnProcess(options.binaryPath, options.args, {
+    const command = launchCommand(options.binaryPath, options.args, options.env);
+    this.child = spawnProcess(command.file, command.args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ["pipe", "pipe", "pipe"],

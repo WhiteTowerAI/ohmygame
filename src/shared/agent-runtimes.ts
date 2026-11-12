@@ -183,6 +183,8 @@ export interface AgentRuntimeStatus {
   testedVersion?: string;
   /** The plugin that adds this agent, for agents that come from plugins. */
   plugin?: string;
+  /** Changes with the plugin's package, when its agent has its own logo (`/plugin-agents/:id/icon`). */
+  iconRevision?: string;
   /** The command line a plugin's agent starts with, shown before it is turned on. */
   launch?: string;
   auth: {

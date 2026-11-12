@@ -122,7 +122,6 @@ async function mention(text: string, name: string) {
   const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes(name))!;
   await act(async () => option.click());
 }
-const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text);
 
 describe("Home prompt box", () => {
   it("offers the type's ideas, and only the plugins that suit it", async () => {
@@ -177,18 +176,11 @@ describe("Home prompt box", () => {
     expect(onSubmit.mock.calls[0]![0].turnOn).toBeUndefined();
   });
 
-  it("turns a mentioned plugin that's off on in the new project, once the person allows what it asks for", async () => {
+  it("turns a mentioned plugin that's off on in the new project, which allows it, without asking", async () => {
     await render();
     await mention("@Spr", "Sprites");
-    expect(document.body.textContent).toContain("Connect to these sitessprites.example.com");
-    // Cancelling leaves it out.
-    await act(async () => button("Cancel")!.click());
-    expect(promptChips(container)).toEqual([]);
-    await type("");
-    await mention("@Spr", "Sprites");
-    await act(async () => button("Allow and turn on")!.click());
+    expect(document.querySelector(".ui-dialog")).toBeNull();
     expect(promptChips(container)).toEqual(["Sprites"]);
-    // One that asks for nothing goes in at once.
     await mention(`${promptText(container)}@No`, "Notes");
     expect(promptChips(container)).toEqual(["Sprites", "Notes"]);
     await type(`${promptText(container)}Make a maze`);
@@ -196,15 +188,13 @@ describe("Home prompt box", () => {
     expect(onSubmit.mock.calls[0]![0].turnOn.map((item: Plugin) => item.id)).toEqual(["sprites@bundled", "notes@bundled"]);
   });
 
-  it("asks before sending a prompt from history whose plugin is off", async () => {
+  it("sends a prompt from history whose plugin is off, turning it on in the new project", async () => {
     const mentions = [{ name: "sprites", displayName: "Sprites", marketplaceId: "bundled" }];
     localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Sprites Make an island", mentions }]));
     await render();
     await historyKey("ArrowUp");
     expect(promptChips(container)).toEqual(["Sprites"]);
     await send();
-    expect(onSubmit).not.toHaveBeenCalled();
-    await act(async () => button("Allow and turn on")!.click());
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "@Sprites Make an island",
       mentions,

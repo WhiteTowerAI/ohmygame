@@ -22,9 +22,12 @@ import {
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   agentToolName,
+  PLUGIN_HOST_API_VERSION,
   pluginApiIssue,
   pluginUiIssue,
   toolSchemaIssues,
+  PLUGIN_MEDIA_ADAPTER_MAX_BYTES,
+  PLUGIN_SCREENSHOT_MAX_BYTES,
   validatePluginManifest,
   type PluginContributions,
   type PluginManifestIssue,
@@ -73,9 +76,10 @@ export interface PluginIndexEntry {
   toolSchemas: Record<string, Record<string, unknown>>;
 }
 
+/** `ignored`: what the manifest says that this app leaves out; see `validatePluginManifest`. */
 export type PluginPackageResult =
-  | { ok: true; entry: PluginIndexEntry }
-  | { ok: false; issues: PluginManifestIssue[] };
+  | { ok: true; entry: PluginIndexEntry; ignored?: PluginManifestIssue[] }
+  | { ok: false; issues: PluginManifestIssue[]; ignored?: PluginManifestIssue[] };
 
 class PluginPackageError extends Error {
   constructor(
@@ -171,6 +175,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
     manifest.description,
     manifest.longDescription,
     ...(manifest.examples ?? []),
+    ...(manifest.screenshots ?? []).map((screenshot) => screenshot.caption),
     ...Object.values(manifest.configuration ?? {}).flatMap((field) => [
       field.title,
       field.description,
@@ -246,6 +251,7 @@ function checkPackage(
   const validated = validatePluginManifest(raw);
   if (!validated.ok) return validated;
   const manifest = validated.manifest;
+  const notes = validated.ignored ? { ignored: validated.ignored } : {};
   const apiIssue = pluginApiIssue(manifest);
   if (apiIssue) issues.push({ path: "/engines/ohmygame-api", ...apiIssue });
   const uiIssue = pluginUiIssue(manifest);
@@ -262,6 +268,11 @@ function checkPackage(
       issue(at, `${relative} is not a folder in the package`);
   };
   file("/icon", manifest.icon);
+  manifest.screenshots?.forEach((screenshot, index) => {
+    const at = `/screenshots/${index}/path`, bytes = files.get(screenshot.path);
+    if (!bytes) issue(at, `${screenshot.path} is not in the package`);
+    else if (bytes.length > PLUGIN_SCREENSHOT_MAX_BYTES) issue(at, `${screenshot.path} is larger than ${PLUGIN_SCREENSHOT_MAX_BYTES / 1024 / 1024} MB`);
+  });
   file("/entrypoints/native", manifest.entrypoints?.native);
   contributes.projectTypes?.forEach((type, index) => {
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
@@ -270,9 +281,13 @@ function checkPackage(
   contributes.commands?.forEach((command, index) =>
     file(`/contributes/commands/${index}/icon`, command.icon),
   );
-  contributes.providers?.forEach((provider, index) =>
-    file(`/contributes/providers/${index}/icon`, provider.icon),
-  );
+  contributes.providers?.forEach((provider, index) => {
+    file(`/contributes/providers/${index}/icon`, provider.icon);
+    const adapter = provider.media?.adapter, at = `/contributes/providers/${index}/media/adapter`;
+    const bytes = adapter ? files.get(adapter) : undefined;
+    if (adapter && !bytes) issue(at, `${adapter} is not in the package`);
+    else if (bytes && bytes.length > PLUGIN_MEDIA_ADAPTER_MAX_BYTES) issue(at, `${adapter} is larger than ${PLUGIN_MEDIA_ADAPTER_MAX_BYTES / 1024} KB`);
+  });
   contributes.canvasPresets?.forEach((preset, index) => {
     const at = `/contributes/canvasPresets/${index}/board`, bytes = files.get(preset.board);
     if (!bytes) return issue(at, `${preset.board} is not in the package`);
@@ -392,9 +407,10 @@ function checkPackage(
   for (const key of localizedKeys(manifest))
     if (!localeText(strings.en, key)) issue("./locales/en.json", `missing %${key}%`);
 
-  if (issues.length) return { ok: false, issues };
+  if (issues.length) return { ok: false, issues, ...notes };
   return {
     ok: true,
+    ...notes,
     entry: {
       id: manifest.id,
       version: manifest.version,
@@ -423,6 +439,12 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
     skills: entry.skills.length,
     ...(hooks.length ? { hooks: [...hooks] } : {}),
   };
+}
+
+/** Whether a plugin adds only what joins the app itself, model providers and agents, so projects' switches don't reach it. */
+export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): boolean {
+  const kinds = Object.keys(manifest.contributes ?? {});
+  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents");
 }
 
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */
@@ -461,6 +483,11 @@ export interface IndexedContribution<K extends ContributionKind> {
 
 interface IndexFile {
   schema: number;
+  /**
+   * The plugin API that read the manifests. An older app drops the fields it
+   * doesn't know, so a newer one reads the packages again.
+   */
+  api?: string;
   entries: PluginIndexEntry[];
 }
 
@@ -490,7 +517,7 @@ export class PluginIndex {
       ) as IndexFile | undefined;
       this.#entries.clear();
       if (!data || !Array.isArray(data.entries)) return;
-      if (data.schema === PLUGIN_INDEX_SCHEMA_VERSION) {
+      if (data.schema === PLUGIN_INDEX_SCHEMA_VERSION && data.api === PLUGIN_HOST_API_VERSION) {
         for (const entry of data.entries)
           this.#entries.set(key(entry.id, entry.version), entry);
         return;
@@ -618,6 +645,7 @@ export class PluginIndex {
   async #save(): Promise<void> {
     const data: IndexFile = {
       schema: PLUGIN_INDEX_SCHEMA_VERSION,
+      api: PLUGIN_HOST_API_VERSION,
       entries: this.entries(),
     };
     await mkdir(path.dirname(this.file), { recursive: true });

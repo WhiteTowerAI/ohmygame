@@ -4,18 +4,21 @@ import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, exportStorePlugin, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, PluginScreenshots } from "./plugin-catalog.js";
+import { PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
-import { language, t } from "./i18n.js";
+import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
-import { PluginCapabilityList, PluginConsentDialog } from "./plugin-consent-dialog.js";
+import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
-import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -41,17 +44,17 @@ export function groupStorePlugins(rows: readonly StorePlugin[]): StorePluginGrou
   return [...groups.values()];
 }
 
-/** Not stopped everywhere from its page. */
+/** Not held off by safe mode, the only thing that stops a plugin everywhere. */
 export const storePluginEnabled = (plugin: StorePlugin) => plugin.grants?.enabled !== false;
-
-/** What it asks for that the person hasn't allowed yet. */
-export function storePluginMissing(plugin: StorePlugin): string[] {
-  const allowed = new Set(plugin.grants?.allowed ?? []);
-  return plugin.capabilities.filter((capability) => !allowed.has(capability));
-}
+/**
+ * OhMyGame's own: bundled with the app, or from its npm scope. A folder in
+ * development may use the publisher too, so it isn't.
+ */
+const isOfficialStorePlugin = (plugin: StorePlugin) =>
+  isOfficialPlugin(plugin.id) && (plugin.bundled || plugin.preinstalled || plugin.origin?.type === "npm");
 
 export function storePluginSearchText(plugin: StorePlugin): string {
-  return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
+  return [plugin.displayName, plugin.description, plugin.id, ...(plugin.keywords ?? []), ...plugin.adds.modelProviders, ...plugin.adds.agents].join(" ").toLowerCase();
 }
 
 /** What a plugin adds, for the browse page's filter. */
@@ -73,24 +76,21 @@ function newProjectType(plugin: StorePlugin): ProjectType | undefined {
 }
 
 /**
- * The switch that turns a plugin on or off in every project it suits. Turning
- * on one that asks for anything says so first, since it then runs in each of
- * those projects, and allows what wasn't allowed yet.
+ * A plugin's one switch: on in every project it suits, which allows what it
+ * asks for, as its review said when it was added. A project can still turn it
+ * on or off for itself.
  */
 export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   toggle: (plugin: StorePlugin, on: boolean) => void;
   busy?: string;
   error?: string;
-  dialog: ReactNode;
 } {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
-  const [asking, setAsking] = useState<StorePlugin>();
-  async function set(plugin: StorePlugin, on: boolean, missing: readonly string[] = []): Promise<void> {
+  async function set(plugin: StorePlugin, on: boolean): Promise<void> {
     setBusy(plugin.id);
     setError(undefined);
     try {
-      if (missing.length) await consentToPlugin(plugin.id, [...missing]);
       await setStorePluginEveryProject(plugin.id, on);
       await onChanged();
     } catch (cause) {
@@ -101,24 +101,15 @@ export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   }
   return {
     toggle: (plugin, on) => {
-      if (busy) return;
-      if (on && plugin.capabilities.length) setAsking(plugin);
-      else void set(plugin, on);
+      if (!busy) void set(plugin, on);
     },
     ...(busy ? { busy } : {}),
     ...(error ? { error } : {}),
-    dialog: asking ? <PluginConsentDialog name={asking.displayName} capabilities={asking.capabilities} everyProject
-      onCancel={() => setAsking(undefined)}
-      onAllow={() => {
-        const plugin = asking;
-        setAsking(undefined);
-        void set(plugin, true, storePluginMissing(plugin));
-      }} /> : null,
   };
 }
 
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
-  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
+  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} name={plugin.displayName} size={large ? 40 : 24} /></span>;
 }
 
 /** A newer version on the market. Only for a plugin added from npm or npmmirror: from anywhere else it couldn't join. */
@@ -146,31 +137,6 @@ export function marketBlocks(versions: StorePlugin[], market: PluginMarketListin
 export function marketContributions({ adds }: MarketPlugin): PluginContribution[] {
   const counts: Partial<Record<PluginContribution, number | undefined>> = { projectType: adds.projectTypes, skills: adds.skills, mcp: adds.mcpServers };
   return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
-}
-
-/** A plugin on the market, not installed yet; opening it reviews the package. */
-export function MarketPluginCard({ plugin, installed = false, onOpen }: { plugin: MarketPlugin; installed?: boolean; onOpen: () => void }): ReactNode {
-  const compact = new Intl.NumberFormat(language, { notation: "compact" });
-  return <article className="plugin-card">
-    <button className="plugin-card-link" type="button" onClick={onOpen}>
-      <span className="plugin-tile"><Package size={24} aria-hidden="true" /></span>
-      <span className="plugin-card-text">
-        <strong>
-          <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.sourceVerified ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.sourceVerified")} /> : null}
-        </strong>
-        <small>{plugin.description}</small>
-        <span className="plugins-meta">
-          <span>{plugin.package}</span>
-          {plugin.adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: plugin.adds.skills })}</span> : null}
-          {plugin.adds.mcpServers ? <span className="plugins-tag">{t("plugins.contributions.mcp")}</span> : null}
-          {plugin.stars !== undefined ? <span className="plugins-tag">★ {compact.format(plugin.stars)}</span> : null}
-          {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
-        </span>
-      </span>
-    </button>
-    <span className="plugins-installed-label">{t(installed ? "plugins.installed" : "plugins.install")}</span>
-  </article>;
 }
 
 function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
@@ -203,12 +169,13 @@ export function StorePluginCard({ group, market, updates, disabled, onToggle, on
       <span className="plugin-card-text">
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
-          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-          {plugin.origin?.type === "development" ? <Badge tone={plugin.developmentError ? "danger" : "outline"}>{t("plugins.inDevelopment")}</Badge> : null}
-          {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
-          {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
-          {enabled && plugin.quarantined ? <Badge tone="danger">{t("pluginLog.stoppedBadge")}</Badge> : null}
-          {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
+          <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
+            plugin.beta && "beta",
+            plugin.origin?.type === "development" && (plugin.developmentError ? "development-error" : "development"),
+            !enabled && "off",
+            enabled && plugin.quarantined && "stopped",
+            marketBlocks(group.versions, market).length ? "blocked" : (marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates)) && "update",
+          ]} />
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta">
@@ -239,7 +206,7 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
@@ -253,6 +220,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   onChanged: () => Promise<void>;
   /** Its last version was uninstalled. */
   onRemoved: () => void;
+  /** Searches the plugins for one of its keywords. */
+  onSearch?: (keyword: string) => void;
   /** Starts a conversation with one of its examples; without this, they only show. */
   onTry?: TryPlugin;
 }): ReactNode {
@@ -265,7 +234,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const [logOpen, setLogOpen] = useState(false);
   const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
-  const missing = storePluginMissing(plugin);
   const update = marketUpdate(plugin, market);
   const fromSource = sourceUpdate(plugin, market, updates);
   const blocks = marketBlocks(versions, market);
@@ -293,16 +261,22 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     },
     onTry: onTry ?? (async () => {}),
   });
-  const canTry = Boolean(onTry) && enabled && !missing.length;
+  // Trying it turns it on in the project, which allows it.
+  const canTry = Boolean(onTry) && enabled;
   const firstExample = plugin.examples[0];
   const browse = (action: () => Promise<void> | undefined) => {
     setError(undefined);
     void Promise.resolve(action()).catch((cause: unknown) => setError(message(cause)));
   };
+  // Its model providers show as in Settings → Providers, and their keys leave the form.
+  const providers = usePluginProviders(plugin.adds.modelProviders.length ? plugin.id : undefined);
+  const providerKeys = new Set(providers.providers?.flatMap((provider) => provider.plugin?.keySetting ?? []));
+  const settings = plugin.settings.filter((field) => !providerKeys.has(field.name));
+  const settingsReady = !plugin.adds.modelProviders.length || providers.providers !== undefined || providers.error !== undefined;
   const tabs: { value: StoreDetailTab; label: string; count?: number }[] = [
     { value: "about", label: t("plugins.about") },
     ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
-    ...(plugin.settings.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
+    ...(plugin.settings.length || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
   ];
   // Uninstalling the newest version can take away the tab that was open.
   const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
@@ -321,8 +295,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     }
   }
 
-  const toggle = (on: boolean) => void act("enabled", () => setStorePluginEnabled(plugin.id, on));
-  const allow = () => void act("consent", () => consentToPlugin(plugin.id, plugin.capabilities));
+  const restart = () => void act("restart", () => restartStorePlugin(plugin.id));
   const remove = (version: StorePlugin, keepData: boolean) => {
     setRemoving(undefined);
     void act(`remove:${version.version}`, async () => {
@@ -337,11 +310,13 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const adds = pluginAddRows(plugin.adds);
 
   return <div className="plugin-page">
-    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={<>
-      {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
-      {plugin.bundled || plugin.preinstalled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
-      {plugin.origin?.type === "development" ? <Badge tone="outline">{t("plugins.inDevelopment")}</Badge> : null}
-    </>}>
+    <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={
+      <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
+        plugin.beta && "beta",
+        (plugin.bundled || plugin.preinstalled) && "included",
+        plugin.origin?.type === "development" && "development",
+      ]} />
+    }>
       {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
         <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
@@ -353,26 +328,22 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && plugin.quarantined ? <Alert tone="danger" title={t("pluginLog.quarantined")} action={<>
       <Button size="sm" variant="ghost" onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
-      <Button size="sm" disabled={!!busy} onClick={() => toggle(true)}>{t("pluginLog.turnOnAgain")}</Button>
+      <Button size="sm" disabled={!!busy} onClick={restart}>{t("pluginLog.turnOnAgain")}</Button>
     </>}>{t("pluginLog.quarantinedHint")}</Alert> : null}
-    {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
-      <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
-    }>
-      {t("pluginStore.consentHint")} {missing.map((capability, index) => <span key={capability}>{index ? ", " : ""}<code>{capability}</code></span>)}
-    </Alert> : null}
 
+    <InstalledScreenshots plugin={plugin} />
     <div className="plugin-layout">
       <div className="plugin-main">
         {tabs.length > 1 ? <Tabs<StoreDetailTab> variant="pills" label={plugin.displayName} value={tab} onChange={setTab} tabs={tabs} /> : null}
         {/* Every tab stays mounted, so unsaved settings survive switching tabs. */}
         <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.about")} hidden={tab !== "about"}>
           {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
-          <p className="plugin-long">{t("pluginStore.scopeHint")}</p>
+          {plugin.appOnly ? null : <p className="plugin-long">{t("pluginStore.scopeHint")}</p>}
           {plugin.examples.length ? <section className="plugins-section" aria-label={t("plugins.tryIt")}>
             <h2>{t("plugins.tryIt")}</h2>
             <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}
               onClick={() => tryIt.open(example)}>{example}</button>)}</div>
-            {onTry && !canTry ? <p className="plugins-note" role="status">{enabled ? t("pluginStore.allowToTry") : t("plugins.enableToTry")}</p> : null}
+            {onTry && !canTry ? <p className="plugins-note" role="status">{t("plugins.enableToTry")}</p> : null}
           </section> : null}
           {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
             <h2>{t("pluginStore.adds")}</h2>
@@ -387,8 +358,9 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <SkillSection pluginId={plugin.id} items={plugin.skills}
             onBrowse={(skillId) => browse(() => window.ohMyGameDesktop?.revealPluginSkill(plugin.id, skillId))} />
         </div> : null}
-        {plugin.settings.length ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
-          <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} />
+        {tabs.some((item) => item.value === "settings") ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
+          {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
+          {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} /> : null}
         </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
@@ -402,15 +374,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
               <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
             </dd>
           </> : null}
-          <dt>{t("plugins.status")}</dt>
-          <dd className="plugin-state">
-            <span>{enabled ? t("common.enabled") : t("common.disabled")}</span>
-            <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => toggle(!enabled)}>
-              {enabled ? t("pluginStore.disableEverywhere") : t("common.enable")}
-            </Button>
-          </dd>
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
+          {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
+          {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
+          {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
           {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
           {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size={11} /></a> : plugin.origin.package}</dd></> : null}
@@ -447,7 +415,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
         </div>
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
-          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
           {personal ? <Button icon={<Upload size={14} />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
           {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
@@ -457,8 +425,34 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     {logOpen ? <PluginLogDialog plugin={plugin.id} displayName={plugin.displayName} onClose={() => setLogOpen(false)} onChanged={() => void onChanged()} /> : null}
     {removing ? <UninstallDialog plugin={plugin} version={removing} onCancel={() => setRemoving(undefined)}
       onUninstall={(keepData) => remove(removing, keepData)} /> : null}
-    {everyProject.dialog}
   </div>;
+}
+
+/** An installed plugin's screenshots, read from its package through the daemon. */
+function InstalledScreenshots({ plugin }: { plugin: StorePlugin }): ReactNode {
+  const [urls, setUrls] = useState<(string | undefined)[]>([]);
+  const count = plugin.screenshots?.length ?? 0;
+  useEffect(() => {
+    if (!count) return setUrls([]);
+    const controller = new AbortController();
+    const made: string[] = [];
+    void Promise.all(Array.from({ length: count }, (_, index) =>
+      readPluginScreenshotImage(plugin.id, index, controller.signal).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        made.push(url);
+        return url;
+      }, () => undefined)))
+      .then((next) => { if (!controller.signal.aborted) setUrls(next); });
+    return () => {
+      controller.abort();
+      for (const url of made) URL.revokeObjectURL(url);
+    };
+  }, [plugin.id, plugin.revision, count]);
+  const shots = (plugin.screenshots ?? []).flatMap((shot, index) => {
+    const src = urls[index];
+    return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
+  });
+  return <PluginScreenshots shots={shots} />;
 }
 
 /** Names in their first order, each once with how many times it came. */
@@ -523,7 +517,7 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
 }
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */
-export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactNode {
+export function StorePluginSettings({ plugin, fields = plugin.settings }: { plugin: StorePlugin; fields?: StorePlugin["settings"] }): ReactNode {
   const [config, setConfig] = useState<StorePluginConfiguration>();
   const [values, setValues] = useState<Record<string, string | boolean | null>>({});
   const [busy, setBusy] = useState(false);
@@ -544,7 +538,8 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
-    const submitted = values;
+    // Only what the form shows: a field that left it, as a provider's key, keeps its saved value.
+    const submitted = Object.fromEntries(Object.entries(values).filter(([name]) => fields.some((field) => field.name === name)));
     try {
       setConfig(await saveStorePluginConfiguration(plugin.id, submitted));
       // Fields changed again while saving keep their new values.
@@ -560,7 +555,7 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
   return <section className="plugin-components plugin-configuration" aria-label={t("common.settings")}>
     <h2>{t("common.settings")}</h2>
     {config ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      {plugin.settings.map((field) => {
+      {fields.map((field) => {
         const view = config[field.name];
         const stored = view && view.type !== "secret" ? view.value : null;
         const configured = view?.type === "secret" && view.configured;
@@ -593,7 +588,7 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
           </button> : null}
         </label>;
       })}
-      <button className="plugin-detail-primary" type="submit" disabled={busy || !Object.keys(values).length}>
+      <button className="plugin-detail-primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
         {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
       </button>
     </form> : !error ? <p>{t("pluginControls.loadingConfiguration")}</p> : null}

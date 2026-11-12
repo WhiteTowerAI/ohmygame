@@ -86,8 +86,40 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
   return { models: [...models.values()], truncated: true };
 }
 
+/** The chat endpoint each protocol calls, as a gateway's `supported_endpoints` names it. */
+const CHAT_ENDPOINTS: Record<string, string> = { "openai-completions": "/chat/completions", "openai-responses": "/responses", "anthropic-messages": "/messages" };
+
+/**
+ * What a model list says a model is, when it says: Novita's `model_type`,
+ * DeepInfra's `metadata.tags`. Lowercase; empty when the list doesn't say.
+ */
+function declaredKinds(value: Record<string, unknown>): string[] {
+  const metadata = isObject(value.metadata) ? value.metadata : undefined;
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags : Array.isArray(value.tags) ? value.tags : [];
+  return [value.model_type, value.type, ...tags].flatMap((item) => typeof item === "string" && item !== "model" ? [item.toLowerCase()] : []);
+}
+
+const NOT_CHAT_KINDS = /^(?:embed|embedding|embeddings|rerank|reranker|tts|stt|asr|speech|transcription|moderation)$/;
+const CHAT_KINDS = /^(?:chat|llm|text|text-generation|completion|vlm|reasoning)$/;
+
+/**
+ * Whether a model's id names something other than chat: embeddings,
+ * reranking, speech, or image and video generation. For lists that give only
+ * ids, such as SiliconFlow's and ModelScope's.
+ */
+export function namedNotForChat(id: string): boolean {
+  return /(?:^|[/_.:-])(?:(?:embed|embedding|embeddings|rerank|reranker|bge|tts|asr|whisper|flux|sdxl|stable-diffusion|kolors|qwen-image|t2v|i2v|t2i)(?=$|[\d/_.:-])|sensevoice|cosyvoice|fish-speech)/i.test(id);
+}
+
 function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog, preset?: CustomProviderPreset): CustomProviderModel | undefined {
   if (!isObject(value)) return undefined;
+  // A model the list itself calls an embedding, reranking or speech model can't chat or make media.
+  const kinds = declaredKinds(value);
+  if (kinds.some((kind) => NOT_CHAT_KINDS.test(kind)) && !kinds.some((kind) => CHAT_KINDS.test(kind))) return undefined;
+  // A gateway such as Command Code lists every model on one endpoint and says
+  // which protocol each answers; one that chats only through another is left out.
+  const endpoints = Array.isArray(value.supported_endpoints) ? value.supported_endpoints : undefined;
+  if (endpoints && CHAT_ENDPOINTS[api] && !endpoints.includes(CHAT_ENDPOINTS[api]) && Object.values(CHAT_ENDPOINTS).some((endpoint) => endpoints.includes(endpoint))) return undefined;
   const google = api === "google-generative-ai";
   const rawId = string(google ? value.name : value.id);
   const id = google ? rawId?.replace(/^models\//, "") : rawId;
@@ -96,7 +128,10 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
   const name = (string(value.displayName) ?? string(value.display_name) ?? string(value.name) ?? id).slice(0, 200);
   const known = knownCustomModel(id, api, catalog);
   const usages: CustomModelUsages = {};
-  const outputs = Array.isArray(architecture?.output_modalities) ? architecture.output_modalities : [];
+  // Image and video generation, as a list's own kinds say it.
+  const makes = [...(kinds.includes("image-gen") ? ["image"] : []), ...(kinds.includes("video-gen") ? ["video"] : [])];
+  const outputs = Array.isArray(architecture?.output_modalities) ? architecture.output_modalities
+    : makes.length ? [...(kinds.some((kind) => CHAT_KINDS.test(kind)) ? ["text"] : []), ...makes] : [];
   const image = imageModelDefinition(id);
   if (outputs.includes("text") || (!outputs.length && (known || preset === "ollama" || preset === "lmstudio" || api === "anthropic-messages" || (google && Array.isArray(value.supportedGenerationMethods) && value.supportedGenerationMethods.includes("generateContent"))))) usages.language = true;
   if (image || outputs.includes("image")) {

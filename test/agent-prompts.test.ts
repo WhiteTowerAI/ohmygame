@@ -28,6 +28,15 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("OhMyGame owns the dev server");
     expect(text).toContain("inside an iframe of any size");
     expect(text).toContain("__OHMYGAME_PLAYTEST__");
+    expect(text).toContain("Colyseus + WebSocket");
+    expect(text).toContain("multiplayer_setup");
+    expect(text).toContain("Do not silently substitute PeerJS");
+    // The SDK's own direct connections are allowed; a hand-made WebRTC stack is not.
+    expect(text).toContain("built-in p2p option");
+    expect(text).toContain("server/rules.ts");
+    // Saves and multiplayer follow the identity line, briefly; their guides carry the rest.
+    expect(text.indexOf("You are OhMyGame")).toBeLessThan(text.indexOf("multiplayer_setup"));
+    expect(text).toContain("needs no cloud deployment");
     expect(text).toContain("the workspace root");
     expect(text).toContain('a "dev" script and a "build" script');
     expect(text).toContain("process.env.HOST");
@@ -42,6 +51,7 @@ describe("OhMyGame system prompt", () => {
     const text = prompt({ type: "general", webPreviewEnabled: true, startupDirectory: "client", startupScript: "start", packageManager: "pnpm", workspaceLocation: "external" });
 
     expect(text).toContain("use game-studio when available");
+    expect(text).toContain("multiplayer_setup");
     expect(text).toContain("Applications, tools, and content");
     expect(text).toContain("Web preview is enabled by the user");
     expect(text).toContain("the client/ folder of the workspace, run with pnpm");

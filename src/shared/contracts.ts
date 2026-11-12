@@ -1,5 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { GameTuningState } from "./game-tuning.js";
@@ -131,7 +132,7 @@ export interface ProviderSummary extends ModelProviderSummary {
   enabled?: boolean;
   custom?: boolean;
   preset?: CustomProviderPreset;
-  /** A provider an installed plugin adds; it is set up on the plugin's page. */
+  /** A provider an installed plugin adds; its key is one of the plugin's settings. */
   plugin?: PluginProviderInfo;
   error?: string;
 }
@@ -140,9 +141,14 @@ export interface PluginProviderInfo {
   /** The plugin's id, `publisher/name`. */
   id: string;
   name: string;
-  baseUrl: string;
-  /** The title of the plugin's setting that holds the key, when it needs one. */
-  keyField?: string;
+  /** Its chat endpoint; a provider that only makes media has none. */
+  baseUrl?: string;
+  /** The plugin's setting that holds the key, when it needs one. */
+  keySetting?: string;
+  /** That setting's description, such as where to get a key. */
+  keyHint?: string;
+  /** Changes with the package, when the provider has its own icon (`/plugin-providers/:id/icon`). */
+  icon?: string;
 }
 
 export interface CustomProviderSettings {
@@ -396,7 +402,8 @@ export interface ImageModel extends ImageModelRef {
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
-  protocol: ImageProtocol | "codex-cli";
+  /** `plugin`: a plugin's media adapter makes it. */
+  protocol: ImageProtocol | "codex-cli" | "plugin";
   supportsResolution?: boolean;
   supportsAspectRatio?: boolean;
 }
@@ -820,6 +827,7 @@ export interface PublishProjectRequest {
   accessToken: string;
   title: string;
   description?: string;
+  multiplayer?: MultiplayerManifestConfig;
 }
 
 export type AgentMessagePhase = "commentary" | "final_answer";

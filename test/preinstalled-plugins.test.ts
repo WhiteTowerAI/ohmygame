@@ -80,20 +80,20 @@ describe("preinstalled plugins", () => {
     expect(mentions.skills.map((skill: { name: string }) => skill.name)).toContain("reference");
 
     const installedSkill = path.join(dataDirectory, "plugin-store", "packages", "ohmygame", "reference-tools", "1.0.0", "skills", "reference", "SKILL.md");
-    expect((await first.inject({ method: "PUT", url: `/plugin-store/${ID}/enabled`, payload: { enabled: false } })).statusCode).toBe(204);
+    expect((await first.inject({ method: "PUT", url: `/plugin-store/${ID}/every-project`, payload: { on: false } })).statusCode).toBe(204);
     await writeFile(installedSkill, `${prepared.skillContent}\nLocal marker`);
     await close(first);
 
     const second = await start(dataDirectory, prepared.directory);
     expect(await readFile(installedSkill, "utf8")).toContain("Local marker");
-    expect((await listed(second)).grants.enabled).toBe(false);
+    expect((await listed(second)).everyProject).toBe(false);
   });
 
   it.each(["1.0.0", "2.0.0"])("replaces a prepared release at version %s while keeping its switch", async (version) => {
     const dataDirectory = await temporary("ohmygame-preinstalled-upgrade-");
     const firstPrepared = await preparedPlugin();
     const first = await start(dataDirectory, firstPrepared.directory);
-    await first.inject({ method: "PUT", url: `/plugin-store/${ID}/enabled`, payload: { enabled: false } });
+    await first.inject({ method: "PUT", url: `/plugin-store/${ID}/every-project`, payload: { on: false } });
     await close(first);
 
     const secondPrepared = await preparedPlugin({
@@ -106,7 +106,7 @@ describe("preinstalled plugins", () => {
 
     expect(await listed(second)).toMatchObject({
       version,
-      grants: { enabled: false },
+      everyProject: false,
       skills: [{ description: "Rebuild a newer reference." }],
     });
     expect((await second.inject({ method: "GET", url: "/plugin-store/plugins" })).json().filter((plugin: { id: string }) => plugin.id === ID)).toHaveLength(1);
