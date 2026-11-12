@@ -39,7 +39,7 @@ function imageBlob(image: GalleryImage, signal?: AbortSignal): Promise<Blob> {
 }
 
 /** Most clipboards take only PNG, so other images are drawn into one first. */
-async function pngBlob(blob: Blob): Promise<Blob> {
+export async function pngBlob(blob: Blob): Promise<Blob> {
   if (blob.type === "image/png") return blob;
   const bitmap = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");

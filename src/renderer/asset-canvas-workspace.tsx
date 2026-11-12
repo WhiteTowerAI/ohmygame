@@ -66,7 +66,9 @@ import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
-import { canvasBatchCopies, createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
+import { canvasBatchCopies, canvasClipboardOutside, createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, readCanvasClipboard, rememberCanvasClipboard, writeCanvasClipboard, writeImageClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
+import { pngBlob } from "./image-viewer.js";
+import { isMac, shortcut } from "./command-menu.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
@@ -127,7 +129,7 @@ import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
 import { isDesktopClosing } from "./desktop-save.js";
-import { Button, Dialog } from "./ui/index.js";
+import { Button, Dialog, useToast } from "./ui/index.js";
 import { CanvasInteractions, CANVAS_REFERENCE_EDGE_TYPES, CANVAS_CONNECTION_DRAG_THRESHOLD, type CanvasPortType } from "./canvas-node-interactions.js";
 import { CanvasTextarea } from "./canvas-text-composer.js";
 import { videoReferenceLimit } from "../shared/video-references.js";
@@ -268,6 +270,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [resolving, setResolving] = useState(false);
   const resolvingRef = useRef(false);
   const mounted = useRef(false);
+  const toast = useToast();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [transferError, setTransferError] = useState<string>();
   // The canvas file format still requires a viewport; nothing in Asset Canvas uses it, so it is only carried through saves.
@@ -1510,23 +1513,38 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (isTextEntry(event.target) || eventWithin(event, ".nokey")) return;
     const selected = clipboardNodes(new Set(nodes.filter((node) => node.selected).map((node) => node.id)));
     if (!selected.length) return;
-    const value = createCanvasClipboard(projectId, selected, document.edges);
-    event.preventDefault(); event.clipboardData.setData("text/plain", JSON.stringify(value));
-    rememberCanvasClipboard(value); setCopiedSelection(value); pasteSequence.current = { text: "", count: 0 };
+    event.preventDefault();
+    writeCanvasNodes(createCanvasClipboard(projectId, selected, document.edges));
+    pasteSequence.current = { text: "", count: 0 };
     if (cut) removeCanvasNodes(new Set(selected.map((node) => node.id)));
+  }
+
+  /** Copies nodes for this canvas, and their image or text for other apps. */
+  function writeCanvasNodes(value: CanvasClipboard): void {
+    rememberCanvasClipboard(value); setCopiedSelection(value);
+    const { imageAssetId, text } = canvasClipboardOutside(value.nodes);
+    void writeCanvasClipboard(value, { text, png: imageAssetId ? assetBlob(imageAssetId).then(pngBlob) : undefined })
+      .then((withImage) => { if (!withImage && mounted.current) setNotice({ kind: "action", message: t("assetCanvas.copyImageFailed") }); })
+      .catch((cause) => { if (mounted.current) setNotice({ kind: "action", message: t("assetCanvas.copyFailed", { error: errorMessage(cause) }) }); });
   }
 
   function pasteFromClipboard(event: ClipboardEvent<HTMLDivElement>): void {
     if (isTextEntry(event.target) || eventWithin(event, ".nokey") || phase !== "ready") return;
-    const files = clipboardFiles(event.clipboardData);
-    if (files.length) { event.preventDefault(); void importCanvasFiles(files.map((file) => ({ file })), transferPosition()); return; }
-    const text = event.clipboardData.getData("text/plain"), value = parseCanvasClipboard(text);
-    if (!value) return;
+    // The event's data is gone once it returns, and copied nodes are read separately.
+    const files = clipboardFiles(event.clipboardData), at = transferPosition();
+    // compat: since beta.5.8, remove from beta.7 and 2026-12-13. Nodes copied as text before they had their own clipboard format.
+    const legacy = parseCanvasClipboard(event.clipboardData.getData("text/plain"));
     event.preventDefault();
-    const count = pasteSequence.current.text === text ? pasteSequence.current.count + 1 : 0;
-    pasteSequence.current = { text, count };
-    const at = transferPosition();
-    pasteSelection(value, { x: at.x + count * 40, y: at.y + count * 40 });
+    void readCanvasClipboard().then((copied) => {
+      // Copied nodes come first: a text node's words could be legacy JSON.
+      const value = copied ?? legacy;
+      if (!mounted.current) return;
+      if (!value) { if (files.length) void importCanvasFiles(files.map((file) => ({ file })), at); return; }
+      const text = JSON.stringify(value);
+      const count = pasteSequence.current.text === text ? pasteSequence.current.count + 1 : 0;
+      pasteSequence.current = { text, count };
+      pasteSelection(value, { x: at.x + count * 40, y: at.y + count * 40 });
+    });
   }
 
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
@@ -1554,9 +1572,13 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   function copyCanvasNode(nodeId: string): void {
     const source = nodes.find((node) => node.id === nodeId);
     if (!source) return;
-    const value = createCanvasClipboard(projectId, clipboardNodes(new Set([nodeId])), document.edges);
-    rememberCanvasClipboard(value); setCopiedSelection(value);
-    void navigator.clipboard?.writeText(JSON.stringify(value)).catch(() => {});
+    writeCanvasNodes(createCanvasClipboard(projectId, clipboardNodes(new Set([nodeId])), document.edges));
+  }
+
+  function copyAssetImage(assetId: string): void {
+    void writeImageClipboard(assetBlob(assetId).then(pngBlob))
+      .then(() => toast({ title: t("imageViewer.copied"), tone: "success" }))
+      .catch(() => toast({ title: t("imageViewer.copyFailed"), tone: "danger" }));
   }
 
   function duplicateCanvasNode(nodeId: string): void {
@@ -2572,6 +2594,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         asset={viewedAsset}
         name={assetDownloadName(viewedAsset.assetId, viewedAsset.nodeId)}
         onDownload={(name) => downloadAsset(viewedAsset.assetId, name)}
+        onCopyImage={viewedAsset.mediaType === "image" ? () => copyAssetImage(viewedAsset.assetId) : undefined}
         onSendToProject={(name) => sendAssetToProject(viewedAsset.assetId, name)}
         onClose={() => setViewedAsset(undefined)}
         {...(viewedAsset.mediaType === "video" ? { trimmer: {
@@ -3154,10 +3177,11 @@ function eventWithin(event: { target: EventTarget | null }, selector: string): b
   return event.target instanceof Element && Boolean(event.target.closest(selector));
 }
 
-function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose, trimmer }: {
+function CanvasAssetViewer({ asset, name, onDownload, onCopyImage, onSendToProject, onClose, trimmer }: {
   asset: ViewableCanvasAsset;
   name: string;
   onDownload: (name: string) => void;
+  onCopyImage?: () => void;
   onSendToProject: (name: string) => void;
   onClose: () => void;
   /** Shows a video with handles to trim it, saving the kept part as a new video. */
@@ -3171,6 +3195,7 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose, 
       labelledBy="canvas-asset-viewer-title"
       headerActions={<>
         <button type="button" title={t("assetCanvas.addToProject")} aria-label={t("assetCanvas.addNameToProject", { name })} onClick={() => onSendToProject(name)}><FolderPlus size={17} /></button>
+        {onCopyImage ? <button type="button" title={t("imageViewer.copy")} aria-label={t("assetCanvas.copyImageName", { name })} onClick={onCopyImage}><Copy size={17} /></button> : null}
         <button type="button" title={t("assetCanvas.download")} aria-label={t("assetCanvas.downloadName", { name })} onClick={() => onDownload(name)}><Download size={17} /></button>
       </>}
       onClose={onClose}
@@ -3252,6 +3277,7 @@ function AssetCanvasContextMenu({
   const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addToOpen, setAddToOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const run = (action: () => unknown) => {
     action();
@@ -3279,6 +3305,35 @@ function AssetCanvasContextMenu({
     {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
   </div> : null;
 
+  const ungroupItem = <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button>;
+  const projectItem = (label: string) => <button type="button" role="menuitem" key="project" disabled={nodeActionsDisabled} onClick={() => run(onSendToProject)}><FolderPlus size={15} /><span>{label}</span></button>;
+  const documentItem = (label: string) => onUseInDocument ? <button type="button" role="menuitem" key="document" onClick={() => run(onUseInDocument)}><FileText size={15} /><span>{label}</span></button> : null;
+  // Node actions in groups by what they're for, each group shown only when it has an action.
+  const nodeSections = [
+    [canView ? <button type="button" role="menuitem" key="view" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>{t("assetCanvas.viewAction")}</span></button> : null],
+    [
+      onRegenerate ? <button type="button" role="menuitem" key="regenerate" onClick={() => run(onRegenerate)}><RefreshCw size={15} /><span>{t("assetCanvas.regenerateFrom")}</span></button> : null,
+      onBatch ? <button type="button" role="menuitem" key="batch" onClick={() => run(onBatch)}><Layers3 size={15} /><span>{t("assetCanvas.batchRun")}</span></button> : null,
+    ],
+    [
+      <button type="button" role="menuitem" key="copy" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("assetCanvas.copyNode")}</span><kbd>{shortcut("c")}</kbd></button>,
+      <button type="button" role="menuitem" key="duplicate" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>,
+      onDetails ? <button type="button" role="menuitem" key="details" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null,
+      canUngroup ? <Fragment key="ungroup">{ungroupItem}</Fragment> : null,
+    ],
+    [
+      canDownload ? <button type="button" role="menuitem" key="download" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>{t("assetCanvas.download")}</span></button> : null,
+      // Both places to add the node to share one entry.
+      canSendToProject && onUseInDocument ? <div className="story-canvas-context-submenu-root" key="add-to" onPointerEnter={() => setAddToOpen(true)}>
+        <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addToOpen} onClick={() => setAddToOpen(true)}><FolderPlus size={15} /><span>{t("assetCanvas.addTo")}</span><ChevronRight size={13} /></button>
+        {addToOpen ? <div className="story-canvas-context-add-menu">
+          <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
+        </div> : null}
+      </div> : canSendToProject ? projectItem(t("assetCanvas.addToProjectEllipsis")) : documentItem(t("assetCanvas.addToDocument")),
+    ],
+    [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],
+  ].map((section) => section.filter(Boolean)).filter((section) => section.length);
+
   // A double-click on the canvas opens just the Add node list.
   if (menu.kind === "add") return (
     <CanvasContextMenu screenPosition={menu.screenPosition} label={t("assetCanvas.addNode")} onClose={onClose}>
@@ -3289,12 +3344,8 @@ function AssetCanvasContextMenu({
 
   return (
     <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("assetCanvas.nodeActions")} onClose={onClose}>
-      {canUngroup ? <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
-      {onDetails ? <button type="button" role="menuitem" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null}
-      {onRegenerate ? <button type="button" role="menuitem" onClick={() => run(onRegenerate)}><RefreshCw size={15} /><span>{t("assetCanvas.regenerateFrom")}</span></button> : null}
-      {onBatch ? <button type="button" role="menuitem" onClick={() => run(onBatch)}><Layers3 size={15} /><span>{t("assetCanvas.batchRun")}</span></button> : null}
-      {onUseInDocument ? <button type="button" role="menuitem" onClick={() => run(onUseInDocument)}><FileText size={15} /><span>{t("assetCanvas.addToDocument")}</span></button> : null}
       {menu.kind === "pane" ? <>
+        {canUngroup ? ungroupItem : null}
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
           <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>{t("assetCanvas.addNode")}</span><ChevronRight size={13} /></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
@@ -3319,14 +3370,10 @@ function AssetCanvasContextMenu({
         <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
         <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
-      </> : <>
-        {canView ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>{t("assetCanvas.viewAction")}</span></button> : null}
-        {canDownload ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>{t("assetCanvas.download")}</span></button> : null}
-        {canSendToProject ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onSendToProject)}><FolderPlus size={15} /><span>{t("assetCanvas.addToProjectEllipsis")}</span></button> : null}
-        <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("assetCanvas.copyNode")}</span></button>
-        <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>
-        <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span></button>
-      </>}
+      </> : nodeSections.map((section, index) => <Fragment key={index}>
+        {index ? <div className="playable-project-menu-separator" role="separator" /> : null}
+        {section}
+      </Fragment>)}
     </CanvasContextMenu>
   );
 }
