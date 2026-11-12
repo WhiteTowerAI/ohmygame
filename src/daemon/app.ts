@@ -108,6 +108,8 @@ import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
+import { createDirectProviderDefinitions } from "./direct-provider-definitions.js";
+import { isProviderEnabled } from "./provider-enable-groups.js";
 import { ProviderModels3D } from "./provider-models3d.js";
 import { modelUsageList } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
@@ -118,11 +120,9 @@ import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
-import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
-import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { ElevenLabsAudioProvider } from "./elevenlabs-audio-provider.js";
+import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, type AudioGenerationRequest } from "../shared/audio.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
-import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
@@ -793,9 +793,12 @@ export function createApp(options: AppOptions = {}) {
       void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
     },
   });
-  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
-    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
-    : providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => isProviderEnabled(id, (providerId) => providerModelSettings.isEnabled(providerId));
+  const directProviderDefinitions = createDirectProviderDefinitions({
+    native3DProviders, seedanceSettings, minimaxSettings, doubaoVoiceSettings,
+    isEnabled: providerEnabled,
+  });
+  const providerRemovalHandlers = new Map(directProviderDefinitions.map((provider) => [provider.id, () => provider.removeCredentials()]));
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
     codexImages,
@@ -3424,60 +3427,7 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(item.id), custom: false, status: item.configured ? "connected" as const : "not_configured" as const,
         methods: [], capabilities: pluginModelProviders.capabilities(item.id), plugin: pluginModelProviders.info(item.id, locale)!,
       }));
-    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
-      id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
-      status: settings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${name} API key` }],
-      credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
-      const definition = SEEDANCE_PROVIDERS[providerId];
-      const configured = seedanceSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
-      };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
-      const definition = MINIMAX_PROVIDERS[providerId];
-      const configured = minimaxSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: ["video"] as const,
-      };
-    }), {
-      id: DOUBAO_SPEECH_PROVIDER_ID,
-      name: DOUBAO_SPEECH_PROVIDER_NAME,
-      configured: doubaoVoiceSettings.get().configured,
-      enabled: providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
-      custom: false,
-      status: doubaoVoiceSettings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }, {
-      id: "elevenlabs",
-      name: ELEVENLABS_PROVIDER_NAME,
-      configured: Boolean(elevenLabsSettings.key()),
-      enabled: providerEnabled("elevenlabs"),
-      custom: false,
-      status: elevenLabsSettings.key() ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }];
+    const directProviders = [...pluginProviders, ...directProviderDefinitions.map((provider) => provider.summary())];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -3572,6 +3522,7 @@ export function createApp(options: AppOptions = {}) {
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,
+    providerRemovalHandlers,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,

@@ -80,10 +80,9 @@ describe("desktop free cloud connection", () => {
     expect(cloudFetch).not.toHaveBeenCalled();
     const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
     expect(preferences.disabled).toEqual(expect.arrayContaining(["hyper3d", MODEL.provider]));
-    // Removing the key neither signs out nor re-enables the brand.
+    // Removing the key restores the shared brand switch for both connections.
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/hyper3d", headers: { authorization: "Bearer daemon-token" } })).statusCode).toBe(204);
-    expect((await request("/model3d-models/catalog")).json().models).toEqual([]);
-    await request(enabledUrl, "PATCH", { enabled: true });
+    expect(JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8")).disabled).not.toEqual(expect.arrayContaining(["hyper3d", MODEL.provider]));
     expect((await request("/model3d-models/catalog")).json().models).toHaveLength(10);
     expect((await request("/model3d-models/catalog")).json().models).toContainEqual(expect.objectContaining(MODEL));
   });

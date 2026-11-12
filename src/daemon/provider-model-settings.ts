@@ -282,21 +282,26 @@ export class ProviderModelSettingsStore {
     });
   }
 
-  removeProviderSettings(id: string, apply: () => Promise<void>): Promise<void> {
+  removeProviderSettings(ids: string | readonly string[], apply: () => Promise<void>): Promise<void> {
     return this.#enqueue(async () => {
+      const providerIds = typeof ids === "string" ? [ids] : ids;
       const { text, config } = await this.#readModels();
-      const contents = isObject(config.providers) && Object.hasOwn(config.providers, id)
-        ? modifyFormattedJsonc(text, ["providers", id], undefined) : text;
+      let contents = text;
+      for (const id of providerIds) {
+        if (isObject(config.providers) && Object.hasOwn(config.providers, id)) contents = modifyFormattedJsonc(contents, ["providers", id], undefined);
+      }
       const customProviders = { ...this.#customProviders };
       const nativeModels3D = { ...this.#nativeModels3D };
       const hidden = { ...this.#hidden };
       const responsesTransports = { ...this.#responsesTransports };
-      delete customProviders[id];
-      delete hidden[id];
-      delete responsesTransports[id];
-      if (isNative3DProvider(id)) delete nativeModels3D[id];
-      const disabled = this.#disabled.filter((provider) => provider !== id);
-      const defaults = Object.fromEntries(Object.entries(this.#defaults).filter(([, model]) => model.provider !== id)) as MediaModelDefaults;
+      for (const id of providerIds) {
+        delete customProviders[id];
+        delete hidden[id];
+        delete responsesTransports[id];
+        if (isNative3DProvider(id)) delete nativeModels3D[id];
+      }
+      const disabled = this.#disabled.filter((provider) => !providerIds.includes(provider));
+      const defaults = Object.fromEntries(Object.entries(this.#defaults).filter(([, model]) => !providerIds.includes(model.provider))) as MediaModelDefaults;
       const oldPreferences = this.#preferences();
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
