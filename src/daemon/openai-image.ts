@@ -137,7 +137,7 @@ export async function assertTransparentImage(bytes: Buffer): Promise<void> {
 
 function contentType(value: string | null): GeneratedImageMediaType | undefined {
   const type = value?.split(";", 1)[0]?.trim();
-  return type === "image/png" || type === "image/jpeg" || type === "image/webp" || type === "image/gif" ? type : undefined;
+  return type === "image/png" || type === "image/jpeg" || type === "image/webp" ? type : undefined;
 }
 
 function imageEndpoint(baseUrl: string, edit: boolean): string {

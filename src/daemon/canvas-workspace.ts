@@ -811,28 +811,12 @@ export class CanvasStore {
       await withCanvasLock(this.#project(id).workspacePath, async () => {
         if (controller.signal.aborted) return;
         const workspace = this.#project(id).workspacePath, boardId = job.context!.boardId!;
-        const pixelAnimation = toolId === "generate-image" && "imageModel" in prepared && prepared.imageModel?.provider === "pixellab" && prepared.imageModel.id === "animate-v3";
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
           const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
           if (detail && node && expectedType && node.type === expectedType) {
             Object.assign(node.data, { assetId: output.assetId });
-            if (pixelAnimation) {
-              const prefix = `pixellab_frame_${node.id}_`;
-              const groupId = `pixellab_animation_${node.id}`;
-              const previousGroup = detail.board.nodes.find((candidate) => candidate.id === groupId && candidate.type === "group");
-              const outerParentId = node.parentId === groupId ? previousGroup?.parentId : node.parentId;
-              const nodePosition = node.parentId === groupId && previousGroup
-                ? { x: previousGroup.position.x + node.position.x, y: previousGroup.position.y + node.position.y }
-                : node.position;
-              detail.board.nodes = detail.board.nodes.filter((candidate) => candidate.id !== groupId && !candidate.id.startsWith(prefix));
-              for (const id of Object.keys(detail.board.editorLayout.nodes)) if (id === groupId || id.startsWith(prefix)) delete detail.board.editorLayout.nodes[id];
-              if (outerParentId) node.parentId = outerParentId;
-              else delete node.parentId;
-              node.position = nodePosition;
-              detail.board.editorLayout.nodes[node.id] = canvasNodeLayout(node);
-            }
             await writeCanvasBoard(workspace, detail.board);
           }
         }
