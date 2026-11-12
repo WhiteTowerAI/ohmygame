@@ -225,14 +225,23 @@ describe("Publish v1 client contract", () => {
       const saved = await projects.create("Named");
       const first = { gameId: "game-1", deploymentId: "d1", playUrl: "https://g.test/", publishedAt: "2026-11-01T00:00:00Z", name: "old-name" };
       await projects.setPublication(saved.id, first);
+      // A publication saved without a page gets one.
+      await projects.fillPublicationPage(saved.id, { gameId: "game-1", name: "old-name", pageUrl: "https://site.test/g/old-name" });
+      expect(projects.get(saved.id)!.publication!.pageUrl).toBe("https://site.test/g/old-name");
       await Promise.all([
         projects.setPublication(saved.id, { ...first, deploymentId: "d2", publishedAt: "2026-11-02T00:00:00Z" }),
         projects.renamePublication(saved.id, { gameId: "game-1", name: "new-name", pageUrl: "https://site.test/g/new-name" }),
       ]);
       expect(projects.get(saved.id)!.publication).toMatchObject({ deploymentId: "d2", name: "new-name", pageUrl: "https://site.test/g/new-name" });
+      // A page filled in from an older list doesn't replace the name a rename saved meanwhile.
+      await Promise.all([
+        projects.renamePublication(saved.id, { gameId: "game-1", name: "newest", pageUrl: "https://site.test/g/newest" }),
+        projects.fillPublicationPage(saved.id, { gameId: "game-1", name: "stale", pageUrl: "https://site.test/g/stale" }),
+      ]);
+      expect(projects.get(saved.id)!.publication!.name).toBe("newest");
       // A rename of a game the project no longer has leaves it alone.
       await projects.renamePublication(saved.id, { gameId: "game-2", name: "other" });
-      expect(projects.get(saved.id)!.publication!.name).toBe("new-name");
+      expect(projects.get(saved.id)!.publication!.name).toBe("newest");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -5,7 +5,7 @@ import { createReadStream } from "node:fs";
 import { access, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isPreviewViewport, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
-import { withRename, type GameRename } from "../shared/publish-v1.js";
+import { hasGamePage, withRename, type GameRename } from "../shared/publish-v1.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -986,6 +986,16 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#save(project, (current) => current.publication ? { publication: withRename(current.publication, renamed) } : {});
+  }
+
+  /**
+   * Gives a publication saved before the Cloud gave games a page its page. Checked as it
+   * saves, so a rename saved meanwhile keeps its name.
+   */
+  async fillPublicationPage(id: string, page: GameRename): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#save(project, (current) => current.publication && !hasGamePage(current.publication) ? { publication: withRename(current.publication, page) } : {});
   }
 
   async #save(
