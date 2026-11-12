@@ -41,6 +41,13 @@ describe("publication feedback", () => {
     expect(html).not.toContain("play.example");
   });
 
+  it("tells a page on the site from a bare play address", async () => {
+    const { hasGamePage } = await import("../src/shared/publish-v1.js");
+    expect(hasGamePage({ name: "zombie-run", pageUrl: "https://www.ohmygame.example/g/zombie-run" })).toBe(true);
+    expect(hasGamePage({ name: "ybn25b", pageUrl: "https://g-1.ohmygame.example/" })).toBe(false);
+    expect(hasGamePage({ pageUrl: "https://www.ohmygame.example/g/zombie-run" })).toBe(false);
+  });
+
   it("offers no rename while the Cloud gives the game no page on the site", () => {
     const bare = { ...publication, name: "ybn25b", pageUrl: publication.playUrl };
     const html = renderToStaticMarkup(<PublicationDetails publication={bare} name={project.name} onClose={() => undefined} onUpdate={() => undefined} />);

@@ -184,12 +184,9 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication)
       .toMatchObject({ gameId: published.game.id, name: "zombie-run", pageUrl: "https://site.test/g/zombie-run" });
 
-    // A rename made elsewhere, or a publication saved before the Cloud named games, catches up
-    // when the owner's games load.
-    await fetch(`${runtime.apiUrl}/v1/games/${published.game.id}/name`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ name: "renamed-elsewhere" }) });
+    // A list read before that rename doesn't take the project's page back.
     expect((await runtime.daemon.inject({ method: "GET", url: "/community/me/games", headers })).statusCode).toBe(200);
-    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication)
-      .toMatchObject({ deploymentId: published.deployment.id, name: "renamed-elsewhere", pageUrl: "https://site.test/g/renamed-elsewhere" });
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication.name).toBe("zombie-run");
 
     // The Cloud's reason reaches the app, which words it in the person's language.
     const reserved = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${published.game.id}/name`, payload: { accessToken: token, name: "admin" } });

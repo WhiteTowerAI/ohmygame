@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { GAME_NAME_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
+import { GAME_NAME_MAX_LENGTH, hasGamePage, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
 import type { ProjectManager } from "../projects.js";
 import { RemotePublisher, RemotePublishError } from "./client.js";
 import type { LocalPublisher } from "./local.js";
@@ -88,12 +88,13 @@ export function registerCommunityRoutes(
     respond(reply, async () => {
       const token = requiredToken(request);
       const profile = await publisher.myGames(token);
-      // Publications saved before the Cloud named games, or before a rename elsewhere, catch up.
+      // Publications saved before the Cloud gave games a page get it. One that has a page keeps
+      // it: this list may have been read before a rename that finished meanwhile.
       for (const game of profile.games) {
-        if (!game.name) continue;
+        if (!hasGamePage(game)) continue;
         for (const project of projects.list()) {
           const publication = project.publication;
-          if (publication?.gameId !== game.id || (publication.name === game.name && publication.pageUrl === game.pageUrl)) continue;
+          if (publication?.gameId !== game.id || hasGamePage(publication)) continue;
           await projects.renamePublication(project.id, { gameId: game.id, name: game.name, pageUrl: game.pageUrl });
         }
       }
