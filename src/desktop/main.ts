@@ -17,6 +17,7 @@ import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
+import { updateUsageData } from "./usage-data.cjs";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
@@ -387,6 +388,14 @@ handle("ohmygame:remove-project", async (event, projectId: unknown) => {
     throw new Error(`The project was removed, but its files could not be moved to the Trash. They are in ${result.movedTo}`);
   }
   await rmdir(path.dirname(result.movedTo)).catch(() => {});
+});
+handle("ohmygame:update-usage-data", (event, enabled: unknown, initialize: unknown) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame ||
+      typeof enabled !== "boolean" || typeof initialize !== "boolean") {
+    throw new Error("Invalid usage data request");
+  }
+  return updateUsageData(enabled, initialize);
 });
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");

@@ -26,11 +26,27 @@ function storedUsageDataEnabled(): boolean {
   }
 }
 
-export function setUsageDataEnabled(value: boolean): void {
+export async function initializeUsageData(): Promise<void> {
+  const update = window.ohMyGameDesktop?.updateUsageData;
+  if (!update) return;
+  try {
+    applyUsageDataEnabled(await update(enabled, true));
+  } catch {
+    // Keep the stored choice for the next launch if desktop storage fails.
+    enabled = false;
+  }
+}
+
+export async function setUsageDataEnabled(value: boolean): Promise<void> {
+  const update = window.ohMyGameDesktop?.updateUsageData;
+  applyUsageDataEnabled(update ? await update(value, false) : value);
+}
+
+function applyUsageDataEnabled(value: boolean): void {
   enabled = value;
   try {
     localStorage.setItem(USAGE_DATA_STORAGE_KEY, value ? "on" : "off");
-  } catch { /* The choice still applies until the app restarts. */ }
+  } catch { /* Browser storage can be unavailable. */ }
   if (!value) client?.opt_out_capturing();
   else if (configured) void loadClient().then(synchronize);
 }

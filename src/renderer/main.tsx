@@ -9,7 +9,7 @@ import { applyAutoUpdate, launchProject } from "./general-preferences.js";
 import { applyAppearance, applyChatFont, applyPalette, applyPluginTheme, readAppearance, readChatFont, readPalette, readPluginTheme } from "./appearance.js";
 import { sendNotificationPreferences } from "./agent-notifications.js";
 import { DesktopWindowFrame, sendApplicationMenuLabels } from "./desktop-window-frame.js";
-import { initializeAnalytics } from "./analytics.js";
+import { initializeAnalytics, initializeUsageData } from "./analytics.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
 import { RuntimeNotice } from "./runtime-notice.js";
 import { ErrorBoundary } from "./error-boundary.js";
@@ -25,11 +25,12 @@ if (!root) throw new Error("Renderer root was not found");
 const reopen = !window.location.hash || window.location.hash === "#/" ? launchProject() : undefined;
 if (reopen) window.history.replaceState(window.history.state, "", projectHash(reopen));
 const route = parseAppRoute(window.location.hash);
-if (window.ohMyGameDesktop) initSentry();
 // A hidden thumbnail window runs Scene code, so the desktop app lets it only
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
 const mainRoute = !thumbnail && route.page !== "playtest";
+if (mainRoute) await initializeUsageData();
+if (window.ohMyGameDesktop) initSentry();
 applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
 applyPluginTheme(readPluginTheme());

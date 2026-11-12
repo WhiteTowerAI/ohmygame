@@ -382,6 +382,8 @@ const en = {
       title: "Usage data",
       description: "Helps us see which features work and fix errors faster. When you're signed in, it is linked to your OhMyGame account.",
       toggle: "Send usage data",
+      desktopToggle: "Send usage data and crash reports",
+      saveFailed: "Could not save the usage data preference.",
     },
   },
   capability: {

@@ -33,6 +33,8 @@ if (process.isMainFrame) {
     }),
     setAppearance: (appearance: "system" | "light" | "dark") =>
       ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
+    updateUsageData: (enabled: boolean, initialize: boolean) =>
+      ipcRenderer.invoke("ohmygame:update-usage-data", enabled, initialize) as Promise<boolean>,
     restartApp: () => ipcRenderer.invoke("ohmygame:restart-app") as Promise<void>,
     setKeepAwake: (enabled: boolean) => ipcRenderer.invoke("ohmygame:set-keep-awake", enabled) as Promise<void>,
     focusWindow: () => ipcRenderer.invoke("ohmygame:focus-window") as Promise<void>,
