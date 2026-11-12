@@ -976,7 +976,8 @@
   margin-left: var(--space-2);
 }
 
-.plugin-props a {
+.plugin-props a,
+.plugin-add-review a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -984,7 +985,8 @@
   text-decoration: none;
 }
 
-.plugin-props a:hover {
+.plugin-props a:hover,
+.plugin-add-review a:hover {
   text-decoration: underline;
 }
 
