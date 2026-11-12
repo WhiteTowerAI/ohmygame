@@ -4,7 +4,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload } from "./icons.js";
+import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -14,10 +14,10 @@ import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-nod
 import { preferredImageOption, combineAssetCanvasPrompt, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
-import { useEffect, useId, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
+import { useEffect, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
 import type { AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
-import { audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
+import { audioSettingsIssue, CanvasAudioControls, CanvasAudioQuickControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
 import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
@@ -317,7 +317,7 @@ export function audioModelDescription(model: AudioModel): string {
 
 /** One node for every audio model: the model decides whether the prompt is read aloud or describes the sound, and which options show. */
 export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
-  const durationListId = useId();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const runtime = data.audioRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
   const caps = selectedModel?.capabilities;
@@ -364,9 +364,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         onChange={(value) => change({ prompt: value })}
       />
       {issue ? <p role="alert">{issue}</p> : null}
-      {selectedModel ? <CanvasAudioControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls">
+      <div className="story-media-controls story-audio-controls">
         <CanvasChipSelect
           label={t("assetCanvas.audioModel")}
           wide
@@ -378,7 +377,8 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        {maximumDuration !== undefined ? <label className="audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><input aria-label={t("audioStudio.targetDuration")} type="number" list={durationListId} min={minimumDuration} max={maximumDuration} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /><span aria-hidden="true">s</span><datalist id={durationListId}>{durationOptions.map((duration) => <option key={duration} value={duration} />)}</datalist></label> : null}
+        {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
+        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental === true}
@@ -391,8 +391,12 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           disabled={runtime?.busy}
           onChange={(loop) => change({ loop })}
         /> : null}
+        {selectedModel ? <div className="audio-advanced-menu">
+          <button className="canvas-chip audio-advanced-trigger" type="button" title={t("audioStudio.options")} aria-label={t("audioStudio.options")} aria-expanded={advancedOpen} disabled={runtime?.busy} onClick={() => setAdvancedOpen((open) => !open)}><SlidersHorizontal size={14} /></button>
+        </div> : null}
         <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
+      {advancedOpen && selectedModel ? <CanvasAudioControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} quick inline /> : null}
     </MediaNodeShell>
   );
 }
@@ -966,7 +970,7 @@ function CanvasAudio({ src }: { src: string }) {
 
   return (
     <div className="story-media-audio">
-      <Music2 size={20} />
+      <AudioWaveform />
       <audio
         ref={audio}
         src={src}
@@ -999,6 +1003,14 @@ function CanvasAudio({ src }: { src: string }) {
       />
     </div>
   );
+}
+
+/** A quiet visual identity for generated audio; transport controls remain the source of playback state. */
+function AudioWaveform() {
+  const bars = [8, 13, 21, 34, 17, 11, 25, 42, 56, 31, 18, 12, 28, 38, 22, 14, 9];
+  return <div className="story-audio-waveform" aria-hidden="true">
+    {bars.map((height, index) => <i key={index} style={{ height }} />)}
+  </div>;
 }
 
 function InlineVideoControls({ label, playing, currentMs, totalMs, muted, disabled = false, markers = [], onToggle, onSeek, onToggleMuted }: {

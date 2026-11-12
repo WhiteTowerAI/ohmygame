@@ -35,7 +35,9 @@ const model = (id: string, name: string, endpoint: Endpoint, capabilities: Omit<
 export const ELEVENLABS_MODELS: readonly AudioModel[] = [
   model("eleven_v4", "Eleven v4", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 10_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
   model("eleven_flash_v2_5", "Eleven Flash v2.5", "speech", { produces: ["speech"], readsText: true, maxTextCharacters: 40_000, supportsSpeaker: true, requiresVoice: true, speedRange: SPEED_RANGE }),
+  model("eleven_text_to_sound_v3", "Eleven Sound Effects v3", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
   model("eleven_text_to_sound_v2", "Eleven Sound Effects v2", "sound", { produces: ["sound-effect"], minDurationSeconds: 0.5, maxDurationSeconds: 30, supportsLoop: true }),
+  model("music_v2_5", "Eleven Music v2.5", "music", { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
   model("music_v1", "Eleven Music v1", "music", { produces: ["music"], minDurationSeconds: 3, maxDurationSeconds: 600, supportsInstrumental: true }),
   model("scribe_v2", "Scribe v2", "transcription", { produces: [], transcribes: true }),
 ];

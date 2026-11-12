@@ -11,6 +11,8 @@ const en = {
     voiceUnsupported: "The selected voice does not support {{option}}.",
     playSample: "Play official sample",
     stopSample: "Stop sample",
+    loadingSample: "Loading sample… Press to cancel",
+    sampleFailed: "Couldn't load the sample. Press to try again",
     "options": "Audio settings",
     "incompatibleOutput": "Choose a format and sample rate supported by this model.",
     "clonedStyle": "Cloned voices cannot use voice instructions. Clear the style field.",
@@ -1115,6 +1117,7 @@ const en = {
       speech: "Speech",
       "sound-effect": "Sound effects",
       music: "Music",
+      transcription: "Transcription",
     },
   },
   responsesTransport: {

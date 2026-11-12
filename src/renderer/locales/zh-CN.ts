@@ -12,6 +12,8 @@ const zhCN: typeof en = {
     voiceUnsupported: "所选音色不支持{{option}}。",
     playSample: "播放官方试听",
     stopSample: "停止试听",
+    loadingSample: "正在加载试听…点击取消",
+    sampleFailed: "试听加载失败，点击重试",
     "options": "音频设置",
     "incompatibleOutput": "请选择此模型支持的格式和采样率。",
     "clonedStyle": "复刻音色不能使用语音指令，请清空风格字段。",
@@ -1098,6 +1100,7 @@ const zhCN: typeof en = {
       speech: "配音",
       "sound-effect": "音效",
       music: "音乐",
+      transcription: "转写",
     },
   },
   responsesTransport: {
