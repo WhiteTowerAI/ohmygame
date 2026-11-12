@@ -37,8 +37,9 @@ runs:
     # On a miss, keep Bun's store on the workspace volume for hardlinks.
     - shell: bash
       run: echo "BUN_INSTALL_CACHE_DIR=${{ runner.temp }}/bun-store" >> "$GITHUB_ENV"
-    - if: steps.extract.outcome != 'success'
-      shell: bash
+    # Run after an extract too: the archive loses the workspace links under
+    # node_modules (such as @ohmygame/sdk), and this puts them back.
+    - shell: bash
       run: bun install --frozen-lockfile
     - name: Pack Windows dependencies
       if: runner.os == 'Windows' && inputs.seed-windows-dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
