@@ -258,7 +258,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       {detail
         ? <StorePluginDetail key={page} group={detail} market={market} updates={updates} onUpdate={setAdding}
           onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin}
-          onSearch={(keyword) => { setQuery(keyword); showCatalog(); }} />
+          // A keyword searches every installed plugin, whatever the list was narrowed to.
+          onSearch={(keyword) => { setQuery(keyword); setKind("all"); setInstalledCategory("all"); showCatalog(); }} />
         : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
