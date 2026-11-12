@@ -445,6 +445,9 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
     </div> : null}
     {/* Chat models only: a provider that only makes media has none in the model runtime. */}
     {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+    {/* What its media adapter makes, as the catalogs list it once the key is set. */}
+    {provider.configured && provider.capabilities.includes("image") ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
+    {provider.configured && provider.capabilities.includes("video") ? <SeedanceModels key={`videos-${modelsRevision}`} providerId={provider.id} /> : null}
   </section>;
 }
 
