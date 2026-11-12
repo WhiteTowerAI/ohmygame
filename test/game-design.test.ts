@@ -843,7 +843,7 @@ describe("Markdown design workspace", () => {
       model,
       voiceId: "zh_female_vv_uranus_bigtts",
       speed: 25,
-    }, expect.any(AbortSignal));
+    }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     const saved = (await store.board(project.id, boardId)).board.nodes.find((node) => node.id === "narration");
     expect(saved?.type).toBe("audio");
     expect(saved?.data).toHaveProperty("assetId", expect.any(String));
@@ -877,10 +877,10 @@ describe("Markdown design workspace", () => {
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(generate).toHaveBeenNthCalledWith(1, {
       prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true,
-    }, expect.any(AbortSignal));
+    }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     expect(generate).toHaveBeenNthCalledWith(2, {
       prompt: "warm strings", instrumental: false, durationSeconds: 60,
-    }, expect.any(AbortSignal));
+    }, expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
     const saved = (await store.board(project.id, boardId)).board.nodes;
     expect(saved.find((node) => node.id === "rain")?.data).toHaveProperty("assetId", expect.any(String));
     expect(saved.find((node) => node.id === "theme")?.data).toHaveProperty("assetId", expect.any(String));
@@ -1137,7 +1137,7 @@ it("sends an audio node's settings and keeps no subtitles a provider returns", a
   await store.generateNode(project.id, boardId, "scene");
   const job = await waitForJob(store, project.id);
   expect(job.status).toBe("succeeded");
-  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Use @Audio1 behind a welcoming voice", pitch: -3, volume: 10, output: { format: "wav", sampleRate: 48000 } }), expect.any(AbortSignal));
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Use @Audio1 behind a welcoming voice", pitch: -3, volume: 10, output: { format: "wav", sampleRate: 48000 } }), expect.any(AbortSignal), expect.objectContaining({ begin: expect.any(Function) }));
   expect(generate.mock.calls[0]![0]).not.toHaveProperty("subtitles");
   expect(generate.mock.calls[0]![0]).not.toHaveProperty("references");
   const output = job.run!.files.find((file) => file.role === "audio")!;

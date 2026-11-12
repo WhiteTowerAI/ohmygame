@@ -572,7 +572,7 @@ elsewhere.
 ## Model providers
 
 `contributes.providers` adds model providers to Settings → Providers: chat,
-media (images and videos), or both under one key.
+media (images, videos, audio and 3D models), or both under one key.
 `PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
 the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
 installed, runs in this app and isn't disabled everywhere; projects' plugin

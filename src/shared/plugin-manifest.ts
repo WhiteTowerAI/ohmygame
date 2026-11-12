@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
+import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS } from "./audio.js";
 import { CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
@@ -531,6 +532,70 @@ const MediaVideoModel = Type.Object(
   { additionalProperties: false },
 );
 
+const MediaAudioModel = Type.Object(
+  {
+    id: Type.String({ minLength: 1, maxLength: 200 }),
+    title: Type.Optional(Text()),
+    /** What it makes: `speech`, `sound-effect`, `music`. */
+    kinds: Type.Array(Literals(AUDIO_KINDS), { minItems: 1, uniqueItems: true }),
+    /** Speaks the prompt word for word in a voice, rather than following a description. */
+    readsText: Type.Optional(Type.Boolean()),
+    /** The voices it speaks in, the first by default. */
+    voices: Type.Optional(
+      Type.Array(
+        Type.Object(
+          { id: Type.String({ minLength: 1, maxLength: 200 }), name: Text() },
+          { additionalProperties: false },
+        ),
+        { minItems: 1, maxItems: 500 },
+      ),
+    ),
+    /** The files it can make; `mp3` when left out. */
+    formats: Type.Optional(Type.Array(Literals(AUDIO_OUTPUT_FORMATS), { minItems: 1, uniqueItems: true })),
+    maxTextCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: 32_000 })),
+    minDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
+    maxDurationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 600 })),
+    /** Makes music without vocals when asked. */
+    instrumental: Type.Optional(Type.Boolean()),
+    /** Makes audio that loops seamlessly when asked. */
+    loop: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+/** What a plugin's 3D model can make from (API 2.5.0). */
+export const PLUGIN_3D_OPERATIONS = ["text", "image"] as const;
+
+const Media3DModel = Type.Object(
+  {
+    id: Type.String({ minLength: 1, maxLength: 200 }),
+    title: Type.Optional(Text()),
+    /** `text`: from a prompt; `image`: from pictures of the object. */
+    operations: Type.Array(Literals(PLUGIN_3D_OPERATIONS), { minItems: 1, uniqueItems: true }),
+    /** Views of one object an `image` request may pass, the first the front; 1 when left out. */
+    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
+    /** The triangle counts it takes; a model with one size sets min, max and default alike. */
+    polycount: Type.Object(
+      {
+        min: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
+        max: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
+        default: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
+        /** The counts the canvas offers; the default alone when left out. */
+        presets: Type.Optional(Type.Array(Type.Integer({ minimum: 100, maximum: 2_000_000 }), { maxItems: 10, uniqueItems: true })),
+      },
+      { additionalProperties: false },
+    ),
+    /** Paints the model when asked. */
+    texture: Type.Optional(Type.Boolean()),
+    /** Makes PBR materials when asked. */
+    pbr: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+/** How long one request may take, the download included, in minutes. */
+const MaxMinutes = Type.Integer({ minimum: 1, maximum: 120 });
+
 /**
  * What a provider makes besides chat (API 2.5.0). `adapter` is a script in
  * the package that turns OhMyGame's requests into the vendor's API, run in a
@@ -556,6 +621,20 @@ const ProviderMedia = Type.Object(
           maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })),
           models: Type.Array(MediaVideoModel, { minItems: 1, maxItems: 100 }),
         },
+        { additionalProperties: false },
+      ),
+    ),
+    /** Speech, sound effects and music; 10 minutes a request when `maxMinutes` is left out. */
+    audio: Type.Optional(
+      Type.Object(
+        { maxMinutes: Type.Optional(MaxMinutes), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
+        { additionalProperties: false },
+      ),
+    ),
+    /** 3D models as GLB; 15 minutes a request when `maxMinutes` is left out. */
+    "3d": Type.Optional(
+      Type.Object(
+        { maxMinutes: Type.Optional(MaxMinutes), models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -1264,8 +1343,20 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!chat && !provider.media)
       issue(path, "a provider needs chat (api and baseUrl) or media");
     if (provider.media) {
-      if (!provider.media.image && !provider.media.video)
-        issue(`${path}/media`, "list what it makes: image, video or both");
+      const media = provider.media;
+      if (!media.image && !media.video && !media.audio && !media["3d"])
+        issue(`${path}/media`, "list what it makes: image, video, audio or 3d");
+      media.audio?.models.forEach((model, modelIndex) => {
+        const at = `${path}/media/audio/models/${modelIndex}`;
+        if (model.voices && !model.readsText) issue(`${at}/voices`, "voices are for a model that reads text");
+        if (model.minDurationSeconds && model.maxDurationSeconds && model.minDurationSeconds > model.maxDurationSeconds)
+          issue(`${at}/minDurationSeconds`, "must not be more than maxDurationSeconds");
+      });
+      media["3d"]?.models.forEach((model, modelIndex) => {
+        const range = model.polycount;
+        if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
+          issue(`${path}/media/3d/models/${modelIndex}/polycount`, "needs min ≤ default and presets ≤ max");
+      });
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
     }

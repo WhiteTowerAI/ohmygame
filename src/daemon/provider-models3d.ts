@@ -10,6 +10,7 @@ import { MeshyProvider } from "./meshy-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
 import { Model3DGenerationError, type Model3DGenerator, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import type { CloudModelsClient } from "./cloud-models.js";
+import type { PluginMediaProviders } from "./plugin-media-providers.js";
 
 const PROVIDERS = { tripo: TripoProvider, meshy: MeshyProvider, hyper3d: Hyper3DProvider };
 type Connection = MeshyProvider | TripoProvider | Hyper3DProvider;
@@ -26,6 +27,8 @@ interface ProviderModels3DOptions {
   request?: typeof fetch;
   defaultModel: () => Model3DModelRef | undefined;
   cloud?: CloudModelsClient;
+  /** Plugins' model providers that make 3D models from a prompt or pictures. */
+  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D">;
 }
 
 export class ProviderModels3D implements Model3DGenerator {
@@ -51,6 +54,12 @@ export class ProviderModels3D implements Model3DGenerator {
       providers.push({ provider: provider.id, providerName: provider.name, state: configured.length ? "ready" : "empty",
         ...(!configured.length ? { message: "Enable 3D models in Models." } : {}) });
     }
+    for (const provider of await this.#pluginProviders()) {
+      const visible = provider.models.filter((model) => this.options.isVisible(model));
+      models.push(...visible);
+      providers.push({ provider: provider.id, providerName: provider.name, state: visible.length ? "ready" : "empty",
+        ...(!visible.length ? { message: "Enable 3D models in Models." } : {}) });
+    }
     if (this.options.cloud) {
       const catalog = await this.options.cloud.catalog();
       const visible = catalog.models.filter((model) => this.options.isEnabled(model.provider) && this.options.isVisible(model));
@@ -72,12 +81,23 @@ export class ProviderModels3D implements Model3DGenerator {
     return resolveModel3D(selected, catalog.models);
   }
 
+  /** Plugins' 3D providers that are on. */
+  async #pluginProviders() {
+    return (await this.options.plugins?.model3DProviders() ?? []).filter((provider) => this.options.isEnabled(provider.id));
+  }
+
   async generate(input: Model3DGenerationInput, signal?: AbortSignal) {
     if (!this.options.isEnabled(input.model.provider)) throw new Model3DGenerationError("The selected 3D provider is disabled", 409);
     if ((input.operation === undefined || input.operation === "image" || input.operation === "text") && !this.options.isVisible(input.model)) throw new Model3DGenerationError("The selected 3D model is hidden", 409);
     if (input.model.provider.startsWith("cloud-") && this.options.cloud) {
       if (input.operation && input.operation !== "image") throw new Model3DGenerationError("Cloud currently supports image-to-3D only", 400);
       return this.options.cloud.generate(input, signal);
+    }
+    const plugin = (await this.#pluginProviders()).find((provider) => provider.id === input.model.provider);
+    if (plugin) {
+      const model = plugin.models.find((candidate) => candidate.id === input.model.id);
+      if (!model) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
+      return this.options.plugins!.generate3D(model, input, signal, input.journal);
     }
     const selected = await this.resolveOperationModel(input.model, input.operation ?? "image");
     if (!selected) throw new Model3DGenerationError("The selected connection does not support this 3D operation", 400);

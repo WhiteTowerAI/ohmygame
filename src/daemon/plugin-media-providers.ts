@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { ImageModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
+import type { ImageModel, Model3DModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
+import { inspectAudio } from "./audio-media.js";
+import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
@@ -42,6 +46,20 @@ const IMAGE_LIMIT_MS = 10 * 60_000;
 /** How long a video may take, checks and the download included, as for built-in providers. */
 /** A video's limit when its provider doesn't set `maxMinutes`. */
 const VIDEO_LIMIT_MS = 15 * 60_000;
+/** An audio request's limit when its provider doesn't set `maxMinutes`. */
+const AUDIO_LIMIT_MS = 10 * 60_000;
+/** One audio file or 3D model the app downloads, as for built-in providers. */
+const AUDIO_MAX_BYTES = 100 * 1024 * 1024;
+const MODEL3D_MAX_BYTES = 100 * 1024 * 1024;
+/** A 3D request's limit when its provider doesn't set `maxMinutes`. */
+const MODEL3D_LIMIT_MS = 15 * 60_000;
+/** An audio failure with a status, as the other kinds' errors default to one. */
+class AudioFailure extends AudioGenerationError {
+  constructor(message: string, statusCode = 502) {
+    super(message, statusCode);
+  }
+}
+const AUDIO_MEDIA_TYPES: Record<AudioOutputFormat, GeneratedAudio["mediaType"]> = { mp3: "audio/mpeg", wav: "audio/wav", ogg_opus: "audio/ogg" };
 /** How long telling the vendor to stop may take. */
 const CANCEL_LIMIT_MS = 30_000;
 /** Failed checks in a row tried again before a task is given up, so a network blip doesn't cost it. */
@@ -141,6 +159,158 @@ export class PluginMediaProviders {
           };
         }),
       };
+    });
+  }
+
+  /** The audio models of each provider that makes audio, as the audio catalog lists them, with their voices. */
+  async audioProviders(): Promise<Array<{ id: string; name: string; models: AudioModel[]; voices: AudioVoice[] }>> {
+    return (await this.providers()).filter((item) => item.media.audio).map((item) => {
+      const name = this.#name(item);
+      const text = (value: string) => localizePluginString(item.entry, value, "en");
+      const voices = new Map<string, AudioVoice>();
+      for (const model of item.media.audio!.models)
+        for (const voice of model.voices ?? []) if (!voices.has(voice.id)) voices.set(voice.id, { id: voice.id, name: text(voice.name) });
+      return {
+        id: item.id,
+        name,
+        voices: [...voices.values()],
+        models: item.media.audio!.models.map((model): AudioModel => ({
+          provider: item.id,
+          providerName: name,
+          id: model.id,
+          name: model.title ? text(model.title) : model.id,
+          protocol: "plugin",
+          capabilities: {
+            produces: [...model.kinds],
+            ...(model.readsText ? { readsText: true } : {}),
+            ...(model.readsText && model.voices ? { supportsSpeaker: true } : {}),
+            formats: [...(model.formats ?? ["mp3" as const])],
+            ...(model.maxTextCharacters ? { maxTextCharacters: model.maxTextCharacters } : {}),
+            ...(model.minDurationSeconds ? { minDurationSeconds: model.minDurationSeconds } : {}),
+            ...(model.maxDurationSeconds ? { maxDurationSeconds: model.maxDurationSeconds } : {}),
+            ...(model.instrumental ? { supportsInstrumental: true } : {}),
+            ...(model.loop ? { supportsLoop: true } : {}),
+          },
+        })),
+      };
+    });
+  }
+
+  /** Plugins' audio providers as the audio catalog takes them; `enabled` says whether one is switched on. */
+  async audioAdapters(enabled: (id: string) => boolean): Promise<AudioProviderAdapter[]> {
+    return (await this.audioProviders()).map((provider): AudioProviderAdapter => ({
+      id: provider.id,
+      name: provider.name,
+      configured: () => true,
+      enabled: () => enabled(provider.id),
+      models: () => provider.models,
+      ...(provider.voices.length ? {
+        defaultVoiceId: () => provider.voices[0]!.id,
+        voices: async () => ({ voices: provider.voices }),
+      } : {}),
+      generate: (input, signal, journal) => {
+        const model = provider.models.find((candidate) => candidate.id === input.model?.id);
+        if (!model) throw new AudioGenerationError("The selected audio model is unavailable", 400);
+        return this.generateAudio(model, input, signal, journal);
+      },
+    }));
+  }
+
+  /** The 3D models of each provider that makes them, as the 3D catalog lists them. */
+  async model3DProviders(): Promise<Array<{ id: string; name: string; models: Model3DModel[] }>> {
+    return (await this.providers()).filter((item) => item.media["3d"]).map((item) => {
+      const name = this.#name(item);
+      return {
+        id: item.id,
+        name,
+        models: item.media["3d"]!.models.map((model): Model3DModel => ({
+          provider: item.id,
+          providerName: name,
+          id: model.id,
+          name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id,
+          operations: [...model.operations],
+          maxReferenceImages: (model.operations as readonly string[]).includes("image") ? model.maxReferenceImages ?? 1 : 0,
+          polycount: { min: model.polycount.min, max: model.polycount.max, default: model.polycount.default, presets: model.polycount.presets ?? [model.polycount.default] },
+          supportsTexture: model.texture === true,
+          supportsPbr: model.pbr === true,
+          defaults: { texture: model.texture === true, pbr: false },
+        })),
+      };
+    });
+  }
+
+  /** Makes one audio file with a provider's adapter. */
+  async generateAudio(model: AudioModel, input: AudioGenerationRequest, signal?: AbortSignal, journal?: MediaTaskJournal): Promise<GeneratedAudio> {
+    const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
+    const declared = item?.media.audio?.models.find((candidate) => candidate.id === model.id);
+    if (!item?.media.audio || !declared) throw new AudioGenerationError("The selected audio provider is unavailable. Check its plugin and key.", 503);
+    if (typeof input.prompt !== "string" || !input.prompt.trim()) throw new AudioGenerationError("Audio needs a prompt", 400);
+    const formats = model.capabilities.formats;
+    const format = input.output?.format ?? formats[0]!;
+    if (!formats.includes(format)) throw new AudioGenerationError(`The selected audio model doesn't make ${format}`, 400);
+    const { maxTextCharacters, minDurationSeconds, maxDurationSeconds } = model.capabilities;
+    if (maxTextCharacters && input.prompt.length > maxTextCharacters) throw new AudioGenerationError(`The selected audio model takes up to ${maxTextCharacters} characters`, 400);
+    if (input.durationSeconds !== undefined && (minDurationSeconds && input.durationSeconds < minDurationSeconds || maxDurationSeconds && input.durationSeconds > maxDurationSeconds))
+      throw new AudioGenerationError(`The selected audio model makes ${minDurationSeconds ?? 1} to ${maxDurationSeconds ?? "any number of"} seconds`, 400);
+    const voices = declared.voices ?? [];
+    if (input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
+      throw new AudioGenerationError("The selected voice isn't one this model speaks in", 400);
+    const kind = input.kind && model.capabilities.produces.includes(input.kind) ? input.kind : model.capabilities.produces[0]!;
+    const voiceId = model.capabilities.readsText ? input.voiceId ?? voices[0]?.id : undefined;
+    return this.#produce(item, "audio", {
+      model: model.id,
+      kind,
+      prompt: input.prompt,
+      format,
+      ...(voiceId ? { voiceId } : {}),
+      ...(input.durationSeconds !== undefined ? { durationSeconds: input.durationSeconds } : {}),
+      ...(input.instrumental && model.capabilities.supportsInstrumental ? { instrumental: true } : {}),
+      ...(input.loop && model.capabilities.supportsLoop ? { loop: true } : {}),
+      ...(input.language ? { language: input.language } : {}),
+      // The canvas offers a speed for every speech model, on the shared -50…100 scale.
+      ...(kind === "speech" && input.speed ? { speed: input.speed } : {}),
+    }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
+      const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped);
+      const audio = await inspectAudio(bytes, format, 502);
+      return {
+        bytes,
+        mediaType: AUDIO_MEDIA_TYPES[format],
+        model: { provider: model.provider, id: model.id },
+        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec },
+      };
+    });
+  }
+
+  /**
+   * Makes one 3D model with a provider's adapter, from a prompt or pictures.
+   * With a journal, the vendor's task is kept, so retrying after a restart
+   * checks it again.
+   */
+  async generate3D(model: Model3DModel, input: Model3DGenerationInput, signal?: AbortSignal, journal?: MediaTaskJournal): Promise<Generated3DModel> {
+    const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
+    if (!item?.media["3d"]) throw new Model3DGenerationError("The selected 3D provider is unavailable. Check its plugin and key.", 503);
+    const operation = input.operation ?? "image";
+    if (operation !== "text" && operation !== "image" || !(model.operations ?? []).includes(operation))
+      throw new Model3DGenerationError("The selected 3D model does not support this operation", 400);
+    const images = operation === "image" ? input.images : [];
+    if (operation === "image" && (!images.length || images.length > model.maxReferenceImages)) throw new Model3DGenerationError(`The selected 3D model takes 1 to ${model.maxReferenceImages} pictures`, 400);
+    if (operation === "text" && !input.prompt?.trim()) throw new Model3DGenerationError("Text-to-3D needs a prompt", 400);
+    const polycount = input.targetPolycount ?? model.polycount.default;
+    if (polycount < model.polycount.min || polycount > model.polycount.max) throw new Model3DGenerationError(`3D poly count must be between ${model.polycount.min} and ${model.polycount.max}`, 400);
+    const texture = (input.texture ?? model.defaults?.texture ?? false) && model.supportsTexture === true;
+    return this.#produce(item, "3d", {
+      model: model.id,
+      operation,
+      ...(operation === "text" ? { prompt: input.prompt!.trim() } : {}),
+      references: images.map((image) => ({ mediaType: image.mediaType, base64: image.data })),
+      targetPolycount: polycount,
+      texture,
+      pbr: texture && input.pbr === true && model.supportsPbr === true,
+    }, { limitMs: item.media["3d"].maxMinutes ? item.media["3d"].maxMinutes * 60_000 : MODEL3D_LIMIT_MS, signal, Failure: Model3DGenerationError, journal }, async (outputs, stopped) => {
+      const bytes = await this.#output(item, outputs[0]!, MODEL3D_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, Model3DGenerationError, stopped);
+      if (bytes.length < 12 || bytes.subarray(0, 4).toString("latin1") !== "glTF" || bytes.readUInt32LE(4) !== 2)
+        throw new Model3DGenerationError(`${this.#name(item)} returned a file that isn't a GLB model`);
+      return { bytes, mediaType: "model/gltf-binary" as const };
     });
   }
 
