@@ -286,8 +286,11 @@ export class PluginMediaProviders {
       } else if (ready && task !== undefined && !signal?.aborted) {
         // Done, but its result couldn't be had: a retry checks the task again rather than paying anew.
         keep = true;
+      } else if (!settled && task !== undefined && journal && !stopped.aborted) {
+        // A check failed (a network blip) while the vendor works: a retry checks again rather than paying anew.
+        keep = true;
       } else if (!settled && task !== undefined) {
-        // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
+        // Stopped, out of time, or a step failed with nothing to resume it: tell the vendor, if the adapter can.
         void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
       }
       throw cause;
