@@ -22,7 +22,7 @@ describe("publication feedback", () => {
     const html = renderToStaticMarkup(<PublicationDetails publication={publication} name={project.name} justPublished onClose={() => undefined} onUpdate={() => undefined} />);
     expect(html).toContain("Published successfully");
     expect(html).toContain("Published title");
-    expect(html).toContain('value="https://play.example/game-1"');
+    expect(html).toContain('value="play.example/game-1"');
     expect(html).toContain('aria-label="Copy game link"');
     expect(html).toContain('href="#/community/games/game-1"');
     expect(html).toContain('href="https://play.example/game-1" target="_blank" rel="noopener noreferrer"');
@@ -31,6 +31,14 @@ describe("publication feedback", () => {
     expect(html).not.toContain("<footer");
     expect(html).not.toContain(">Done<");
     expect(html).not.toContain("Local debug publish");
+  });
+
+  it("shares the game's page, readably, once the Cloud gives it one", () => {
+    const named = { ...publication, name: "zombie-run", pageUrl: "https://www.ohmygame.example/g/zombie-run" };
+    const html = renderToStaticMarkup(<PublicationDetails publication={named} name={project.name} onClose={() => undefined} onUpdate={() => undefined} />);
+    expect(html).toContain('value="ohmygame.example/g/zombie-run"');
+    expect(html).toContain('href="https://www.ohmygame.example/g/zombie-run" target="_blank"');
+    expect(html).not.toContain("play.example");
   });
 
   it("identifies local snapshots when reopening an existing publication", () => {

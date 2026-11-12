@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import { access, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isPreviewViewport, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
+import { withRename, type GameRename } from "../shared/publish-v1.js";
 import { parseProjectAppearance } from "../shared/project-appearance.js";
 import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -980,6 +981,13 @@ export class ProjectManager {
     await this.#save(project, { publication, updatedAt: new Date().toISOString() });
   }
 
+  /** Gives the published game's page its new name, if the project still has that game when it saves. */
+  async renamePublication(id: string, renamed: GameRename): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#save(project, (current) => current.publication ? { publication: withRename(current.publication, renamed) } : {});
+  }
+
   async #save(
     project: ProjectState,
     // A function computes the changes once earlier writes finish, for changes that merge with saved fields.
@@ -1758,7 +1766,9 @@ function validPublication(value: unknown): value is PublicationState {
   return typeof publication.gameId === "string" && typeof publication.deploymentId === "string" &&
     typeof publication.playUrl === "string" && typeof publication.publishedAt === "string" &&
     (publication.title === undefined || typeof publication.title === "string") &&
-    (publication.description === undefined || typeof publication.description === "string");
+    (publication.description === undefined || typeof publication.description === "string") &&
+    (publication.name === undefined || typeof publication.name === "string") &&
+    (publication.pageUrl === undefined || typeof publication.pageUrl === "string");
 }
 
 function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {

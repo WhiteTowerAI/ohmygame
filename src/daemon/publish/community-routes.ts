@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
+import { GAME_NAME_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../../shared/publish-v1.js";
 import type { ProjectManager } from "../projects.js";
 import { RemotePublisher, RemotePublishError } from "./client.js";
 import type { LocalPublisher } from "./local.js";
@@ -24,6 +24,10 @@ export function registerCommunityRoutes(
         .code(cause instanceof RemotePublishError ? cause.statusCode : 502)
         .send({
           error: cause instanceof Error ? cause.message : String(cause),
+          // Lets the app explain a refused name in the person's language.
+          ...(cause instanceof RemotePublishError && cause.code
+            ? { code: cause.code }
+            : {}),
         });
     }
   }
@@ -208,6 +212,62 @@ export function registerCommunityRoutes(
         }
         return { title, description };
       }),
+  );
+
+  app.put<{
+    Params: { gameId: string };
+    Body: { name: string; accessToken: string };
+  }>(
+    "/community/games/:gameId/name",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accessToken", "name"],
+          properties: {
+            ...authenticatedBody,
+            name: { type: "string", minLength: 1, maxLength: GAME_NAME_MAX_LENGTH * 2 },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      respond(reply, async () => {
+        const game = await publisher.setGameName(
+          request.params.gameId,
+          request.body.accessToken,
+          request.body.name,
+        );
+        // Merged when each project saves, so a publish finishing meanwhile keeps its deployment.
+        for (const project of projects.list()) {
+          if (project.publication?.gameId === request.params.gameId) {
+            await projects.renamePublication(project.id, { gameId: game.id, name: game.name, pageUrl: game.pageUrl });
+          }
+        }
+        return { name: game.name, pageUrl: game.pageUrl };
+      }),
+  );
+
+  app.get<{ Params: { name: string }; Querystring: { gameId: string } }>(
+    "/community/game-names/:name",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["gameId"],
+          properties: { gameId: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (request, reply) =>
+      respond(reply, () =>
+        publisher.gameNameAvailability(
+          request.params.name,
+          request.query.gameId,
+          requiredToken(request),
+        ),
+      ),
   );
 }
 

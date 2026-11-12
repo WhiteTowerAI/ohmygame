@@ -232,6 +232,16 @@ describe("game sign-in in the SDK", () => {
     expect((await init({ manifest, accountEnvironment: forged.env })).auth.player).toBeUndefined();
   });
 
+  it("stays on the game in a frame when the popup is blocked", async () => {
+    const service = accountService();
+    const { page, env } = browser(memoryStorage(), (body) => service.handle(body), { parent: true, popup: false });
+    const game = await init({ manifest, accountEnvironment: env });
+    const signingIn = game.auth.signIn();
+    await expect(signingIn).rejects.toMatchObject({ code: "cancelled" });
+    expect(page.opened).toHaveLength(1);
+    expect(page.assigned).toEqual([]);
+  });
+
   it("hands the code back from the popup and never starts the game there", async () => {
     const service = accountService();
     const storage = memoryStorage();
@@ -242,6 +252,29 @@ describe("game sign-in in the SDK", () => {
     const { code, state } = service.authorize(page.opened[0]!);
 
     const popup = browser(storage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}`, opener: true });
+    let started = false;
+    void init({ manifest, accountEnvironment: popup.env }).then(() => (started = true));
+    await vi.waitFor(() => expect(popup.page.sentToOpener).toEqual([{ type: "ohmygame:sign-in", state, code }]));
+    expect(popup.page.closed).toBe(true);
+    page.receive(popup.page.sentToOpener[0], GAME, page.popup);
+    await expect(signingIn).resolves.toEqual(player);
+    expect(started).toBe(false);
+  });
+
+  it("hands the code back from a popup whose storage is apart from the framed game's", async () => {
+    const service = accountService();
+    const { page, env } = browser(memoryStorage(), (body) => service.handle(body), { parent: true });
+    const game = await init({ manifest, accountEnvironment: env });
+    const signingIn = game.auth.signIn();
+    // No OhMyGame page answers from above, so the game opens the popup once it stops waiting.
+    await vi.waitFor(() => expect(page.opened).toHaveLength(1), { timeout: 3000 });
+    const { code, state } = service.authorize(page.opened[0]!);
+
+    // The popup is a top-level page, so the browser gives it other storage than the frame's,
+    // perhaps with a sign-in started there and abandoned.
+    const popupStorage = memoryStorage();
+    popupStorage.setItem(`ohmygame:account:${ISSUER}:pending`, JSON.stringify({ state: "abandoned", verifier: "v", redirectUri: `${GAME}/`, popup: true, createdAt: page.now }));
+    const popup = browser(popupStorage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}`, opener: true });
     let started = false;
     void init({ manifest, accountEnvironment: popup.env }).then(() => (started = true));
     await vi.waitFor(() => expect(popup.page.sentToOpener).toEqual([{ type: "ohmygame:sign-in", state, code }]));

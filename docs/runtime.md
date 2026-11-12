@@ -1035,7 +1035,19 @@ limit or the story publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,
-Deployment ID, play URL, publish time, and the published title and description.
+Deployment ID, play URL, publish time, the published title and description, and
+the game's page name and address.
+
+The address people share is the game's page, `pageUrl`
+(`https://www.ohmygame.ai/g/<name>`, shown as `ohmygame.ai/g/<name>`): the
+website plays the game there with its loading screen and dock. `playUrl` is the
+bare game, which the desktop embeds. Every game starts with a generated
+six-character name; once published, its owner can change it from the
+publication details (`PUT /community/games/:gameId/name`, with
+`GET /community/game-names/:name?gameId=` to check a name while typing). The
+name before stays with the game and redirects to the new one until the next
+rename frees it. A Cloud without pages leaves `name` and `pageUrl` out, and the
+app shares `playUrl` instead. The Cloud's rules are in its `docs/publish-v1.md`.
 
 ### Community and creator profiles
 

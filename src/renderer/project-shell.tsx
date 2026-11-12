@@ -42,6 +42,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
+import { publicationOf } from "../shared/publish-v1.js";
 import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
@@ -1052,14 +1053,7 @@ export function ProjectShell({
       }
       forgetPendingPublish(sessionStorage);
       const result = await publishProject(project.id, accessToken, details);
-      const publication = {
-        gameId: result.game.id,
-        deploymentId: result.game.deploymentId,
-        playUrl: result.game.playUrl,
-        publishedAt: result.game.publishedAt,
-        title: result.game.title,
-        description: result.game.description,
-      };
+      const publication = publicationOf(result.game);
       dispatch({ type: "publication-updated", projectId: project.id, publication });
       setPublishDialog({ projectId: project.id, status: "success" });
       return true;
@@ -1748,6 +1742,7 @@ export function ProjectShell({
           onDesignSaveReady={registerDesignSave}
           onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+          onGameRenamed={(renamed) => dispatch({ type: "game-renamed", projectId: project.id, renamed })}
           referencedDocument={referencedDocument}
           onReferenceDocument={referenceDocument}
           onQuoteDocument={quoteDocument}
@@ -1770,6 +1765,7 @@ export function ProjectShell({
         showStoryMap={showStoryMap}
         onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+          onGameRenamed={(renamed) => dispatch({ type: "game-renamed", projectId: project.id, renamed })}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
         publishing={publishing}

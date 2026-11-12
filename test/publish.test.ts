@@ -24,6 +24,7 @@ const createPublishApp = existsSync(publishServerModule) && existsSync(publishSe
       createPublishApp: (options: {
         dataDirectory: string;
         playOrigin?: string;
+        pageOrigin?: string;
         communityVisitors?: { visitorSecret: string };
         playMetrics?: { secret: string };
         verifyPublisherToken: (token: string) => Promise<string | undefined>;
@@ -163,7 +164,31 @@ describePublishContract("remote publish", () => {
       publishedAt: second.game.publishedAt,
       title: second.game.title,
       description: second.game.description,
+      name: second.game.name,
+      pageUrl: second.game.pageUrl,
     });
+  });
+
+  it("renames a published game's page and keeps the project's address current", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Named");
+    await writeFile(path.join(project.workspacePath, "index.html"), "game");
+    const published = (await publishProject(runtime.daemon, project.id)).json();
+    expect(published.game.pageUrl).toBe(`https://site.test/g/${published.game.name}`);
+    const headers = { "x-publish-access-token": token };
+
+    const free = await runtime.daemon.inject({ method: "GET", url: `/community/game-names/Zombie-Run?gameId=${published.game.id}`, headers });
+    expect(free.json()).toEqual({ name: "zombie-run", available: true });
+    const renamed = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${published.game.id}/name`, payload: { accessToken: token, name: "zombie-run" } });
+    expect(renamed.json()).toEqual({ name: "zombie-run", pageUrl: "https://site.test/g/zombie-run" });
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication)
+      .toMatchObject({ gameId: published.game.id, name: "zombie-run", pageUrl: "https://site.test/g/zombie-run" });
+
+    // The Cloud's reason reaches the app, which words it in the person's language.
+    const reserved = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${published.game.id}/name`, payload: { accessToken: token, name: "admin" } });
+    expect(reserved.statusCode).toBe(400);
+    expect(reserved.json()).toMatchObject({ code: "name_reserved" });
+    expect((await runtime.daemon.inject({ method: "GET", url: `/community/game-names/admin?gameId=${published.game.id}` })).statusCode).toBe(401);
   });
 
   it("runs the project build and uploads only its static output", async () => {
@@ -558,6 +583,7 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
     communityVisitors: { visitorSecret: "test-only-community-secret-at-least-32-characters" },
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
+    pageOrigin: "https://site.test",
     verifyPublisherToken: async (value) => value === token ? "publisher" : undefined,
   });
   apps.push(publishServer);

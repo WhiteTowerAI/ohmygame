@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { getGlobalDispatcher, type Dispatcher } from "undici/index.js";
 import { RemotePublisher, RemotePublishError } from "../src/daemon/publish/client.js";
+import { ProjectManager } from "../src/daemon/projects.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
 describe("Publish v1 client contract", () => {
@@ -189,6 +190,52 @@ describe("Publish v1 client contract", () => {
       expect(merges).toBe(3); // Two failed reads, one shared successful attempt.
       await expect(readFile(visitorTokenFile)).rejects.toMatchObject({ code: "ENOENT" });
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("names a game's page through the Cloud and carries the page address", async () => {
+    const requests: Request[] = [];
+    const named = { ...game(), name: "zombie-run", pageUrl: "https://www.ohmygame.test/g/zombie-run" };
+    const publisher = new RemotePublisher({
+      apiUrl: "https://publish.ohmygame.test",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.includes("/v1/game-names/")) return Response.json({ name: "zombie-run", available: true });
+        if (request.url.endsWith("/deployments")) return Response.json({ game: { ...named, currentDeploymentId: "deployment-1" }, deployment: deployment() }, { status: 201 });
+        return Response.json(named);
+      },
+    });
+
+    await expect(publisher.gameNameAvailability("zombie-run", "game-1", "access-token")).resolves.toEqual({ name: "zombie-run", available: true });
+    await expect(publisher.setGameName("game-1", "access-token", "zombie-run")).resolves.toMatchObject({ name: "zombie-run" });
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`)).toEqual([
+      "GET /v1/game-names/zombie-run?gameId=game-1",
+      "PUT /v1/games/game-1/name",
+    ]);
+    expect(await requests[1]!.json()).toEqual({ name: "zombie-run" });
+    const published = await publisher.publish({ ...project(), publication: { gameId: "game-1", deploymentId: "old", playUrl: named.playUrl, publishedAt: "" } }, Buffer.from("zip"), "access-token", { title: "Game" });
+    expect(published.game).toMatchObject({ name: "zombie-run", pageUrl: named.pageUrl, playUrl: named.playUrl });
+  });
+
+  it("keeps a publish that saves while a rename answers", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-rename-"));
+    try {
+      const projects = new ProjectManager(directory);
+      await projects.load();
+      const saved = await projects.create("Named");
+      const first = { gameId: "game-1", deploymentId: "d1", playUrl: "https://g.test/", publishedAt: "2026-11-01T00:00:00Z", name: "old-name" };
+      await projects.setPublication(saved.id, first);
+      await Promise.all([
+        projects.setPublication(saved.id, { ...first, deploymentId: "d2", publishedAt: "2026-11-02T00:00:00Z" }),
+        projects.renamePublication(saved.id, { gameId: "game-1", name: "new-name", pageUrl: "https://site.test/g/new-name" }),
+      ]);
+      expect(projects.get(saved.id)!.publication).toMatchObject({ deploymentId: "d2", name: "new-name", pageUrl: "https://site.test/g/new-name" });
+      // A rename of a game the project no longer has leaves it alone.
+      await projects.renamePublication(saved.id, { gameId: "game-2", name: "other" });
+      expect(projects.get(saved.id)!.publication!.name).toBe("new-name");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("keeps API errors typed at the desktop boundary", async () => {
