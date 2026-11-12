@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
+import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
@@ -23,7 +24,7 @@ type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["c
 
 type Reply = (url: string) => Response | undefined;
 
-async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply } = {}) {
+async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
     id: "acme/flow", version: "1.0.0", root, digest: "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
@@ -50,7 +51,7 @@ async function setup(adapter: string, options: { key?: string | undefined; media
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  return { media: new PluginMediaProviders(services, fetcher), requests };
+  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices), requests };
 }
 
 const firstModel = async (media: PluginMediaProviders): Promise<ImageModel> => (await media.imageProviders())[0]!.models[0]!;
@@ -427,7 +428,16 @@ describe("plugin media providers: audio", () => {
   it("refuses a file that isn't the audio asked for", async () => {
     const { media } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(PNG)) : undefined });
     const voice = (await media.audioProviders())[0]!.models[0]!;
-    await expect(media.generateAudio(voice, { prompt: "Hello" })).rejects.toThrow("Invalid wav audio");
+    await expect(media.generateAudio(voice, { prompt: "Hello", output: { format: "wav" } })).rejects.toThrow("Invalid wav audio");
+    await expect(media.generateAudio(voice, { prompt: "Hello" })).rejects.toThrow("Flow returned a file that isn't playable audio");
+  }, 15_000);
+
+  it("keeps the audio a model made when no format was picked, as some vendors don't say which", async () => {
+    const mp3Only = { audio: { models: [{ ...(AUDIO_MEDIA.audio!.models[1]!), formats: ["mp3"] }] } } as unknown as Partial<Media>;
+    const { media } = await setup(AUDIO_START, { media: mp3Only, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const foley = (await media.audioProviders())[0]!.models[0]!;
+    expect((await media.generateAudio(foley, { prompt: "rain" })).mediaType).toBe("audio/wav");
+    await expect(media.generateAudio(foley, { prompt: "rain", output: { format: "mp3" } })).rejects.toThrow("Invalid mp3 audio");
   }, 15_000);
 
   it("joins the audio catalog, which picks its model by kind", async () => {
@@ -499,4 +509,78 @@ describe("plugin media providers: 3D", () => {
     expect(made.mediaType).toBe("model/gltf-binary");
     await expect(models3D.generate({ model: { provider: "plugin.acme.flow.flow", id: "nope" }, operation: "text", prompt: "a chair", images: [] })).rejects.toThrow("unavailable");
   }, 15_000);
+});
+
+describe("plugin media providers: listing the vendor's models", () => {
+  const LISTING = `export default { image: {
+    async models(host) {
+      const answer = await (await host.fetch("https://api.flow.example/v1/models", { auth: true })).json();
+      return { models: [
+        { id: "flux", title: "FLUX", description: "Fast pictures", resolutions: ["1K"], aspectRatios: ["1:1", "16:9"], data: { size: "image_size" } },
+        { id: "broken", title: "Broken" },
+        { id: "kolors", title: "Kolors again", resolutions: ["1K"], aspectRatios: ["1:1"] },
+      ], seen: answer.id };
+    },
+    async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true, json: { model: input.model, data: input.modelData ?? null } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    },
+  } };`;
+  const discovering = { image: { discoverModels: true, models: [{ id: "kolors", title: "Kolors", resolutions: ["1K"], aspectRatios: ["1:1"] }] } } as Partial<Media>;
+  const ids = async (media: PluginMediaProviders) => (await media.imageProviders())[0]!.models.map((model) => model.id);
+
+  it("lists the vendor's models through the adapter, which stay off until turned on", async () => {
+    const choices = new PluginMediaModelChoices(root);
+    const { media, requests } = await setup(LISTING, { media: discovering, choices });
+    const provider = "plugin.acme.flow.flow";
+    expect(await media.listModels(provider, "image")).toEqual({ kind: "image", discoverable: true, models: [{ id: "kolors", name: "Kolors", default: true, shown: true }] });
+    const listed = await media.listModels(provider, "image", true);
+    expect(requests[0]).toMatchObject({ url: "https://api.flow.example/v1/models", headers: { authorization: "Bearer sk-test" } });
+    expect(listed).toEqual({ kind: "image", discoverable: true, listedAt: expect.any(String), skipped: 1, models: [
+      { id: "kolors", name: "Kolors", default: true, shown: true },
+      { id: "flux", name: "FLUX", description: "Fast pictures", default: false, shown: false },
+    ] });
+    expect(await ids(media)).toEqual(["kolors"]);
+
+    await media.setModelsShown(provider, "image", ["flux"], true);
+    await media.setModelsShown(provider, "image", ["kolors"], false);
+    expect(await ids(media)).toEqual(["flux"]);
+    const flux = (await media.imageProviders())[0]!.models[0]!;
+    expect(flux.generationOptions).toEqual([{ resolution: "1K", aspectRatio: "1:1" }, { resolution: "1K", aspectRatio: "16:9" }]);
+    await media.generateImage(flux, { prompt: "a fox" });
+    // The model's data goes back to the adapter.
+    expect(JSON.parse(requests.find((request) => request.url.endsWith("/v1/images"))!.body!)).toEqual({ model: "flux", data: { size: "image_size" } });
+
+    // What's on is kept whole, so a restarted app has it without listing again.
+    const again = (await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) })).media;
+    expect(await ids(again)).toEqual(["flux"]);
+    expect((await again.listModels(provider, "image")).models.map((model) => [model.id, model.shown])).toEqual([["kolors", false], ["flux", true]]);
+    // One not listed in this session can't be turned on.
+    await expect(again.setModelsShown(provider, "image", ["other"], true)).rejects.toMatchObject({ statusCode: 409 });
+    await again.setModelsShown(provider, "image", ["flux"], false);
+    await again.setModelsShown(provider, "image", ["kolors"], true);
+    expect(await ids(again)).toEqual(["kolors"]);
+  }, 15_000);
+
+  it("turns the manifest's models on and off, but lists nothing more, for a kind that doesn't discover", async () => {
+    const { media, requests } = await setup(LISTING);
+    const provider = "plugin.acme.flow.flow";
+    expect(await media.listModels(provider, "image", true)).toEqual({ kind: "image", discoverable: false, models: [expect.objectContaining({ id: "kolors", shown: true })] });
+    expect(requests).toEqual([]);
+    await media.setModelsShown(provider, "image", ["kolors"], false);
+    expect(await ids(media)).toEqual([]);
+    await expect(media.listModels(provider, "video")).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("says why the adapter couldn't list its models", async () => {
+    const { media } = await setup(`export default { image: { async models() { return { error: "no access" }; }, async start() { return { error: "x" }; } } };`, { media: discovering });
+    await expect(media.listModels("plugin.acme.flow.flow", "image", true)).rejects.toThrow("Flow couldn't list its models: no access");
+  });
+
+  it("never writes over a choices file it can't read", async () => {
+    await writeFile(path.join(root, "plugin-media-models.json"), "{ not json");
+    const { media } = await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) });
+    expect(await ids(media)).toEqual(["kolors"]);
+    await expect(media.setModelsShown("plugin.acme.flow.flow", "image", ["kolors"], false)).rejects.toMatchObject({ statusCode: 409 });
+  });
 });

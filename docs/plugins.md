@@ -190,7 +190,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | `keywords`, provider `media` and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.5.0 | `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
 ## Native code
 
@@ -608,8 +608,9 @@ switches don't apply. It follows installs, updates and setting changes.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
   models it lists under `image` and `video` to the image and video catalogs
   while the key is set and the provider is on; a video's task survives a
-  restart for a retry to resume. [Media provider plugins](media-provider-plugins.md) has
-  the contract.
+  restart for a retry to resume. A kind with `discoverModels` lists more of
+  the vendor's models, which the person turns on in Settings.
+  [Media provider plugins](media-provider-plugins.md) has the contract.
 
 ## Coding agents
 

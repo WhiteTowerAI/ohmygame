@@ -134,13 +134,14 @@ import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
-import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
+import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
 import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-market-settings.js";
+import { PluginMediaModelChoiceError, PluginMediaModelChoices } from "./plugin-media-models.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
@@ -1262,7 +1263,7 @@ export function createApp(options: AppOptions = {}) {
   // their plugins and keys; a project's file doesn't change them.
   const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
   const pluginMediaProviders = new PluginMediaProviders(pluginServices, options.imageFetch,
-    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`));
+    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory));
   const syncPluginModelProviders = async () => {
     // Joins the queue now, so a list asked for after a change waits for it.
     const changed = await pluginModelProviders.sync(getModelRuntime());
@@ -1655,6 +1656,26 @@ export function createApp(options: AppOptions = {}) {
   };
   app.get("/plugin-store/updates", (): Promise<PluginSourceUpdate[]> => pluginUpdates.check());
   app.get("/plugin-store/status", (): { safeMode: boolean } => ({ safeMode: pluginServices.safeMode }));
+  // A plugin provider's media models of a kind in Settings: listing the vendor's, and turning them on or off.
+  const mediaModelsParams = { type: "object", required: ["providerId", "kind"], properties: { providerId: { type: "string", maxLength: 300 }, kind: { type: "string", enum: [...PLUGIN_MEDIA_KINDS] } } } as const;
+  const mediaModelsReply = async <T>(reply: FastifyReply, run: () => Promise<T>) => {
+    try {
+      return await run();
+    } catch (cause) {
+      if (cause instanceof PluginMediaModelChoiceError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  };
+  app.get<{ Params: { providerId: string; kind: PluginMediaKind } }>("/plugin-media-providers/:providerId/models/:kind", { schema: { params: mediaModelsParams } },
+    (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.listModels(request.params.providerId, request.params.kind)));
+  app.post<{ Params: { providerId: string; kind: PluginMediaKind } }>("/plugin-media-providers/:providerId/models/:kind/list", { schema: { params: mediaModelsParams } },
+    (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.listModels(request.params.providerId, request.params.kind, true)));
+  app.put<{ Params: { providerId: string; kind: PluginMediaKind }; Body: { ids: string[]; shown: boolean } }>("/plugin-media-providers/:providerId/models/:kind", {
+    schema: { params: mediaModelsParams, body: { type: "object", required: ["ids", "shown"], additionalProperties: false, properties: {
+      ids: { type: "array", minItems: 1, maxItems: 2000, items: { type: "string", minLength: 1, maxLength: 200 } },
+      shown: { type: "boolean" },
+    } } },
+  }, (request, reply) => mediaModelsReply(reply, () => pluginMediaProviders.setModelsShown(request.params.providerId, request.params.kind, request.body.ids, request.body.shown)));
   app.get<{ Querystring: { locale?: string } }>("/plugin-starters", (request) => pluginServices.starters(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   const pluginSourceBody = {
     type: "object",
