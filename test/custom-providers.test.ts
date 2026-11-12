@@ -587,10 +587,11 @@ describe("plugin model providers", () => {
       id: "acme/nim", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Acme NIM", description: "Hosted models",
       configuration: { apiKey: { type: "secret", title: "NIM API key" } },
       contributes: { providers: [
-        { id: "hosted", title: "Acme hosted", api: "openai-completions", baseUrl: "https://integrate.example/v1", apiKey: "apiKey", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true },
+        { id: "hosted", title: "Acme hosted", icon: "./hosted.svg", api: "openai-completions", baseUrl: "https://integrate.example/v1", apiKey: "apiKey", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true },
         { id: "open", title: "Acme open", api: "openai-completions", baseUrl: "https://open.example/v1", models: [{ id: "open-model" }] },
       ] },
     }));
+    await writeFile(path.join(source, "hosted.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#76b900"/></svg>');
     const payload = { source: { type: "directory", path: source } };
     const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
     expect(inspected.statusCode, inspected.body).toBe(200);
@@ -609,8 +610,12 @@ describe("plugin model providers", () => {
     let listed = await providers(app);
     expect(listed.find((provider) => provider.id === hosted)).toMatchObject({
       name: "Acme hosted", configured: false, status: "not_configured", methods: [], capabilities: ["language"],
-      plugin: { id: "acme/nim", name: "Acme NIM", baseUrl: "https://integrate.example/v1", keyField: "NIM API key" },
+      plugin: { id: "acme/nim", name: "Acme NIM", baseUrl: "https://integrate.example/v1", keySetting: "apiKey", icon: expect.any(String) },
     });
+    // Its own icon, read from the package; a provider without one has none.
+    const icon = await app.inject({ method: "GET", url: `/plugin-providers/${hosted}/icon` });
+    expect([icon.statusCode, icon.headers["content-type"]]).toEqual([200, "image/svg+xml"]);
+    expect((await app.inject({ method: "GET", url: `/plugin-providers/${pluginModelProviderId("acme/nim", "open")}/icon` })).statusCode).toBe(404);
     expect(listed.find((provider) => provider.id === open)).toMatchObject({ configured: true, methods: [], plugin: { id: "acme/nim" } });
     expect(runtime.getProvider(hosted)).toBeUndefined();
     expect(runtime.getModels(open).map((model) => model.id)).toEqual(["open-model"]);

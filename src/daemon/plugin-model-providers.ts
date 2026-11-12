@@ -61,13 +61,19 @@ export class PluginModelProviders {
   info(id: string, locale: PluginLocale): PluginProviderInfo | undefined {
     const item = this.#providers.get(id);
     if (!item) return undefined;
-    const keyField = item.provider.apiKey ? item.entry.manifest.configuration?.[item.provider.apiKey] : undefined;
     return {
       id: item.entry.id,
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
       baseUrl: item.provider.baseUrl,
-      ...(keyField ? { keyField: localizePluginString(item.entry, keyField.title, locale) } : {}),
+      ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),
+      ...(item.provider.icon ? { icon: item.entry.digest } : {}),
     };
+  }
+
+  /** Where a provider's icon is in its plugin's package, when it has one. */
+  iconFile(id: string): { root: string; path: string } | undefined {
+    const item = this.#providers.get(id);
+    return item?.provider.icon ? { root: item.entry.root, path: item.provider.icon } : undefined;
   }
 
   title(id: string, locale: PluginLocale): string | undefined {

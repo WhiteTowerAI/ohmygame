@@ -530,10 +530,8 @@ const en = {
       plugin: "From {{plugin}}",
     },
     plugin: {
-      open: "Open plugin settings",
-      hint: "This provider comes from the plugin {{plugin}}. Change its settings on the plugin's page.",
-      needsKey: "Enter “{{field}}” on the plugin's page to use this provider.",
-      keyMissing: "Not set",
+      title: "Model providers",
+      open: "Open plugin",
       unavailable: "This provider couldn't be added. Check the plugin's settings, or update the plugin.",
     },
     status: {

@@ -3,9 +3,11 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ProviderSummary } from "../src/shared/contracts.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let configuration: StorePluginConfiguration;
+let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
   restartStorePlugin: vi.fn(async () => {}),
@@ -16,6 +18,7 @@ const api = {
   readPluginLog: vi.fn(async () => ({ entries: [{ at: "2026-11-04T08:00:00.000Z", level: "error", source: "host", text: "Its extension host stopped (1) while it was running" }], quarantined: true })),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
+  listProviders: vi.fn(async () => providers),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
   listProjects: vi.fn(async () => [
     { id: "web", name: "Web game", type: "web-game", updatedAt: "2026-01-02T00:00:00.000Z" },
@@ -59,6 +62,7 @@ beforeEach(() => {
   root = createRoot(host);
   configuration = { path: { type: "path", value: null }, token: { type: "secret", configured: true } };
   uninstallPreview = { last: false, settings: 0, dataBytes: 0, projectFiles: [], projects: [] };
+  providers = [];
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -231,6 +235,27 @@ it("leaves out what projects turn on for a plugin that only adds model providers
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.body.textContent).toContain("NVIDIA");
   expect(document.body.textContent).not.toContain("in that project alone");
+});
+
+it("shows a plugin's model providers as in Settings, and sets a key in a dialog as the plugin's setting", async () => {
+  providers = [{
+    id: "plugin.acme.maker.nvidia", name: "NVIDIA", configured: false, status: "not_configured", methods: [], capabilities: ["language"],
+    plugin: { id: "acme/maker", name: "Maker", baseUrl: "https://integrate.example/v1", keySetting: "token" },
+  } as unknown as ProviderSummary];
+  const [group] = groupStorePlugins([row("1.0.0", { adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["NVIDIA"], agents: [], tools: 0, skills: 0 } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((tab) => tab.textContent === "Settings")!.click());
+  const panel = document.querySelector<HTMLElement>(".plugin-settings")!;
+  expect(panel.textContent).toContain("NVIDIA");
+  // Its key is set with the provider, so the form keeps only the other settings.
+  expect(panel.textContent).toContain("Engine path");
+  expect(panel.textContent).not.toContain("Token");
+  await act(async () => panel.querySelector<HTMLElement>(".settings-provider-row button")!.click());
+  const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+  expect(dialog.textContent).toContain("https://integrate.example/v1");
+  await act(async () => type(dialog.querySelector<HTMLInputElement>("input[type=password]")!, " nv-key "));
+  await act(async () => dialog.querySelector("form")!.requestSubmit());
+  expect(api.saveStorePluginConfiguration).toHaveBeenCalledWith("acme/maker", { token: "nv-key" });
 });
 
 it("tries an example in a project it suits, turning it on there, or in a new one", async () => {

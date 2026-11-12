@@ -836,10 +836,13 @@ export async function listStorePlugins(): Promise<import("../shared/plugins.js")
 
 /**
  * Turns a plugin on or off in every project it suits, which allows what it
- * asks for; projects that set it themselves keep that. Its themes follow it.
+ * asks for; projects that set it themselves keep that. Its themes and model
+ * providers follow it.
  */
 export async function setStorePluginEveryProject(id: string, on: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/every-project`, { method: "PUT", body: JSON.stringify({ on }) });
+  // Its model providers come and go with it.
+  notifyAgentModelsChanged();
   void syncPluginTheme(listPluginThemes, on ? undefined : id);
 }
 
@@ -1790,6 +1793,12 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   const route = setupId ? `/plugins/setup-sessions/${encodeURIComponent(setupId)}/icon` : `/plugins/${encodeURIComponent(pluginId)}/icon`;
   const suffix = setupId && previewPath ? `?${new URLSearchParams({ path: previewPath })}` : "";
   const response = await fetch(apiUrl(`${route}${suffix}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+/** The icon a plugin gives one of its model providers. */
+export async function readPluginProviderIcon(providerId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-providers/${encodeURIComponent(providerId)}/icon`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
