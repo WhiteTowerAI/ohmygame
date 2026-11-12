@@ -549,7 +549,9 @@ switches don't apply. It follows installs, updates and setting changes.
 - `models` lists models; unless the app knows a model's id, it gets a 128K
   context and 16K output. With `discoverModels`, refreshing the catalog also
   reads the endpoint's model list, as adding a provider does, and skips models
-  that only make media.
+  that only make media, and embedding, reranking and speech models: by what
+  the list says (`model_type`, `metadata.tags`) or, in a list of ids alone,
+  by name (`namedNotForChat`).
 - Settings → Providers lists it like any provider. Its page has the key,
   base URL, switch and models, and the plugin's Settings tab shows the same
   rows, opening that page in a dialog; the key's field leaves the plugin's

@@ -34,11 +34,11 @@ import {
   loginAgentRuntime,
   recheckCodexImages,
   saveStorePluginConfiguration,
-  readPluginProviderIcon,
 } from "./api.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { usePluginProviderIcon } from "./plugin-provider-icon.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { OpenAIImageModels } from "./openai-image-models.js";
@@ -268,23 +268,6 @@ function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "pr
       {icon ? <img src={icon.src} alt="" /> : initial || <Server size={18} />}
     </span>
   );
-}
-
-/** The icon a plugin gives a provider, as an object URL; null when it can't be read. */
-function usePluginProviderIcon(providerId: string | undefined, revision: string | undefined): string | null | undefined {
-  const [url, setUrl] = useState<string | null>();
-  useEffect(() => {
-    setUrl(undefined);
-    if (!providerId) return;
-    const controller = new AbortController();
-    let made: string | undefined;
-    void readPluginProviderIcon(providerId, controller.signal).then(
-      (blob) => { if (controller.signal.aborted) return; made = URL.createObjectURL(blob); setUrl(made); },
-      () => { if (!controller.signal.aborted) setUrl(null); },
-    );
-    return () => { controller.abort(); if (made) URL.revokeObjectURL(made); };
-  }, [providerId, revision]);
-  return url;
 }
 
 export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; onOpenAgents?: () => void }) {
