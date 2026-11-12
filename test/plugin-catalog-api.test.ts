@@ -98,6 +98,16 @@ describe("plugin catalog API", () => {
     expect(avatar.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
     expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/43" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/..%2F42" })).statusCode).toBe(400);
+
+    // Where it reads from is the person's to set, and applies at once.
+    expect((await app.inject({ method: "GET", url: "/settings/plugin-market" })).json()).toEqual({ index: "https://plugins.example.com/index.json", defaultIndex: "https://plugins.example.com/index.json", extra: [] });
+    expect((await app.inject({ method: "PUT", url: "/settings/plugin-market", payload: { index: "", extra: ["http://lists.example.org/index.json"] } })).statusCode).toBe(400);
+    const saved = await app.inject({ method: "PUT", url: "/settings/plugin-market", payload: { index: "", extra: ["https://lists.example.org/index.json"] } });
+    expect(saved.json()).toMatchObject({ extra: ["https://lists.example.org/index.json"] });
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=en" })).json().sources).toEqual([
+      { url: "https://plugins.example.com/index.json", status: "ready" },
+      { url: "https://lists.example.org/index.json", status: "ready" },
+    ]);
   });
 
   it("serves an added plugin's screenshots by their place in its manifest", async () => {

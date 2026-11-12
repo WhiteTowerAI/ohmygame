@@ -1,8 +1,9 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, SlidersHorizontal, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
+import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
@@ -97,6 +98,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // The page works without the market, so it neither waits for it nor reports it failing.
   // The daemon answers from what it has and refreshes behind that, so asking again is cheap.
   // A failed read keeps what was read before, or says the market can't be reached.
+  const [marketSettings, setMarketSettings] = useState(false);
   const readMarket = () => void waitForRuntime().then(readPluginMarket).then(setMarket, () => setMarket(current => current ?? { status: "unavailable", plugins: [], blocked: [] }));
   useEffect(() => {
     readMarket();
@@ -195,10 +197,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </section> : null;
   const listTitle = marketSection === "home" || marketSection === "all" ? t("pluginCatalog.allPlugins") : categoryLabel(marketSection);
   const discoverTab = <>
-    {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
-    {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
+    {/* The main index may be one the person set, so where it's set is right here. */}
+    {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
+      action={<Button variant="ghost" size="sm" onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
+    {marketSettings ? <PluginMarketSourcesDialog sources={market?.sources} onClose={() => setMarketSettings(false)} onSaved={readMarket} /> : null}
     {marketPlugins.length ? <div className="plugins-browse">
-      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} />
+      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} onSettings={() => setMarketSettings(true)} />
       <div className="plugins-browse-main">
         {front ? <>
           {row(t("plugins.marketFeatured"), front.featured)}
@@ -223,6 +227,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </div> : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
+      {/* With no rail to hold it, where the market is listed from is here too. */}
+      {market && market.status !== "off" ? <Button variant="ghost" icon={<SlidersHorizontal size={14} />} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button> : null}
     </div>} />}
   </>;
 

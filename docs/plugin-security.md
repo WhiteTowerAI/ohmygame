@@ -88,6 +88,11 @@ in its review. Uninstalling a plugin's last version forgets what was allowed.
   reject or block a version, which then can't be added. A version blocked
   after it was installed gets a badge and a warning, but stays on until the
   person uninstalls it: a takedown warns, it doesn't turn plugins off.
+- Indexes the person adds in Plugin sources can only add plugins the main
+  index doesn't list. Their versions still need npm's signature, and their
+  marks (featured, source verified, stars, downloads, avatars) are dropped, so
+  another index can't make a plugin look vetted. A main index the person points
+  elsewhere is trusted as the official one is, which the dialog says.
 - Market icons, screenshots and avatars come through the daemon, not the
   page, and are served with `nosniff` and a sandboxing CSP. Icons and
   screenshots are only those the current index lists, read from beside the

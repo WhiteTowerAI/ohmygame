@@ -139,7 +139,8 @@ the project it starts in and mentions it.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
-  - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
+  - `market-index-<hash>.json`: the last [plugin market](#the-plugin-market)
+    index read from each address, named by a hash of the address;
   - `grants.json` (`schema` 2): per plugin what the person allowed and their
     choice for every project (`everyProject`), and which plugins each project
     folder allows (by real path). Schema 1 is upgraded where it loads: a
@@ -805,6 +806,26 @@ finds them, runs the same package checks as the app, and publishes an index file
 Cloudflare R2. `OHMYGAME_PLUGIN_INDEX_URL` replaces that address. Set it empty,
 or to one that isn't HTTPS (or HTTP on this computer), and there's no market and
 nothing is read.
+
+- **Sources.** The icon at the foot of Discover's side list, or the
+  market-unavailable notice, opens **Plugin sources**, saved in
+  `<data>/plugin-market-sources.json` (`src/daemon/plugin-market-settings.ts`,
+  `GET`/`PUT /settings/plugin-market`). The person can read the main index from
+  another address, such as a mirror, and add up to five more indexes in the same
+  format. The main index decides first: a plugin it lists shows as it says, and a
+  version it lists is allowed or refused as it says. Another index adds only the
+  plugins the main one doesn't list, in order, and none of its marks are taken at
+  its word: such a plugin is never featured or source verified and shows no
+  stars, downloads or avatar, and its page says which index lists it. Its
+  pictures are read from beside that index (`/plugin-market/images?source=`).
+  Installing still needs npm's signature, whichever index listed the version.
+  A version only another index lists can be added only while the main index (or
+  its saved copy) can be read, so the main index's blocks can't be passed by.
+  A block from any index is listed on installed plugins.
+- **How fresh it is.** The index job runs every 30 minutes, and so does the
+  app's read, so a new version can take up to an hour to show. The `?` beside
+  the sources icon says so. A maintainer who needs it sooner runs the job by hand
+  (`workflow_dispatch`).
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
   file, then the index it names if that changed, checks the index against the

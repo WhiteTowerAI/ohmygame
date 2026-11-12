@@ -81,6 +81,8 @@ export interface MarketPlugin {
   stars?: number;
   weeklyDownloads?: number;
   featured: boolean;
+  /** The index it comes from, when that isn't the main one; its pictures are read from there. */
+  source?: string;
 }
 
 /** One published version the maintainers blocked. */
@@ -95,6 +97,18 @@ export interface PluginMarketListing {
   status: "off" | "unavailable" | "ready" | "stale";
   plugins: MarketPlugin[];
   blocked: MarketBlock[];
+  /** Each index read, the main one first, and whether it could be read. */
+  sources?: Array<{ url: string; status: "unavailable" | "ready" | "stale" }>;
+}
+
+/** Where the market reads from, as Discover's settings show it. */
+export interface PluginMarketSettings {
+  /** The main index's address; empty when there is no market. */
+  index: string;
+  /** The address the app reads by default. */
+  defaultIndex: string;
+  /** More indexes, after the main one. */
+  extra: string[];
 }
 
 /** What the person reviews before adding a package. */
