@@ -601,7 +601,7 @@ describe("plugin model providers", () => {
   const providers = async (app: ReturnType<typeof createApp>) => (await app.inject({ method: "GET", url: "/settings/providers" })).json() as ProviderSummary[];
 
   it("adds a plugin's providers once their keys are set, discovers models, and follows the plugin", async () => {
-    const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meta/llama-3.1-8b-instruct" }, { id: "listed-model" }] }));
+    const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meta/llama-3.1-8b-instruct" }, { id: "listed-model" }, { id: "BAAI/bge-m3" }] }));
     const { app, runtime } = await fixture(undefined, discovery);
     await addProviderPlugin(app);
     const hosted = pluginModelProviderId("acme/nim", "hosted");

@@ -3,7 +3,7 @@ import type { PluginProviderInfo } from "../shared/contracts.js";
 import { customModelCatalog, knownCustomModel, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
-import { discoverProviderModels } from "./provider-model-discovery.js";
+import { discoverProviderModels, namedNotForChat } from "./provider-model-discovery.js";
 
 // The model providers installed plugins add (`contributes.providers`). Each
 // joins the model runtime as a provider of its own, like one the person adds
@@ -166,6 +166,8 @@ export class PluginModelProviders {
       // and Google models it doesn't list as generating content.
       const usages = model.usages;
       if (provider.api === "google-generative-ai" ? !usages?.language : usages && !usages.language && Object.keys(usages).length) continue;
+      // A list of ids alone, such as SiliconFlow's, also holds embedding, speech and image models.
+      if (!usages?.language && namedNotForChat(model.id)) continue;
       // What the endpoint reports replaces a listed model's defaults; the plugin's title stays.
       models.set(model.id, {
         id: model.id, name: models.get(model.id)?.name ?? model.name, api: provider.api,
