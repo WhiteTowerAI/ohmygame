@@ -12,7 +12,7 @@
 
 <p><a href="https://trendshift.io/repositories/291307?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-291307" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/291307" alt="WhiteTowerAI%2Fohmygame | Trendshift" width="250" height="55"/></a></p>
 
-<p><a href="README.md">English</a> | <b>简体中文</b></p>
+<p><a href="README.md">English</a> | <b>简体中文</b> | <a href="README.ja.md">日本語</a></p>
 
 <p>
   <a href="https://ohmygame.ai/zh/">官网</a> ·
