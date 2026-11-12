@@ -132,7 +132,7 @@ export interface ProviderSummary extends ModelProviderSummary {
   enabled?: boolean;
   custom?: boolean;
   preset?: CustomProviderPreset;
-  /** A provider an installed plugin adds; it is set up on the plugin's page. */
+  /** A provider an installed plugin adds; its key is one of the plugin's settings. */
   plugin?: PluginProviderInfo;
   error?: string;
 }
@@ -142,8 +142,10 @@ export interface PluginProviderInfo {
   id: string;
   name: string;
   baseUrl: string;
-  /** The title of the plugin's setting that holds the key, when it needs one. */
-  keyField?: string;
+  /** The plugin's setting that holds the key, when it needs one. */
+  keySetting?: string;
+  /** Changes with the package, when the provider has its own icon (`/plugin-providers/:id/icon`). */
+  icon?: string;
 }
 
 export interface CustomProviderSettings {

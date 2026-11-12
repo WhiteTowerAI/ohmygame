@@ -15,6 +15,7 @@ import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
 import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
@@ -265,10 +266,15 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     setError(undefined);
     void Promise.resolve(action()).catch((cause: unknown) => setError(message(cause)));
   };
+  // Its model providers show as in Settings → Providers, and their keys leave the form.
+  const providers = usePluginProviders(plugin.adds.modelProviders.length ? plugin.id : undefined);
+  const providerKeys = new Set(providers.providers?.flatMap((provider) => provider.plugin?.keySetting ?? []));
+  const settings = plugin.settings.filter((field) => !providerKeys.has(field.name));
+  const settingsReady = !plugin.adds.modelProviders.length || providers.providers !== undefined || providers.error !== undefined;
   const tabs: { value: StoreDetailTab; label: string; count?: number }[] = [
     { value: "about", label: t("plugins.about") },
     ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
-    ...(plugin.settings.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
+    ...(plugin.settings.length || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
   ];
   // Uninstalling the newest version can take away the tab that was open.
   const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
@@ -350,8 +356,9 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <SkillSection pluginId={plugin.id} items={plugin.skills}
             onBrowse={(skillId) => browse(() => window.ohMyGameDesktop?.revealPluginSkill(plugin.id, skillId))} />
         </div> : null}
-        {plugin.settings.length ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
-          <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} />
+        {tabs.some((item) => item.value === "settings") ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
+          {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
+          {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} /> : null}
         </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
@@ -507,7 +514,7 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
 }
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */
-export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactNode {
+export function StorePluginSettings({ plugin, fields = plugin.settings }: { plugin: StorePlugin; fields?: StorePlugin["settings"] }): ReactNode {
   const [config, setConfig] = useState<StorePluginConfiguration>();
   const [values, setValues] = useState<Record<string, string | boolean | null>>({});
   const [busy, setBusy] = useState(false);
@@ -528,7 +535,8 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
-    const submitted = values;
+    // Only what the form shows: a field that left it, as a provider's key, keeps its saved value.
+    const submitted = Object.fromEntries(Object.entries(values).filter(([name]) => fields.some((field) => field.name === name)));
     try {
       setConfig(await saveStorePluginConfiguration(plugin.id, submitted));
       // Fields changed again while saving keep their new values.
@@ -544,7 +552,7 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
   return <section className="plugin-components plugin-configuration" aria-label={t("common.settings")}>
     <h2>{t("common.settings")}</h2>
     {config ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      {plugin.settings.map((field) => {
+      {fields.map((field) => {
         const view = config[field.name];
         const stored = view && view.type !== "secret" ? view.value : null;
         const configured = view?.type === "secret" && view.configured;
@@ -577,7 +585,7 @@ export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactN
           </button> : null}
         </label>;
       })}
-      <button className="plugin-detail-primary" type="submit" disabled={busy || !Object.keys(values).length}>
+      <button className="plugin-detail-primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
         {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
       </button>
     </form> : !error ? <p>{t("pluginControls.loadingConfiguration")}</p> : null}

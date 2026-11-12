@@ -1400,6 +1400,9 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(id);
     const screenshot = entry?.manifest.screenshots?.[index];
     return entry && screenshot ? readPluginScreenshot(entry.root, screenshot.path) : undefined;
+  }, async (providerId) => {
+    const file = pluginModelProviders.iconFile(providerId);
+    return file ? readPluginIconAsset(file.root, { type: "asset", path: file.path }) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
