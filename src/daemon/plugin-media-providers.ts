@@ -288,8 +288,9 @@ export class PluginMediaProviders {
       settled = true;
       if ("error" in answer) throw new Failure(`${name}: ${answer.error}`);
       ready = true;
-      // Kept until the caller stores the result; without it, a task saved above still resumes.
-      if (journal && begun.state !== "done") await journal.finish(answer.outputs).catch(() => {});
+      // Kept until the caller stores the result. A task is checked again for a fresh address;
+      // a vendor that answered at once left none, so its result is kept instead.
+      if (journal && task === undefined && begun.state !== "done") await journal.finish(answer.outputs).catch(() => {});
       const result = await finish(answer.outputs, stopped);
       keep = true;
       return result;

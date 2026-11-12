@@ -211,9 +211,10 @@ one:
   check the vendor's site. So is a retry whose provider or request changed.
   An adapter keeps this guard by throwing, not returning `{ error }`, when
   the vendor may have taken the request (a 5xx, or a success it can't read).
-- Once the vendor has the result, the app keeps its address until the video
-  is stored in the project. A download or a write that failed is retried by
-  fetching the same result, not by paying for a new one.
+- The task stays until the video is stored in the project, so a download or
+  a write that failed is retried by checking the task again (for a fresh
+  address), not by paying for a new one. For a vendor that answered at once,
+  with no task, the app keeps the result's address instead.
 
 Agent tool calls that a restart cut off aren't retried, since the agent's turn
 ended with them. Images, which rarely take a task, start again.

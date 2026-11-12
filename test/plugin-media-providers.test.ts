@@ -228,10 +228,10 @@ describe("plugin media providers: video", () => {
     expect(video).toEqual({ bytes: MP4, mediaType: "video/mp4" });
     expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "wan", seconds: 5, frames: 1, mode: "frame" });
     expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1", "https://api.flow.example/v1/videos/t1", "https://cdn.flow.example/t1.mp4"]);
-    // The result stays until the caller stores it: a retry fetches it again without paying.
+    // The task stays until the caller stores the video: a retry checks it again, for a fresh address, without paying.
     const again = await media.generateVideo(model, { prompt: "a fox runs", duration: 5, references: [{ type: "image", name: "first.png", mediaType: "image/png", absolutePath: path.join(root, "first.png") }] }, undefined, await journalAt());
     expect(again.bytes).toEqual(MP4);
-    expect(requests.map((request) => request.url).slice(4)).toEqual(["https://cdn.flow.example/t1.mp4"]);
+    expect(requests.map((request) => request.url).slice(4).filter((url) => url === "https://api.flow.example/v1/videos")).toEqual([]);
     await (await journalAt()).clear();
     expect((await journalAt().then((journal) => journal.begin({}))).state).toBe("new");
     await expect(media.generateVideo(model, { prompt: "x", duration: 10 })).rejects.toThrow("duration is not supported");

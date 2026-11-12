@@ -5,9 +5,9 @@ import path from "node:path";
 // Keeps the task a plugin's media adapter left with its vendor, under the
 // generation's recovery id, so retrying a generation the daemon's restart cut
 // off checks that task again instead of paying for a new one. It is written
-// before `start` and after every answer that changes the task, then holds the
-// vendor's result until the video is stored, and is removed once the
-// generation ends for good. Like 3D (`model3d-journal.ts`), a start
+// before `start` and after every answer that changes the task (or, for a
+// vendor that answered at once, its result), kept until the video is stored,
+// and removed once the generation ends for good. Like 3D (`model3d-journal.ts`), a start
 // whose answer was lost isn't repeated.
 
 /** Why the daemon stopped a generation: it is shutting down, and the task stays to resume. */
@@ -36,7 +36,7 @@ export interface MediaTaskJournal {
   begin(request: unknown): Promise<MediaTaskStart>;
   /** The task the vendor now holds. */
   save(task: unknown): Promise<void>;
-  /** The vendor's result, kept until it is stored, so a retry fetches it again rather than paying anew. */
+  /** The result of a vendor that answered without a task, kept until stored, so a retry fetches it again rather than paying anew. */
   finish(outputs: unknown): Promise<void>;
   /** The generation ended for good: there's nothing to resume. */
   clear(): Promise<void>;
