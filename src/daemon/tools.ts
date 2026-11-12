@@ -309,7 +309,8 @@ export class ToolRunner {
   async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
-      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
+      return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId)).catch(model3DToolError);
     }
     if (toolId === "animate-3d") {
       assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters", "model", "options"]);
@@ -403,7 +404,8 @@ export class ToolRunner {
     }
   }
 
-  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution): Promise<ToolRun> {
+  /** `journal` keeps a plugin provider's task until the model is stored, as for video. */
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal): Promise<ToolRun> {
     const operation = input.operation ?? "image", images = input.images;
     if (!["image", "text", "retexture", "remesh"].includes(operation)) throw new ToolRunError("Unknown 3D operation", 400);
     if (input.prompt !== undefined && typeof input.prompt !== "string") throw new ToolRunError("3D prompt must be a string", 400);
@@ -429,14 +431,17 @@ export class ToolRunner {
       source = content.bytes; sourceMetadata = content.metadata;
     } else if (input.sourceAssetId !== undefined) throw new ToolRunError("Generation does not accept a source model", 400);
     const primaryImage = images[0];
-    return this.#storeModelRun("image-to-3d", signal, async () => {
+    const run = await this.#storeModelRun("image-to-3d", signal, async () => {
       const { sourceAssetId: _, ...generationInput } = input;
-      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution }, signal);
+      const result = await generator.generate({ ...generationInput, model: { provider: model.provider, id: model.id }, source, execution, journal }, signal);
       return { ...result, metadata: { ...(sourceMetadata?.forwardAxis ? { forwardAxis: sourceMetadata.forwardAxis } : {}), ...result.metadata, provider: model.provider, operation } };
     }, primaryImage ? {
       fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
       mediaType: primaryImage.mediaType as "image/png" | "image/jpeg", bytes: Buffer.from(primaryImage.data, "base64"),
     } : undefined, { provider: model.provider, id: model.id });
+    // Stored: there's nothing left for a retry to fetch.
+    await journal.clear().catch(() => undefined);
+    return run;
   }
 
   async #modelSource(assetId?: string) {

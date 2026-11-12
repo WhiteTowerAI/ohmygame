@@ -227,8 +227,22 @@ describe("plugin manifest", () => {
       "/contributes/providers/0 a provider needs chat (api and baseUrl) or media",
     ]);
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
-      "/contributes/providers/0/media list what it makes: image, video or both",
+      "/contributes/providers/0/media list what it makes: image, video, audio or 3d",
     ]);
+    // Audio and 3D: what each model makes and takes.
+    const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
+    const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
+    expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ ...audio.models[0], readsText: false }, { ...audio.models[1], minDurationSeconds: 30 }] } })).toEqual([
+      "/contributes/providers/0/media/audio/models/0/voices voices are for a model that reads text",
+      "/contributes/providers/0/media/audio/models/1/minDurationSeconds must not be more than maxDurationSeconds",
+    ]);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 1000, max: 50000, default: 10000, presets: [60000] } }] } })).toEqual([
+      "/contributes/providers/0/media/3d/models/0/polycount needs min ≤ default and presets ≤ max",
+    ]);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { models: [{ ...model3D.models[0], operations: ["remesh"] }] } } }] } }).ok).toBe(false);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);
