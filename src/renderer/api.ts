@@ -1797,6 +1797,11 @@ export async function readPluginIconImage(pluginId: string, setupId?: string, si
   return response.blob();
 }
 /** The icon a plugin gives one of its model providers. */
+export async function readPluginAgentIcon(agentId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-agents/${encodeURIComponent(agentId)}/icon`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 export async function readPluginProviderIcon(providerId: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(apiUrl(`/plugin-providers/${encodeURIComponent(providerId)}/icon`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);

@@ -10,7 +10,7 @@ import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 import { menuPlacement } from "./popover-placement.js";
 import { settingsHash } from "./routes.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { isPluginProviderId, usePluginProviderIcon } from "./plugin-provider-icon.js";
+import { isPluginMarkId, usePluginIcon } from "./plugin-mark-icon.js";
 import "./model-selector.css";
 
 interface ModelSelectorProps {
@@ -288,7 +288,7 @@ export function useAgentModels(options: { agentRuntimes?: boolean; accountProfil
 
 /** A provider's logo, or its initial when it has none (custom providers). */
 export function ProviderMark({ provider, name, size = 14 }: { provider?: string; name?: string; size?: number }) {
-  const pluginIcon = usePluginProviderIcon(isPluginProviderId(provider) ? provider : undefined);
+  const pluginIcon = usePluginIcon(isPluginMarkId(provider) ? provider : undefined);
   const icon = (provider ? PROVIDER_ICONS[provider] : undefined) ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
   if (icon) return <img className={`provider-mark is-${icon.tone}`} src={icon.src} width={size} height={size} alt="" aria-hidden="true" />;
   // A plugin's icon loading keeps the space, rather than flashing the initial.

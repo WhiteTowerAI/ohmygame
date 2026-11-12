@@ -292,6 +292,7 @@ export class AgentRuntimeService {
         ? { testedVersion: definition.testedVersion }
         : {}),
       ...(definition.acp ? { plugin: definition.acp.plugin, launch: commandLine([settings.binaryPath ?? definition.binaries[0]!, ...definition.acp.args]) } : {}),
+      ...(definition.iconRevision ? { iconRevision: definition.iconRevision } : {}),
       enabled: settings.enabled,
       autoContinue: settings.autoContinue,
       ...(id === "claude-code-cli" ? { identifyAsOhMyGame: settings.identifyAsOhMyGame } : {}),
