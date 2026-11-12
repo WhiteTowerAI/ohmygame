@@ -1341,7 +1341,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
         onClose={settingsSlot.onClose}
         onBusyChange={settingsSlot.onBusyChange}
       /> : <div className="design-loading"><LoaderCircle className="spin" size={18} /></div>, settingsSlot.node) : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} onPublicationChange={(publication) => onProjectUpdated?.({ ...project, publication })} /> : null}
     </>
   );
 }

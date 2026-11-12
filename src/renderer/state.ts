@@ -1,3 +1,4 @@
+import { publicationOf } from "../shared/publish-v1.js";
 import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PublicationState, PromptContextLabel, ScheduledMessage, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
 import { finalizeTurnItems } from "../shared/turns.js";
 
@@ -208,7 +209,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     case "agent.error":
       return finishAgent(next, event.turnId, "failed", event.data.error);
     case "publish.completed":
-      return project ? { ...next, project: { ...project, publication: { gameId: event.data.game.id, deploymentId: event.data.game.deploymentId, playUrl: event.data.game.playUrl, publishedAt: event.data.game.publishedAt, title: event.data.game.title, description: event.data.game.description } } } : next;
+      return project ? { ...next, project: { ...project, publication: publicationOf(event.data.game) } } : next;
     case "publish.error":
       return { ...next, notice: event.data.error };
     case "publish.started":

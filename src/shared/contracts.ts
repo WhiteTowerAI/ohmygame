@@ -417,6 +417,9 @@ export interface PublicationState {
   publishedAt: string;
   title?: string;
   description?: string;
+  /** The game's page name and address; missing before the Cloud named games. */
+  name?: string;
+  pageUrl?: string;
 }
 
 export type ProjectCoverMode = "auto" | "custom";

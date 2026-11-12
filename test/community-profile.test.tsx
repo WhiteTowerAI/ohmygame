@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
   useAuth: () => mocks.auth,
+  useOptionalAuth: () => mocks.auth,
   localDebug: false,
 }));
 vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), () => ({

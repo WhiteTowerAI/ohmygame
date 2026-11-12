@@ -252,6 +252,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** The account, where an AuthProvider is above; parts that work signed out can use this. */
+export function useOptionalAuth(): AuthContextValue | undefined {
+  return useContext(AuthContext);
+}
+
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext);
   if (!value) throw new Error("useAuth must be used inside AuthProvider");

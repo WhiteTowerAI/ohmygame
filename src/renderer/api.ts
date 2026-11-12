@@ -4,7 +4,7 @@ import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
-import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile, GameNameAvailability } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
@@ -780,6 +780,15 @@ export function unpublishCommunityGame(gameId: string, accessToken: string): Pro
 
 export function updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description: string }): Promise<Pick<CommunityGame, "title" | "description">> {
   return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
+}
+
+/** Renames a published game's page; the projects that published it learn the new address. */
+export function setCommunityGameName(gameId: string, accessToken: string, name: string): Promise<{ name?: string; pageUrl?: string }> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/name`, { method: "PUT", body: JSON.stringify({ accessToken, name }) });
+}
+
+export function communityGameNameAvailability(name: string, gameId: string, accessToken: string): Promise<GameNameAvailability> {
+  return request(`/community/game-names/${encodeURIComponent(name)}?${new URLSearchParams({ gameId })}`, { headers: communityHeaders(accessToken) });
 }
 
 function communityHeaders(accessToken?: string): Record<string, string> {

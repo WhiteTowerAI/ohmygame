@@ -252,6 +252,12 @@ export class OhMyGameAccount implements GameAuth {
     this.savePending(pending);
     const popup = env.openPopup(authorize.href);
     if (!popup) {
+      // A page in a frame can't sign in in place: the sign-in page refuses to be framed, and
+      // the frame would be left on it. The player allows the popup and tries again.
+      if (env.parent) {
+        this.savePending(undefined);
+        throw new OhMyGameError("cancelled", "The sign-in window was blocked. Allow pop-ups for this game and try again.");
+      }
       // A blocked popup signs in on this page instead; init() completes it when the page returns.
       this.savePending({ ...pending, popup: false });
       env.location.assign(authorize.href);
@@ -292,9 +298,17 @@ export class OhMyGameAccount implements GameAuth {
     const env = this.env!;
     const url = new URL(env.location.href);
     const state = url.searchParams.get("state");
-    const pending = this.loadPending();
-    if (!state || !pending || pending.state !== state) return undefined;
     const code = url.searchParams.get("code") ?? undefined;
+    const pending = this.loadPending();
+    // A game in a frame, as on its website page, keeps its storage apart from this popup's,
+    // so the popup finds no sign-in of its own. It hands the result to the game that opened
+    // it, which checks the state and holds the verifier.
+    if (state && !pending && env.opener && (code || url.searchParams.has("error"))) {
+      env.opener.postMessage({ type: SIGN_IN_MESSAGE, state, code }, env.location.origin);
+      env.close();
+      return "popup";
+    }
+    if (!state || !pending || pending.state !== state) return undefined;
     if (pending.popup) {
       if (env.opener) env.opener.postMessage({ type: SIGN_IN_MESSAGE, state, code }, env.location.origin);
       // Without the opener, the popup signs in itself; the game finds the player saved when it closes.

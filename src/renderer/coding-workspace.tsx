@@ -530,7 +530,7 @@ export function CodingWorkspace({
     <>
       {placed}
       {topPlay}
-      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} onPublicationChange={(publication) => onProjectUpdated?.({ ...project, publication })} /> : null}
       {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}

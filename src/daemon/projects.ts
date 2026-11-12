@@ -1788,7 +1788,9 @@ function validPublication(value: unknown): value is PublicationState {
   return typeof publication.gameId === "string" && typeof publication.deploymentId === "string" &&
     typeof publication.playUrl === "string" && typeof publication.publishedAt === "string" &&
     (publication.title === undefined || typeof publication.title === "string") &&
-    (publication.description === undefined || typeof publication.description === "string");
+    (publication.description === undefined || typeof publication.description === "string") &&
+    (publication.name === undefined || typeof publication.name === "string") &&
+    (publication.pageUrl === undefined || typeof publication.pageUrl === "string");
 }
 
 function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {

@@ -123,9 +123,15 @@ cross-origin requests from published games' origins.
   game through `postMessage` (same origin only) and closes; `init()` never resolves in
   the popup, so the game does not start there. If a sign-in page cut the popup off from
   the game (`Cross-Origin-Opener-Policy`), the popup finishes signing in itself and the
-  game finds the saved session when the popup closes.
+  game finds the saved session when the popup closes. A game in a frame keeps its
+  storage apart from its popup's (browsers partition a frame's storage by the page
+  above it), so a popup that finds no sign-in of its own still hands `code` and `state`
+  to its opener and closes; the opener checks the state and holds the verifier.
 - When the popup is blocked, the page goes to sign-in and back. `init()` then exchanges
   the code, removes `code` and `state` from the address, and the player is signed in.
+  A game in a frame, as on its website page, can't do that, since the sign-in page
+  refuses to be framed: `signIn()` rejects with `cancelled`, and the player allows the
+  popup and tries again.
 - The session is kept in the game origin's `localStorage`. `getToken()` renews it 30
   seconds before it expires. Tabs of one browser renew one at a time (`navigator.locks`),
   and a tab that waited uses the session the other saved: two renewals with one refresh

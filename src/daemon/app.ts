@@ -44,7 +44,7 @@ import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
-import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { PUBLISH_GAME_TITLE_MAX_LENGTH, publicationOf } from "../shared/publish-v1.js";
 import { MULTIPLAYER_MANIFEST_SCHEMA } from "@ohmygame/sdk/protocol";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -4619,14 +4619,7 @@ export function createApp(options: AppOptions = {}) {
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         ).finally(() => prepared?.dispose());
-        await projects.setPublication(project.id, {
-          gameId: result.game.id,
-          deploymentId: result.game.deploymentId,
-          playUrl: result.game.playUrl,
-          publishedAt: result.game.publishedAt,
-          title: result.game.title,
-          description: result.game.description,
-        });
+        await projects.setPublication(project.id, publicationOf(result.game));
         events.publish(project.id, "publish.completed", { game: result.game });
         return reply.code(201).send(result);
       } catch (cause) {

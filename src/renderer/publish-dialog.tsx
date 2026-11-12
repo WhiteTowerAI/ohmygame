@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
-import { getExploreGameCover, getProjectCover, getProjectCoverState, setProjectCoverMode, setProjectCover } from "./api.js";
+import { ApiError, communityGameNameAvailability, getExploreGameCover, getProjectCover, getProjectCoverState, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
+import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, normalizeGameName, readableUrl, type GameNameAvailability } from "../shared/publish-v1.js";
 import { imageToWebP } from "./image.js";
-import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, RefreshCw, Upload, X } from "./icons.js";
+import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, Pencil, RefreshCw, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
-import { localDebug } from "./auth.js";
+import { localDebug, useOptionalAuth } from "./auth.js";
 import { gameHash } from "./routes.js";
 import { language, t } from "./i18n.js";
 
@@ -13,10 +14,12 @@ export interface PublishDetails {
   description: string;
 }
 
-export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish }: {
+export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish, onPublicationChange }: {
   project: ProjectState;
   publishing: boolean;
   onClose: () => void;
+  /** A change made from the dialog itself, such as a new page name. */
+  onPublicationChange?: (publication: PublicationState) => void;
   justPublished?: boolean;
   initialEditing?: boolean;
   coverAccessToken?: string;
@@ -187,6 +190,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
         name={project.name}
         justPublished={justPublished}
         onClose={onClose}
+        onPublicationChange={onPublicationChange}
         onUpdate={() => {
           setEditing(true);
           setError(undefined);
@@ -243,7 +247,7 @@ function useCoverUrl(cover: Blob | undefined): string | undefined {
   return url;
 }
 
-export function PublicationDetails({ publication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate }: {
+export function PublicationDetails({ publication: initialPublication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate, onPublicationChange }: {
   publication: PublicationState;
   name: string;
   justPublished?: boolean;
@@ -251,13 +255,21 @@ export function PublicationDetails({ publication, name, justPublished = false, c
   profileUrl?: string;
   onClose: () => void;
   onUpdate: () => void;
+  onPublicationChange?: (publication: PublicationState) => void;
 }) {
   const linkId = useId();
+  const auth = useOptionalAuth();
+  const [publication, setPublication] = useState(initialPublication);
+  useEffect(() => setPublication(initialPublication), [initialPublication]);
+  const [renaming, setRenaming] = useState(false);
   const [cover, setCover] = useState<Blob>();
   const coverUrl = useCoverUrl(cover);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
-  useEffect(() => { setCopied(false); setCopyError(false); }, [publication.playUrl]);
+  const shareUrl = gameShareUrl(publication);
+  useEffect(() => { setCopied(false); setCopyError(false); }, [shareUrl]);
+  // Only games on OhMyGame Cloud have a page whose name can change.
+  const canRename = Boolean(auth && publication.name && publication.pageUrl && !publication.gameId.startsWith("local-"));
 
   useEffect(() => {
     let active = true;
@@ -271,7 +283,7 @@ export function PublicationDetails({ publication, name, justPublished = false, c
   async function copyLink(): Promise<void> {
     setCopyError(false);
     try {
-      await navigator.clipboard.writeText(publication.playUrl);
+      await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -289,22 +301,147 @@ export function PublicationDetails({ publication, name, justPublished = false, c
       </div>
     </div>
     {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
-    <div className="publication-link-field">
+    {renaming && auth ? <GameNameField
+      publication={publication}
+      requestAccessToken={auth.requestAccessToken}
+      onCancel={() => setRenaming(false)}
+      onRenamed={(next) => {
+        setPublication(next);
+        setRenaming(false);
+        onPublicationChange?.(next);
+      }}
+    /> : <div className="publication-link-field">
       <label htmlFor={linkId}>{t("community.link")}</label>
       <div>
-        <Input id={linkId} readOnly value={publication.playUrl} onFocus={(event) => event.currentTarget.select()} />
+        <Input id={linkId} readOnly value={readableUrl(shareUrl)} onFocus={(event) => event.currentTarget.select()} />
+        {canRename ? <IconButton label={t("publish.changeName")} title={t("publish.changeName")} onClick={() => setRenaming(true)}><Pencil size={16} /></IconButton> : null}
         <IconButton label={t("publish.copyLink")} title={copied ? t("publish.linkCopied") : t("publish.copyLink")} onClick={() => void copyLink()}>
           {copied ? <Check size={16} /> : <Copy size={16} />}
         </IconButton>
-        <a className="ui-icon-button ui-icon-button-md" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
+        <a className="ui-icon-button ui-icon-button-md" href={shareUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
       </div>
       <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? t("publish.copyFailed") : copied ? t("publish.linkCopied") : ""}</p>
-    </div>
+    </div>}
     <div className="publication-secondary-actions">
       <a href={profileUrl ?? gameHash(publication.gameId)} onClick={onClose}>{profileUrl ? t("community.viewOnProfile") : t("publish.viewInCommunity")}</a>
       <Button size="sm" icon={<Upload size={14} />} onClick={onUpdate}>{t("publish.update")}</Button>
     </div>
   </div>;
+}
+
+/** What the Cloud said of a name: free, or why it isn't. */
+type NameCheck = { name: string; status: "checking" | "available" | "error" | NonNullable<GameNameAvailability["reason"]> };
+
+/** Edits the name at the end of the game's page address. The address before keeps leading to it. */
+function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }: {
+  publication: PublicationState;
+  requestAccessToken: () => Promise<string | undefined>;
+  onCancel: () => void;
+  onRenamed: (publication: PublicationState) => void;
+}) {
+  const inputId = useId();
+  const statusId = useId();
+  const input = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(publication.name ?? "");
+  const [check, setCheck] = useState<NameCheck>();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const name = normalizeGameName(draft);
+  const unchanged = name === publication.name;
+  const valid = GAME_NAME_PATTERN.test(name);
+
+  useEffect(() => input.current?.select(), []);
+
+  // Asks the Cloud once typing pauses; the answer is only advice, as saving checks again.
+  useEffect(() => {
+    if (unchanged || !valid) {
+      setCheck(undefined);
+      return;
+    }
+    let active = true;
+    setCheck({ name, status: "checking" });
+    const timer = setTimeout(() => {
+      void requestAccessToken().then(async (token) => {
+        if (!token) return;
+        const answer = await communityGameNameAvailability(name, publication.gameId, token);
+        if (!active) return;
+        setCheck({ name, status: answer.available ? "available" : answer.reason ?? "taken" });
+      }).catch(() => {
+        if (active) setCheck({ name, status: "error" });
+      });
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [name, unchanged, valid, publication.gameId, requestAccessToken]);
+
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    if (unchanged) return onCancel();
+    setSaving(true);
+    setError(undefined);
+    try {
+      const token = await requestAccessToken();
+      if (!token) return;
+      const result = await setCommunityGameName(publication.gameId, token, name);
+      onRenamed({ ...publication, ...(result.name ? { name: result.name } : {}), ...(result.pageUrl ? { pageUrl: result.pageUrl } : {}) });
+    } catch (cause) {
+      setError(nameErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const status = error ? { text: error, error: true }
+    : draft && !valid ? { text: t("publish.nameRules"), error: true }
+    : check?.name !== name ? { text: t("publish.nameHint"), error: false }
+    : check.status === "checking" ? { text: t("publish.nameChecking"), error: false }
+    : check.status === "available" ? { text: t("publish.nameAvailable"), error: false }
+    : check.status === "error" ? { text: t("publish.nameCheckFailed"), error: true }
+    : { text: check.status === "reserved" ? t("publish.nameReserved") : check.status === "invalid" ? t("publish.nameRules") : t("publish.nameTaken"), error: true };
+  const blocked = !valid || check?.name === name && ["invalid", "reserved", "taken"].includes(check.status);
+
+  return <form className="publication-link-field" onSubmit={(event) => void save(event)}>
+    <label htmlFor={inputId}>{t("publish.pageName")}</label>
+    <div>
+      <Input
+        id={inputId}
+        ref={input}
+        prefix={readableUrl(publication.pageUrl!).slice(0, -publication.name!.length)}
+        value={draft}
+        maxLength={GAME_NAME_MAX_LENGTH}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={saving}
+        aria-describedby={statusId}
+        aria-invalid={status.error || undefined}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(undefined);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        }}
+      />
+      <IconButton label={t("common.cancel")} title={t("common.cancel")} disabled={saving} onClick={onCancel}><X size={16} /></IconButton>
+      <IconButton type="submit" label={t("publish.saveName")} title={t("publish.saveName")} disabled={saving || blocked}>
+        {saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+      </IconButton>
+    </div>
+    <p id={statusId} className={`publication-copy-status${status.error ? " is-error" : ""}`} role={status.error ? "alert" : "status"}>{status.text}</p>
+  </form>;
+}
+
+function nameErrorMessage(cause: unknown): string {
+  const code = cause instanceof ApiError ? cause.code : undefined;
+  if (code === "name_taken") return t("publish.nameTaken");
+  if (code === "name_reserved") return t("publish.nameReserved");
+  if (code === "name_invalid") return t("publish.nameRules");
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function LocalPublishNotice() {
