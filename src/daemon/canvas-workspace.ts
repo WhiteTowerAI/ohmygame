@@ -22,6 +22,7 @@ import { createCanvasDocument, canvasDocumentPath, type CanvasDocumentDetail, ty
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import type { AssetLibrary } from "./asset-library.js";
 import type { ProjectManager } from "./projects.js";
+import { GenerationShutdown } from "./media-task-journal.js";
 import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
@@ -501,7 +502,7 @@ export class CanvasStore {
     try {
       const value: unknown = JSON.parse(await readFile(await canvasPath(this.#project(id).workspacePath, "jobs.json"), "utf8"));
       if (!Array.isArray(value) || value.length > 1000 || value.some((job) => !job || typeof job.id !== "string" || job.context?.projectId !== id || typeof job.context?.boardId !== "string" || typeof job.context?.nodeId !== "string" || !["running", "succeeded", "failed", "cancelled"].includes(job.status))) throw new CanvasError("Invalid generation history");
-      jobs = value.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled", error: "Generation was interrupted. Retry to resume a submitted 3D task." } : job);
+      jobs = value.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled", error: "Generation was interrupted. Retry to resume a submitted 3D task or plugin provider's video." } : job);
     } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
@@ -830,5 +831,5 @@ export class CanvasStore {
     return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }
-  async close() { this.#closed = true; for (const controller of this.#controllers.values()) controller.abort(); await Promise.allSettled([...this.#executions.values()].flatMap((executions) => [...executions])); }
+  async close() { this.#closed = true; for (const controller of this.#controllers.values()) controller.abort(new GenerationShutdown()); await Promise.allSettled([...this.#executions.values()].flatMap((executions) => [...executions])); }
 }

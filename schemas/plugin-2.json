@@ -1281,6 +1281,161 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "video": {
+                    "type": "object",
+                    "required": [
+                      "models"
+                    ],
+                    "properties": {
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "durations",
+                            "resolutions",
+                            "aspectRatios"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "title": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "durations": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 30
+                              },
+                              "minItems": 1,
+                              "maxItems": 30,
+                              "uniqueItems": true
+                            },
+                            "resolutions": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "480p"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "720p"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "768p"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1080p"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1K"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2K"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4K"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            },
+                            "aspectRatios": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "adaptive"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "21:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "16:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:2"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1:1"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:4"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:16"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:21"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            },
+                            "maxReferenceImages": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16
+                            },
+                            "referenceModes": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "frame"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "reference"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 100
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false

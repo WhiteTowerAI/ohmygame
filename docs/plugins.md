@@ -574,8 +574,9 @@ switches don't apply. It follows installs, updates and setting changes.
   runs in a sandbox and reaches only `capabilities.network`, which a provider
   with `media` must list; the app adds the key to the requests it marks.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
-  models it lists under `image` to the image catalog while the key is set and
-  the provider is on. [Media provider plugins](media-provider-plugins.md) has
+  models it lists under `image` and `video` to the image and video catalogs
+  while the key is set and the provider is on; a video's task survives a
+  restart for a retry to resume. [Media provider plugins](media-provider-plugins.md) has
   the contract.
 
 ## Coding agents

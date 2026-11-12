@@ -1241,7 +1241,8 @@ export interface ImageGenerationOption {
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export type VideoModelRef = ModelRef;
-export type VideoReferenceMode = "frame" | "reference";
+export const VIDEO_REFERENCE_MODES = ["frame", "reference"] as const;
+export type VideoReferenceMode = (typeof VIDEO_REFERENCE_MODES)[number];
 export interface VideoModel extends VideoModelRef {
   name: string;
   provider: string;

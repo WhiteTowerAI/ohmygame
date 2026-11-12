@@ -79,10 +79,14 @@ export class PluginModelProviders {
   }
 
   /** What a provider makes: chat, and the kinds of media its adapter makes. */
-  capabilities(id: string): Array<"language" | "image"> {
+  capabilities(id: string): Array<"language" | "image" | "video"> {
     const provider = this.#providers.get(id)?.provider;
     if (!provider) return [];
-    return [...(provider.api ? ["language" as const] : []), ...(provider.media?.image ? ["image" as const] : [])];
+    return [
+      ...(provider.api ? ["language" as const] : []),
+      ...(provider.media?.image ? ["image" as const] : []),
+      ...(provider.media?.video ? ["video" as const] : []),
+    ];
   }
 
   title(id: string, locale: PluginLocale): string | undefined {

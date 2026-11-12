@@ -1,3 +1,4 @@
+import type { MediaTaskJournal } from "./media-task-journal.js";
 import type { VideoAspectRatio, VideoGenerationReference, VideoModelRef, VideoResolution, VideoReferenceMode } from "../shared/contracts.js";
 
 export interface VideoGenerationInput {
@@ -16,8 +17,13 @@ export interface GeneratedVideo {
   requestId?: string;
 }
 
+export interface VideoGenerationOptions {
+  /** Keeps a submitted task under the generation's recovery id, so a retry resumes it. */
+  journal?: MediaTaskJournal;
+}
+
 export interface VideoGenerator {
-  generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo>;
+  generate(input: VideoGenerationInput, signal?: AbortSignal, options?: VideoGenerationOptions): Promise<GeneratedVideo>;
 }
 
 export interface VideoReferenceAsset {
