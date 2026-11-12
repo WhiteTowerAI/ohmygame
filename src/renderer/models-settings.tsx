@@ -450,6 +450,7 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
           placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} disabled={saving || deletion.busy} />
         <Button variant="primary" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
       </div>
+      {plugin.keyHint ? <p className="settings-detail-hint">{plugin.keyHint}</p> : null}
     </form> : provider.configured ? null : <p className="settings-detail-hint">{t("providers.plugin.unavailable")}</p>}
     {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
     <div className="settings-provider-connection">

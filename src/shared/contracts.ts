@@ -144,6 +144,8 @@ export interface PluginProviderInfo {
   baseUrl: string;
   /** The plugin's setting that holds the key, when it needs one. */
   keySetting?: string;
+  /** That setting's description, such as where to get a key. */
+  keyHint?: string;
   /** Changes with the package, when the provider has its own icon (`/plugin-providers/:id/icon`). */
   icon?: string;
 }
