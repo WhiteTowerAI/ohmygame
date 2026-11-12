@@ -104,6 +104,7 @@ import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
+import { PixelLab } from "./pixellab.js";
 import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
 import type { ImageGenerator } from "./openai-image.js";
@@ -707,6 +708,8 @@ export function createApp(options: AppOptions = {}) {
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
+  const pixelLabSettings = new MediaProviderKeyStore(dataDirectory, "pixellab", "PixelLab");
+  const pixelLab = new PixelLab(() => providerEnabled("pixellab") ? pixelLabSettings.key() : undefined);
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
@@ -800,6 +803,7 @@ export function createApp(options: AppOptions = {}) {
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
     codexImages,
+    pixelLab,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -1450,7 +1454,7 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), pixelLabSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -3483,6 +3487,16 @@ export function createApp(options: AppOptions = {}) {
         capabilities: ["video"] as const,
       };
     }), {
+      id: "pixellab",
+      name: "PixelLab",
+      configured: pixelLabSettings.get().configured,
+      enabled: providerEnabled("pixellab"),
+      custom: false,
+      status: pixelLabSettings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: "PixelLab API key" }],
+      credentialType: "api_key" as const,
+      capabilities: ["image"] as const,
+    }, {
       id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: doubaoVoiceSettings.get().configured,
@@ -3638,6 +3652,21 @@ export function createApp(options: AppOptions = {}) {
   app.delete("/settings/models/providers/elevenlabs/credential", async (_request, reply) => {
     await elevenLabsSettings.clear();
     catalogRefresh.invalidate("elevenlabs");
+    return reply.code(204).send();
+  });
+  app.get("/settings/models/providers/pixellab", async () => pixelLabSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/pixellab", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["apiKey"], properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 } } } },
+  }, async (request, reply) => {
+    try {
+      const result = await pixelLabSettings.update(request.body.apiKey);
+      catalogRefresh.invalidate("pixellab");
+      return result;
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/pixellab/credential", async (_request, reply) => {
+    await pixelLabSettings.clear();
+    catalogRefresh.invalidate("pixellab");
     return reply.code(204).send();
   });
   app.get<{ Params: { provider: string }; Querystring: { search?: string; pageToken?: string } }>("/audio-providers/:provider/voices", {

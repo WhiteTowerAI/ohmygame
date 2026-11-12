@@ -4,6 +4,7 @@ import type { AssetCanvasNode, LibraryAsset } from "./contracts.js";
 export interface CanvasAsset {
   audio?: LibraryAsset["audio"];
   model3d?: LibraryAsset["model3d"];
+  skeleton?: LibraryAsset["skeleton"];
   name: string;
   path: string;
   description?: string;
@@ -26,6 +27,11 @@ export const CANVAS_ASSETS_SCHEMA = Type.Object({
       triangles: Type.Integer({ minimum: 0 }), textured: Type.Boolean(), rigged: Type.Boolean(), animations: Type.Array(Type.String()),
       forwardAxis: Type.Optional(Type.Union([Type.Literal("+X"), Type.Literal("+Z")])), provider: Type.Optional(Type.String()),
       operation: Type.Optional(Type.Union([Type.Literal("image"), Type.Literal("text"), Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")])),
+    }, { additionalProperties: false })),
+    skeleton: Type.Optional(Type.Object({
+      keypoints: Type.Array(Type.Object({
+        x: Type.Number({ minimum: 0, maximum: 1 }), y: Type.Number({ minimum: 0, maximum: 1 }), label: Type.String({ minLength: 1, maxLength: 80 }), zIndex: Type.Optional(Type.Integer()),
+      }), { minItems: 1, maxItems: 32 }),
     }, { additionalProperties: false })),
     name: Type.String({ minLength: 1, maxLength: 200 }),
     path: Type.String({ minLength: 1, maxLength: 1000, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+" }),

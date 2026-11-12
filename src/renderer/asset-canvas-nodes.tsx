@@ -109,8 +109,11 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const aspectRatios = [...new Set(modelOptions
     .filter((option) => option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
+  const sourceOnlyModel = selectedModel?.provider === "pixellab" && ["estimate-skeleton", "8-rotations-v3"].includes(selectedModel.id);
+  const skeletonRecognition = selectedModel?.provider === "pixellab" && selectedModel.id === "estimate-skeleton";
+  const pixelAnimation = selectedModel?.provider === "pixellab" && ["animate-v3", "animate-skeleton-v3"].includes(selectedModel.id);
 
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean((sourceOnlyModel || effectivePrompt(data, runtime).trim()) && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -154,8 +157,8 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         kind="image"
         value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
         runtime={runtime}
-        label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+        label={sourceOnlyModel ? t(skeletonRecognition ? "assetCanvas.media.image.skeletonLabel" : "assetCanvas.media.image.directionsLabel") : pixelAnimation ? t("assetCanvas.media.image.animationLabel") : sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
+        placeholder={sourceOnlyModel ? t(skeletonRecognition ? "assetCanvas.media.image.skeletonPlaceholder" : "assetCanvas.media.image.directionsPlaceholder") : pixelAnimation ? t("assetCanvas.media.image.animationPlaceholder") : sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}

@@ -602,7 +602,8 @@ export class CanvasStore {
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
-    if (!prompt) throw new CanvasError("Add a prompt before generating");
+    const sourceOnlyPixelLab = node.type === "image" && node.data.model?.provider === "pixellab" && ["estimate-skeleton", "8-rotations-v3"].includes(node.data.model.id);
+    if (!prompt && !sourceOnlyPixelLab) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") {
       let imagePrompt = prompt;
       if (node.data.presetId === "continuous-sequence" && node.data.actionDescription !== undefined) {
@@ -622,7 +623,12 @@ export class CanvasStore {
         pixelStyle = parent.data.pixelStyle;
         parentId = parent.parentId;
       }
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
+      const images = await Promise.all(node.data.images.map(image));
+      const firstAssetId = node.data.images[0] ? assetId(node.data.images[0]) : undefined;
+      const skeleton = node.data.model?.provider === "pixellab" && node.data.model.id === "animate-skeleton-v3" && firstAssetId
+        ? manifest.assets[firstAssetId]?.skeleton
+        : undefined;
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), ...(skeleton ? { skeleton } : {}), images }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
@@ -801,11 +807,30 @@ export class CanvasStore {
       await withCanvasLock(this.#project(id).workspacePath, async () => {
         if (controller.signal.aborted) return;
         const workspace = this.#project(id).workspacePath, boardId = job.context!.boardId!;
+        const pixelAnimation = toolId === "generate-image" && "imageModel" in prepared && prepared.imageModel?.provider === "pixellab" && prepared.imageModel.id === "animate-v3";
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
           const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
-          if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
+          if (detail && node && expectedType && node.type === expectedType) {
+            Object.assign(node.data, { assetId: output.assetId });
+            if (pixelAnimation) {
+              const prefix = `pixellab_frame_${node.id}_`;
+              const groupId = `pixellab_animation_${node.id}`;
+              const previousGroup = detail.board.nodes.find((candidate) => candidate.id === groupId && candidate.type === "group");
+              const outerParentId = node.parentId === groupId ? previousGroup?.parentId : node.parentId;
+              const nodePosition = node.parentId === groupId && previousGroup
+                ? { x: previousGroup.position.x + node.position.x, y: previousGroup.position.y + node.position.y }
+                : node.position;
+              detail.board.nodes = detail.board.nodes.filter((candidate) => candidate.id !== groupId && !candidate.id.startsWith(prefix));
+              for (const id of Object.keys(detail.board.editorLayout.nodes)) if (id === groupId || id.startsWith(prefix)) delete detail.board.editorLayout.nodes[id];
+              if (outerParentId) node.parentId = outerParentId;
+              else delete node.parentId;
+              node.position = nodePosition;
+              detail.board.editorLayout.nodes[node.id] = canvasNodeLayout(node);
+            }
+            await writeCanvasBoard(workspace, detail.board);
+          }
         }
         job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
       });

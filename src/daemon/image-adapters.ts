@@ -146,7 +146,7 @@ function geminiEndpoint(baseUrl: string, model: string): string {
 }
 
 function imageMediaType(value: unknown): GeneratedImageMediaType | undefined {
-  return value === "image/png" || value === "image/jpeg" || value === "image/webp" ? value : undefined;
+  return value === "image/png" || value === "image/jpeg" || value === "image/webp" || value === "image/gif" ? value : undefined;
 }
 
 function aspectRatio(size?: ImageGenerationInput["size"]): "1:1" | "16:9" | "9:16" {

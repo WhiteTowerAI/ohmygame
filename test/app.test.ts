@@ -1702,6 +1702,37 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
   });
 
+  it("lists PixelLab as an image provider and keeps its key private", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-pixellab-settings-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/pixellab" })).json())
+      .toEqual({ configured: false });
+    const initial = await app.inject({ method: "GET", url: "/settings/providers" });
+    expect(initial.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "pixellab", name: "PixelLab", configured: false, status: "not_configured", capabilities: ["image"] }),
+    ]));
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/pixellab",
+      payload: { apiKey: "pixellab-key" },
+    })).json()).toEqual({ configured: true });
+    const connected = await app.inject({ method: "GET", url: "/settings/providers" });
+    expect(connected.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "pixellab", configured: true, status: "connected" }),
+    ]));
+    expect(connected.body).not.toContain("pixellab-key");
+    const imageCatalog = await app.inject({ method: "GET", url: "/image-models/catalog" });
+    expect(imageCatalog.json()).toMatchObject({
+      models: expect.arrayContaining([expect.objectContaining({ provider: "pixellab", id: "pixen", name: "Pixen Pixel Art" })]),
+      providers: expect.arrayContaining([expect.objectContaining({ provider: "pixellab", state: "ready" })]),
+    });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/pixellab/credential" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/pixellab" })).json())
+      .toEqual({ configured: false });
+  });
+
   it("stores official Seedance credentials independently without exposing their values", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-seedance-settings-")) });
     apps.push(app);

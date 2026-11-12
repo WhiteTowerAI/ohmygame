@@ -1,12 +1,15 @@
-import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage, SkeletonMetadata } from "../shared/contracts.js";
 import sharp from "sharp";
 
-export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
+export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 export interface GeneratedImage {
   bytes: Buffer;
   mediaType: GeneratedImageMediaType;
   requestId?: string;
+  /** Some providers return a sequence of independently usable image frames. */
+  additionalImages?: Array<Pick<GeneratedImage, "bytes" | "mediaType" | "skeleton">>;
+  skeleton?: SkeletonMetadata;
 }
 
 export interface ImageGenerationInput {
@@ -18,6 +21,7 @@ export interface ImageGenerationInput {
   images?: PromptImage[];
   /** Request and validate a real alpha background for sprite/effect assets. */
   transparentBackground?: boolean;
+  skeleton?: SkeletonMetadata;
 }
 
 export interface ImageGenerator {
@@ -132,7 +136,7 @@ export async function assertTransparentImage(bytes: Buffer): Promise<void> {
 
 function contentType(value: string | null): GeneratedImageMediaType | undefined {
   const type = value?.split(";", 1)[0]?.trim();
-  return type === "image/png" || type === "image/jpeg" || type === "image/webp" ? type : undefined;
+  return type === "image/png" || type === "image/jpeg" || type === "image/webp" || type === "image/gif" ? type : undefined;
 }
 
 function imageEndpoint(baseUrl: string, edit: boolean): string {
