@@ -1,0 +1,62 @@
+name: Release plugin packages
+
+# Publishes the plugin author packages (@ohmygame/plugin-ui, @ohmygame/plugin-cli
+# and create-ohmygame-plugin) from a release's commit once that release is out,
+# since a plugin they make needs the plugin API that release carries. Their
+# version is the plugin API's, so a release that didn't raise it finds them on
+# npm already and publishes nothing. npm trusted publishing: no token, each
+# package names this workflow file as its publisher.
+on:
+  workflow_run:
+    workflows: ["Release desktop"]
+    types: [completed]
+  # Runs every check and packs the packages without publishing them.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-plugin-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Only a release a tag started, and that published.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm trusted publishing and provenance.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release's own commit, not main's latest.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # No registry-url: its placeholder token would stand in for trusted publishing's.
+          node-version: 22.19.0
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install --global npm@11.6.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # The packages' version is the plugin API's, and what they make passes the app's checks.
+      - run: bun run test -- test/plugin-pack.test.ts test/plugin-manifest.test.ts
+      - name: Publish
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && '--dry-run' || '' }}
+        run: |
+          # plugin-ui first: the other two are built against it.
+          for folder in plugin-ui plugin-cli create-ohmygame-plugin; do
+            name=$(node -p "require('./packages/$folder/package.json').name")
+            version=$(node -p "require('./packages/$folder/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is on npm already"
+              continue
+            fi
+            (cd "packages/$folder" && npm publish --provenance --access public $DRY_RUN)
+          done
