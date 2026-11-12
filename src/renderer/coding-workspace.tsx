@@ -45,6 +45,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
 import type { GamepadKeyMap } from "../shared/preview-input.js";
@@ -110,6 +111,8 @@ interface CodingWorkspaceProps {
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
+  /** The published game's page was renamed from the publish dialog. */
+  onGameRenamed?: (renamed: GameRename) => void;
   openFileRequest?: { path: string; id: number };
   /** The design document the next message references, by its workspace path. */
   referencedDocument?: string;
@@ -167,6 +170,7 @@ export function CodingWorkspace({
   onDesignSaveReady,
   onDesignContextChange,
   onProjectUpdated,
+  onGameRenamed,
   openFileRequest,
   referencedDocument,
   onReferenceDocument,
@@ -530,7 +534,7 @@ export function CodingWorkspace({
     <>
       {placed}
       {topPlay}
-      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} onPublicationChange={(publication) => onProjectUpdated?.({ ...project, publication })} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} onRenamed={onGameRenamed} /> : null}
       {project && settingsSlot ? createPortal(<ProjectPreviewSettings
         project={project}
         previewDevices={previewDevices}

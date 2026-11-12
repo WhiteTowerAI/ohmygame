@@ -301,9 +301,9 @@ export class OhMyGameAccount implements GameAuth {
     const code = url.searchParams.get("code") ?? undefined;
     const pending = this.loadPending();
     // A game in a frame, as on its website page, keeps its storage apart from this popup's,
-    // so the popup finds no sign-in of its own. It hands the result to the game that opened
-    // it, which checks the state and holds the verifier.
-    if (state && !pending && env.opener && (code || url.searchParams.has("error"))) {
+    // so the popup finds no sign-in of its own, or an abandoned one. It hands the result to
+    // the game that opened it, which checks the state and holds the verifier.
+    if (state && pending?.state !== state && env.opener && (code || url.searchParams.has("error"))) {
       env.opener.postMessage({ type: SIGN_IN_MESSAGE, state, code }, env.location.origin);
       env.close();
       return "popup";

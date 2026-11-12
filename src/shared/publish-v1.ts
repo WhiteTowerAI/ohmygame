@@ -140,6 +140,19 @@ export function publicationOf(game: Pick<PublishCommunityGame, "id" | "deploymen
   };
 }
 
+/** A game's new page name, as the Cloud answered a rename. */
+export interface GameRename {
+  gameId: string;
+  name?: string;
+  pageUrl?: string;
+}
+
+/** A publication with the game's new page name, if it is still that game's. */
+export function withRename(publication: PublicationState, renamed: GameRename): PublicationState {
+  if (publication.gameId !== renamed.gameId) return publication;
+  return { ...publication, ...(renamed.name ? { name: renamed.name } : {}), ...(renamed.pageUrl ? { pageUrl: renamed.pageUrl } : {}) };
+}
+
 /** An address as people read it: ohmygame.ai/g/zombie for https://www.ohmygame.ai/g/zombie. */
 export function readableUrl(url: string): string {
   return url.replace(/^https:\/\/(www\.)?/, "").replace(/\/$/, "");

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
 import { ApiError, communityGameNameAvailability, getExploreGameCover, getProjectCover, getProjectCoverState, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
-import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, normalizeGameName, readableUrl, type GameNameAvailability } from "../shared/publish-v1.js";
+import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, normalizeGameName, readableUrl, withRename, type GameNameAvailability, type GameRename } from "../shared/publish-v1.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, Pencil, RefreshCw, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
@@ -14,12 +14,12 @@ export interface PublishDetails {
   description: string;
 }
 
-export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish, onPublicationChange }: {
+export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish, onRenamed }: {
   project: ProjectState;
   publishing: boolean;
   onClose: () => void;
-  /** A change made from the dialog itself, such as a new page name. */
-  onPublicationChange?: (publication: PublicationState) => void;
+  /** The game's page got a new name. It may arrive after other changes, so it is merged, not set. */
+  onRenamed?: (renamed: GameRename) => void;
   justPublished?: boolean;
   initialEditing?: boolean;
   coverAccessToken?: string;
@@ -190,7 +190,7 @@ export function PublishDialog({ project, publishing, justPublished = false, init
         name={project.name}
         justPublished={justPublished}
         onClose={onClose}
-        onPublicationChange={onPublicationChange}
+        onRenamed={onRenamed}
         onUpdate={() => {
           setEditing(true);
           setError(undefined);
@@ -247,7 +247,7 @@ function useCoverUrl(cover: Blob | undefined): string | undefined {
   return url;
 }
 
-export function PublicationDetails({ publication: initialPublication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate, onPublicationChange }: {
+export function PublicationDetails({ publication: initialPublication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate, onRenamed }: {
   publication: PublicationState;
   name: string;
   justPublished?: boolean;
@@ -255,7 +255,7 @@ export function PublicationDetails({ publication: initialPublication, name, just
   profileUrl?: string;
   onClose: () => void;
   onUpdate: () => void;
-  onPublicationChange?: (publication: PublicationState) => void;
+  onRenamed?: (renamed: GameRename) => void;
 }) {
   const linkId = useId();
   const auth = useOptionalAuth();
@@ -305,10 +305,10 @@ export function PublicationDetails({ publication: initialPublication, name, just
       publication={publication}
       requestAccessToken={auth.requestAccessToken}
       onCancel={() => setRenaming(false)}
-      onRenamed={(next) => {
-        setPublication(next);
+      onRenamed={(renamed) => {
+        setPublication((current) => withRename(current, renamed));
         setRenaming(false);
-        onPublicationChange?.(next);
+        onRenamed?.(renamed);
       }}
     /> : <div className="publication-link-field">
       <label htmlFor={linkId}>{t("community.link")}</label>
@@ -337,7 +337,7 @@ function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }:
   publication: PublicationState;
   requestAccessToken: () => Promise<string | undefined>;
   onCancel: () => void;
-  onRenamed: (publication: PublicationState) => void;
+  onRenamed: (renamed: GameRename) => void;
 }) {
   const inputId = useId();
   const statusId = useId();
@@ -385,7 +385,7 @@ function GameNameField({ publication, requestAccessToken, onCancel, onRenamed }:
       const token = await requestAccessToken();
       if (!token) return;
       const result = await setCommunityGameName(publication.gameId, token, name);
-      onRenamed({ ...publication, ...(result.name ? { name: result.name } : {}), ...(result.pageUrl ? { pageUrl: result.pageUrl } : {}) });
+      onRenamed({ gameId: publication.gameId, ...result });
     } catch (cause) {
       setError(nameErrorMessage(cause));
     } finally {

@@ -20,6 +20,7 @@ import {
   X,
 } from "./icons.js";
 import { PublishDialog } from "./publish-dialog.js";
+import { withRename } from "../shared/publish-v1.js";
 import { communityProfileHash, projectHash } from "./routes.js";
 import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 
@@ -192,9 +193,9 @@ export function CommunityGameActions({
           onClose={() => {
             if (!publishing) setPublishingProject(undefined);
           }}
-          onPublicationChange={(publication) => {
-            setPublishingProject((previous) => previous && { ...previous, publication });
-            onChange({ name: publication.name, pageUrl: publication.pageUrl });
+          onRenamed={(renamed) => {
+            setPublishingProject((previous) => previous?.publication ? { ...previous, publication: withRename(previous.publication, renamed) } : previous);
+            if (renamed.gameId === game.id) onChange({ name: renamed.name, pageUrl: renamed.pageUrl });
           }}
           onPublish={async (metadata) => {
             setPublishing(true);

@@ -27,6 +27,7 @@ import {
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
+import type { GameRename } from "../shared/publish-v1.js";
 import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
@@ -122,9 +123,11 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, referencedDocument, onReferenceDocument, onQuoteDocument, settingsSlot, panels }: {
+export function PlayableEditorWorkspace({ project, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, onChatContextChange, onAskAgent, onSendToAgent, onDesignSaveReady, onDesignContextChange, onProjectUpdated, onGameRenamed, referencedDocument, onReferenceDocument, onQuoteDocument, settingsSlot, panels }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
+  /** The published game's page was renamed from the publish dialog. */
+  onGameRenamed?: (renamed: GameRename) => void;
   publishing: boolean;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
@@ -1341,7 +1344,7 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
         onClose={settingsSlot.onClose}
         onBusyChange={settingsSlot.onBusyChange}
       /> : <div className="design-loading"><LoaderCircle className="spin" size={18} /></div>, settingsSlot.node) : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} onPublicationChange={(publication) => onProjectUpdated?.({ ...project, publication })} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} onRenamed={onGameRenamed} /> : null}
     </>
   );
 }

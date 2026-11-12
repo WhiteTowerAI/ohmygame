@@ -270,8 +270,11 @@ describe("game sign-in in the SDK", () => {
     await vi.waitFor(() => expect(page.opened).toHaveLength(1), { timeout: 3000 });
     const { code, state } = service.authorize(page.opened[0]!);
 
-    // The popup is a top-level page, so the browser gives it other storage than the frame's.
-    const popup = browser(memoryStorage(), (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}`, opener: true });
+    // The popup is a top-level page, so the browser gives it other storage than the frame's,
+    // perhaps with a sign-in started there and abandoned.
+    const popupStorage = memoryStorage();
+    popupStorage.setItem(`ohmygame:account:${ISSUER}:pending`, JSON.stringify({ state: "abandoned", verifier: "v", redirectUri: `${GAME}/`, popup: true, createdAt: page.now }));
+    const popup = browser(popupStorage, (body) => service.handle(body), { href: `${GAME}/?code=${code}&state=${state}`, opener: true });
     let started = false;
     void init({ manifest, accountEnvironment: popup.env }).then(() => (started = true));
     await vi.waitFor(() => expect(popup.page.sentToOpener).toEqual([{ type: "ohmygame:sign-in", state, code }]));

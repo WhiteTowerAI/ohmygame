@@ -154,7 +154,7 @@ describe("coding workspace", () => {
     expect(html.match(/role="dialog"/g)).toHaveLength(1);
     expect(html).toContain("Published successfully");
     expect(html).toContain("Published title");
-    expect(html).toContain('value="https://play.example/game-1"');
+    expect(html).toContain('value="play.example/game-1"');
     expect(html).not.toContain("<form");
   });
 

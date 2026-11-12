@@ -1742,6 +1742,7 @@ export function ProjectShell({
           onDesignSaveReady={registerDesignSave}
           onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+          onGameRenamed={(renamed) => dispatch({ type: "game-renamed", projectId: project.id, renamed })}
           referencedDocument={referencedDocument}
           onReferenceDocument={referenceDocument}
           onQuoteDocument={quoteDocument}
@@ -1764,6 +1765,7 @@ export function ProjectShell({
         showStoryMap={showStoryMap}
         onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+          onGameRenamed={(renamed) => dispatch({ type: "game-renamed", projectId: project.id, renamed })}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
         publishing={publishing}
