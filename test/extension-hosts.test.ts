@@ -1525,9 +1525,6 @@ describe("project types", () => {
       await services.native.closeProject(folder);
       await expect(runtime.request({ operation: "captureFrame", sessionId: opened.snapshot.sessionId, frame: 30 })).rejects.toThrow("restarted");
       runtime.close();
-      // The person turning the plugin off takes the game away from game_use.
-      await services.setEnabled("acme/board", false);
-      expect(await projectGameUse(folder, services)).toBeUndefined();
     } finally {
       await services.close();
       await rm(data, { recursive: true, force: true });

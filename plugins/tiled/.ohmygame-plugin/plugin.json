@@ -14,9 +14,7 @@
   ],
   "beta": true,
   "icon": "./assets/icon.svg",
-  "categories": [
-    "art"
-  ],
+  "categories": ["design", "art"],
   "appliesTo": [
     "general",
     "web-game",

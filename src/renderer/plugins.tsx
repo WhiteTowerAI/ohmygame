@@ -1,12 +1,13 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { PluginBuilderSessions } from "./plugin-builder.js";
+import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, CirclePlus, Package, RotateCcw, Server, Sparkles } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, MarketPluginCard, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
+import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -15,21 +16,12 @@ import { PluginAddDialog } from "./plugin-add-dialog.js";
 import { Alert, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
-/** The page's groups, by the categories a plugin declares. */
-const PLUGIN_GROUPS = [
-  { id: "creation", categories: ["workflow"] },
-  { id: "engines", categories: ["engine", "publishing"] },
-  { id: "assets", categories: ["art", "audio"] },
-  { id: "other", categories: [] },
-] as const;
-
-
-function storePluginGroup(plugin: StorePlugin) {
-  return PLUGIN_GROUPS.find(group => group.categories.some(category => plugin.categories?.includes(category)))?.id ?? "other";
-}
-
-/** The person's own: one they made, or one added from this computer. Installed plugins get updates; these get edited. */
-const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || (!plugin.bundled && !plugin.preinstalled && !plugin.origin);
+/**
+ * One the person makes: made with AI, or developed from a folder. Installed
+ * lists them with the rest; Mine is where they're made. A package added from a
+ * folder or file is someone's release, so it's only under Installed.
+ */
+const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || plugin.origin?.type === "development";
 
 export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
@@ -47,20 +39,28 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [addOpen, setAddOpen] = useState(false);
   const [market, setMarket] = useState<PluginMarketListing>();
   const [adding, setAdding] = useState<MarketPlugin>();
+  // A market plugin shown over Discover, so browsing never leaves the list.
+  const [preview, setPreview] = useState<string>();
   const [updates, setUpdates] = useState<PluginSourceUpdate[]>();
   const [updating, setUpdating] = useState<PluginSourceUpdate>();
   const [safeMode, setSafeMode] = useState(false);
   const runtimeService = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.runtimeService;
   const restart = (mode: boolean) => void runtimeService?.restart({ safeMode: mode }).catch((cause: unknown) => setError(errorMessage(cause)));
-  const [tab, showTab] = useState<PluginsTab>(routeTab ?? (initialAdds ? "discover" : "installed"));
+  // Discover comes first, as in a store: what's installed is mostly switched on and off from projects.
+  const [tab, showTab] = useState<PluginsTab>(routeTab ?? "discover");
   const [query, setQuery] = useState("");
   const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
   const [kind, setKind] = useState<PluginContribution | "all">("all");
+  const [marketSection, setMarketSection] = useState<MarketSection>("home");
+  const [only, setOnly] = useState<MarketOnly[]>([]);
+  const [installedCategory, setInstalledCategory] = useState<CatalogFilter>("all");
+  const [sort, setSort] = useState<MarketSort>("recommended");
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
   useEffect(() => {
     if (!initialAdds) return;
     showTab("discover");
     setAdds(initialAdds);
+    setMarketSection("all");
   }, [initialAdds]);
   function setTab(next: PluginsTab): void {
     showTab(next);
@@ -96,10 +96,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   useEffect(() => { void load(); }, [serviceGeneration]);
   // The page works without the market, so it neither waits for it nor reports it failing.
   // The daemon answers from what it has and refreshes behind that, so asking again is cheap.
+  // A failed read keeps what was read before, or says the market can't be reached.
+  const readMarket = () => void waitForRuntime().then(readPluginMarket).then(setMarket, () => setMarket(current => current ?? { status: "unavailable", plugins: [], blocked: [] }));
   useEffect(() => {
-    const read = () => void waitForRuntime().then(readPluginMarket).then(setMarket, () => {});
-    read();
-    const timer = setInterval(read, MARKET_READ_MS);
+    readMarket();
+    const timer = setInterval(readMarket, MARKET_READ_MS);
     return () => clearInterval(timer);
   }, [serviceGeneration]);
 
@@ -115,12 +116,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
 
   const normalizedQuery = query.trim().toLowerCase();
   const groups = groupStorePlugins(store);
-  const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
-    .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
+  const byName = (left: StorePluginGroup, right: StorePluginGroup) => left.plugin.displayName.localeCompare(right.plugin.displayName);
+  const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery)).sort(byName);
   const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} updates={updates} disabled={Boolean(everyProject.busy)}
     onToggle={on => everyProject.toggle(group.plugin, on)} onOpen={() => onPluginChange(group.plugin.id)} />;
-  const others = groups.filter(({ plugin }) => !isMine(plugin));
-  const updatable = others.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
+  // Installed is every plugin, the person's own among them: it is where plugins are switched on and off.
+  const updatable = groups.some(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const addMenuItems: MenuEntry[] = [
     { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
@@ -131,92 +132,134 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   ];
   // Only what some plugin adds, so no choice leads to an empty page.
   const kindFilter = (value: PluginContribution | "all", onChange: (value: PluginContribution | "all") => void, offered: PluginContribution[]) =>
-    <div className="plugins-filters">
-      <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={value} onChange={onChange} options={[
-        { value: "all", label: t("plugins.allContributions") },
-        ...PLUGIN_CONTRIBUTIONS.filter(item => item === value || offered.includes(item)).map(item => ({ value: item, label: t(`plugins.contributions.${item}`) })),
-      ]} />
-    </div>;
+    <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={value} onChange={onChange} options={[
+      { value: "all", label: t("plugins.allContributions") },
+      ...PLUGIN_CONTRIBUTIONS.filter(item => item === value || offered.includes(item)).map(item => ({ value: item, label: t(`plugins.contributions.${item}`) })),
+    ]} />;
+  const toolbar = (chips: ReactNode, ...controls: ReactNode[]) => <div className="plugins-filters">
+    {chips}
+    <div className="plugins-filters-end">{controls}</div>
+  </div>;
 
-  // Installed: what others made, by what it is for. Skills are a kind of content, so they are a filter here.
-  const installed = matching.filter(({ plugin }) => !isMine(plugin) && (kind === "all" || storePluginContributions(plugin).includes(kind)));
-  const skills = kind === "skills" ? others.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })))
+  // Installed: every plugin, by what it is for. Skills are a kind of content, so they are a filter here.
+  const installable = matching.filter(({ plugin }) => kind === "all" || storePluginContributions(plugin).includes(kind));
+  const installed = installable.filter(({ plugin }) => inCatalogCategory(plugin.categories, installedCategory));
+  const matchingSkills = kind === "skills" ? groups.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })))
     .filter(({ plugin, skill }) => `${skill.name} ${skill.description} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery)) : [];
+  const skills = matchingSkills.filter(({ plugin }) => inCatalogCategory(plugin.categories, installedCategory));
+  // Updates come first only on the whole list; a filtered one shows them in place.
+  const toUpdate = normalizedQuery || kind !== "all" || installedCategory !== "all" ? []
+    : groups.filter(({ plugin }) => marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
   const installedTab = <>
-    {others.length ? kindFilter(kind, setKind, [...new Set(others.flatMap(({ plugin }) => storePluginContributions(plugin)))]) : null}
+    {toUpdate.length ? <section className="plugins-section plugins-updates" aria-label={t("pluginCatalog.updates")}>
+      <h2>{t("pluginCatalog.updates")}<span className="plugins-count">{toUpdate.length}</span></h2>
+      <div className="plugins-grid">{toUpdate.map(card)}</div>
+    </section> : null}
+    {groups.length ? toolbar(
+      <CategoryChips items={(kind === "skills" ? matchingSkills : installable).map(({ plugin }) => plugin.categories)} value={installedCategory} onChange={setInstalledCategory} />,
+      kindFilter(kind, setKind, [...new Set(groups.flatMap(({ plugin }) => storePluginContributions(plugin)))]),
+    ) : null}
     {kind === "skills" ? skills.length
       ? <div className="plugins-grid">{skills.map(({ plugin, skill }) => <StoreSkillCard key={`${plugin.id}:${skill.id}`} plugin={plugin} skill={skill} onOpen={() => onPluginChange(plugin.id)} />)}</div>
       : <Empty title={t("plugins.noMatchingSkills")} />
-      : !installed.length ? <Empty title={normalizedQuery || kind !== "all" ? t("plugins.noMatch") : t("plugins.noneInstalled")}
+      : !installed.length ? <Empty title={normalizedQuery || kind !== "all" || installedCategory !== "all" ? t("plugins.noMatch") : t("plugins.noneInstalled")}
         action={<Button icon={<Package size={14} />} onClick={() => setTab("discover")}>{t("plugins.discoverTab")}</Button>} />
-      : normalizedQuery ? <div className="plugins-grid">{installed.map(card)}</div>
-      : PLUGIN_GROUPS.map(group => ({ id: group.id, plugins: installed.filter(({ plugin }) => storePluginGroup(plugin) === group.id) }))
+      : normalizedQuery || installedCategory !== "all" ? <div className="plugins-grid">{installed.map(card)}</div>
+      : CATALOG_CATEGORIES.map(category => ({ category, plugins: installed.filter(({ plugin }) => catalogSection(plugin.categories) === category) }))
         .filter(group => group.plugins.length)
-        .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} cards={group.plugins.map(card)} />)}
+        .map(group => <PluginGroup key={group.category} title={categoryLabel(group.category)} cards={group.plugins.map(card)} />)}
   </>;
 
-  // Discover: the market, to get plugins from. One already installed opens its page.
+  // Discover: the market, to get plugins from, browsed from a side list as in an app store.
+  // A card opens the plugin in a dialog over the list.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
-  const listed = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
-    && (adds === "all" || marketContributions(plugin).includes(adds)));
-  const marketCards = (plugins: MarketPlugin[]) => <div className="plugins-grid">
-    {plugins.map(plugin => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
-      onOpen={() => installedIds.has(plugin.id) ? onPluginChange(plugin.id) : setAdding(plugin)} />)}
-  </div>;
+  const searched = marketPlugins.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
+    && (adds === "all" || marketContributions(plugin).includes(adds)) && marketOnly(plugin, only));
+  const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
+  const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
+  const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
+    onOpen={() => setPreview(plugin.id)} />;
+  // The overview reads like a store's front page, the same few rows however many plugins there are.
+  // Searching or filtering shows one list instead, a page at a time.
+  const narrowed = Boolean(normalizedQuery) || adds !== "all" || only.length > 0;
+  const front = marketSection === "home" && !narrowed && marketPlugins.length > SECTIONS_FROM ? marketFront(marketPlugins) : undefined;
+  const showAll = (order: MarketSort) => { setMarketSection("all"); setSort(order); };
+  const row = (title: string, plugins: MarketPlugin[], order?: MarketSort) => plugins.length
+    ? <section key={title} className="plugins-section" aria-label={title}>
+      <div className="plugins-section-head">
+        <h2>{title}</h2>
+        {order ? <Button variant="ghost" size="sm" onClick={() => showAll(order)}>{t("plugins.viewAll", { count: listed.length })}</Button> : null}
+      </div>
+      <div className="plugins-grid">{plugins.map(marketCard)}</div>
+    </section> : null;
+  const listTitle = marketSection === "home" || marketSection === "all" ? t("pluginCatalog.allPlugins") : categoryLabel(marketSection);
   const discoverTab = <>
-    {marketPlugins.length ? kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))]) : null}
     {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
     {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
-    {listed.some(plugin => plugin.featured) ? <section className="plugins-section" aria-label={t("plugins.marketFeatured")}>
-      <h2>{t("plugins.marketFeatured")}</h2>
-      {marketCards(listed.filter(plugin => plugin.featured))}
-    </section> : null}
-    {listed.some(plugin => !plugin.featured) ? <section className="plugins-section" aria-label={t("plugins.marketListed")}>
-      <h2>{t("plugins.marketListed")}</h2>
-      {marketCards(listed.filter(plugin => !plugin.featured))}
-    </section> : null}
-    {listed.length ? null : <Empty title={normalizedQuery || adds !== "all" ? t("plugins.noMatch") : t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+    {marketPlugins.length ? <div className="plugins-browse">
+      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} />
+      <div className="plugins-browse-main">
+        {front ? <>
+          {row(t("plugins.marketFeatured"), front.featured)}
+          {row(t("pluginCatalog.sort.recommended"), front.recommended, "recommended")}
+          {row(t("pluginCatalog.newPlugins"), front.new, "new")}
+          {row(t("pluginCatalog.sort.updated"), front.updated, "updated")}
+          <div className="plugins-all">
+            <Button onClick={() => showAll("recommended")}>{t("pluginCatalog.viewAllPlugins", { count: listed.length })}</Button>
+          </div>
+        </> : <section className="plugins-section" aria-label={listTitle}>
+          <div className="plugins-section-head">
+            <h2>{listTitle}<span className="plugins-count">{listed.length}</span></h2>
+            <div className="plugins-filters-end">
+              {kindFilter(adds, setAdds, [...new Set(marketPlugins.flatMap(marketContributions))])}
+              <MarketSortSelect value={sort} onChange={setSort} />
+            </div>
+          </div>
+          {listed.length ? <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketSection}\n${only.join()}\n${sort}`} cards={listed.map(marketCard)} />
+            : <Empty title={t("plugins.noMatch")} />}
+        </section>}
+      </div>
+    </div> : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
     </div>} />}
   </>;
 
-  // Mine: what the person can edit: a new one with AI, the AI workspaces, and their own plugins.
-  const mine = matching.filter(({ plugin }) => isMine(plugin));
+  // Mine: a new plugin with AI, then a card for each plugin the person makes, as projects are.
   const mineTab = <>
-    <section className="plugins-section" aria-label={t("plugins.minePlugins")}>
-      <h2>{t("plugins.minePlugins")}</h2>
-      <div className="plugins-grid">
-        <button type="button" className="plugin-card plugin-card-create" onClick={createWithAi}>
-          <span className="plugin-tile"><Sparkles size={18} /></span>
-          <span className="plugin-card-text">
-            <strong>{t("plugins.createPluginWithAi")}</strong>
-            <small>{t("plugins.createWithAiHint")}</small>
-          </span>
-        </button>
-        {mine.map(card)}
-      </div>
-    </section>
-    <PluginBuilderSessions />
+    <div className="plugins-create">
+      <span className="plugin-tile"><Sparkles size={18} /></span>
+      <span className="plugins-create-text">
+        <strong>{t("plugins.createPluginWithAi")}</strong>
+        <small>{t("plugins.createWithAiHint")}</small>
+      </span>
+      <Button variant="primary" icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
+    </div>
+    <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin)).sort(byName)} query={normalizedQuery} onOpenPlugin={onPluginChange} />
   </>;
 
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
+  // A link to a plugin that isn't installed opens it over Discover, as a card does.
+  const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
+  const page = linked ? undefined : pluginId;
+  const shown = preview ? marketPlugins.find(plugin => plugin.id === preview) : linked;
+  const closePreview = () => { if (preview) setPreview(undefined); else showCatalog(); };
 
   return <section className="plugins-page">
     {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
       ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>
       {t("pluginSafeMode.hint")}
     </Alert></div> : null}
-    {pluginId ? <>
+    {page ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={pluginId} group={detail} market={market} updates={updates} onUpdate={setAdding}
+        ? <StorePluginDetail key={page} group={detail} market={market} updates={updates} onUpdate={setAdding}
           onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
-        : phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
-          : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => void load()} />}
+        : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
+          : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} />
@@ -225,8 +268,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         )} />
       </div>} />
       <Tabs<PluginsTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
-        { value: "installed", label: t("plugins.installedTab"), attention: updatable ? t("plugins.updatesAvailable") : undefined },
         { value: "discover", label: t("plugins.discoverTab") },
+        { value: "installed", label: t("plugins.installedTab"), attention: updatable ? t("plugins.updatesAvailable") : undefined },
         { value: "mine", label: t("plugins.mineTab") },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={t(`plugins.${tab}Tab`)}>
@@ -236,9 +279,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         {phase === "ready" ? tab === "discover" ? discoverTab : tab === "mine" ? mineTab : installedTab : null}
       </div>
     </>}
+    {shown && !adding ? <MarketPluginDialog key={shown.id} plugin={shown} installed={installedIds.has(shown.id)} onClose={closePreview}
+      onGet={() => setAdding(shown)}
+      onManage={() => { setPreview(undefined); onPluginChange(shown.id); }} /> : null}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); added(id); }} /> : null}
-    {everyProject.dialog}
-    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); added(id); }} /> : null}
+    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); setPreview(undefined); added(id); }} /> : null}
     {updating ? <PluginAddDialog key={updating.id} source={updating.source} onClose={() => setUpdating(undefined)} onAdded={(id) => { setUpdating(undefined); added(id); }} /> : null}
   </section>;
 
@@ -250,6 +295,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
 }
 
 const INSTALLED_PLUGIN_LIMIT = 6;
+/** Below this many, rows of one or two cards say less than a single list does. */
+const SECTIONS_FROM = 12;
+/** Market cards a list shows at a time, so a long one stays quick to draw and to fetch icons for. */
+const LIST_PAGE = 24;
 /** How often an open page picks up what the daemon's market has read. */
 const MARKET_READ_MS = 2 * 60_000;
 
@@ -264,6 +313,17 @@ function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): R
       {expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: cards.length })}
     </Button></div> : null}
   </section>;
+}
+
+/** A long list of cards, a page at a time. */
+function PagedGrid({ cards }: { cards: ReactNode[] }): ReactNode {
+  const [count, setCount] = useState(LIST_PAGE);
+  return <>
+    <div className="plugins-grid">{cards.slice(0, count)}</div>
+    {cards.length > count ? <div className="plugins-all">
+      <Button onClick={() => setCount((current) => current + LIST_PAGE)}>{t("pluginCatalog.showMore", { count: cards.length - count })}</Button>
+    </div> : null}
+  </>;
 }
 
 function PluginState({ children }: { children: ReactNode }): ReactNode {

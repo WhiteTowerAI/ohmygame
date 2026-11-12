@@ -1,5 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { GameTuningState } from "./game-tuning.js";
@@ -820,6 +821,7 @@ export interface PublishProjectRequest {
   accessToken: string;
   title: string;
   description?: string;
+  multiplayer?: MultiplayerManifestConfig;
 }
 
 export type AgentMessagePhase = "commentary" | "final_answer";

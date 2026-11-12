@@ -14,9 +14,7 @@
     "%example.3%"
   ],
   "icon": "./assets/icon.svg",
-  "categories": [
-    "workflow"
-  ],
+  "categories": ["workflow", "design"],
   "appliesTo": [
     "general",
     "godot-game",

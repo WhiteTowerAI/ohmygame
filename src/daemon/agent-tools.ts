@@ -25,6 +25,9 @@ import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
+import { installGameSdk, installMultiplayerWorkspace } from "./multiplayer-workspace.js";
+import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalGameServices, type LocalMultiplayerOptions } from "./local-multiplayer.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -120,6 +123,9 @@ export function createAgentTools(
   },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
+  configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
+  /** The local service's test accounts, saves and leaderboards for this game. */
+  localGameServices?: () => Promise<LocalGameServices>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     request: AudioGenerationRequest,
@@ -172,7 +178,54 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [defineTool({
+  return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+    name: "multiplayer_setup",
+    label: "Set up multiplayer",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS or your own WebRTC. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    parameters: Type.Object({
+      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom"), Type.Literal("owner")], {
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load. owner: realtime casual and co-op games where each page runs its own player, such as a platformer for two, snake or a party game: no rules file; every player's state reaches the others, and shared things such as food or doors go through the service, first come first served. Prefer it for realtime games with physics or players touching each other, unless results must be the same on every screen.",
+      }),
+      maxClients: Type.Optional(Type.Integer({
+        minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,
+        maximum: LOCAL_MULTIPLAYER_MAX_CLIENTS,
+        description: `Players per room, ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}. Gomoku is always 2; the others default to 4.`,
+      })),
+      dropIn: Type.Optional(Type.Boolean({
+        description: "Realtime rules only, including custom realtime rules. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
+      })),
+      tickMs: Type.Optional(Type.Integer({
+        minimum: 20,
+        maximum: 1000,
+        description: "owner only: how often players' states go out, in milliseconds. Defaults to 100; 50 suits fast action.",
+      })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn, ...(input.tickMs === undefined ? {} : { tickMs: input.tickMs }) });
+      signal?.throwIfAborted();
+      const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
+      return {
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        details: { multiplayer: result },
+      };
+    },
+  })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
+    name: "game_sdk_setup",
+    label: "Set up the OhMyGame SDK",
+    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _input, signal) => {
+      signal?.throwIfAborted();
+      const services = await localGameServices?.();
+      const result = await installGameSdk(project, services);
+      const viewer = services ? ` Local saves and leaderboards are kept by OhMyGame's local service until it quits; see them at ${services.cloud.serverUrl}dev/games/${encodeURIComponent(services.cloud.gameId)}.` : "";
+      return {
+        content: [{ type: "text" as const, text: `Read ${result.guidePath} and import init from ${result.sdkPath}/client.js. ${result.manifestPath} must be copied into the build output so init() can load it.${viewer}` }],
+        details: { sdk: result },
+      };
+    },
+  })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
     description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",

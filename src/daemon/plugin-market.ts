@@ -4,7 +4,10 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
-import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { PERSONAL_PUBLISHER, PLUGIN_CATEGORIES, PLUGIN_SCREENSHOT_MAX_BYTES, type PluginCategory } from "../shared/plugin-manifest.js";
+import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
+import { sniffImageType } from "./image-format.js";
+import { validatePluginIconImage } from "./plugin-icons.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
 // plugins published on npm. Listing and blocking rest on the index alone. A
@@ -20,6 +23,12 @@ const INDEX_MAX_BYTES = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** The index job runs every 30 minutes. */
 const REFRESH_MS = 30 * 60_000;
+/** GitHub serves an avatar at 96 pixels in a few kilobytes. */
+const AVATAR_MAX_BYTES = 256 * 1024;
+const AVATAR = /^https:\/\/avatars\.githubusercontent\.com\/u\/([0-9]{1,12})(?:\?v=[0-9]{1,4})?$/;
+const DAY_MS = 24 * 60 * 60_000;
+/** About a page of cards' icons, and a few plugins' screenshots. */
+const IMAGE_CACHE_LIMIT = 128;
 const RETRY_MS = 2 * 60_000;
 
 /** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
@@ -39,6 +48,8 @@ const IndexedVersion = Type.Object({
   publisher: Type.Optional(Type.String({ maxLength: 256 })),
   provenance: Type.Optional(Type.String({ maxLength: 2048 })),
   publishedAt: Type.Optional(Type.String({ maxLength: 64 })),
+  /** npm's `dist.unpackedSize`. */
+  unpackedSize: Type.Optional(Type.Integer({ minimum: 0 })),
   rejected: Type.Optional(Type.Array(Type.String({ maxLength: 4096 }))),
   plugin: Type.Optional(Type.Object({
     id: Type.String({ maxLength: 256 }),
@@ -46,6 +57,18 @@ const IndexedVersion = Type.Object({
     description: Localized,
     grants: Type.Array(Type.String({ maxLength: 1024 })),
     adds: Type.Record(Type.String(), Type.Number()),
+    // Since index schema 1 gained them; an older index has none.
+    categories: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 10 })),
+    appliesTo: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20 })),
+    beta: Type.Optional(Type.Boolean()),
+    longDescription: Type.Optional(Localized),
+    /**
+     * The manifest's icon and screenshots, which the index job copies out of the
+     * package to the index's own storage, by their paths below the index's folder
+     * (`assets/<sha256>.<ext>`: named by their contents, so they never change).
+     */
+    icon: Type.Optional(Type.String({ maxLength: 500 })),
+    screenshots: Type.Optional(Type.Array(Type.Object({ path: Type.String({ maxLength: 500 }), caption: Type.Optional(Localized) }), { maxItems: 10 })),
   })),
 });
 const PackageFacts = Type.Object({
@@ -53,6 +76,11 @@ const PackageFacts = Type.Object({
   sourceVerified: Type.Optional(Type.Literal(true)),
   stars: Type.Optional(Type.Integer({ minimum: 0 })),
   weeklyDownloads: Type.Optional(Type.Integer({ minimum: 0 })),
+  /** The repository owner's GitHub avatar, `avatar_url` from GitHub's API; shown only when the source is verified. */
+  // Any other address is passed over, not the whole index.
+  avatar: Type.Optional(Type.String({ maxLength: 500 })),
+  /** When the package was first published. */
+  createdAt: Type.Optional(Type.String({ maxLength: 64 })),
 });
 const MarketIndex = Type.Object({
   schemaVersion: Type.Literal(1),
@@ -62,6 +90,32 @@ const MarketIndex = Type.Object({
 });
 type MarketIndex = Static<typeof MarketIndex>;
 type IndexedVersion = Static<typeof IndexedVersion>;
+
+export interface MarketImage { bytes: Buffer; mediaType: string; revision: string }
+
+/**
+ * How well a plugin is doing, from 0 to 1, for the market's recommended
+ * order. Downloads count most, but not alone: a plugin kept up to date, with
+ * a verified source and a page that says what it does, ranks above one that
+ * was only downloaded a lot once.
+ *
+ * - 0.50 weekly downloads, and 0.15 GitHub stars, each on a log scale against
+ *   the market's most;
+ * - 0.15 how recently it was updated: full within a month, none after a year;
+ * - 0.20 its page: a verified source, a long description, screenshots and a
+ *   category, a quarter each.
+ *
+ * A beta keeps 85% of its score.
+ */
+export function marketScore(plugin: MarketPlugin, most: { downloads: number; stars: number }, now: number): number {
+  const scale = (value: number | undefined, max: number) => (max > 0 ? Math.log1p(value ?? 0) / Math.log1p(max) : 0);
+  const updated = plugin.publishedAt ? Date.parse(plugin.publishedAt) : Number.NaN;
+  const age = Number.isNaN(updated) ? Infinity : (now - updated) / DAY_MS;
+  const fresh = Math.min(1, Math.max(0, (365 - age) / (365 - 30)));
+  const page = [plugin.sourceVerified, plugin.longDescription, plugin.screenshots?.length, plugin.categories?.length].filter(Boolean).length / 4;
+  const score = 0.5 * scale(plugin.weeklyDownloads, most.downloads) + 0.15 * scale(plugin.stars, most.stars) + 0.15 * fresh + 0.2 * page;
+  return plugin.beta ? score * 0.85 : score;
+}
 
 export class PluginMarketError extends Error {
   readonly statusCode = 400;
@@ -98,6 +152,7 @@ export class PluginMarket {
   #refreshing: Promise<void> | undefined;
   /** Read once, so a slow read can't replace what a refresh brought. */
   #saved: Promise<void> | undefined;
+  #images = new Map<string, Promise<MarketImage>>();
 
   constructor(options: PluginMarketOptions) {
     this.#url = options.url && isIndexUrl(options.url) ? options.url : undefined;
@@ -128,6 +183,16 @@ export class PluginMarket {
       const plugin = version.plugin!;
       const facts = index.packages[version.package];
       const text = (values: Record<string, string>) => values[language] ?? values.en ?? "";
+      const file = (value: string | undefined) => (value && indexImage(this.#url!, value) ? value : undefined);
+      // The repository is proven to be the package's, so its owner's face is the publisher's.
+      const avatar = facts?.sourceVerified ? facts.avatar && AVATAR.exec(facts.avatar)?.[1] : undefined;
+      const icon = file(plugin.icon);
+      const screenshots = (plugin.screenshots ?? []).flatMap((shot) => {
+        const caption = shot.caption && text(shot.caption);
+        return file(shot.path) ? [{ path: shot.path, ...(caption ? { caption } : {}) }] : [];
+      });
+      const categories = plugin.categories?.filter((category): category is PluginCategory => (PLUGIN_CATEGORIES as readonly string[]).includes(category));
+      const longDescription = plugin.longDescription && text(plugin.longDescription);
       return {
         id: plugin.id,
         package: version.package,
@@ -136,7 +201,16 @@ export class PluginMarket {
         description: text(plugin.description),
         asks: plugin.grants,
         adds: plugin.adds,
+        ...(categories?.length ? { categories } : {}),
+        ...(plugin.appliesTo?.length ? { appliesTo: plugin.appliesTo } : {}),
+        ...(plugin.beta ? { beta: true } : {}),
+        ...(longDescription ? { longDescription } : {}),
+        ...(icon ? { icon } : {}),
+        ...(avatar ? { avatar } : {}),
+        ...(screenshots.length ? { screenshots } : {}),
         ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
+        ...(facts?.createdAt ? { createdAt: facts.createdAt } : {}),
+        ...(version.unpackedSize !== undefined ? { size: version.unpackedSize } : {}),
         ...(facts?.repository ? { repository: facts.repository } : {}),
         sourceVerified: facts?.sourceVerified === true,
         ...(facts?.stars !== undefined ? { stars: facts.stars } : {}),
@@ -145,16 +219,73 @@ export class PluginMarket {
       };
     });
     const featuredAt = (plugin: MarketPlugin) => index.featured.indexOf(plugin.id);
+    const most = {
+      downloads: Math.max(0, ...plugins.map((plugin) => plugin.weeklyDownloads ?? 0)),
+      stars: Math.max(0, ...plugins.map((plugin) => plugin.stars ?? 0)),
+    };
+    const now = this.#now();
+    const scores = new Map(plugins.map((plugin) => [plugin.id, marketScore(plugin, most, now)]));
     plugins.sort((a, b) =>
       Number(b.featured) - Number(a.featured) ||
       featuredAt(a) - featuredAt(b) ||
-      (b.weeklyDownloads ?? 0) - (a.weeklyDownloads ?? 0) ||
+      scores.get(b.id)! - scores.get(a.id)! ||
       a.displayName.localeCompare(b.displayName));
     const blocked = index.versions.flatMap((version) => {
       const reason = version.rejected?.find((item) => item.startsWith("blocked: "));
       return reason ? [{ package: version.package, version: version.version, reason: reason.slice("blocked: ".length) }] : [];
     });
     return { status: this.#stale ? "stale" : "ready", plugins, blocked };
+  }
+
+  /**
+   * An icon or a screenshot the newest index lists, read from beside the index
+   * through the daemon, so it uses the app's network settings. An icon is
+   * checked as an installed plugin's would be, and must be the type its name
+   * says; a screenshot must be a PNG, JPEG or WebP. They're named by their
+   * contents, so one read is kept.
+   */
+  async image(file: string, role: "icon" | "screenshot"): Promise<MarketImage | undefined> {
+    const index = this.#url ? await this.#current() : undefined;
+    const url = index && indexImage(this.#url!, file);
+    if (!url) return undefined;
+    // Named by its contents, one file may be one plugin's icon and another's screenshot; each is checked as asked for.
+    const icon = role === "icon";
+    if (!index.versions.some(({ plugin }) => icon ? plugin?.icon === file : plugin?.screenshots?.some((shot) => shot.path === file))) return undefined;
+    const expected = icon ? PLUGIN_ICON_MEDIA_TYPES[file.slice(file.lastIndexOf(".") + 1).toLowerCase() as keyof typeof PLUGIN_ICON_MEDIA_TYPES] : undefined;
+    if (icon && !expected) return undefined;
+    // Not followed elsewhere: the image has to come from the index's host.
+    return this.#picture(`${icon ? "icon" : "screenshot"}:${file}`, url, icon ? PLUGIN_ICON_MAX_BYTES : PLUGIN_SCREENSHOT_MAX_BYTES,
+      icon ? (bytes) => validatePluginIconImage(bytes, expected) : undefined);
+  }
+
+  /**
+   * A publisher's GitHub avatar, by GitHub's id for them. Only one the newest
+   * index gives a package whose source is verified, from GitHub's avatar host
+   * and nowhere it redirects to.
+   */
+  async avatar(id: string): Promise<MarketImage | undefined> {
+    const index = this.#url ? await this.#current() : undefined;
+    const listed = index && Object.values(index.packages).some((facts) => facts.sourceVerified && facts.avatar && AVATAR.exec(facts.avatar)?.[1] === id);
+    if (!listed) return undefined;
+    // It changes rarely, so the copy read while the app runs is kept.
+    return this.#picture(`avatar:${id}`, `https://avatars.githubusercontent.com/u/${id}?s=96`, AVATAR_MAX_BYTES);
+  }
+
+  #picture(key: string, url: string, maxBytes: number, check?: (bytes: Buffer) => Promise<MarketImage>): Promise<MarketImage> {
+    let read = this.#images.get(key);
+    if (!read) {
+      read = this.#read(url, maxBytes, "error").then((bytes) => {
+        if (check) return check(bytes);
+        const mediaType = sniffImageType(bytes);
+        if (!mediaType) throw new Error("The image isn't a PNG, JPEG or WebP");
+        return { bytes, mediaType, revision: sha256(bytes) };
+      });
+      this.#images.set(key, read);
+      // A failed read is tried again next time.
+      read.catch(() => this.#images.delete(key));
+      if (this.#images.size > IMAGE_CACHE_LIMIT) this.#images.delete(this.#images.keys().next().value!);
+    }
+    return read;
   }
 
   /**
@@ -253,8 +384,8 @@ export class PluginMarket {
     this.#checkedAt = this.#now();
   }
 
-  async #read(url: string, maxBytes: number): Promise<Buffer> {
-    const response = await this.#fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  async #read(url: string, maxBytes: number, redirect: RequestRedirect = "follow"): Promise<Buffer> {
+    const response = await this.#fetch(url, { redirect, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return readLimited(response, maxBytes);
   }
@@ -309,4 +440,15 @@ async function readLimited(response: Response, maxBytes: number): Promise<Buffer
     chunks.push(Buffer.from(next.value));
   }
   return Buffer.concat(chunks);
+}
+
+/**
+ * An image the index lists, as an address below the index's folder on its own
+ * host: plain names, no `.` or `..`, so an index can't point the app at
+ * someone else's server. The index's own address is HTTPS, or HTTP on this
+ * computer (`isIndexUrl`), and so is the image's.
+ */
+export function indexImage(indexUrl: string, file: string): string | undefined {
+  if (file.length > 500 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(file) || file.split("/").some((part) => part === "." || part === "..")) return undefined;
+  return new URL(file, indexUrl).href;
 }

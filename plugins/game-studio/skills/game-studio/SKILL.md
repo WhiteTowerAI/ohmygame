@@ -5,6 +5,8 @@ description: Create complete games across engines by coordinating design, visual
 
 # Game Studio
 
+For browser multiplayer in OhMyGame, use the platform's Colyseus + WebSocket service and server-authoritative rules. Use `multiplayer_setup` when available for local validation and read its generated SDK guide; local tests need no cloud deployment. Missing service configuration or game rules requires an explicit setup error. Do not silently substitute PeerJS, WebRTC, or public signaling services. An explicitly requested alternative stack takes precedence; explain its separate deployment requirements.
+
 Preserve the user's chosen engine, platform, and existing project conventions. For a new game with no chosen stack, select a suitable runtime from the intended experience, target devices, available tools, and delivery needs. General Game is an engine-independent workspace; it does not require Web output.
 
 ## Match The Task

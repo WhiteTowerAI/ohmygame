@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { expect, it } from "vitest";
 import { fixPixelArt } from "../src/daemon/pixel-art-fixer.js";
+import { refineGrid } from "../src/daemon/perfect-pixel.js";
 
 function scaledPixelGrid(columns: number, rows: number): Buffer {
   const source = Buffer.alloc(columns * rows * 4);
@@ -51,53 +52,95 @@ it("rebuilds a regular scaled pixel grid at an integral pixel scale", async () =
     }
 });
 
-it("pixelates a textured image even without a repeatable source grid", async () => {
-  const pixels = Buffer.alloc(128 * 128 * 4);
-  let state = 0x12345678;
-  for (let offset = 0; offset < pixels.length; offset += 4) {
+it("recovers an uneven grid like the ones in generated pixel art", async () => {
+  // 24×24 logical pixels drawn with cells 11, 12 or 13 source pixels wide.
+  const logical = 24;
+  const widths = Array.from({ length: logical }, (_, index) => [11, 12, 13, 12][index % 4]!);
+  const edges = widths.reduce<number[]>((all, width) => [...all, all.at(-1)! + width], [0]);
+  const size = edges.at(-1)!;
+  let state = 0x2468ace;
+  const colours = Array.from({ length: logical * logical }, () => {
     state = (state * 1664525 + 1013904223) >>> 0;
-    pixels[offset] = state & 0xff;
-    pixels[offset + 1] = (state >>> 8) & 0xff;
-    pixels[offset + 2] = (state >>> 16) & 0xff;
-    pixels[offset + 3] = 255;
-  }
-  const input = await sharp(pixels, {
-    raw: { width: 128, height: 128, channels: 4 },
-  })
-    .png()
-    .toBuffer();
+    return [(state >>> 8) & 0xe0, (state >>> 16) & 0xe0, (state >>> 24) & 0xe0, 255];
+  });
+  const cell = (position: number) => edges.findIndex((edge, index) => position >= edge && position < edges[index + 1]!);
+  const source = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) source.set(colours[cell(y) * logical + cell(x)]!, (y * size + x) * 4);
+  const input = await sharp(source, { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
+
   const result = await fixPixelArt(input);
+  const scale = result.width / logical;
+  expect(Number.isInteger(scale)).toBe(true);
+  expect(result.height).toBe(result.width);
   const decoded = await sharp(result.bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  expect(result.width).toBeLessThanOrEqual(128);
-  expect(result.height).toBeLessThanOrEqual(128);
-  const colours = new Set<string>();
-  for (let at = 0; at < decoded.data.length; at += 4)
-    if (decoded.data[at + 3]) colours.add(decoded.data.subarray(at, at + 3).toString("hex"));
-  expect(colours.size).toBeLessThanOrEqual(48);
+  let matching = 0;
+  for (let y = 0; y < logical; y++)
+    for (let x = 0; x < logical; x++) {
+      const at = ((y * scale) * decoded.info.width + x * scale) * 4;
+      if (decoded.data.subarray(at, at + 4).equals(Buffer.from(colours[y * logical + x]!))) matching++;
+    }
+  expect(matching).toBe(logical * logical);
 });
 
-it("uses binary alpha, a reduced palette, and nearest-neighbour enlargement", async () => {
-  const input = await sharp(
-    Buffer.from(`
-      <svg width="256" height="192" xmlns="http://www.w3.org/2000/svg">
-        <defs><radialGradient id="sky"><stop stop-color="#f8d58c"/><stop offset="1" stop-color="#45648c"/></radialGradient></defs>
-        <rect width="256" height="192" fill="url(#sky)"/>
-        <ellipse cx="128" cy="112" rx="70" ry="54" fill="#d8d1c8"/>
-        <circle cx="104" cy="96" r="9" fill="#1c1c1c"/><circle cx="152" cy="96" r="9" fill="#1c1c1c"/>
-        <path d="M96 130 Q128 150 160 130" stroke="#714650" stroke-width="8" fill="none"/>
-      </svg>`),
-  )
-    .png()
-    .toBuffer();
-  const result = await fixPixelArt(input);
-  const decoded = await sharp(result.bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  expect(result.width).toBeLessThanOrEqual(256);
-  expect(result.height).toBeLessThanOrEqual(192);
+it("refuses an image without a pixel grid", async () => {
+  const input = await sharp({ create: { width: 256, height: 192, channels: 4, background: "#45648c" } }).png().toBuffer();
+  await expect(fixPixelArt(input)).rejects.toMatchObject({ statusCode: 422 });
+});
+
+it("merges colours that differ only by noise and keeps distinct ones", async () => {
+  // 16×16 cells of four colours, every source pixel jittered by up to ±4 per channel.
+  const base = [[200, 60, 60], [40, 40, 160], [230, 220, 200], [20, 20, 20]];
+  let state = 99;
+  const jitter = () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return ((state >>> 24) % 9) - 4;
+  };
+  const size = 128;
+  const source = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const colour = base[(Math.floor(x / 8) * 7 + Math.floor(y / 8) * 3) % 4]!;
+      source.set([...colour.map((value) => value + jitter()), 255], (y * size + x) * 4);
+    }
+  const input = await sharp(source, { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
+  const decoded = await sharp((await fixPixelArt(input)).bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const colours = new Set<string>();
-  for (let at = 0; at < decoded.data.length; at += 4) {
-    expect([0, 255]).toContain(decoded.data[at + 3]);
-    if (decoded.data[at + 3]) colours.add(decoded.data.subarray(at, at + 3).toString("hex"));
-  }
-  expect(colours.size).toBeLessThanOrEqual(48);
-  expect(result.bytes.equals(input)).toBe(false);
+  for (let at = 0; at < decoded.data.length; at += 4) colours.add(decoded.data.subarray(at, at + 3).toString("hex"));
+  expect(colours.size).toBe(4);
+});
+
+it("places grid lines up to the left edge when cells are smaller than estimated", () => {
+  // Cells are 11 pixels wide, but the estimate is 12 (55 cells across 660 pixels).
+  const gradient = new Float64Array(660);
+  for (let at = 0; at < gradient.length; at++) gradient[at] = 1 + 0.001 * at + (at % 11 === 0 ? 100 : 0);
+  const lines = refineGrid(660, 55, gradient);
+  expect(lines[0]).toBeLessThanOrEqual(0);
+  expect(lines.at(-1)).toBeGreaterThanOrEqual(660);
+});
+
+/** Blocks of random colours with slightly soft edges, like generated pixel art. */
+async function softBlocks(columns: number, rows: number, cell: number): Promise<Buffer> {
+  let state = 11;
+  const colours = Array.from({ length: columns * rows }, () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return [(state >>> 8) & 0xe0, (state >>> 16) & 0xe0, (state >>> 24) & 0xe0, 255];
+  });
+  const width = columns * cell;
+  const height = rows * cell;
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) data.set(colours[Math.floor(y / cell) * columns + Math.floor(x / cell)]!, (y * width + x) * 4);
+  return sharp(data, { raw: { width, height, channels: 4 } }).blur(1.2).png().toBuffer();
+}
+
+it("keeps coarse pixel art whose cells are larger than the spectrum allows", async () => {
+  // 32×32 logical pixels on a 1024 canvas: 32-pixel cells.
+  const result = await fixPixelArt(await softBlocks(32, 32, 32));
+  expect(result.width / 32).toBe(Math.round(result.width / 32));
+  expect(result.width / Math.round(result.width / 32)).toBe(32);
+});
+
+it("refuses a grid with too few cells, such as panels of a character sheet", async () => {
+  await expect(fixPixelArt(await softBlocks(12, 9, 128))).rejects.toMatchObject({ statusCode: 422 });
 });

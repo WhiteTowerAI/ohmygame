@@ -86,8 +86,15 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
   return { models: [...models.values()], truncated: true };
 }
 
+/** The chat endpoint each protocol calls, as a gateway's `supported_endpoints` names it. */
+const CHAT_ENDPOINTS: Record<string, string> = { "openai-completions": "/chat/completions", "openai-responses": "/responses", "anthropic-messages": "/messages" };
+
 function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog, preset?: CustomProviderPreset): CustomProviderModel | undefined {
   if (!isObject(value)) return undefined;
+  // A gateway such as Command Code lists every model on one endpoint and says
+  // which protocol each answers; one that chats only through another is left out.
+  const endpoints = Array.isArray(value.supported_endpoints) ? value.supported_endpoints : undefined;
+  if (endpoints && CHAT_ENDPOINTS[api] && !endpoints.includes(CHAT_ENDPOINTS[api]) && Object.values(CHAT_ENDPOINTS).some((endpoint) => endpoints.includes(endpoint))) return undefined;
   const google = api === "google-generative-ai";
   const rawId = string(google ? value.name : value.id);
   const id = google ? rawId?.replace(/^models\//, "") : rawId;
