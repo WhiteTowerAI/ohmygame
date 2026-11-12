@@ -2721,7 +2721,7 @@ const en = {
     plugin: "Plugin",
     from: "From",
     appliesByItself: "It only adds Skills, so it is on in every project it suits once you add it. Its card can switch that off.",
-    turnedOnEverywhere: "Adding it allows what it asks for and turns it on in every project it suits. Its page can switch that off.",
+    turnedOnEverywhere: "Adding it allows what it asks for and turns it on in every project it suits, unless you switched it off before. Its page can switch that off.",
     settingsAfterAdding: "It has settings to fill in on its page once it's added.",
     alreadyInstalled: "Version {{version}} is already installed, with these same contents.",
     replacesVersions: "This replaces version {{versions}}.",

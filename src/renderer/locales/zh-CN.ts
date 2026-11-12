@@ -2675,7 +2675,7 @@ const zhCN: typeof en = {
     plugin: "插件",
     from: "来源",
     appliesByItself: "它只添加 Skills，添加后会在所有适用的项目中开启；可以在它的卡片上关掉。",
-    turnedOnEverywhere: "添加即允许它请求的权限，并在所有适用的项目中开启。可以在它的页面关掉。",
+    turnedOnEverywhere: "添加即允许它请求的权限，并在所有适用的项目中开启（之前关掉过的仍保持关闭）。可以在它的页面关掉。",
     settingsAfterAdding: "添加后可以在插件页面填写它的设置。",
     alreadyInstalled: "已安装版本 {{version}}，内容完全相同。",
     replacesVersions: "添加后会替换版本 {{versions}}。",
