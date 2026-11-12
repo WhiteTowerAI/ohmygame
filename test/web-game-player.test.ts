@@ -6,10 +6,13 @@ const electron = vi.hoisted(() => {
   class Events {
     handlers = new Map<string, ((...args: any[]) => void)[]>();
     on(name: string, handler: (...args: any[]) => void) { this.handlers.set(name, [...this.handlers.get(name) ?? [], handler]); }
+    off(name: string, handler: (...args: any[]) => void) { this.handlers.set(name, (this.handlers.get(name) ?? []).filter((item) => item !== handler)); }
     emit(name: string, ...args: any[]) { for (const handler of this.handlers.get(name) ?? []) handler(...args); }
   }
+  const session = new Events();
   class Contents extends Events {
     destroyed = false;
+    session = session;
     frame = { url: "", executeJavaScript: vi.fn(async () => {}) };
     mainFrame = { frames: [this.frame] };
     loadURL = vi.fn(async (_url: string) => {});
@@ -56,9 +59,9 @@ const electron = vi.hoisted(() => {
   }
   const windows: Window[] = [];
   const views: View[] = [];
-  return { Window, View, windows, views, openExternal: vi.fn(), screen: { getDisplayMatching: vi.fn(), getDisplayNearestPoint: vi.fn(), getCursorScreenPoint: () => ({ x: 0, y: 0 }) } };
+  return { Window, View, windows, views, session, openExternal: vi.fn(), showSaveDialogSync: vi.fn(), screen: { getDisplayMatching: vi.fn(), getDisplayNearestPoint: vi.fn(), getCursorScreenPoint: () => ({ x: 0, y: 0 }) } };
 });
-vi.mock("electron", () => ({ BrowserWindow: electron.Window, WebContentsView: electron.View, screen: electron.screen, shell: { openExternal: electron.openExternal } }));
+vi.mock("electron", () => ({ app: { getPath: () => "/Downloads" }, dialog: { showSaveDialogSync: electron.showSaveDialogSync }, BrowserWindow: electron.Window, WebContentsView: electron.View, screen: electron.screen, shell: { openExternal: electron.openExternal } }));
 import { WebGamePlayerWindows } from "../src/desktop/web-game-player.js";
 
 beforeEach(() => {
@@ -303,6 +306,29 @@ describe("shared desktop game", () => {
     expect(view.webContents.setAudioMuted).toHaveBeenLastCalledWith(false);
     expect(await games.capture("game")).toEqual(new Uint8Array([1, 2, 3]));
     games.close();
+  });
+
+  it("asks where to save a game's download on the window it plays in", async () => {
+    const games = create();
+    const window = editor();
+    await games.attach("game", "mount", window, url, layout, async () => target);
+    const contents = electron.views[0]!.webContents;
+    const download = () => ({ getFilename: () => "meme.png", setSavePath: vi.fn(), cancel: vi.fn() });
+    electron.showSaveDialogSync.mockReturnValueOnce("/Pictures/meme.png");
+    const saved = download();
+    electron.session.emit("will-download", {}, saved, contents);
+    expect(electron.showSaveDialogSync).toHaveBeenLastCalledWith(window, { defaultPath: "/Downloads/meme.png" });
+    expect(saved.setSavePath).toHaveBeenCalledWith("/Pictures/meme.png");
+    // Cancelling the dialog cancels the download; another page's download is left to its own.
+    electron.showSaveDialogSync.mockReturnValueOnce("");
+    const cancelled = download();
+    electron.session.emit("will-download", {}, cancelled, contents);
+    expect(cancelled.cancel).toHaveBeenCalledOnce();
+    const calls = electron.showSaveDialogSync.mock.calls.length;
+    electron.session.emit("will-download", {}, download(), window.webContents);
+    games.close();
+    electron.session.emit("will-download", {}, download(), contents);
+    expect(electron.showSaveDialogSync).toHaveBeenCalledTimes(calls);
   });
 
   it("rejects invalid servers and game navigation into the editor or another origin", async () => {
