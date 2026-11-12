@@ -129,6 +129,39 @@ describe("plugin media providers", () => {
     });
     const error = await media.generateImage(await firstModel(media), { prompt: "x" }).catch((cause: Error) => cause.message);
     expect(error).toBe('Flow: https://api.flow.example/v1/images?key=[key] echo [key] "[key]"');
+
+    // JSON may spell it with escapes, which json() would undo.
+    const escaped = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });
+      return { error: (await response.json()).token };
+    } } };`, { reply: (url) => url.startsWith("https://api.flow.example/") ? new Response('{"token":"\\u0073k-test"}') : undefined });
+    expect(await escaped.media.generateImage(await firstModel(escaped.media), { prompt: "x" }).catch((cause: Error) => cause.message)).toBe("Flow: [key]");
+    const encoded = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });
+      return { error: (await response.json()).token };
+    } } };`, { key: "sk/te st", reply: (url) => url.startsWith("https://api.flow.example/") ? new Response('{"token":"\\u0073k%2Fte%20st"}') : undefined });
+    expect(await encoded.media.generateImage(await firstModel(encoded.media), { prompt: "x" }).catch((cause: Error) => cause.message)).toBe("Flow: [key]");
+    const numeric = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });
+      return { error: await response.text() };
+    } } };`, { key: "12345", reply: (url) => url.startsWith("https://api.flow.example/") ? new Response('{"id":12345,"token":"\\u0031\\u0032\\u0033\\u0034\\u0035"}') : undefined });
+    expect(await numeric.media.generateImage(await firstModel(numeric.media), { prompt: "x" }).catch((cause: Error) => cause.message)).toBe('Flow: {"id":[key],"token":"[key]"}');
+    // Nor through text(), whatever json() would keep of the body.
+    const twice = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });
+      return { error: await response.text() };
+    } } };`, { reply: (url) => url.startsWith("https://api.flow.example/") ? new Response('{"token":"\\u0073k-test","token":"safe"}') : undefined });
+    expect(await twice.media.generateImage(await firstModel(twice.media), { prompt: "x" }).catch((cause: Error) => cause.message)).not.toContain("sk-test");
+  });
+
+  it("tells the vendor to stop a task when checking it fails", async () => {
+    const { media, requests } = await setup(`export default { image: {
+      start: () => ({ task: { id: "t1" }, retryAfter: 1 }),
+      check() { throw new Error("adapter broke"); },
+      async cancel(task, host) { await host.fetch("https://api.flow.example/v1/tasks/" + task.id + "/cancel", { method: "POST", auth: true }); return null; },
+    } };`);
+    await expect(media.generateImage(await firstModel(media), { prompt: "x" })).rejects.toThrow("adapter broke");
+    await expect.poll(() => requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/tasks/t1/cancel"]);
   });
 
   it("tells the vendor to stop a task when the person stops waiting", async () => {

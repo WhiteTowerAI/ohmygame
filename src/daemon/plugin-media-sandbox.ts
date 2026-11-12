@@ -49,6 +49,8 @@ export const MEDIA_SANDBOX_MEMORY_BYTES = 64 * 1024 * 1024;
 export const MEDIA_SANDBOX_CPU_MS = 2_000;
 /** A call as a whole, waiting included. */
 export const MEDIA_SANDBOX_CALL_MS = 120_000;
+/** `host.fetch` requests a call may have open at once: answers wait in the app, outside the script's memory. */
+export const MEDIA_SANDBOX_FETCHES = 4;
 
 let wasm: Promise<WebAssembly.Module> | undefined;
 function quickjsModule(): Promise<WebAssembly.Module> {
@@ -176,10 +178,12 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
     handles.push(handle);
     return handle;
   };
+  let open = 0;
   try {
     const fetchFunction = keep(vm.newFunction("__ohmygameFetch", (id, text) => {
       if (vm.typeof(id) !== "string" || vm.typeof(text) !== "string") throw new TypeError("host.fetch takes a URL and an object");
       const request = id.toString();
+      if (open >= MEDIA_SANDBOX_FETCHES) throw new TypeError(`host.fetch allows ${MEDIA_SANDBOX_FETCHES} requests at a time`);
       let parsed: MediaFetchRequest;
       try {
         parsed = JSON.parse(text.toString()) as MediaFetchRequest;
@@ -196,7 +200,8 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
           controller.abort(cause instanceof MediaSandboxError ? cause : new MediaSandboxError(`${call.file}: ${cause instanceof Error ? cause.message : String(cause)}`));
         }
       };
-      call.fetch(parsed, controller.signal).then(
+      open += 1;
+      call.fetch(parsed, controller.signal).finally(() => { open -= 1; }).then(
         (answer) => deliver(true, JSON.stringify(answer)),
         (cause: unknown) => deliver(false, cause instanceof Error ? cause.message : String(cause)),
       );

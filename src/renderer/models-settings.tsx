@@ -443,7 +443,8 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
         <span />
       </div>
     </div> : null}
-    {provider.configured ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+    {/* Chat models only: a provider that only makes media has none in the model runtime. */}
+    {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
   </section>;
 }
 

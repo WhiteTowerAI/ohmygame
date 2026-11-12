@@ -132,6 +132,8 @@ export class PluginMediaProviders {
       throw new ImageGenerationError(`${this.#name(item)}: ${cause instanceof Error ? cause.message : String(cause)}`);
     });
     let task: unknown;
+    // Whether the vendor answered for good; until then, a failure leaves its task running.
+    let settled = false;
     try {
       let answer = answerOf(await call("start", [input], stopped), undefined);
       let wait = 2;
@@ -143,11 +145,12 @@ export class PluginMediaProviders {
         await delay(seconds * 1000, stopped).catch(() => { throw why(stopped); });
         answer = answerOf(await call("check", [task], stopped), task);
       }
+      settled = true;
       if ("error" in answer) throw new ImageGenerationError(`${this.#name(item)}: ${answer.error}`);
       return answer.outputs;
     } catch (cause) {
-      // Stopped by the person or out of time while the vendor works: tell it, if the adapter can.
-      if (stopped.aborted && task !== undefined)
+      // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
+      if (!settled && task !== undefined)
         void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
       throw cause;
     }
@@ -211,12 +214,23 @@ export class PluginMediaProviders {
     const json = key === undefined ? "" : JSON.stringify(key).slice(1, -1);
     const forms = key === undefined ? [] : [...new Set([key, encodeURIComponent(key), new URLSearchParams({ k: key }).toString().slice(2), json, json.replaceAll("/", "\\/")])];
     const hide = (text: string) => forms.reduce((hidden, form) => hidden.split(form).join("[key]"), text);
+    // JSON can spell the key with escapes (`\u0073k-…`) that `json()` undoes: written out again, they read plainly.
+    // That is done to the vendor's own text, before anything in it is replaced, and the
+    // adapter then gets only that form, for text() as for json().
+    const hideBody = (text: string) => {
+      if (key !== undefined) {
+        try {
+          return hide(JSON.stringify(JSON.parse(text)));
+        } catch { /* not JSON */ }
+      }
+      return hide(text);
+    };
     const answer: Record<string, string> = {};
     for (const name of ANSWER_HEADERS) {
       const value = response.headers.get(name);
       if (value !== null) answer[name] = hide(value);
     }
-    return { status: response.status, headers: answer, body: hide((await readCapped(response, url.host)).toString("utf8")) };
+    return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host)).toString("utf8")) };
   }
 
   /** Downloads or decodes one output. */

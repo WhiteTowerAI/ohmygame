@@ -91,6 +91,18 @@ describe("plugin media sandbox", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
 
+  it("keeps only a few requests open at once", async () => {
+    const result = await call(`export default { image: { async start(input, host) {
+      const open = [1, 2, 3, 4].map(() => host.fetch("https://a.example.com/"));
+      let refused;
+      try { await host.fetch("https://a.example.com/"); } catch (error) { refused = error.message; }
+      await Promise.all(open);
+      await host.fetch("https://a.example.com/");
+      return refused;
+    } } };`);
+    expect(result).toBe("host.fetch allows 4 requests at a time");
+  });
+
   it("passes a failed request to the script as an error it can catch", async () => {
     const result = await call(`export default { image: { async start(input, host) {
       try { await host.fetch("https://elsewhere.example.com/"); } catch (error) { return { caught: error.message }; }
