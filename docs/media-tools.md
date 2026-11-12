@@ -116,7 +116,7 @@ start time and duration, then use the frame mode selector to export every frame
 or exact sampled frames. The selected frame indices
 are preserved in the result names and manifest. If the browser cannot decode
 the video, the selected time range can still be extracted without frame selection. Results
-are also saved to Library. The dialog shows
+are saved to the project. The dialog shows
 processing status and any error, and remains open on failure so the operation
 can be retried. Media processing is not subject to the 10-second canvas file
 I/O timeout.

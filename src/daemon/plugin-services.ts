@@ -14,6 +14,7 @@ import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin,
 import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, type PluginLogView, type PluginOrigin, type PluginUninstallPreview, type ProjectPluginCanvas, type ProjectPluginPreview, type ProjectPreviewDevice } from "../shared/plugins.js";
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
+import type { LibrarySource } from "../shared/contracts.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import {
@@ -237,6 +238,7 @@ export class PluginServices {
     this.native = new NativePlugins({
       index: this.index,
       resolve: (folder) => this.resolve(folder),
+      appPlugin: (id) => this.appPlugin(id),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
       dataFolder: (id) => this.dataFolder(id),
@@ -345,6 +347,39 @@ export class PluginServices {
       const entry = this.index.get(id);
       return entry && !pluginApiIssue(entry.manifest) && this.grants.plugin(id)?.enabled !== false && this.onInEveryProject(id) ? [entry] : [];
     });
+  }
+
+  /**
+   * The newest version of a plugin whose code may run outside projects, as
+   * for the Library's sources: one the app can run, not turned off, and
+   * allowed everything it asks for when it was added.
+   */
+  async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
+    return (await this.everyProject()).find((entry) => entry.id === id);
+  }
+
+  /** The Library's sources from plugins that may run outside projects, in `locale`. */
+  async assetSources(locale: PluginLocale = "en"): Promise<LibrarySource[]> {
+    const sources: LibrarySource[] = [];
+    for (const entry of await this.everyProject()) {
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      for (const source of entry.manifest.contributes?.assetSources ?? [])
+        sources.push({
+          id: `${entry.id}:${source.id}`,
+          plugin: entry.id,
+          pluginName: text(entry.manifest.displayName),
+          title: text(source.title),
+          ...(source.description ? { description: text(source.description) } : {}),
+          media: [...source.media],
+        });
+    }
+    return sources;
+  }
+
+  /** Runs an asset source's `search` or `fetch`; secrets are taken out of what it says went wrong. */
+  runAssetSource(source: string, handler: "search" | "fetch", options: Omit<PluginCallOptions, "folder" | "version">): Promise<unknown> {
+    const plugin = source.slice(0, Math.max(0, source.lastIndexOf(":")));
+    return this.#redacting(plugin, this.native.runAssetSource(source, handler, options));
   }
 
   /** The Skills of `everyProject`, as a new project's agent would load them. */

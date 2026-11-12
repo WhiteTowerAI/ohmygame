@@ -564,7 +564,7 @@ function publishGameRecording(state: GameRecordingState): void {
 async function saveGameRecording(file: GameRecordingFile): Promise<GameRecordingSaved> {
   if (!daemon) throw new Error("The game service is unavailable.");
   const name = gameRecordingFileName(file.title, new Date(), file.extension);
-  const query = new URLSearchParams({ name, mediaType: file.mediaType, duration: file.duration.toFixed(3) });
+  const query = new URLSearchParams({ name, mediaType: file.mediaType, duration: file.duration.toFixed(3), saved: "true" });
   const response = await fetch(`${daemon.runtime.url}/library/assets/upload?${query}`, {
     method: "POST",
     headers: { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/octet-stream" },

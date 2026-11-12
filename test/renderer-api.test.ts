@@ -1,7 +1,7 @@
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addPlugin, inspectAddedPlugin, approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssetReferences, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { addPlugin, inspectAddedPlugin, approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, refinePlan, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -114,7 +114,7 @@ describe("renderer event stream", () => {
     const fetchMock = vi.fn(async () => Response.json(asset, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(uploadLibraryAsset(file, "video/mp4", 6.5)).resolves.toEqual(asset);
+    await expect(uploadLibraryAsset(file, "video/mp4", { duration: 6.5 })).resolves.toEqual(asset);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/library/assets/upload?name=opening.mp4&mediaType=video%2Fmp4&duration=6.5",
       expect.objectContaining({ method: "POST", body: file, headers: expect.objectContaining({ "content-type": "application/octet-stream" }) }),
@@ -127,9 +127,9 @@ describe("renderer event stream", () => {
     const fetchMock = vi.fn(async () => Response.json({ id: "asset-2" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await uploadLibraryAsset(file, "video/mp4", 3.2, undefined, { assetId: "asset-1", trim: { start: 2.2, end: 5.4 } });
+    await uploadLibraryAsset(file, "video/mp4", { duration: 3.2, derivedFrom: { assetId: "asset-1", trim: { start: 2.2, end: 5.4 } }, saved: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/library/assets/upload?name=opening+%28trimmed%29.mp4&mediaType=video%2Fmp4&duration=3.2&trimSource=asset-1&trimStart=2.2&trimEnd=5.4",
+      "/api/library/assets/upload?name=opening+%28trimmed%29.mp4&mediaType=video%2Fmp4&duration=3.2&saved=true&trimSource=asset-1&trimStart=2.2&trimEnd=5.4",
       expect.objectContaining({ method: "POST", body: file }),
     );
   });
@@ -759,27 +759,32 @@ describe("renderer project API", () => {
       .mockResolvedValueOnce(Response.json(asset, { status: 201 }))
       .mockResolvedValueOnce(new Response(new Blob(["video"])))
       .mockResolvedValueOnce(Response.json(asset))
-      .mockResolvedValueOnce(Response.json([{ id: "project", name: "Story", type: "interactive-story" }]))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json({ items: [] }))
+      .mockResolvedValueOnce(Response.json(asset, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(listLibraryAssets()).resolves.toEqual([asset]);
     await expect(createLibraryImage({ name: "reference.png", image: { mediaType: "image/png", data: "aW1hZ2U=" } })).resolves.toEqual(asset);
     await expect(getLibraryAsset("video")).resolves.toBeInstanceOf(Blob);
     await expect(renameLibraryAsset("video", "Opening")).resolves.toEqual(asset);
-    await expect(listLibraryAssetReferences("video")).resolves.toEqual([{ id: "project", name: "Story", type: "interactive-story" }]);
-    await expect(deleteLibraryAsset("video")).resolves.toBeUndefined();
-    await expect(forceDeleteLibraryAsset("video")).resolves.toBeUndefined();
+    await expect(removeLibraryAsset("video")).resolves.toBeUndefined();
+    await expect(listLibrarySources()).resolves.toEqual([]);
+    await expect(searchLibrarySource({ source: "acme/shapes:shapes", query: "star", cursor: "2" })).resolves.toEqual({ items: [] });
+    await expect(addLibrarySourceItem("acme/shapes:shapes", { id: "star", mediaType: "image" })).resolves.toEqual(asset);
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/library/assets",
       "/api/library/assets",
       "/api/library/assets/video/content",
       "/api/library/assets/video",
-      "/api/library/assets/video/references",
       "/api/library/assets/video",
-      "/api/library/assets/video?force=true",
+      "/api/library/sources?locale=en",
+      "/api/library/sources/search",
+      "/api/library/sources/add",
     ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/library/sources/search", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", query: "star", cursor: "2" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(8, "/api/library/sources/add", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", id: "star", mediaType: "image" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/library/assets", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ name: "reference.png", image: { mediaType: "image/png", data: "aW1hZ2U=" } }),

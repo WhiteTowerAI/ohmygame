@@ -635,6 +635,42 @@ returning or refreshing.
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
 Community, Plugins, **Quick access**, and the account.
 
+### Library
+
+The Library page holds the media the person put there, to reuse across
+projects:
+
+- files uploaded on the page, with **Upload** or by dropping them on it;
+- project files saved with **Save to Library** in the project's file tree;
+- game recordings, and videos trimmed on the Library page;
+- items added from a plugin's source.
+
+These are its **Local** tab. Each [Library source](plugins.md#library-sources)
+a plugin offers gets a tab beside it, searched with the page's search box;
+nothing from a source is stored until the person adds it, and then it shows
+in Local with its author, license and link.
+
+Media a project generates or uploads, on the canvas or in chat, stays with
+that project and doesn't show in the Library until someone saves it. The
+project's own asset panel and its Library pickers are unchanged.
+
+Behind the page, `<data>/library/` stores every media file projects share by
+ID: `files/<id><ext>` and `assets.json`. A record's `saved` says whether the
+Library page shows it. A file stored for a project is cloned into the project
+where the disk can (APFS), so it takes space once.
+
+**Remove from Library** never touches a project: a file a project uses stays
+stored for it and only leaves the page, and a file nothing uses is deleted.
+When a project's usage can't be read, the file is kept.
+
+`assets.json` version 1 put everything generated or uploaded in the Library.
+At startup it is upgraded to version 2 once. The Library keeps what the person
+chose: project files they saved, uploaded videos and audio (game recordings
+and trims, which version 1 can't tell from other uploads) and built-in media.
+Everything else leaves the page but stays stored, so projects and
+conversations still find it. A store from a newer version is never
+rewritten; it is reported as unreadable.
+
 Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
 saved in browser storage). Its order is the person's: editing a project doesn't
 move it, a new project starts at the top, and dragging a project, or Alt with

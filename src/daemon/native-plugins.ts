@@ -73,12 +73,13 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
     dataFolder,
     entry: manifest.entrypoints!.native!,
     tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
-    // A canvas node's code is a command handler too.
+    // A canvas node's code, and an asset source's, are command handlers too.
     commands: [...new Set([
       ...(manifest.contributes?.commands ?? []).flatMap((command) =>
         "native" in command.run ? [command.run.native] : [],
       ),
       ...(manifest.contributes?.canvasNodes ?? []).map((node) => node.run.native),
+      ...(manifest.contributes?.assetSources ?? []).flatMap((source) => [source.search, source.fetch]),
     ])],
     projectTypes: (manifest.contributes?.projectTypes ?? []).map(
       (type) => type.id,
@@ -88,9 +89,13 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
   };
 }
 
+/** The host scope for calls that belong to no project, such as the Library's sources. */
+const APP_SCOPE = "app";
+
 export class NativePlugins {
   readonly #index: PluginIndex;
   readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
+  readonly #appPlugin: (id: string) => Promise<PluginIndexEntry | undefined>;
   readonly #hosts: ExtensionHosts;
 
   readonly #configuration:
@@ -103,6 +108,8 @@ export class NativePlugins {
     index: PluginIndex;
     /** Which plugins are on in a project folder, and whether each may run. */
     resolve: (folder: string) => Promise<ProjectPlugins>;
+    /** The version of a plugin that may run outside projects, if any: on, and allowed what it asks for. */
+    appPlugin?: (id: string) => Promise<PluginIndexEntry | undefined>;
     hosts: ExtensionHosts;
     /** The values a call carries for the plugin's `configuration`. */
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
@@ -111,6 +118,7 @@ export class NativePlugins {
   }) {
     this.#index = options.index;
     this.#resolve = options.resolve;
+    this.#appPlugin = options.appPlugin ?? (async () => undefined);
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
     this.#dataFolder = options.dataFolder;
@@ -178,6 +186,25 @@ export class NativePlugins {
       command: definition.run.native,
     });
     return options.result(value, definition);
+  }
+
+  /**
+   * Runs an asset source's `search` or `fetch`, `publisher/name:source`,
+   * outside any project, in the newest version the person allowed.
+   */
+  async runAssetSource(
+    source: string,
+    handler: "search" | "fetch",
+    options: Omit<PluginCallOptions, "folder" | "version">,
+  ): Promise<unknown> {
+    const [id, sourceId] = qualified(source);
+    const { key, entry } = await this.#ready(APP_SCOPE, id);
+    const definition = entry.manifest.contributes?.assetSources?.find((item) => item.id === sourceId);
+    if (!definition) throw unavailable(`${id} ${entry.version} has no asset source ${sourceId}`);
+    return this.#hosts.invoke({
+      ...(await this.#call(key, entry, { ...options, folder: APP_SCOPE, timeoutMs: options.timeoutMs ?? seconds(definition.timeoutSeconds) })),
+      command: definition[handler],
+    });
   }
 
   /**
@@ -250,14 +277,21 @@ export class NativePlugins {
     );
   }
 
-  /** `refreshProject` for every project with a running host. */
+  /** `refreshProject` for every project with a running host, and the same for the app's own. */
   async refresh(): Promise<void> {
     await Promise.all(
       this.#hosts
         .scopes()
-        .filter((scope) => scope !== "app")
-        .map((scope) => this.refreshProject(scope)),
+        .map((scope) => scope === APP_SCOPE ? this.#refreshApp() : this.refreshProject(scope)),
     );
+  }
+
+  /** Unloads app plugins turned off, no longer allowed, or moved to another version. */
+  async #refreshApp(): Promise<void> {
+    await Promise.all(Object.entries(this.#hosts.active(APP_SCOPE)).map(async ([id, plugin]) => {
+      const allowed = await this.#appPlugin(id).catch(() => undefined);
+      if (allowed?.version !== plugin.version) await this.#hosts.deactivate(APP_SCOPE, id);
+    }));
   }
 
   /**
@@ -346,7 +380,7 @@ export class NativePlugins {
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     return {
       scope: key,
-      project: key,
+      ...(key === APP_SCOPE ? {} : { project: key }),
       plugin: hostPlugin(entry, dataFolder),
       input: options.input,
       signal: options.signal,
@@ -370,7 +404,7 @@ export class NativePlugins {
     folder: string,
     id: string,
   ): Promise<{ key: string; entry: PluginIndexEntry }> {
-    const key = await projectFolderKey(folder);
+    const key = folder === APP_SCOPE ? APP_SCOPE : await projectFolderKey(folder);
     // Before its code is loaded, the package must still be what was indexed;
     // a changed package is indexed again and checked again. The project may
     // move to another version while that runs, so the check repeats until
@@ -398,6 +432,11 @@ export class NativePlugins {
   }
 
   async #active(key: string, id: string): Promise<PluginIndexEntry> {
+    if (key === APP_SCOPE) {
+      const entry = await this.#appPlugin(id);
+      if (!entry) throw unavailable(`${id} is off, or not allowed what it asks for`);
+      return entry;
+    }
     const resolved = await this.#resolve(key);
     if (!resolved.ok)
       throw unavailable(
