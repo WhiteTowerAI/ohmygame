@@ -225,6 +225,33 @@ token. Discovery and search share a 25-second timeout and the caller's
 cancellation signal. A failed discovery is reported rather than sending guessed
 arguments. The optional bearer token is used for both discovery and search.
 
+## Agent instructions
+
+OhMyGame adds its own instructions to the agent's in every conversation, by
+kind of project (`src/daemon/agent-prompts.ts`). **Settings → Agents → Agent
+instructions** shows them as a new project of each kind gets them, and keeps
+the person's own instructions, which come after OhMyGame's in every project,
+for OhMyGame's agent and the coding agents alike. They are told to give way
+to the current request. A project's `AGENTS.md` still adds its own.
+
+The person's instructions are in `agent-instructions.json` in the data
+directory, `{ "version": 1, "text": "…" }`, at most 8,000 characters after
+trimming; blank text clears them. A file this version can't read is left as
+it is: no instructions are used from it and saving new ones is refused until
+it is fixed or removed. Saving restarts idle sessions, so a conversation uses
+the new instructions from its next message.
+
+**This conversation's instructions**, in the conversation menu, shows the
+system prompt and tools OhMyGame's agent last sent the model, section by
+section, read from the conversation's transcript. A coding agent keeps its own
+instructions to itself, so for one only what OhMyGame adds is shown.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /settings/agent-instructions` | The person's instructions, why they can't be used if they can't, and OhMyGame's for each kind of project |
+| `PUT /settings/agent-instructions` | Save `{ custom }`; 400 over the limit, 409 while the saved file can't be read |
+| `GET /projects/:p/conversations/:c/instructions` | What the conversation's agent is told |
+
 ## Network proxy
 
 **Settings → Network** configures the application's network connection. Pi's

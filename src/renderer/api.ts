@@ -1,3 +1,4 @@
+import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
@@ -736,6 +737,20 @@ export async function listModel3DAnimations(model?: AgentModelRef, options?: imp
 export async function listModel3DOperations(): Promise<Model3DModel[]> { return request("/model3d-operations"); }
 export async function model3DBalance(model: AgentModelRef): Promise<import("../shared/contracts.js").Model3DBalance> {
   return request(`/model3d-balance?${new URLSearchParams({ provider: model.provider, id: model.id })}`);
+}
+
+/** Settings › Agents › Instructions: the person's own instructions and OhMyGame's for each kind of project. */
+export async function getAgentInstructions(): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions");
+}
+
+export async function setAgentInstructions(custom: string): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions", { method: "PUT", body: JSON.stringify({ custom }) });
+}
+
+/** What a conversation's agent is told, as its model last received it. */
+export async function getConversationInstructions(projectId: string, conversationId: string): Promise<ConversationInstructions> {
+  return request(`/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/instructions`);
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {

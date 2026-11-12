@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentAccountProfileStatus, AgentRuntimeStatus } from "../src/shared/agent-runtimes.js";
+import type { AgentInstructionsView } from "../src/shared/agent-instructions.js";
 import type { AgentModelCatalog } from "../src/shared/contracts.js";
 
 const agent = (
@@ -54,7 +55,10 @@ const api = {
     agent("claude-code-cli", "Claude Code", true),
     agent("codex-cli", "Codex", false),
   ]),
+  getAgentInstructions: vi.fn(async (): Promise<AgentInstructionsView> => instructions),
+  setAgentInstructions: vi.fn(async (custom: string): Promise<AgentInstructionsView> => ({ ...instructions, custom: custom.trim() })),
 };
+let instructions: AgentInstructionsView;
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
@@ -138,7 +142,7 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   await render({ onOpen });
   const names = [...host.querySelectorAll(".settings-row")].map(nameOf);
   // Other agents come from plugins, which the last row leads to.
-  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents"]);
+  expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents", "Agent instructions"]);
   await act(async () => [...row("More coding agents")!.querySelectorAll("button")].find((button) => button.textContent === "Browse plugins")!.click());
   expect(window.location.hash).toBe("#/plugins?tab=discover");
   expect(row("OhMyGame")!.textContent).toContain("now GPT-5");
@@ -562,4 +566,49 @@ it("explains a missing CLI capability instead of reporting an empty model catalo
     "Codex is missing a required capability: permissions / activePermissionProfile.",
   );
   expect(host.textContent).not.toContain("Codex did not list its models");
+});
+
+it("shows OhMyGame's instructions for each kind of project and saves the person's own", async () => {
+  instructions = {
+    custom: "Reply in Chinese.",
+    builtIn: [
+      { type: "web-game", text: "OhMyGame owns the dev server." },
+      { type: "plugin", text: "Build an OhMyGame plugin." },
+    ],
+  };
+  const onBack = vi.fn();
+  await render({ agent: "instructions", onBack });
+  expect(host.querySelector(".settings-detail-head h1")?.textContent).toBe("Agent instructions");
+  const textarea = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="My instructions"]')!;
+  expect(textarea.value).toBe("Reply in Chinese.");
+  const save = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save")!;
+  expect(save.disabled).toBe(true);
+
+  expect(host.querySelector(".agent-instructions-built-in pre")?.textContent).toBe("OhMyGame owns the dev server.");
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "Plugin Builder")!.click());
+  expect(host.querySelector(".agent-instructions-built-in pre")?.textContent).toBe("Build an OhMyGame plugin.");
+
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, " Name files in English. ");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(save.disabled).toBe(false);
+  await act(async () => save.click());
+  expect(api.setAgentInstructions).toHaveBeenCalledWith(" Name files in English. ");
+  expect(textarea.value).toBe("Name files in English.");
+  expect(host.querySelector(".agent-instructions-saved")?.textContent).toBe("Saved");
+
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "x".repeat(8001));
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(host.querySelector(".agent-instructions-count.is-over")).not.toBeNull();
+  expect(save.disabled).toBe(true);
+});
+
+it("leaves instructions it can't read alone and says why", async () => {
+  instructions = { custom: "", problem: "agent-instructions.json isn't a file this version of OhMyGame can read.", builtIn: [{ type: "web-game", text: "OhMyGame owns the dev server." }] };
+  await render({ agent: "instructions" });
+  expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+  expect(host.textContent).toContain("Your saved instructions can't be used: agent-instructions.json isn't a file");
 });
