@@ -64,19 +64,29 @@ describe("workspace file link icons", () => {
 describe("code block copy button", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("says the copy failed when the clipboard rejects", async () => {
+  it("shows the result of the latest copy attempt", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("navigator", { clipboard: { writeText: () => Promise.reject(new Error("Document is not focused.")) } });
+    const writeText = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Document is not focused."))
+      .mockResolvedValueOnce(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => root.render(createElement(MarkdownContent, { text: "```\nnpm test\n```" })));
 
     const button = container.querySelector("button")!;
-    await act(async () => button.click());
-
-    expect(button.textContent).toBe("Could not copy");
-    await act(async () => root.unmount());
-    container.remove();
+    try {
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Copied");
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Could not copy");
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Copied");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });
