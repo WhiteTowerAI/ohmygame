@@ -272,13 +272,12 @@ export async function renameCanvasAssetPaths(workspace: string, from: string, to
   });
 }
 
-export async function removeCanvasAssetReferences(workspace: string, assetIds: string | readonly string[], options: { localOnly?: boolean } = {}): Promise<void> {
-  const requested = new Set(typeof assetIds === "string" ? [assetIds] : assetIds);
-  if (!requested.size) return;
+export async function removeCanvasAssetReferences(workspace: string, assetIds: string | readonly string[]): Promise<void> {
+  const ids = new Set(typeof assetIds === "string" ? [assetIds] : assetIds);
+  if (!ids.size) return;
   await withCanvasLock(workspace, async () => {
     const index = await readCanvasIndex(workspace);
     const manifest = await readCanvasAssets(workspace);
-    const ids = new Set([...requested, ...Object.entries(manifest.assets).filter(([, asset]) => !options.localOnly && asset.libraryAssetId && requested.has(asset.libraryAssetId)).map(([key]) => key)]);
     const boards = await Promise.all((index?.boards ?? []).map(async (entry) => {
       const detail = await readCanvasBoard(workspace, entry.id);
       if (!detail) throw new CanvasError("Canvas board data is missing", 409);

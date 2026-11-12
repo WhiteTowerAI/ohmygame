@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { LibraryAsset, LibrarySource, LibrarySourceItem } from "../shared/contracts.js";
+import type { LibrarySource, LibrarySourceItem } from "../shared/contracts.js";
 import { addLibrarySourceItem, searchLibrarySource } from "./api.js";
 import { mediaTypeLabel } from "./asset-browser.js";
 import { Check, ExternalLink, Layers3, LoaderCircle, Plus } from "./icons.js";
@@ -17,7 +17,8 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
   query: string;
   /** The Library's asset for each of this source's items already in it. */
   inLibrary: ReadonlyMap<string, string>;
-  onAdded: (asset: LibraryAsset) => void;
+  /** Reloads the Library, so `inLibrary` has what was just added. */
+  onAdded: () => Promise<void>;
   onShowInLocal: (assetId: string) => void;
 }) {
   const [media, setMedia] = useState<Media | "all">(source.media.length === 1 ? source.media[0]! : "all");
@@ -29,7 +30,6 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
   const [selected, setSelected] = useState<LibrarySourceItem>();
   const [adding, setAdding] = useState<string>();
   const [addError, setAddError] = useState<string>();
-  const [added, setAdded] = useState<ReadonlyMap<string, string>>(new Map());
   const [attempt, setAttempt] = useState(0);
   const search = useRef<AbortController>(undefined);
 
@@ -75,9 +75,8 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
     setAdding(item.id);
     setAddError(undefined);
     try {
-      const asset = await addLibrarySourceItem(source.id, item);
-      setAdded((current) => new Map(current).set(item.id, asset.id));
-      onAdded(asset);
+      await addLibrarySourceItem(source.id, item);
+      await onAdded();
     } catch (cause) {
       setAddError(errorMessage(cause));
     } finally {
@@ -85,8 +84,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
     }
   }
 
-  const addedAs = (id: string) => added.get(id) ?? inLibrary.get(id);
-  const addedId = selected ? addedAs(selected.id) : undefined;
+  const addedId = selected ? inLibrary.get(selected.id) : undefined;
   return <>
     {source.media.length > 1 ? <div className="library-filter-row">
       <Tabs<Media | "all"> variant="pills" label={t("assets.mediaTypes")} value={media} onChange={setMedia} tabs={[
@@ -102,7 +100,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
         <div className="library-tiles">{items.map((item) => <MediaTile key={item.id} category={item.mediaType} name={item.name} meta={itemMeta(item)} selected={selected?.id === item.id}
           onClick={() => { setAddError(undefined); setSelected(item); }}
           preview={<SourcePreview item={item} />}
-          badge={addedAs(item.id) ? <Check size={12} aria-label={t("library.added")} /> : undefined} />)}</div>
+          badge={inLibrary.has(item.id) ? <Check size={12} aria-label={t("library.added")} /> : undefined} />)}</div>
         {error ? <Alert tone="danger" title={error} /> : null}
         {next ? <div className="library-source-more"><Button disabled={more} icon={more ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void loadMore()}>{t("library.loadMore")}</Button></div> : null}
       </>}

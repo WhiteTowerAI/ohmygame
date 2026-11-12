@@ -3,14 +3,15 @@ import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { LibraryAsset, LibrarySource, LibrarySourceItem, LibrarySourceResults, LibrarySourceSearchRequest, LibraryUploadMediaType } from "../shared/contracts.js";
+import { ASSET_SOURCE_MEDIA } from "../shared/plugin-manifest.js";
 import type { PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
 import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
+import { isLibraryMediaOfType } from "./library-routes.js";
 import { workspaceMediaInfo } from "./workspace.js";
 
 /** The largest file a source may add, as for an upload. */
 export const LIBRARY_SOURCE_MAX_BYTES = 200 * 1024 * 1024;
-const MEDIA = ["image", "video", "audio", "model"] as const;
 const Optional = (maxLength: number) => Type.Optional(Type.String({ minLength: 1, maxLength }));
 const HttpsUrl = Type.Optional(Type.String({ pattern: "^https://", maxLength: 2000 }));
 
@@ -19,7 +20,7 @@ const SearchResults = Type.Object({
   items: Type.Array(Type.Object({
     id: Type.String({ minLength: 1, maxLength: 500 }),
     name: Type.String({ minLength: 1, maxLength: 200 }),
-    mediaType: Type.Union(MEDIA.map((media) => Type.Literal(media))),
+    mediaType: Type.Union(ASSET_SOURCE_MEDIA.map((media) => Type.Literal(media))),
     thumbnail: Type.Optional(Type.String({ pattern: "^(?:https://|data:image/(?:png|jpeg|webp|gif);base64,)", maxLength: 1_000_000 })),
     width: Type.Optional(Type.Integer({ minimum: 1 })),
     height: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -40,12 +41,6 @@ const FetchResult = Type.Object({
   url: HttpsUrl,
 });
 
-export class LibrarySourceError extends Error {
-  constructor(message: string, readonly statusCode: number) {
-    super(message);
-  }
-}
-
 /**
  * The Library's sources from plugins: their searches, checked before the
  * page shows them, and what the person adds, taken from the plugin's data
@@ -58,8 +53,6 @@ export class LibrarySources {
   constructor(
     private readonly plugins: PluginServices,
     private readonly library: AssetLibrary,
-    /** Whether a file's first bytes match its media type, as for an upload. */
-    private readonly mediaMatches: (head: Buffer, contentType: LibraryUploadMediaType) => boolean,
   ) {}
 
   list(locale?: PluginLocale): Promise<LibrarySource[]> {
@@ -68,9 +61,9 @@ export class LibrarySources {
 
   async search(request: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
     const source = await this.#source(request.source);
-    if (request.media && !source.media.includes(request.media)) throw new LibrarySourceError(`${source.title} has no ${request.media}`, 400);
+    if (request.media && !source.media.includes(request.media)) throw new AssetLibraryError(`${source.title} has no ${request.media}`, 400);
     const value = await this.#run(source.id, "search", { query: request.query, ...(request.media ? { media: request.media } : {}), ...(request.cursor ? { cursor: request.cursor } : {}) }, signal);
-    if (!Check(SearchResults, value)) throw new LibrarySourceError(`${source.title} returned results the Library can't read`, 502);
+    if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results the Library can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
       items: results.items.filter((item) => source.media.includes(item.mediaType)).map(pickItem),
@@ -90,20 +83,20 @@ export class LibrarySources {
   }
 
   async #add(source: LibrarySource, item: { id: string; mediaType: LibraryAsset["mediaType"] }, signal?: AbortSignal): Promise<LibraryAsset> {
-    if (!source.media.includes(item.mediaType)) throw new LibrarySourceError(`${source.title} has no ${item.mediaType}`, 400);
+    if (!source.media.includes(item.mediaType)) throw new AssetLibraryError(`${source.title} has no ${item.mediaType}`, 400);
     const value = await this.#run(source.id, "fetch", { id: item.id, mediaType: item.mediaType }, signal);
-    if (!Check(FetchResult, value)) throw new LibrarySourceError(`${source.title} returned a file the Library can't read`, 502);
+    if (!Check(FetchResult, value)) throw new AssetLibraryError(`${source.title} returned a file the Library can't read`, 502);
     const fetched = value as Static<typeof FetchResult>;
     const file = await this.#fileInDataFolder(source, fetched.file);
     try {
       const name = path.basename(fetched.name ?? fetched.file);
       const media = workspaceMediaInfo(name);
-      if (!media || media.mediaType !== item.mediaType) throw new LibrarySourceError(`${source.title} returned ${name}, which isn't ${item.mediaType}`, 502);
+      if (!media || media.mediaType !== item.mediaType) throw new AssetLibraryError(`${source.title} returned ${name}, which isn't ${item.mediaType}`, 502);
       const { size } = await stat(file);
-      if (size === 0 || size > LIBRARY_SOURCE_MAX_BYTES) throw new LibrarySourceError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
+      if (size === 0 || size > LIBRARY_SOURCE_MAX_BYTES) throw new AssetLibraryError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
       // An SVG is checked whole, as text; other kinds by their first bytes.
       const head = media.contentType === "image/svg+xml" ? await readFile(file) : await readHead(file);
-      if (!this.mediaMatches(head, media.contentType as LibraryUploadMediaType)) throw new LibrarySourceError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
+      if (!isLibraryMediaOfType(head, media.contentType as LibraryUploadMediaType)) throw new AssetLibraryError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
       const asset = await this.library.addFile(name, file, {
         origin: "uploaded",
         saved: true,
@@ -125,7 +118,7 @@ export class LibrarySources {
 
   async #source(id: string): Promise<LibrarySource> {
     const source = (await this.plugins.assetSources()).find((candidate) => candidate.id === id);
-    if (!source) throw new LibrarySourceError("This source isn't available: its plugin is off, removed or not allowed what it asks for", 404);
+    if (!source) throw new AssetLibraryError("This source isn't available: its plugin is off, removed or not allowed what it asks for", 404);
     return source;
   }
 
@@ -133,8 +126,8 @@ export class LibrarySources {
     try {
       return await this.plugins.runAssetSource(source, handler, { input, ...(signal ? { signal } : {}) });
     } catch (cause) {
-      if (cause instanceof AssetLibraryError || cause instanceof LibrarySourceError) throw cause;
-      throw new LibrarySourceError(cause instanceof Error ? cause.message : String(cause), 502);
+      if (cause instanceof AssetLibraryError) throw cause;
+      throw new AssetLibraryError(cause instanceof Error ? cause.message : String(cause), 502);
     }
   }
 
@@ -142,8 +135,8 @@ export class LibrarySources {
   async #fileInDataFolder(source: LibrarySource, file: string): Promise<string> {
     const folder = await realpath(this.plugins.dataFolder(source.plugin)).catch(() => undefined);
     const resolved = folder ? await realpath(path.resolve(folder, file)).catch(() => undefined) : undefined;
-    if (!folder || !resolved || !resolved.startsWith(`${folder}${path.sep}`)) throw new LibrarySourceError(`${source.title} returned a file outside its data folder`, 502);
-    if (!(await stat(resolved)).isFile()) throw new LibrarySourceError(`${source.title} returned something that isn't a file`, 502);
+    if (!folder || !resolved || !resolved.startsWith(`${folder}${path.sep}`)) throw new AssetLibraryError(`${source.title} returned a file outside its data folder`, 502);
+    if (!(await stat(resolved)).isFile()) throw new AssetLibraryError(`${source.title} returned something that isn't a file`, 502);
     return resolved;
   }
 }

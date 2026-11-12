@@ -256,21 +256,6 @@
 }
 
 /* dialogs */
-.library-delete-projects {
-  max-height: 140px;
-  margin: 0;
-  padding-left: 18px;
-  overflow: auto;
-  font-size: var(--text-md);
-}
-
-.library-delete-note {
-  margin: var(--space-3) 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-}
-
 .library-trim .video-trimmer {
   padding: 0;
 }

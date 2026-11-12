@@ -3,7 +3,8 @@ import { createReadStream } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CreateLibraryImageRequest, LibraryAsset, LibrarySourceSearchRequest, LibraryUploadMediaType } from "../shared/contracts.js";
-import { LibrarySourceError, type LibrarySources } from "./library-sources.js";
+import type { LibrarySources } from "./library-sources.js";
+import { ASSET_SOURCE_MEDIA } from "../shared/plugin-manifest.js";
 import { MEDIA_CONTENT_TYPES } from "../shared/media-files.js";
 import { AssetLibraryError, isLibraryAssetDerivation, type AssetLibrary } from "./asset-library.js";
 import { sniffImageType } from "./image-format.js";
@@ -25,7 +26,7 @@ export const ASSET_NAME_BODY_SCHEMA = {
  * the Library shows the `saved` ones: uploaded on its page, saved from a project,
  * or recorded from a game. Other uploads are stored for the project that made them.
  */
-export function registerLibraryRoutes(app: FastifyInstance, { projects, library, sources }: { projects: ProjectManager; library: AssetLibrary; sources?: LibrarySources }): void {
+export function registerLibraryRoutes(app: FastifyInstance, { projects, library, sources }: { projects: ProjectManager; library: AssetLibrary; sources: LibrarySources }): void {
   app.get("/library/assets", async (request) => {
     const associations = await projects.libraryAssetAssociations((project, cause) => request.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"));
     return library.list().map((asset) => ({
@@ -155,42 +156,40 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
   );
 
   // Plugins' sources, shown as tabs beside Local: their searches, and adding a result to the Library.
-  if (sources) {
-    app.get<{ Querystring: { locale?: string } }>("/library/sources", async (request) => (
-      sources.list(request.query.locale === "zh-CN" ? "zh-CN" : "en")
-    ));
+  app.get<{ Querystring: { locale?: string } }>("/library/sources", async (request) => (
+    sources.list(request.query.locale === "zh-CN" ? "zh-CN" : "en")
+  ));
 
-    app.post<{ Body: LibrarySourceSearchRequest }>("/library/sources/search", {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["source", "query"],
-          properties: {
-            source: { type: "string", minLength: 1, maxLength: 300 },
-            query: { type: "string", maxLength: 200 },
-            media: { enum: ["image", "video", "audio", "model"] },
-            cursor: { type: "string", minLength: 1, maxLength: 2000 },
-          },
+  app.post<{ Body: LibrarySourceSearchRequest }>("/library/sources/search", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source", "query"],
+        properties: {
+          source: { type: "string", minLength: 1, maxLength: 300 },
+          query: { type: "string", maxLength: 200 },
+          media: { enum: [...ASSET_SOURCE_MEDIA] },
+          cursor: { type: "string", minLength: 1, maxLength: 2000 },
         },
       },
-    }, async (request, reply) => sourceCall(reply, (signal) => sources.search(request.body, signal)));
+    },
+  }, async (request, reply) => sourceCall(reply, (signal) => sources.search(request.body, signal)));
 
-    app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"] } }>("/library/sources/add", {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["source", "id", "mediaType"],
-          properties: {
-            source: { type: "string", minLength: 1, maxLength: 300 },
-            id: { type: "string", minLength: 1, maxLength: 500 },
-            mediaType: { enum: ["image", "video", "audio", "model"] },
-          },
+  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"] } }>("/library/sources/add", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source", "id", "mediaType"],
+        properties: {
+          source: { type: "string", minLength: 1, maxLength: 300 },
+          id: { type: "string", minLength: 1, maxLength: 500 },
+          mediaType: { enum: [...ASSET_SOURCE_MEDIA] },
         },
       },
-    }, async (request, reply) => sourceCall(reply, (signal) => sources.add(request.body.source, request.body, signal), 201));
-  }
+    },
+  }, async (request, reply) => sourceCall(reply, (signal) => sources.add(request.body.source, request.body, signal), 201));
 
   // Removing from the Library never touches a project: what one uses stays stored for it, and only
   // what nothing uses is deleted. When usage can't be read, as while a project's folder is
@@ -199,7 +198,7 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     const id = request.params.assetId;
     try {
       if (!library.get(id)) return reply.code(404).send({ error: "Library asset not found" });
-      const used = projects.list().some((project) => project.workspaceAvailable === false) || await projects.referencesLibraryAsset(id).then((references) => references.length > 0, (cause: unknown) => {
+      const used = await projects.referencesLibraryAsset(id).then((references) => references.length > 0, (cause: unknown) => {
         if (!(cause instanceof ProjectLibraryReferenceError)) throw cause;
         request.log.warn({ assetId: id, err: cause }, "Could not read Library asset usage; keeping its file");
         return true;
@@ -223,7 +222,7 @@ async function sourceCall<T>(reply: FastifyReply, call: (signal: AbortSignal) =>
     return reply.code(statusCode).send(await call(controller.signal));
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : String(cause);
-    const code = cause instanceof LibrarySourceError || cause instanceof AssetLibraryError ? cause.statusCode : 500;
+    const code = cause instanceof AssetLibraryError ? cause.statusCode : 500;
     return reply.code(code).send({ error });
   } finally {
     reply.raw.off("close", stop);

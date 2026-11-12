@@ -883,7 +883,7 @@ export class ProjectManager {
       await rename(source.absolutePath, removed);
       let previewPaths: string[];
       try {
-        await removeCanvasAssetReferences(project.workspacePath, canvasIds, { localOnly: true });
+        await removeCanvasAssetReferences(project.workspacePath, canvasIds);
         previewPaths = await this.#writeAssetMetadata(id, () => deleteAssetMetadata(project.workspacePath, source.relativePath));
       } catch (cause) {
         await rename(removed, source.absolutePath);
@@ -947,7 +947,8 @@ export class ProjectManager {
   async referencesLibraryAsset(assetId: string): Promise<ProjectState[]> {
     const references: ProjectState[] = [];
     for (const project of this.#projects.values()) {
-      if (project.workspaceAvailable === false) continue;
+      // A folder that is gone reads as using nothing, so its usage can't be known.
+      if (!(await exists(project.workspacePath))) throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: its folder is unavailable`);
       const metadata = await readAssetMetadata(project.workspacePath);
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
       try {

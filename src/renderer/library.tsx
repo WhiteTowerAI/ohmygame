@@ -231,7 +231,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       ]} />
       {source ? <div className="library-panel" role="tabpanel" aria-label={source.title}>
         <LibrarySourceBrowser key={source.id} source={source} query={query} inLibrary={sourceItems}
-          onAdded={() => void load()}
+          onAdded={load}
           onShowInLocal={(assetId) => { setTab(LOCAL); setQuery(""); setMediaFilter("all"); setSelectedId(assetId); }} />
       </div> : <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
       <div className="library-filter-row">

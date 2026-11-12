@@ -940,7 +940,7 @@ describe("Markdown design workspace", () => {
     expect(run).not.toHaveBeenCalled();
     expect(await store.jobs(project.id)).toEqual([]);
   });
-  it("clears board references when a Library asset is forcibly removed", async () => {
+  it("clears board references to a removed asset", async () => {
     const { store, project, boardId, node, library } = await runtime(), asset = await library.add("garden.png", Buffer.from("image")), board = await store.board(project.id, boardId);
     const image = board.board.nodes[0]!; if (image.type === "image") { image.data.assetId = asset.id; image.data.images = [{ type: "library", assetId: asset.id }]; }
     await store.saveBoard(project.id, board.board, board.revision); expect(await canvasReferencesAsset(project.workspacePath, asset.id)).toBe(true);
