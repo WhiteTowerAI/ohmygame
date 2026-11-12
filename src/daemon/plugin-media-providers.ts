@@ -44,6 +44,8 @@ const IMAGE_LIMIT_MS = 10 * 60_000;
 const VIDEO_LIMIT_MS = 15 * 60_000;
 /** How long telling the vendor to stop may take. */
 const CANCEL_LIMIT_MS = 30_000;
+/** Failed checks in a row tried again before a task is given up, so a network blip doesn't cost it. */
+const CHECK_RETRIES = 2;
 
 export interface PluginMediaProvider {
   /** `plugin.<publisher>.<name>.<provider>`, as its chat is. */
@@ -261,6 +263,7 @@ export class PluginMediaProviders {
         }
       }
       let wait = 2;
+      let failures = 0;
       while ("task" in answer) {
         task = answer.task;
         const text = JSON.stringify(task);
@@ -272,7 +275,13 @@ export class PluginMediaProviders {
         const seconds = answer.retryAfter !== undefined ? Math.min(60, Math.max(1, answer.retryAfter)) : wait;
         wait = Math.min(15, wait * 1.5);
         await delay(seconds * 1000, stopped).catch(() => { throw why(stopped); });
-        answer = answerOf(await call("check", [task], stopped), task, Failure);
+        try {
+          answer = answerOf(await call("check", [task], stopped), task, Failure);
+          failures = 0;
+        } catch (cause) {
+          // Left as it was, the answer has the loop check the same task again after the wait.
+          if (stopped.aborted || ++failures > CHECK_RETRIES) throw cause;
+        }
       }
       settled = true;
       if ("error" in answer) throw new Failure(`${name}: ${answer.error}`);
@@ -286,11 +295,8 @@ export class PluginMediaProviders {
       } else if (ready && task !== undefined && !signal?.aborted) {
         // Done, but its result couldn't be had: a retry checks the task again rather than paying anew.
         keep = true;
-      } else if (!settled && task !== undefined && journal && !stopped.aborted) {
-        // A check failed (a network blip) while the vendor works: a retry checks again rather than paying anew.
-        keep = true;
       } else if (!settled && task !== undefined) {
-        // Stopped, out of time, or a step failed with nothing to resume it: tell the vendor, if the adapter can.
+        // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
         void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
       }
       throw cause;

@@ -184,6 +184,8 @@ better, and the adapter decides the pace:
 - `check` returns `retryAfter` in seconds, from the vendor's `Retry-After`
   or its own estimate. The app keeps it between 1 and 60.
 - Without one, the app waits 2 s, then longer each time, up to 15 s.
+- A check that fails, such as on a network blip, is tried again twice
+  before the task is given up.
 - Checks run only while a task is running, and the whole task gives up after
   the kind's limit (image: 10 minutes; video: 15 minutes, as now, the
   download included). A provider whose videos take longer, such as a

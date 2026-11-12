@@ -296,14 +296,12 @@ describe("plugin media providers: video", () => {
     down = false;
     expect((await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).bytes).toEqual(MP4);
     expect(requests.filter((request) => request.url === "https://api.flow.example/v1/videos")).toHaveLength(1);
-    // A check that failed while the vendor works: the task isn't cancelled, and a retry checks it again.
-    let blip = true;
+    // A check that failed once (a network blip) is tried again: the task goes on, not cancelled.
+    let blips = 0;
     const flaky = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
-      if (blip && url === "https://api.flow.example/v1/videos/t1") throw new TypeError("socket hang up");
+      if (url === "https://api.flow.example/v1/videos/t1" && blips++ === 0) throw new TypeError("socket hang up");
       return undefined;
     } });
-    await expect(flaky.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-8"))).rejects.toThrow("could not be reached");
-    blip = false;
     expect((await flaky.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-8"))).bytes).toEqual(MP4);
     expect(flaky.requests.map((request) => request.url).filter((url) => url === "https://api.flow.example/v1/videos" || url.endsWith("/cancel"))).toEqual(["https://api.flow.example/v1/videos"]);
   }, 20_000);
