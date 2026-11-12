@@ -49,22 +49,23 @@ coding agent you already use: [first run](https://ohmygame.ai/docs/first-run/).
 
 ## Features
 
-- **An agent that plays its own game.** It drafts the design doc, writes the
+- **Let the agent build the game.** Agent drafts the design doc, writes the
   code, runs the game in a live preview, then plays it and tries a fix when something breaks.
-- **One canvas for every asset.** Turn a character sketch into more art, a
-  video, a voice line, or a rigged 3D model, ready to use in the game.
+- **One canvas for every asset.** Generate images, video, 3D models, animation,
+  voices, sound effects, and music with AI, and keep them organized on one
+  canvas, ready to use in your game.
 - **Publish to a link.** Anyone can play it in the browser, and it shows up in
-  the [Community](https://ohmygame.ai/community/). Republishing keeps the link.
-- **Plugins for the tools you know.** Godot, Unity, Unreal Engine, Cocos
-  Creator, Blender, Aseprite, Tiled, and platforms like TapTap, WeChat and
-  Douyin Mini Games. Or [make your own](https://ohmygame.ai/docs/plugins/make/).
-- **Any model, your keys.** 40+ providers through
-  [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent), a
-  subscription you already have, or Claude Code, Codex, and OpenCode as the
-  agent. No per-run credits. [Models](https://ohmygame.ai/docs/models/).
-- **Works from other agents too.** Turn on the MCP server to use OhMyGame's
-  canvas, media, and playtesting from Claude Code or Codex.
-  [External agents](docs/external-agents.md).
+  the [Community](https://ohmygame.ai/community/).
+- **Extend it with plugins.** A plugin can teach the agent new skills, give it
+  new tools, and add panels and project types to the app. Bundled plugins cover
+  Godot, Unity, Unreal Engine, Blender, Aseprite, Tiled, and platforms like
+  WeChat and Douyin Mini Games. Or
+  [make your own](https://ohmygame.ai/docs/plugins/make/).
+- **Bring your own agent.** Run OhMyGame on Claude Code, Codex, or OpenCode, or
+  on any of 40+ model providers with your own keys. No per-run credits. It
+  works the other way too: use the canvas, media generation, and playtesting
+  from your agent over MCP. [Models](https://ohmygame.ai/docs/models/) ·
+  [External agents](docs/external-agents.md)
 
 ## What you can make
 

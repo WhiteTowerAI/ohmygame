@@ -43,13 +43,11 @@ OhMyGame 不内置模型。首次启动时，连接一个模型服务商，或�
 
 ## 功能
 
-- **会自己试玩的 Agent。** 它起草设计文档、编写代码、在实时预览里运行游戏，然后亲自上手玩，发现问题就尝试修复。
-- **所有素材在一块画布上。** 一张角色草图可以延伸出更多美术图、一段视频、一句配音，或者一个绑好骨骼的 3D 模型，都能直接用进游戏。
-- **发布成一个链接。** 任何人都能在浏览器里玩，游戏也会出现在[社区](https://ohmygame.ai/zh/community/)里。重新发布时链接不变。
-- **插件连接你熟悉的工具。** Godot、Unity、Unreal Engine、Cocos Creator、Blender、Aseprite、Tiled，以及 TapTap、微信小游戏和抖音小游戏等平台。也可以[自己做插件](https://ohmygame.ai/docs/plugins/make/)。
-- **任意模型，自带密钥。** 通过 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
-  支持 40 多家服务商，也可以用你已有的订阅，或者让 Claude Code、Codex、OpenCode 来当 Agent。不按次收费。见[模型](https://ohmygame.ai/docs/models/)。
-- **也能在别的 Agent 里用。** 打开 MCP 服务后，Claude Code 或 Codex 就能用上 OhMyGame 的画布、媒体生成和试玩能力。见[外部 Agent](docs/external-agents.md)。
+- **让 Agent 来做游戏。** Agent 起草设计文档、编写代码、在实时预览里运行游戏，然后亲自上手玩，发现问题就尝试修复。
+- **所有素材在一块画布上。** 用 AI 生成图片、视频、3D 模型、动画、配音、音效和音乐，在同一块画布上整理，直接用进游戏。
+- **发布成一个链接。** 任何人都能在浏览器里玩，游戏也会出现在[社区](https://ohmygame.ai/zh/community/)里。
+- **用插件扩展一切。** 插件可以教 Agent 新技能、给它新工具，也可以给应用添加面板和项目类型。内置插件已覆盖 Godot、Unity、Unreal Engine、Blender、Aseprite、Tiled，以及微信小游戏、抖音小游戏等平台。也可以[自己做插件](https://ohmygame.ai/docs/plugins/make/)。
+- **自带 Agent。** 用 Claude Code、Codex 或 OpenCode 来驱动 OhMyGame，也可以接入 40 多家模型服务商，用你自己的密钥。不按次收费。反过来也行：通过 MCP，在你的 Agent 里使用 OhMyGame 的画布、媒体生成和试玩能力。[模型](https://ohmygame.ai/docs/models/) · [外部 Agent](docs/external-agents.md)
 
 ## 你可以做什么
 
