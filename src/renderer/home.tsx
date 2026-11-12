@@ -66,7 +66,10 @@ function PluginStarters() {
   const [starters, setStarters] = useState<{ plugins: string[]; commands: ProjectPluginCommand[] }>({ plugins: [], commands: [] });
   useEffect(() => {
     let active = true;
-    void listPluginStarters().catch(() => ({ plugins: [], commands: [] })).then((next) => { if (active) setStarters(next); });
+    // An answer of another shape, as from a service that predates starters, shows none.
+    void listPluginStarters().catch(() => undefined).then((next) => {
+      if (active) setStarters(Array.isArray(next?.commands) && Array.isArray(next.plugins) ? next : { plugins: [], commands: [] });
+    });
     return () => { active = false; };
   }, [generation]);
   // Outside a project, `when` sees the platform and the plugins a new project starts with.
