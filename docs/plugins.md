@@ -190,7 +190,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | `keywords`, provider `media` and agent `icon`, and [Library sources](#library-sources) (`contributes.assetSources`). |
+| 2.5.0 | `keywords`, provider `media` and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
 ## Native code
 
@@ -1052,15 +1052,35 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
   built-in ones.
-- **Commands** show in the slots `composer.slash` (and every command with a
-  `slash` name), `composer.add`, `project.menu` and `project.publish`, the
-  Publish menu, after the app's own entries. The Publish button opens for a
+- **Commands** show in the slots their manifest names, after the app's own
+  entries, when the slot's `when` holds:
+
+  | Slot | Where |
+  | --- | --- |
+  | `composer.slash` | The composer's "/" list, with every command that has a `slash` name. |
+  | `composer.add` | The composer's + menu. |
+  | `project.menu` | The project's name menu. |
+  | `project.toolbar` | Buttons in the project's top bar, before Play; past three, a ⋯ menu. |
+  | `project.publish` | The Publish menu. |
+  | `project.layout` | The command menu (⌘K), beside the built-in layouts, as for a command that opens its panel. |
+  | `panel.toolbar` | The toolbar of the command's own panel. |
+  | `game.more` | The ⋯ menu of the game's preview. |
+  | `canvas.add` | The canvas's add menu. |
+  | `canvas.node` | A canvas node's right-click menu. |
+  | `home.starters` | Home, under the prompt box, from the plugins a new project starts with. Only prompt commands show, and they fill the box. |
+
+  The Publish button opens for a
   project with no web build, such as a Maker game, once a plugin offers a way
   to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
   put in the composer with `insert`; `openPanel` brings the panel forward;
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
-  offers Undo when they changed files. The other slots are not shown yet.
+  offers Undo when they changed files.
+  From the canvas, a prompt goes with the board and its selection, as any
+  message there does; a right-clicked node is selected. A native command whose `run.input` names a JSON Schema gets
+  `{ boardId }` from `canvas.add`, and `{ boardId, nodeId, nodeType, assetId? }`
+  from `canvas.node`; its schema must accept them. On Home, `when` sees
+  `platform` and the plugins a new project starts with, but no project.
   A plugin page's `command.run` may send `input`: a tool command passes it
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked

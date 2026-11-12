@@ -1654,6 +1654,7 @@ export function createApp(options: AppOptions = {}) {
   };
   app.get("/plugin-store/updates", (): Promise<PluginSourceUpdate[]> => pluginUpdates.check());
   app.get("/plugin-store/status", (): { safeMode: boolean } => ({ safeMode: pluginServices.safeMode }));
+  app.get<{ Querystring: { locale?: string } }>("/plugin-starters", (request) => pluginServices.starters(request.query.locale === "zh-CN" ? "zh-CN" : "en"));
   const pluginSourceBody = {
     type: "object",
     required: ["type"],

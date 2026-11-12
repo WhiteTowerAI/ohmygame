@@ -854,6 +854,8 @@ describe("plugins in the project shell", () => {
         { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
         // The manifest only checks the prefix, so a link can still be malformed.
         { id: "acme/maker:docs", plugin: "acme/maker", title: "Open docs", slots: [{ slot: "project.menu" }], run: { url: "https://[" } },
+        { id: "acme/maker:run", plugin: "acme/maker", title: "Run in Maker", slots: [{ slot: "project.toolbar", when: "project.plugin('acme/tools')" }], run: { native: "run" } },
+        { id: "acme/maker:hidden-run", plugin: "acme/maker", title: "Hidden run", slots: [{ slot: "project.toolbar", when: "project.type == 'web-game'" }], run: { native: "run" } },
       ]);
       if (route === "/projects/project/plugin-changes/change-1/undo") return new Response(null, { status: 204 });
     }, detail("live-turn"), { wrap: (shell) => <ToastProvider>{shell}</ToastProvider> });
@@ -889,6 +891,9 @@ describe("plugins in the project shell", () => {
     await settle();
     expect(daemon.requests.find((request) => request.route === "/projects/project/plugin-commands" && request.method === "POST")?.body).toBe(JSON.stringify({ command: "acme/maker:upload" }));
     expect(document.querySelector(".ui-toasts")?.textContent).toContain("Upload build finished");
+    // The top bar's plugin buttons, where their `when` holds.
+    const topButtons = [...container.querySelectorAll(".plugin-toolbar button")].map((button) => button.textContent);
+    expect(topButtons).toEqual(["Run in Maker"]);
     await act(async () => document.querySelector<HTMLButtonElement>(".ui-toast-action")!.click());
     await settle();
     expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);

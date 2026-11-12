@@ -146,7 +146,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -1221,7 +1221,7 @@ export function ProjectShell({
    * a link, or the plugin's code. Resolves to what its code returned, or why
    * it failed, which it has already shown.
    */
-  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<{ result?: unknown; error?: string }> {
+  async function runProjectPluginCommand(command: ProjectPluginCommand, target?: PluginCommandTarget): Promise<{ result?: unknown; error?: string }> {
     if (!project) return {};
     const run = command.run;
     if ("prompt" in run) {
@@ -1251,7 +1251,8 @@ export function ProjectShell({
     }
     try {
       await saveBeforeBuild(command);
-      const { result, change } = await runPluginCommand(project.id, command.id);
+      const input = "native" in run && run.input ? target?.input : undefined;
+      const { result, change } = await runPluginCommand(project.id, command.id, input);
       showPluginChange(command.title, change);
       return { result };
     } catch (cause) {
@@ -1406,6 +1407,13 @@ export function ProjectShell({
     ...pluginCommandEntries("project.menu"),
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
+  // The game's toolbar and the canvas show their own slots, deep in the workspace.
+  const runCommandRef = useRef(runProjectPluginCommand);
+  runCommandRef.current = runProjectPluginCommand;
+  const pluginSlots = useMemo(() => ({
+    commands: project ? plugins.commands : [], when: plugins.when,
+    run: (command: ProjectPluginCommand, target?: PluginCommandTarget) => runCommandRef.current(command, target),
+  }), [!!project, plugins.commands, plugins.when]);
   const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's
@@ -1457,6 +1465,11 @@ export function ProjectShell({
     ...presetsFor(offered).map((preset): Command => ({
       id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
       run: () => changeLayout(presetLayout(preset, offered, homes)),
+    })),
+    // Plugins' layouts, which open the panels they need.
+    ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
+      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size={16} />,
+      run: () => void runProjectPluginCommand(command),
     })),
   ] : []);
   // The cards that wait on an answer and the composer: in the chat panel, or
@@ -1573,7 +1586,7 @@ export function ProjectShell({
   };
 
   return (
-    <>
+    <PluginSlotsContext.Provider value={pluginSlots}>
     {chatInput}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
@@ -1598,6 +1611,7 @@ export function ProjectShell({
     <ProjectFrame
       rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+        {project ? <PluginPanelToolbar commands={commandsForSlot(plugins.commands, "project.toolbar", plugins.when)} onRun={runProjectPluginCommand} /> : null}
         {/* Play stays in place from every view. A Web preview or a story fills
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />
@@ -1810,7 +1824,7 @@ export function ProjectShell({
       </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
-    </>
+    </PluginSlotsContext.Provider>
   );
 }
 
