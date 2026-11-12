@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
-import { EvalFlags, QuickJS, type JSValueHandle } from "quickjs-wasi";
+import { EvalFlags, JSException, QuickJS, type JSValueHandle } from "quickjs-wasi";
 
 // Runs a plugin's media adapter (docs/media-provider-plugins.md) in QuickJS
 // compiled to WebAssembly. The script has no file system, processes, timers,
@@ -61,25 +61,42 @@ function quickjsModule(): Promise<WebAssembly.Module> {
   return wasm;
 }
 
-// Builds `host` over two functions the script can't keep, and the function
-// that calls a step. Requests, answers and results cross as JSON text, so no
-// object of the app's reaches the script and nothing of the script's (such as
-// a getter) runs outside its time limit. Evaluates to [host, call].
+// Builds `host` over two functions the script can't keep, and the functions
+// the app calls. Requests, answers and results cross as JSON text, so no
+// object of the app's reaches the script, and the app reads nothing of the
+// script's but strings: whatever could run the script's code (a getter, a
+// replaced JSON.stringify) runs in the VM, within its limits. Each request
+// waits on a promise of the script's own, which the app settles by its id.
+// Evaluates to [call, settle, describe].
 const PRELUDE = `(() => {
   const rawFetch = globalThis.__ohmygameFetch;
   const rawLog = globalThis.__ohmygameLog;
   delete globalThis.__ohmygameFetch;
   delete globalThis.__ohmygameLog;
+  const { stringify, parse } = JSON;
+  const NativePromise = Promise;
+  const pending = new Map();
+  let next = 0;
   const host = Object.freeze({
     async fetch(url, init) {
-      const answer = JSON.parse(await rawFetch(JSON.stringify({ ...(init ?? {}), url: String(url) })));
+      const id = String(++next);
+      const text = await new NativePromise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        try {
+          rawFetch(id, stringify({ ...(init ?? {}), url: String(url) }));
+        } catch (error) {
+          pending.delete(id);
+          reject(error);
+        }
+      });
+      const answer = parse(text);
       const body = answer.body;
       return Object.freeze({
         status: answer.status,
         ok: answer.status >= 200 && answer.status < 300,
         headers: Object.freeze(answer.headers),
         async text() { return body; },
-        async json() { return JSON.parse(body); },
+        async json() { return parse(body); },
       });
     },
     log(message) { rawLog(String(message)); },
@@ -88,10 +105,23 @@ const PRELUDE = `(() => {
     const section = exports.default && exports.default[kind];
     const run = section && section[step];
     if (typeof run !== "function") throw new TypeError("it has no " + kind + "." + step);
-    const value = await run.call(section, ...JSON.parse(args), host);
-    return value === undefined ? "null" : JSON.stringify(value);
+    const value = await run.call(section, ...parse(args), host);
+    return value === undefined ? "null" : stringify(value);
   };
-  return [host, call];
+  const settle = (id, ok, text) => {
+    const request = pending.get(id);
+    pending.delete(id);
+    if (request) ok ? request.resolve(text) : request.reject(new Error(text));
+  };
+  const describe = (error) => {
+    try {
+      const message = typeof error === "string" ? error : error && error.message;
+      return typeof message === "string" ? message.slice(0, 1000) : "an error";
+    } catch {
+      return "an error";
+    }
+  };
+  return [call, settle, describe];
 })()`;
 
 /** The most a step may return, as JSON. */
@@ -106,78 +136,108 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
   if (call.signal?.aborted) stop();
   let used = 0;
   let since: number | undefined;
+  let closed = false;
   const vm = await QuickJS.create({
     wasm: await quickjsModule(),
     memoryLimit: MEDIA_SANDBOX_MEMORY_BYTES,
     interruptHandler: () => since !== undefined && (used + performance.now() - since > MEDIA_SANDBOX_CPU_MS || controller.signal.aborted),
   });
+  const tooLong = () => new MediaSandboxError(`${call.file} ran for more than ${MEDIA_SANDBOX_CPU_MS / 1000} seconds`);
   // Every entry into the VM counts towards the script's own time.
   const inside = <T>(run: () => T): T => {
     since = performance.now();
     try {
       return run();
+    } catch (cause) {
+      if (cause instanceof JSException) cause.handle.dispose();
+      throw used + performance.now() - since > MEDIA_SANDBOX_CPU_MS ? tooLong() : cause;
     } finally {
       used += performance.now() - since;
       since = undefined;
     }
   };
   const drain = () => inside(() => vm.executePendingJobs());
+  /** Calls a function of the prelude's with strings and booleans, and reads the string it returns. */
+  const invoke = (fn: JSValueHandle, ...args: Array<string | boolean | JSValueHandle>): string | undefined => {
+    const values = args.map((arg) => typeof arg === "string" ? vm.newString(arg) : typeof arg === "boolean" ? (arg ? vm.true : vm.false) : arg);
+    try {
+      const result = inside(() => vm.callFunction(fn, vm.undefined, ...values));
+      try {
+        return vm.typeof(result) === "string" ? result.toString() : undefined;
+      } finally {
+        result.dispose();
+      }
+    } finally {
+      values.forEach((value, index) => { if (typeof args[index] === "string") value.dispose(); });
+    }
+  };
   const handles: JSValueHandle[] = [];
   const keep = (handle: JSValueHandle) => {
     handles.push(handle);
     return handle;
   };
   try {
-    const fetchFunction = keep(vm.newFunction("__ohmygameFetch", (text) => {
-      const deferred = vm.newPromise();
-      let request: MediaFetchRequest;
+    const fetchFunction = keep(vm.newFunction("__ohmygameFetch", (id, text) => {
+      if (vm.typeof(id) !== "string" || vm.typeof(text) !== "string") throw new TypeError("host.fetch takes a URL and an object");
+      const request = id.toString();
+      let parsed: MediaFetchRequest;
       try {
-        request = JSON.parse(text!.toString()) as MediaFetchRequest;
+        parsed = JSON.parse(text.toString()) as MediaFetchRequest;
       } catch {
-        deferred.reject(vm.newError("host.fetch takes a URL and an object"));
-        return deferred.handle;
+        throw new TypeError("host.fetch takes a URL and an object");
       }
-      call.fetch(request, controller.signal).then(
-        (answer) => {
-          deferred.resolve(vm.newString(JSON.stringify(answer)));
+      const deliver = (ok: boolean, answer: string) => {
+        // The call is over, or stopped: nothing is left to tell.
+        if (closed || controller.signal.aborted) return;
+        try {
+          invoke(settle, request, ok, answer);
           drain();
-        },
-        (cause: unknown) => {
-          deferred.reject(vm.newError(cause instanceof Error ? cause.message : String(cause)));
-          drain();
-        },
+        } catch (cause) {
+          controller.abort(cause instanceof MediaSandboxError ? cause : new MediaSandboxError(`${call.file}: ${cause instanceof Error ? cause.message : String(cause)}`));
+        }
+      };
+      call.fetch(parsed, controller.signal).then(
+        (answer) => deliver(true, JSON.stringify(answer)),
+        (cause: unknown) => deliver(false, cause instanceof Error ? cause.message : String(cause)),
       );
-      return deferred.handle;
+      return vm.undefined;
     }));
     vm.setProp(vm.global, "__ohmygameFetch", fetchFunction);
     const logFunction = keep(vm.newFunction("__ohmygameLog", (text) => {
-      call.log?.(String(text?.toString() ?? "").slice(0, 2000));
+      if (vm.typeof(text) === "string") call.log?.(text.toString().slice(0, 2000));
       return vm.undefined;
     }));
     vm.setProp(vm.global, "__ohmygameLog", logFunction);
     const prelude = keep(inside(() => vm.evalCode(PRELUDE, "<ohmygame>")));
-    const run = keep(inside(() => prelude.getProp("1")));
+    const [run, settle, describeFunction] = ["0", "1", "2"].map((index) => keep(prelude.getProp(index))) as [JSValueHandle, JSValueHandle, JSValueHandle];
+    const describe = (error: JSValueHandle) => invoke(describeFunction, keep(error)) ?? "an error";
 
     const loading = keep(inside(() => vm.evalCode(call.source, call.file, EvalFlags.TYPE_MODULE)));
     drain();
-    const loaded = await settle(vm.resolvePromise(loading), controller.signal);
-    if ("error" in loaded) throw new MediaSandboxError(`${call.file} failed to load: ${describe(vm, keep(loaded.error))}`);
+    const loaded = await waitFor(vm.resolvePromise(loading), controller.signal);
+    if ("error" in loaded) throw new MediaSandboxError(`${call.file} failed to load: ${describe(loaded.error)}`);
     const exports = keep(loaded.value);
-    const calling = keep(inside(() => vm.callFunction(run, vm.undefined, exports, keep(vm.newString(call.kind)), keep(vm.newString(call.step)), keep(vm.newString(JSON.stringify(call.args))))));
+    const args = [call.kind, call.step, JSON.stringify(call.args)].map((value) => keep(vm.newString(value)));
+    const calling = keep(inside(() => vm.callFunction(run, vm.undefined, exports, ...args)));
     drain();
-    const result = await settle(vm.resolvePromise(calling), controller.signal);
-    if ("error" in result) throw new MediaSandboxError(`${call.file} ${call.kind}.${call.step} failed: ${describe(vm, keep(result.error))}`);
-    const text = keep(result.value).toString();
-    if (text.length > RESULT_MAX_CHARACTERS) throw new MediaSandboxError(`${call.file} ${call.kind}.${call.step} returned more than ${RESULT_MAX_CHARACTERS / 1024 / 1024} MB`);
-    return JSON.parse(text) as unknown;
+    const result = await waitFor(vm.resolvePromise(calling), controller.signal);
+    if ("error" in result) throw new MediaSandboxError(`${call.file} ${call.kind}.${call.step} failed: ${describe(result.error)}`);
+    const value = keep(result.value);
+    const json = vm.typeof(value) === "string" ? value.toString() : undefined;
+    if (json === undefined) throw new MediaSandboxError(`${call.file} ${call.kind}.${call.step} returned what isn't data`);
+    if (json.length > RESULT_MAX_CHARACTERS) throw new MediaSandboxError(`${call.file} ${call.kind}.${call.step} returned more than ${RESULT_MAX_CHARACTERS / 1024 / 1024} MB`);
+    return JSON.parse(json) as unknown;
   } catch (cause) {
     if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new MediaSandboxError(`${call.file} was stopped`);
     if (cause instanceof MediaSandboxError) throw cause;
-    const message = cause instanceof Error ? cause.message : String(cause);
-    throw new MediaSandboxError(/interrupted/.test(message) ? `${call.file} ran for more than ${MEDIA_SANDBOX_CPU_MS / 1000} seconds` : `${call.file}: ${message}`);
+    if (used > MEDIA_SANDBOX_CPU_MS) throw tooLong();
+    throw new MediaSandboxError(`${call.file}: ${cause instanceof Error ? cause.message : String(cause)}`);
   } finally {
+    closed = true;
     clearTimeout(timeout);
     call.signal?.removeEventListener("abort", stop);
+    // Requests still out stop too.
+    controller.abort(new MediaSandboxError(`${call.file} finished`));
     for (const handle of handles.reverse()) {
       try { handle.dispose(); } catch { /* already gone with its VM */ }
     }
@@ -186,31 +246,11 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
 }
 
 /** Waits for the script, unless the call is stopped first. */
-function settle<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+function waitFor<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
     const abort = () => reject(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
   });
-}
-
-/** An error's message, read without running anything of the script's. */
-function describe(vm: QuickJS, error: JSValueHandle): string {
-  try {
-    if (vm.typeof(error) === "string") return error.toString().slice(0, 1000);
-    if (vm.typeof(error) !== "object") return "an error";
-    const message = error.getOwnPropertyDescriptor("message");
-    message?.get?.dispose();
-    message?.set?.dispose();
-    const value = message?.value;
-    if (!value) return "an error";
-    try {
-      return vm.typeof(value) === "string" ? value.toString().slice(0, 1000) : "an error";
-    } finally {
-      value.dispose();
-    }
-  } catch {
-    return "an error";
-  }
 }

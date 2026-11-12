@@ -111,8 +111,9 @@ that takes minutes are written the same way:
 - **`check(task, host)`** returns `{ outputs }`, `{ error }`, or `{ progress?,
   retryAfter? }` while the work goes on. It is needed only when `start` can
   return a task.
-- **`cancel(task, host)`** is optional. It is called when the person or the
-  agent stops the work.
+- **`cancel(task, host)`** is optional. It is called, with 30 seconds to
+  finish, when the person or the agent stops the work or it runs out of time
+  (10 minutes for an image) while the vendor holds a task.
 
 `input` is what OhMyGame asks for. It is fixed per kind and versioned with the
 plugin API:
@@ -136,6 +137,8 @@ request takes the first output.
 - **`host.fetch(url, init)`**: HTTPS to the plugin's `capabilities.network`
   hosts only.
   - `auth: true` adds the key as `media.auth` says. `json` sends a JSON body.
+    Where the answer to such a request repeats the key, in a header or the
+    body, the adapter reads `[key]` instead.
   - The answer gives `status`, `ok`, a few headers (`content-type`,
     `content-length`, `retry-after`, `location`, `x-request-id`), and `json()`
     or `text()` of at most 20 MB, so a picture sent back as base64 fits.
@@ -152,6 +155,8 @@ which the agent runtime already ships), inside the daemon:
   `host.fetch` doesn't count), and 2 minutes in all;
 - there is no `fetch`, `require`, `process`, file system or clock beyond
   `Date`;
+- the app reads only strings back from the VM, so nothing of the script's
+  (a getter, a replaced `JSON.stringify`) runs outside these limits;
 - an adapter that throws, runs out of memory or time, or returns something
   malformed fails that one request with a message naming the plugin.
 

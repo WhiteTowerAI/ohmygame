@@ -30,6 +30,8 @@ const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 const TASK_MAX_CHARACTERS = 16 * 1024;
 /** How long an image may take, checks included. */
 const IMAGE_LIMIT_MS = 10 * 60_000;
+/** How long telling the vendor to stop may take. */
+const CANCEL_LIMIT_MS = 30_000;
 
 export interface PluginMediaProvider {
   /** `plugin.<publisher>.<name>.<provider>`, as its chat is. */
@@ -55,10 +57,13 @@ export class PluginMediaProviders {
     private readonly log: (pluginId: string, message: string) => void = () => {},
   ) {}
 
-  /** Installed providers with media whose key is set, or that need none. */
+  /**
+   * Installed providers with media whose key is set, or that need none, of
+   * plugins the person has allowed everything they ask for, such as their hosts.
+   */
   async providers(): Promise<PluginMediaProvider[]> {
     const providers: PluginMediaProvider[] = [];
-    for (const entry of await this.services.installed()) {
+    for (const entry of await this.services.everyProject()) {
       for (const provider of entry.manifest.contributes?.providers ?? []) {
         if (!provider.media) continue;
         if (provider.apiKey && this.services.values.secret(entry, provider.apiKey) === undefined) continue;
@@ -112,34 +117,40 @@ export class PluginMediaProviders {
   /** Runs `start`, then `check` while the vendor works, until there are outputs. */
   async #run(item: PluginMediaProvider, kind: string, input: unknown, limitMs: number, signal?: AbortSignal): Promise<Output[]> {
     const source = await this.#source(item);
-    const call = (step: string, args: unknown[]) => runMediaAdapter({
+    const outOfTime = new ImageGenerationError(`${this.#name(item)} took longer than ${Math.round(limitMs / 60_000)} minutes`, 504);
+    const deadline = AbortSignal.timeout(limitMs);
+    const stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    // Out of time reads as such; stopped by the person, as they stopped it.
+    const why = (aborted: AbortSignal) => deadline.aborted && aborted.reason === deadline.reason ? outOfTime : aborted.reason as unknown;
+    const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
-      fetch: (request, stepSignal) => this.#fetch(item, request, stepSignal),
+      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal),
       log: (message) => this.log(item.entry.id, message),
-      ...(signal ? { signal } : {}),
+      signal: stepSignal,
     }).catch((cause: unknown) => {
+      if (stepSignal.aborted) throw why(stepSignal);
       throw new ImageGenerationError(`${this.#name(item)}: ${cause instanceof Error ? cause.message : String(cause)}`);
     });
-    const deadline = Date.now() + limitMs;
-    let answer = answerOf(await call("start", [input]), undefined);
-    let wait = 2;
-    while ("task" in answer) {
-      const task = answer.task;
-      // The adapter's pace, kept between 1 s and a minute; without one, 2 s growing to 15 s.
-      const seconds = answer.retryAfter !== undefined ? Math.min(60, Math.max(1, answer.retryAfter)) : wait;
-      wait = Math.min(15, wait * 1.5);
-      try {
-        if (Date.now() + seconds * 1000 > deadline) throw new ImageGenerationError(`${this.#name(item)} took longer than ${Math.round(limitMs / 60_000)} minutes`, 504);
-        await delay(seconds * 1000, signal);
-      } catch (cause) {
-        // Stopped by the person or out of time: tell the vendor, if the adapter can.
-        void call("cancel", [task]).catch(() => {});
-        throw cause;
+    let task: unknown;
+    try {
+      let answer = answerOf(await call("start", [input], stopped), undefined);
+      let wait = 2;
+      while ("task" in answer) {
+        task = answer.task;
+        // The adapter's pace, kept between 1 s and a minute; without one, 2 s growing to 15 s.
+        const seconds = answer.retryAfter !== undefined ? Math.min(60, Math.max(1, answer.retryAfter)) : wait;
+        wait = Math.min(15, wait * 1.5);
+        await delay(seconds * 1000, stopped).catch(() => { throw why(stopped); });
+        answer = answerOf(await call("check", [task], stopped), task);
       }
-      answer = answerOf(await call("check", [task]), task);
+      if ("error" in answer) throw new ImageGenerationError(`${this.#name(item)}: ${answer.error}`);
+      return answer.outputs;
+    } catch (cause) {
+      // Stopped by the person or out of time while the vendor works: tell it, if the adapter can.
+      if (stopped.aborted && task !== undefined)
+        void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
+      throw cause;
     }
-    if ("error" in answer) throw new ImageGenerationError(`${this.#name(item)}: ${answer.error}`);
-    return answer.outputs;
   }
 
   /** The adapter's source, read once per package. */
@@ -177,9 +188,10 @@ export class PluginMediaProviders {
       body = JSON.stringify(request.json);
       headers.set("content-type", "application/json");
     } else if (typeof request.body === "string") body = request.body;
+    let key: string | undefined;
     if (request.auth === true) {
-      const key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
-      if (key === undefined) throw new Error("the provider has no key to send");
+      key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
+      if (!key) throw new Error("the provider has no key to send");
       const auth = item.media.auth ?? DEFAULT_AUTH;
       if ("query" in auth) url.searchParams.set(auth.query, key);
       else headers.set(auth.header, auth.scheme ? `${auth.scheme} ${key}` : key);
@@ -195,12 +207,16 @@ export class PluginMediaProviders {
       // Never the address: it may carry the key.
       throw new Error(`${url.host} could not be reached${cause instanceof Error && cause.name === "TimeoutError" ? " in time" : ""}`);
     });
+    // An answer may echo the key, as a redirect to the same address would: the adapter never sees it.
+    const json = key === undefined ? "" : JSON.stringify(key).slice(1, -1);
+    const forms = key === undefined ? [] : [...new Set([key, encodeURIComponent(key), new URLSearchParams({ k: key }).toString().slice(2), json, json.replaceAll("/", "\\/")])];
+    const hide = (text: string) => forms.reduce((hidden, form) => hidden.split(form).join("[key]"), text);
     const answer: Record<string, string> = {};
     for (const name of ANSWER_HEADERS) {
       const value = response.headers.get(name);
-      if (value !== null) answer[name] = value;
+      if (value !== null) answer[name] = hide(value);
     }
-    return { status: response.status, headers: answer, body: (await readCapped(response, url.host)).toString("utf8") };
+    return { status: response.status, headers: answer, body: hide((await readCapped(response, url.host)).toString("utf8")) };
   }
 
   /** Downloads or decodes one output. */
@@ -215,7 +231,10 @@ export class PluginMediaProviders {
       redirect: "manual", credentials: "omit",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     }).catch(() => { throw new ImageGenerationError(`${this.#name(item)}'s result at ${url.host} could not be downloaded`); });
-    if (!response.ok) throw new ImageGenerationError(`${this.#name(item)}'s result at ${url.host} answered ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new ImageGenerationError(`${this.#name(item)}'s result at ${url.host} answered ${response.status}`);
+    }
     return readCapped(response, url.host);
   }
 
@@ -254,11 +273,17 @@ function answerOf(value: unknown, task: unknown): Answer {
   return { task: next, ...(typeof answer.retryAfter === "number" && Number.isFinite(answer.retryAfter) ? { retryAfter: answer.retryAfter } : {}) };
 }
 
+/** Reads an answer up to 20 MB, letting go of the rest of a larger one. */
 async function readCapped(response: Response, host: string): Promise<Buffer> {
-  if (Number(response.headers.get("content-length") ?? 0) > RESPONSE_MAX_BYTES) throw new Error(`${host} answered with more than 20 MB`);
+  const tooLarge = async (): Promise<never> => {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(`${host} answered with more than 20 MB`);
+  };
+  if (Number(response.headers.get("content-length") ?? 0) > RESPONSE_MAX_BYTES) return tooLarge();
   const chunks: Uint8Array[] = [];
   let size = 0;
   if (response.body) {
+    // Leaving the loop early cancels the body.
     for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
       size += chunk.byteLength;
       if (size > RESPONSE_MAX_BYTES) throw new Error(`${host} answered with more than 20 MB`);

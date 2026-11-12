@@ -16,7 +16,9 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["contributes"]>["providers"]>[number]["media"]>;
 
-async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[] } = {}) {
+type Reply = (url: string) => Response | undefined;
+
+async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
     id: "acme/flow", version: "1.0.0", root, digest: "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
@@ -31,11 +33,14 @@ async function setup(adapter: string, options: { key?: string | undefined; media
     },
   } as unknown as PluginIndexEntry;
   const key = "key" in options ? options.key : "sk-test";
-  const services = { installed: async () => [entry], values: { secret: () => key } } as unknown as PluginServices;
+  // Only plugins whose capabilities the person allowed are in `everyProject`.
+  const services = { everyProject: async () => options.allowed === false ? [] : [entry], values: { secret: () => key } } as unknown as PluginServices;
   const requests: Array<{ url: string; method: string; headers: Record<string, string>; body?: string }> = [];
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : {}) });
+    const reply = options.reply?.(url);
+    if (reply) return reply;
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -107,6 +112,36 @@ describe("plugin media providers", () => {
     await expect(result.media.generateImage(model, { prompt: "x" })).rejects.toThrow("other.example isn't in the plugin's capabilities.network");
     const notPicture = await setup(`export default { image: { start: () => ({ outputs: [{ base64: "aGVsbG8=" }] }) } };`);
     await expect(notPicture.media.generateImage(model, { prompt: "x" })).rejects.toThrow("isn't a PNG, JPEG or WebP picture");
+  });
+
+  it("leaves out a plugin whose hosts the person hasn't allowed", async () => {
+    expect(await (await setup(IMAGE_START, { allowed: false })).media.imageProviders()).toEqual([]);
+  });
+
+  it("never shows the adapter the key, even where the vendor echoes it", async () => {
+    const { media } = await setup(`export default { image: { async start(input, host) {
+      const response = await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true });
+      return { error: response.headers.location + " " + (await response.text()) };
+    } } };`, {
+      key: "sk/te st",
+      media: { auth: { query: "key" } },
+      reply: (url) => url.startsWith("https://api.flow.example/") ? new Response(`echo ${new URL(url).searchParams.get("key")} ${JSON.stringify(new URL(url).searchParams.get("key")).replaceAll("/", "\\/")}`, { status: 302, headers: { location: url } }) : undefined,
+    });
+    const error = await media.generateImage(await firstModel(media), { prompt: "x" }).catch((cause: Error) => cause.message);
+    expect(error).toBe('Flow: https://api.flow.example/v1/images?key=[key] echo [key] "[key]"');
+  });
+
+  it("tells the vendor to stop a task when the person stops waiting", async () => {
+    const { media, requests } = await setup(`export default { image: {
+      start: () => ({ task: { id: "t1" }, retryAfter: 5 }),
+      check: () => ({ error: "never checked" }),
+      async cancel(task, host) { await host.fetch("https://api.flow.example/v1/tasks/" + task.id + "/cancel", { method: "POST", auth: true }); return null; },
+    } };`);
+    const controller = new AbortController();
+    const pending = media.generateImage(await firstModel(media), { prompt: "x" }, controller.signal);
+    setTimeout(() => controller.abort(new Error("stopped by the person")), 100);
+    await expect(pending).rejects.toThrow("stopped by the person");
+    await expect.poll(() => requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/tasks/t1/cancel"]);
   });
 
   it("joins the image catalog and takes requests for its models", async () => {
