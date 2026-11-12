@@ -235,7 +235,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           onShowInLocal={(assetId) => { setTab(LOCAL); setQuery(""); setMediaFilter("all"); setSelectedId(assetId); }} />
       </div> : <div className="library-panel" role="tabpanel" aria-label={t("library.localTab")}>
       <div className="library-filter-row">
-        <Tabs variant="underline" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
+        <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
           ...KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
         ]} />

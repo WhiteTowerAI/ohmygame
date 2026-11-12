@@ -89,7 +89,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
   const addedId = selected ? addedAs(selected.id) : undefined;
   return <>
     {source.media.length > 1 ? <div className="library-filter-row">
-      <Tabs<Media | "all"> variant="underline" label={t("assets.mediaTypes")} value={media} onChange={setMedia} tabs={[
+      <Tabs<Media | "all"> variant="pills" label={t("assets.mediaTypes")} value={media} onChange={setMedia} tabs={[
         { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} /> },
         ...source.media.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} /> })),
       ]} />
