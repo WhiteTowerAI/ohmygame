@@ -193,7 +193,10 @@ It works in every mode, also before the match starts, for emotes, quick phrases
 or ready checks. It never reaches the rules and is not kept: a player who is
 away misses it. Never change the game with a message; use a move, input or
 action, especially in lockstep, where pages get it at different moments. More
-than 5 a second throws `rate_limited`.
+than 5 a second throws `rate_limited`. The sender does not receive its own
+message, so a chat adds its own line itself; check every field that arrives in
+`onMessage`, since other pages send it. Chat that must survive a reconnect is a
+move (`{ run, by: "any" }`) keeping the last few dozen lines in `G` instead.
 
 ### Snapshot
 
