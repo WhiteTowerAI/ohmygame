@@ -585,7 +585,7 @@ describe("plugin model providers", () => {
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       id: "acme/nim", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Acme NIM", description: "Hosted models",
-      configuration: { apiKey: { type: "secret", title: "NIM API key" } },
+      configuration: { apiKey: { type: "secret", title: "NIM API key", description: "From the NIM console." } },
       contributes: { providers: [
         { id: "hosted", title: "Acme hosted", icon: "./hosted.svg", api: "openai-completions", baseUrl: "https://integrate.example/v1", apiKey: "apiKey", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true },
         { id: "open", title: "Acme open", api: "openai-completions", baseUrl: "https://open.example/v1", models: [{ id: "open-model" }] },
@@ -610,7 +610,7 @@ describe("plugin model providers", () => {
     let listed = await providers(app);
     expect(listed.find((provider) => provider.id === hosted)).toMatchObject({
       name: "Acme hosted", configured: false, status: "not_configured", methods: [], capabilities: ["language"],
-      plugin: { id: "acme/nim", name: "Acme NIM", baseUrl: "https://integrate.example/v1", keySetting: "apiKey", icon: expect.any(String) },
+      plugin: { id: "acme/nim", name: "Acme NIM", baseUrl: "https://integrate.example/v1", keySetting: "apiKey", keyHint: "From the NIM console.", icon: expect.any(String) },
     });
     // Its own icon, read from the package; a provider without one has none.
     const icon = await app.inject({ method: "GET", url: `/plugin-providers/${hosted}/icon` });

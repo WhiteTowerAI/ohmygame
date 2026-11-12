@@ -553,7 +553,7 @@ switches don't apply. It follows installs, updates and setting changes.
 - Settings → Providers lists it like any provider. Its page has the key,
   base URL, switch and models, and the plugin's Settings tab shows the same
   rows, opening that page in a dialog; the key's field leaves the plugin's
-  form. Either place saves the key as the plugin's setting, and removing it
+  form, and its description shows under the key. Either place saves the key as the plugin's setting, and removing it
   clears that. Signing in another way, removing the provider or adding models
   is refused.
 

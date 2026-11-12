@@ -61,11 +61,13 @@ export class PluginModelProviders {
   info(id: string, locale: PluginLocale): PluginProviderInfo | undefined {
     const item = this.#providers.get(id);
     if (!item) return undefined;
+    const keyField = item.provider.apiKey ? item.entry.manifest.configuration?.[item.provider.apiKey] : undefined;
     return {
       id: item.entry.id,
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
       baseUrl: item.provider.baseUrl,
       ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),
+      ...(keyField?.description ? { keyHint: localizePluginString(item.entry, keyField.description, locale) } : {}),
       ...(item.provider.icon ? { icon: item.entry.digest } : {}),
     };
   }
