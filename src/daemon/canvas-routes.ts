@@ -13,6 +13,8 @@ import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
 import { fixPixelArt, PixelArtFixerError } from "./pixel-art-fixer.js";
+import { checkPixelArtImages, PixelArtCheckError } from "./pixel-art-check.js";
+import type { PixelArtCheckBatch, PixelArtCheckExpectations } from "../shared/pixel-art-check.js";
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -22,7 +24,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;
@@ -157,6 +159,10 @@ interface CanvasMediaRequest {
     format?: "png" | "jpg" | "jpeg" | "webp" | "mp4" | "gif";
     /** The spoken language for transcribe-audio, as an ISO 639 code; detected when absent. */
     language?: string;
+    /** check-pixel-art: settings to compare against (`width` and `height` above give the size). */
+    colors?: number;
+    baseline?: number;
+    outline?: string;
   };
 }
 
@@ -164,7 +170,8 @@ type CanvasMediaResult =
   | { kind: "asset"; assetId: string; name: string; mediaType: string }
   | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
   | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  | { kind: "pixel-check"; checks: PixelArtCheckBatch };
 
 async function runCanvasMedia(
   options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore; audio?: AudioGenerator },
@@ -199,11 +206,16 @@ async function runCanvasMedia(
     const expectedNodes = request.operation === "split-image-grid"
       ? input.selectedFrames?.length ?? (input.columns ?? 2) * (input.rows ?? 2)
       : request.operation === "video-frame-strip" && input.selectedFrames
-        ? input.selectedFrames.length : 1;
+        ? input.selectedFrames.length
+        : request.operation === "check-pixel-art" ? 0 : 1;
     if (expectedNodes > await availableNodes()) throw new CanvasError("Canvas is full", 409);
   }
   const first = sources[0]!;
   if (request.operation === "transcribe-audio") return { kind: "text", text: await transcribe(options.audio, first, input.language) };
+  if (request.operation === "check-pixel-art") {
+    for (const source of sources) requireMedia(source.contentType, "image");
+    return { kind: "pixel-check", checks: await checkPixelArtImages(await Promise.all(sources.map((source) => readFile(source.absolutePath))), pixelArtExpectations(input)) };
+  }
   let output: { name: string; bytes: Buffer; mediaType: string } | undefined;
   let outputs: Awaited<ReturnType<typeof splitImageGrid>> | undefined;
   if (request.operation === "split-image-grid") {
@@ -269,6 +281,21 @@ async function runCanvasMedia(
   const asset = await options.library.add(output.name, output.bytes, { origin: "generated", sourceKey: `canvas-media:${projectId}:${randomUUID()}` });
   await ensureCanvasAssets(project, options.projects, options.library, [asset.id]);
   return { kind: "asset", assetId: asset.id, name: asset.name, mediaType: asset.mediaType };
+}
+
+/** What a pixel-art check compares against: only valid settings the request names. */
+function pixelArtExpectations(input: { width?: unknown; height?: unknown; colors?: unknown; baseline?: unknown; outline?: unknown }): PixelArtCheckExpectations {
+  const whole = (value: unknown, min: number) => typeof value === "number" && Number.isInteger(value) && value >= min ? value : undefined;
+  const width = whole(input.width, 1);
+  const height = whole(input.height, 1);
+  const colors = whole(input.colors, 1);
+  const baseline = whole(input.baseline, 0);
+  return {
+    ...(width && height ? { width, height } : {}),
+    ...(colors ? { colors } : {}),
+    ...(baseline === undefined ? {} : { baseline }),
+    ...(typeof input.outline === "string" && /^#[0-9a-f]{6}$/i.test(input.outline) ? { outline: input.outline } : {}),
+  };
 }
 
 /** The words spoken in an audio asset, for a Text node beside it. */

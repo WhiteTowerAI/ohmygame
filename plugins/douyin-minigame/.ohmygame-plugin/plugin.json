@@ -14,9 +14,7 @@
   ],
   "beta": true,
   "icon": "./assets/icon.png",
-  "categories": [
-    "publishing"
-  ],
+  "categories": ["engine", "publishing"],
   "appliesTo": [
     "general"
   ],

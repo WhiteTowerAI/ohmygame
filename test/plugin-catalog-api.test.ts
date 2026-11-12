@@ -48,8 +48,9 @@ describe("plugin catalog API", () => {
     const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { source: directory, digest: inspected.json().digest } });
     expect(added.statusCode).toBe(201);
     expect(added.json()).toEqual({ id: "acme/maker", version: "1.0.0" });
+    // Adding it, after the review listed what it asks for, allows that and turns it on.
     const plugin = await listed();
-    expect(plugin?.grants).toBeNull();
+    expect(plugin?.grants).toEqual({ enabled: true, allowed: ["network:api.example.com"], everyProject: true });
     expect(plugin?.origin).toBeUndefined();
 
     for (const payload of [{ source: { type: "npm", name: "@acme/maker", registry: "https://evil.example" } }, { source: { type: "github", url: "https://github.com/acme/maker", commit: "main" } }, { source: { type: "git", url: "https://example.com/x.git" } }, {}])
@@ -70,16 +71,61 @@ describe("plugin catalog API", () => {
 
     const body = JSON.stringify({ schemaVersion: 1, versions: [{
       package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
-      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {} },
-    }], packages: {}, featured: [] });
+      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {}, icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }] },
+    }], packages: { "@acme/maker": { sourceVerified: true, avatar: "https://avatars.githubusercontent.com/u/42?v=4" } }, featured: [] });
     const digest = createHash("sha256").update(body).digest("hex");
+    const png = Buffer.from("89504e470d0a1a0a", "hex");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/index.json")
       ? Response.json({ latest: `index.${digest}.json` })
-      : new Response(body));
+      : String(input).endsWith(".png") || String(input).startsWith("https://avatars.githubusercontent.com/u/42?") ? new Response(png) : new Response(body));
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
     apps.push(app);
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者" }] });
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者", icon: "assets/icon.png", screenshots: [{ path: "assets/a1.png" }], avatar: "42" }] });
+    // Its screenshots come through the app from beside the index, and only those the index lists.
+    const file = (path: string, role = "screenshot") => app.inject({ method: "GET", url: `/plugin-market/images?${new URLSearchParams({ path, role })}` });
+    const shot = await file("assets/a1.png");
+    expect(shot.statusCode).toBe(200);
+    expect(shot.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
+    expect(shot.rawPayload).toEqual(png);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input))).toContain("https://plugins.example.com/assets/a1.png");
+    expect((await file("assets/b2.png")).statusCode).toBe(404);
+    expect((await file("../secret.png")).statusCode).toBe(404);
+    expect((await file("assets/a1.png", "icon")).statusCode).toBe(404);
+    // So does its publisher's avatar, only by the id the index gives.
+    const avatar = await app.inject({ method: "GET", url: "/plugin-market/avatars/42" });
+    expect(avatar.statusCode).toBe(200);
+    expect(avatar.headers).toMatchObject({ "content-type": "image/png", "x-content-type-options": "nosniff" });
+    expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/43" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/plugin-market/avatars/..%2F42" })).statusCode).toBe(400);
+  });
+
+  it("serves an added plugin's screenshots by their place in its manifest", async () => {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-screenshots-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(source, "shots"));
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/shots", version: "1.0.0", engines: { "ohmygame-api": "^2.4.0" }, displayName: "Shots", description: "Shots",
+      categories: ["art"], screenshots: [{ path: "./shots/one.png", caption: "The first" }, { path: "./shots/two.png" }],
+    }));
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    await writeFile(path.join(source, "shots", "one.png"), png);
+    // Named like a picture, but isn't one.
+    await writeFile(path.join(source, "shots", "two.png"), "<html></html>");
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-screenshots-data-")) });
+    apps.push(app);
+    await app.ready();
+    await addPlugin(app, source);
+    const plugin = (await app.inject({ method: "GET", url: "/plugin-store/plugins?locale=en" })).json().find((item: { id: string }) => item.id === "acme/shots");
+    expect(plugin).toMatchObject({ categories: ["art"], screenshots: [{ caption: "The first" }, {}] });
+    const id = encodeURIComponent("acme/shots");
+    const first = await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/0` });
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["content-type"]).toBe("image/png");
+    expect(first.rawPayload).toEqual(png);
+    expect((await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/0`, headers: { "if-none-match": first.headers.etag as string } })).statusCode).toBe(304);
+    for (const index of ["1", "2", "-1", "x", "100"])
+      expect((await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/${index}` })).statusCode).toBe(404);
   });
 
   it("finishes indexing the bundled plugins before it closes the plugin store", async () => {
@@ -279,10 +325,13 @@ describe("plugin catalog API", () => {
     const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });
     expect(removed.statusCode).toBe(409);
     expect(await listed()).toBeDefined();
-    const off = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/enabled", payload: { enabled: false } });
+    const off = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/every-project", payload: { on: false } });
     expect(off.statusCode).toBe(204);
-    expect((await listed()).grants.enabled).toBe(false);
+    expect((await listed()).everyProject).toBe(false);
     expect(await replayed()).toContain("project.plugins.changed");
+    // One that stopped after crashing starts again; there's nothing to stop it everywhere any more.
+    expect((await app.inject({ method: "POST", url: "/plugin-store/ohmygame/godot/restart" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/enabled", payload: { enabled: false } })).statusCode).toBe(404);
 
     const saved = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: "/opt/godot" } });
     expect(saved.json()).toEqual({ godotPath: { type: "path", value: "/opt/godot" } });
@@ -330,17 +379,18 @@ describe("plugin catalog API", () => {
       // Home knows no project yet, so it offers each with what it suits; a mention keeps its old form.
       expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
       expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
-      // One off in every project is offered too, to turn on in the new project, with what that asks for.
+      // One off in every project is offered too, to turn on in the new project; the app's own ask for nothing more.
       expect.objectContaining({ id: "ohmygame/unity", off: true }),
-      expect.objectContaining({ id: "ohmygame/unreal-engine", off: true, asks: expect.arrayContaining(["network:127.0.0.1"]) }),
+      expect.objectContaining({ id: "ohmygame/unreal-engine", off: true }),
     ]));
+    expect(home.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/unreal-engine")).not.toHaveProperty("asks");
     // Plugins that add a project type are picked as the type instead.
     expect(home.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
-    // One stopped everywhere is no longer offered, nor are its Skills.
+    // One turned off in every project is offered as off, and its Skills aren't.
     expect(home.skills.map((skill: { name: string }) => skill.name)).toContain("game-studio");
-    await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/enabled", payload: { enabled: false } });
+    await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/every-project", payload: { on: false } });
     const off = (await app.inject({ method: "GET", url: "/composer/capabilities" })).json();
-    expect(off.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/game-studio");
+    expect(off.plugins).toEqual(expect.arrayContaining([expect.objectContaining({ id: "ohmygame/game-studio", off: true })]));
     expect(off.skills.map((skill: { name: string }) => skill.name)).not.toContain("game-studio");
     // A prompt can't mention one that is off in its project; the composer turns it on first.
     const mention = { name: "unity", marketplaceId: "ohmygame", displayName: "Unity" };
@@ -428,7 +478,7 @@ describe("plugin catalog API", () => {
     const themes = async (locale = "en") => (await app.inject({ method: "GET", url: `/plugin-themes?locale=${locale}` })).json();
     expect(await themes()).toEqual([{ id: "acme/ocean:deep", plugin: "acme/ocean", title: "Deep sea", dark: { "--color-accent": "#00aaff" } }]);
     expect((await themes("zh-CN"))[0].title).toBe("深海");
-    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/ocean/enabled", payload: { enabled: false } })).statusCode).toBeLessThan(300);
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/ocean/every-project", payload: { on: false } })).statusCode).toBeLessThan(300);
     expect(await themes()).toEqual([]);
   });
 
@@ -444,8 +494,8 @@ describe("plugin catalog API", () => {
     const fields = ({ id, everyProject, beta, categories, grants }: (typeof store)[number]) => ({ id, everyProject, beta, categories, enabled: grants?.enabled !== false });
     expect(store.map(fields)).toEqual(expect.arrayContaining([
       { id: "ohmygame/aseprite", everyProject: false, beta: true, categories: ["art"], enabled: true },
-      { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["art"], enabled: true },
-      { id: "ohmygame/game-studio", everyProject: true, beta: undefined, categories: ["workflow"], enabled: true },
+      { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["3d"], enabled: true },
+      { id: "ohmygame/game-studio", everyProject: true, beta: undefined, categories: ["workflow", "design"], enabled: true },
       { id: "ohmygame/unity", everyProject: false, beta: true, categories: ["engine"], enabled: true },
       { id: "ohmygame/godot", everyProject: false, beta: true, categories: ["engine"], enabled: true },
     ]));
@@ -454,7 +504,7 @@ describe("plugin catalog API", () => {
     const unity = ((await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as typeof store).find((plugin) => plugin.id === "ohmygame/unity");
     expect(unity?.everyProject).toBe(true);
     expect(store.every((plugin) => plugin.bundled)).toBe(true);
-    // Approvals go to an installed plugin, so none wait for a package added later under that id.
-    expect((await app.inject({ method: "POST", url: "/plugin-store/acme/later/consent", payload: { allowed: ["native"] } })).statusCode).toBe(409);
+    // Only an installed plugin can be switched, so nothing waits for a package added later under that id.
+    expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/later/every-project", payload: { on: true } })).statusCode).toBe(409);
   });
 });

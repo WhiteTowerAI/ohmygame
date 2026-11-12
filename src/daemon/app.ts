@@ -12,7 +12,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions } from "./plugin-agents.js";
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
@@ -44,6 +44,7 @@ import { RuntimeEventBus } from "../shared/events.js";
 import { ScheduledMessages } from "./scheduled-messages.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { MULTIPLAYER_MANIFEST_SCHEMA } from "@ohmygame/sdk/protocol";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -54,6 +55,8 @@ import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
+import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -73,13 +76,16 @@ import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, assertBuildable, PublishError } from "./publish/archive.js";
+import { gameServiceUrlFor } from "./publish/game-service.js";
+import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
+import { isCloudConfig } from "@ohmygame/sdk/cloud-protocol";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
-import { ProjectAssetError, ProjectManager, projectFolderType, ProjectWorkspaceError } from "./projects.js";
+import { ProjectAssetError, ProjectManager, projectFolderType, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -124,7 +130,7 @@ import { PluginHooks } from "./plugin-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
-import { localizePluginString, pluginAdds, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
@@ -357,6 +363,7 @@ const publishProjectSchema = {
       accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
       title: { type: "string", minLength: 1, maxLength: 200 },
       description: { type: "string", maxLength: 2_000 },
+      multiplayer: MULTIPLAYER_MANIFEST_SCHEMA,
     },
   },
 } as const;
@@ -643,7 +650,36 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   // Projects whose web build is being exported; a build and a publish share the build output.
   const building = new Set<string>();
-  const artifacts = new ArtifactBuilder();
+  const artifacts = new ArtifactBuilder({
+    account: publishedGameAccount(process.env.OHMYGAME_ACCOUNT_ISSUER ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL),
+    gameServiceUrl: publishedGameService(gameServiceUrlFor(process.env, options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)),
+  });
+  const localMultiplayer = new LocalMultiplayerRuntime();
+  /**
+   * The local service and its registrations end with OhMyGame, so a game set
+   * up earlier gets its deployment back before it plays or publishes. Best
+   * effort: the game's own connection and the publish check report what is left.
+   */
+  /** A game's own multiplayer rules, server/rules.ts in its startup directory. */
+  const gameRulesFile = async (project: ProjectState) => {
+    const [{ findGameRules }, { absolutePath }] = await Promise.all([
+      import("@ohmygame/server"),
+      resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? "."),
+    ]);
+    return findGameRules(absolutePath);
+  };
+  const restoreLocalMultiplayer = async (project: ProjectState) => {
+    if (project.type !== "web-game" && project.type !== "general") return;
+    try {
+      const config = await readWorkspaceMultiplayer(project);
+      const restored = config && await localMultiplayer.restore(project.id, config, await gameRulesFile(project));
+      if (config && restored && restored.serverUrl !== config.serverUrl) await moveWorkspaceMultiplayer(project, config, restored);
+    } catch {}
+    // Local sign-in, saves and leaderboards follow the local service to its current address.
+    try {
+      await moveLocalGameServices(project, () => localMultiplayer.gameServices(project.id));
+    } catch {}
+  };
   const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
   const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
@@ -858,11 +894,14 @@ export function createApp(options: AppOptions = {}) {
     }
     return undefined;
   };
+  let projectsSkipped = false;
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
     projectKind: projectKindAtFolder,
+    // Unknown while a project couldn't be loaded, since it may run an older version.
+    projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
     ...(options.pluginSafeMode ? { safeMode: true } : {}),
   });
@@ -993,12 +1032,20 @@ export function createApp(options: AppOptions = {}) {
       playtest,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
+      async (adapterId, options) => localMultiplayer.configure(
+        project.id,
+        adapterId,
+        options,
+        adapterId === "custom" ? await gameRulesFile(project) : undefined,
+      ),
+      () => localMultiplayer.gameServices(project.id),
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    await restoreLocalMultiplayer(project);
     // Until the playtest page connects and holds its own lease, this one keeps
     // the preview from counting as unused.
     const url = await previews.holdWhile(project, "playtest:opening", () => previews.ensureStarted(project, false), signal);
@@ -1288,14 +1335,31 @@ export function createApp(options: AppOptions = {}) {
         void syncFileWatch(project.workspacePath);
   });
   /** Packs the project for export or publishing, and tells its plugins before and after. */
-  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+  /**
+   * Tells plugins a build started; the result reports how it ended, once. Publishing builds
+   * before the game's record exists and packages after, so its build ends in two steps.
+   */
+  const startBuild = (project: ProjectState, purpose: "export" | "publish") => {
     void pluginHooks.notify(project.workspacePath, "build.started", { purpose });
+    let ended = false;
+    return {
+      succeeded(artifact: Buffer): Buffer {
+        if (!ended) void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
+        ended = true;
+        return artifact;
+      },
+      failed(cause: unknown): void {
+        if (!ended) void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+        ended = true;
+      },
+    };
+  };
+  const buildArtifact = async (project: ProjectState, purpose: "export" | "publish", build: () => Promise<Buffer>): Promise<Buffer> => {
+    const report = startBuild(project, purpose);
     try {
-      const artifact = await build();
-      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "succeeded", bytes: artifact.byteLength });
-      return artifact;
+      return report.succeeded(await build());
     } catch (cause) {
-      void pluginHooks.notify(project.workspacePath, "build.completed", { purpose, status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+      report.failed(cause);
       throw cause;
     }
   };
@@ -1330,6 +1394,12 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const entry = pluginServices.index.get(id);
     return entry?.manifest.icon ? readPluginIconAsset(entry.root, { type: "asset", path: entry.manifest.icon }) : undefined;
+  }, async (id, index) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    const screenshot = entry?.manifest.screenshots?.[index];
+    return entry && screenshot ? readPluginScreenshot(entry.root, screenshot.path) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
@@ -1355,6 +1425,7 @@ export function createApp(options: AppOptions = {}) {
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+      projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
@@ -1482,7 +1553,8 @@ export function createApp(options: AppOptions = {}) {
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = pluginServices.index.get(id);
-      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false) return [];
+      // Themes are the app's, so they follow the plugin's switch for every project.
+      if (!entry || pluginApiIssue(entry.manifest) || pluginServices.grants.plugin(id)?.enabled === false || !pluginServices.onInEveryProject(id)) return [];
       return (entry.manifest.contributes?.themes ?? []).map((theme) => ({
         id: `${id}:${theme.id}`,
         plugin: id,
@@ -1518,6 +1590,7 @@ export function createApp(options: AppOptions = {}) {
         ...(entry.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
         ...(entry.manifest.longDescription ? { longDescription: text(entry.manifest.longDescription) } : {}),
         examples: (entry.manifest.examples ?? []).map(text),
+        ...(entry.manifest.screenshots ? { screenshots: entry.manifest.screenshots.map((shot) => ({ ...(shot.caption ? { caption: text(shot.caption) } : {}) })) } : {}),
         ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
         ...(entry.manifest.links?.homepage ? { homepage: entry.manifest.links.homepage } : {}),
         skills: storeSkills(entry),
@@ -1530,6 +1603,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.options ? { options: field.options } : {}),
         })),
         adds: pluginAdds(entry, text),
+        ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
     }));
   });
@@ -1580,6 +1654,32 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
+  app.get<{ Querystring: { path: string; role: "icon" | "screenshot" } }>("/plugin-market/images", {
+    schema: { querystring: { type: "object", required: ["path", "role"], additionalProperties: false, properties: {
+      path: { type: "string", maxLength: 500 }, role: { enum: ["icon", "screenshot"] },
+    } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.image(request.query.path, request.query.role).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Image not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400, immutable")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
+  app.get<{ Params: { id: string } }>("/plugin-market/avatars/:id", {
+    schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", pattern: "^[0-9]{1,12}$" } } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.avatar(request.params.id).catch(() => undefined);
+    if (!image) return reply.code(404).send({ error: "Avatar not found" });
+    return reply
+      .header("Cache-Control", "private, max-age=86400")
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .type(image.mediaType)
+      .send(image.bytes);
+  });
   app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
     schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
   }, async (request, reply) => {
@@ -1633,18 +1733,7 @@ export function createApp(options: AppOptions = {}) {
         directory: pluginServices.packagesDirectory,
         download: downloadRelease,
       });
-      // What it asks for still needs the person's consent.
       return { id: entry.id, version: entry.version, capabilities: capabilityGrants(entry.manifest) };
-    } catch (cause) {
-      return storeReply(reply, cause);
-    }
-  });
-  app.post<{ Params: { publisher: string; name: string }; Body: { allowed: string[] } }>("/plugin-store/:publisher/:name/consent", {
-    schema: { body: { type: "object", required: ["allowed"], additionalProperties: false, properties: { allowed: { type: "array", maxItems: 100, items: { type: "string", maxLength: 300 } } } } },
-  }, async (request, reply) => {
-    try {
-      await pluginServices.consent(`${request.params.publisher}/${request.params.name}`, request.body.allowed);
-      return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
     }
@@ -1659,11 +1748,10 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
-  app.put<{ Params: { publisher: string; name: string }; Body: { enabled: boolean } }>("/plugin-store/:publisher/:name/enabled", {
-    schema: { body: { type: "object", required: ["enabled"], additionalProperties: false, properties: { enabled: { type: "boolean" } } } },
-  }, async (request, reply) => {
+  // Starts a plugin again after it stopped from crashing too often.
+  app.post<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/restart", async (request, reply) => {
     try {
-      await pluginServices.setEnabled(`${request.params.publisher}/${request.params.name}`, request.body.enabled);
+      await pluginServices.restart(`${request.params.publisher}/${request.params.name}`);
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
@@ -4020,6 +4108,7 @@ export function createApp(options: AppOptions = {}) {
     // A web story plays its own page through the preview, and a plugin-built game its web version.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
     } catch (cause) {
@@ -4478,13 +4567,20 @@ export function createApp(options: AppOptions = {}) {
       if (building.has(project.id)) return reply.code(409).send({ error: "Wait for the web build to finish before publishing" });
       publishing.add(project.id);
       events.publish(project.id, "publish.started", {});
+      const build = startBuild(project, "publish");
       try {
+        const localDebug = localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN;
+        if (localDebug) await restoreLocalMultiplayer(project);
+        const cover = await projectCover(project.id);
+        // The game is built and checked first, then packaged once its record exists, so a
+        // published build can name the game for cloud saves.
+        const prepared = localDebug ? undefined : await artifacts.prepare(project, cover, request.body.multiplayer);
         const result = await publisher.publish(
           project,
-          await buildArtifact(project, "publish", async () => artifacts.create(project, await projectCover(project.id))),
+          prepared ? async (gameId) => build.succeeded(await prepared.package(gameId, { accessToken: request.body.accessToken })) : build.succeeded(await artifacts.createLocal(project, cover, request.body.multiplayer)),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
-        );
+        ).finally(() => prepared?.dispose());
         await projects.setPublication(project.id, {
           gameId: result.game.id,
           deploymentId: result.game.deploymentId,
@@ -4496,6 +4592,7 @@ export function createApp(options: AppOptions = {}) {
         events.publish(project.id, "publish.completed", { game: result.game });
         return reply.code(201).send(result);
       } catch (cause) {
+        build.failed(cause);
         const error = cause instanceof Error ? cause.message : String(cause);
         events.publish(project.id, "publish.error", { error });
         const statusCode = cause instanceof PublishError || cause instanceof RemotePublishError ? cause.statusCode : 502;
@@ -4628,11 +4725,28 @@ export function createApp(options: AppOptions = {}) {
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();
+    await localMultiplayer.close();
     await artifacts.close();
     await examples.close();
     await localPublisher?.close();
   });
   return app;
+}
+
+/**
+ * Published games sign players in through the OhMyGame cloud, which also hosts their pages.
+ * A development cloud on plain HTTP offers no sign-in.
+ */
+function publishedGameAccount(issuer: string | undefined): GameAccountConfig | undefined {
+  const account = issuer ? { issuer: issuer.replace(/\/+$/, "") } : undefined;
+  return isGameAccountConfig(account) ? account : undefined;
+}
+
+/** The game service published games keep cloud saves on; only an HTTPS origin qualifies. */
+function publishedGameService(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const origin = url.replace(/\/+$/, "") + "/";
+  return isCloudConfig({ serverUrl: origin, gameId: "check" }) ? origin : undefined;
 }
 
 

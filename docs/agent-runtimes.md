@@ -102,7 +102,12 @@ own mode, which is kept.
 Discovery is lazy; Pi requests do not wait for it. An explicit executable wins.
 Otherwise choose the newest installed SemVer among PATH, login-shell PATH,
 common install directories, and known bundled copies. Resolve the executable
-to an absolute path and deduplicate real paths. Version/probe caches are
+to an absolute path and deduplicate real paths. On Windows only `.exe` files
+are run, since a `.cmd` script needs `cmd.exe` and its quoting; Codex's npm
+shim resolves to the native program in its package. A plugin's ACP agent that
+npm installed is found by its `.cmd` shim, which is read, not run
+(`agent-runtimes/npm-shim.ts`): the JavaScript file it names starts with
+Node, or a program inside the package starts as it is. Version/probe caches are
 bounded, expire failed results, honor Recheck, and discard in-flight catalog
 results after configuration changes. Paginated native catalogs must be read
 completely. A successful model listing is not proof of account entitlement;

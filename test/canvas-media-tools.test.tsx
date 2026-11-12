@@ -119,7 +119,7 @@ beforeEach(async () => {
   const canvas = createAssetCanvasDocument();
   canvas.nodes = [
     { id: "first", type: "asset" as const, position: { x: 0, y: 0 }, data: { assetId: "first", mediaType: "image" as const } },
-    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] } },
+    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [], pixelStyle: "classic" as const } },
   ];
   canvas.editorLayout.nodes = Object.fromEntries(
     canvas.nodes.map((node) => [node.id, node.position]),
@@ -297,7 +297,7 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image", "Fix pixel art", "Check pixel art"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
@@ -316,6 +316,26 @@ it("runs pixel-art fixing immediately and creates a derived asset", async () => 
   await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b", operation: "fix-pixel-art", assetIds: ["first"], options: {},
   }));
+  // A finished action reports what it made, not that it failed.
+  const notice = await vi.waitFor(() => container.querySelector<HTMLElement>(".story-save-notice")!);
+  expect(notice.textContent).toContain("Created pixel-art-fixed.png");
+  expect(notice.textContent).not.toContain("Could not complete this action.");
+  expect(notice.getAttribute("role")).toBe("status");
+});
+
+it("checks pixel art without creating nodes and lists failed rules", async () => {
+  runMedia.mockResolvedValue({ kind: "pixel-check", checks: {
+    reports: [{ width: 64, height: 64, scale: 1, passed: false, items: [{ id: "colors", status: "fail", value: "40", expected: "≤ 16" }] }],
+  } });
+  await select("second");
+  await chooseTool("Image tools", "Check pixel art");
+  await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b", operation: "check-pixel-art", assetIds: ["second"], options: { colors: 16 },
+  }));
+  const dialog = await vi.waitFor(() => container.querySelector('[role="dialog"][aria-label="Pixel art check"]')!);
+  expect(dialog.textContent).toContain("1 image has failed checks.");
+  expect(dialog.querySelector("tr.is-fail")!.textContent).toContain("Colors");
+  expect(captured.props!.nodes).toHaveLength(2);
 });
 
 it("shows a direct pixel-art processing error", async () => {

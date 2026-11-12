@@ -89,6 +89,176 @@
   gap: var(--space-2);
 }
 
+/* categories on the left, as many rows as they need; the other filters keep to the right of the first */
+.plugins-filters {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plugins-filters > .ui-filter-chips {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugins-filters-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugins-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plugins-section h2 .plugins-count {
+  margin-left: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+/* the end of a long list: Show more, or View all on the front page */
+.plugins-all {
+  display: flex;
+  justify-content: center;
+}
+
+/* a market plugin, opened over Discover (plugin-catalog.tsx) */
+.plugin-dialog-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.plugin-dialog-summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.plugin-dialog-summary p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+/* a market plugin's numbers, in one row as an app store shows them */
+.plugin-dialog-stats {
+  display: flex;
+  margin: 0;
+  padding: var(--space-3) 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.plugin-dialog-stats > div {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 88px;
+  padding: 0 var(--space-3);
+}
+
+.plugin-dialog-stats > div + div {
+  border-left: 1px solid var(--color-border);
+}
+
+.plugin-dialog-stats dt {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.plugin-dialog-stats dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.plugin-dialog .plugin-shot img {
+  height: 180px;
+}
+
+/* screenshots: one row that scrolls sideways, each opening larger */
+.plugin-shots-row {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  scroll-snap-type: x proximity;
+}
+
+.plugin-shot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  scroll-snap-align: start;
+}
+
+.plugin-shot > button {
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-hover);
+  cursor: zoom-in;
+}
+
+.plugin-shot > button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.plugin-shot img {
+  display: block;
+  height: 220px;
+  width: auto;
+  max-width: 420px;
+  object-fit: cover;
+}
+
+.plugin-shot figcaption {
+  max-width: 420px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.plugin-shot-large {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+}
+
 /* cards: two a row, the switch beside the card's link */
 .plugins-grid {
   display: grid;
@@ -176,20 +346,36 @@
   -webkit-line-clamp: 2;
 }
 
-.plugin-card-create {
+/* Mine: making a plugin with AI, one row across the page */
+.plugins-create {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3);
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--color-border);
-  cursor: pointer;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
 }
 
-.plugin-card-create:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
+.plugins-create .plugin-tile {
+  color: var(--color-accent);
 }
 
-.plugin-card-create .plugin-tile {
-  color: var(--color-text-secondary);
+.plugins-create-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugins-create-text strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plugins-create-text small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .plugin-tile {
@@ -204,10 +390,179 @@
   color: var(--color-text-secondary);
 }
 
+.plugin-monogram {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--monogram-hue) 22%, transparent);
+  color: var(--monogram-hue);
+  font-weight: 600;
+  line-height: 1;
+}
+
 .plugin-tile-large {
   width: 64px;
   height: 64px;
   border-radius: var(--radius-lg);
+}
+
+/* a number on a market card, after its icon; the full words are its title */
+.plugins-stat {
+  flex: none;
+}
+
+.plugins-stat > span[aria-hidden] {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* a market plugin's publisher, after their avatar */
+.plugin-publisher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plugin-publisher > img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Discover: a side list of categories beside the cards */
+.plugins-browse {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.plugins-browse-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  container-type: inline-size;
+}
+
+/* two cards a row only while each has room for its text */
+@container (max-width: 640px) {
+  .plugins-browse-main .plugins-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.plugins-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* a short window scrolls the list, so the filters below it stay reachable */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.plugins-rail h3 {
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0 var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.plugins-rail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugins-rail-item > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugins-rail-item:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.plugins-rail-item[aria-current="true"] {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.plugins-rail-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.plugins-rail-count {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* a filter: a small box that is checked when on */
+.plugins-rail-item[aria-pressed] > .plugins-rail-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: 4px;
+}
+
+.plugins-rail-item[aria-pressed="true"] > .plugins-rail-check {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.plugins-rail-item[aria-pressed] > span:last-child {
+  flex: 1;
+}
+
+@media (max-width: 1000px) {
+  .plugins-browse {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* one row that scrolls sideways */
+  .plugins-rail {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
+  }
+
+  .plugins-rail h3 {
+    display: none;
+  }
+
+  .plugins-rail-item {
+    flex: none;
+  }
 }
 
 .plugins-meta {
@@ -220,6 +575,35 @@
   font-size: var(--text-xs);
 }
 
+/* a market card's last line: the publisher on the left, cut short when long; the version and downloads at the right */
+.plugin-card-foot {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.plugin-card-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-card-numbers {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.plugin-card-version {
+  max-width: 9em;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .plugins-tag {
   padding: 1px 6px;
   border-radius: var(--radius-pill);
@@ -227,7 +611,8 @@
   color: var(--color-text-secondary);
 }
 
-.plugins-verified {
+/* The Official seal (plugin-marks.tsx). */
+.plugin-official-mark {
   flex: none;
   color: var(--color-accent);
 }
@@ -493,6 +878,10 @@
   overflow-wrap: anywhere;
 }
 
+.plugin-props a + .plugins-note {
+  margin-left: var(--space-2);
+}
+
 .plugin-props a {
   display: inline-flex;
   align-items: center;
@@ -713,4 +1102,9 @@
     flex: 1;
     width: auto;
   }
+}
+
+.plugin-dialog-summary .plugin-publisher {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
