@@ -1996,7 +1996,7 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 
 /** The plugin commands a project offers. */
 /** Home's ways to start from the plugins a new project starts with. */
-export async function listPluginStarters(): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
+export async function listPluginStarters(): Promise<{ plugins: string[]; commands: import("../shared/plugins.js").ProjectPluginCommand[] }> {
   return request(`/plugin-starters?locale=${encodeURIComponent(language)}`);
 }
 

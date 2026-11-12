@@ -63,18 +63,18 @@ interface CreateRequest {
 /** Plugins' ways to start (`home.starters`), which put their prompt in the box. */
 function PluginStarters() {
   const generation = useReadyRuntimeGeneration();
-  const [starters, setStarters] = useState<ProjectPluginCommand[]>([]);
+  const [starters, setStarters] = useState<{ plugins: string[]; commands: ProjectPluginCommand[] }>({ plugins: [], commands: [] });
   useEffect(() => {
     let active = true;
-    void listPluginStarters().catch((): ProjectPluginCommand[] => []).then((commands) => { if (active) setStarters(commands); });
+    void listPluginStarters().catch(() => ({ plugins: [], commands: [] })).then((next) => { if (active) setStarters(next); });
     return () => { active = false; };
   }, [generation]);
   // Outside a project, `when` sees the platform and the plugins a new project starts with.
   const context = {
     values: { platform: typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.platform ?? "web" },
-    plugins: new Set(starters.map((command) => command.plugin)),
+    plugins: new Set(starters.plugins),
   };
-  const shown = starters.filter((command) => command.slots.some((slot) => matchesWhen(slot.when, context)));
+  const shown = starters.commands.filter((command) => command.slots.some((slot) => matchesWhen(slot.when, context)));
   return <PluginPanelToolbar commands={shown} onRun={async (command) => {
     if ("prompt" in command.run) composerDrafts.get(homeDraftScope("home")).insertPrompt(commandPrompt(command.run));
   }} />;

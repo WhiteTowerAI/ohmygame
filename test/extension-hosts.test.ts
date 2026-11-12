@@ -1692,11 +1692,11 @@ describe("plugin settings and commands", () => {
       ]);
       expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }, { slot: "home.starters" }]);
       // Home shows only prompts, which fill the box; a tool has no project there to run in.
-      expect(await services.starters()).toEqual([]);
+      expect(await services.starters()).toEqual({ plugins: [], commands: [] });
       await services.setEveryProject("acme/keys", true);
-      expect(await services.starters()).toEqual([
+      expect(await services.starters()).toEqual({ plugins: ["acme/keys"], commands: [
         { id: "acme/keys:ask", plugin: "acme/keys", title: "Ask", slots: [{ slot: "home.starters", when: "platform == 'darwin'" }], run: { prompt: "Check the settings." } },
-      ]);
+      ] });
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
       expect(await services.preview(folder)).toEqual({

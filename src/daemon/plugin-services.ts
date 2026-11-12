@@ -360,17 +360,19 @@ export class PluginServices {
 
   /**
    * Home's ways to start (`home.starters`): prompt commands of the plugins a
-   * new project starts with, in `locale`. They only fill the prompt box.
+   * new project starts with, in `locale`, which only fill the prompt box; and
+   * those plugins, for `project.plugin()` in a starter's `when`.
    */
-  async starters(locale: PluginLocale = "en"): Promise<ProjectCommand[]> {
+  async starters(locale: PluginLocale = "en"): Promise<{ plugins: string[]; commands: ProjectCommand[] }> {
     const commands: ProjectCommand[] = [];
-    for (const entry of await this.everyProject())
+    const entries = await this.everyProject();
+    for (const entry of entries)
       for (const command of entry.manifest.contributes?.commands ?? []) {
         const slots = (command.slots ?? []).filter((slot) => slot.slot === "home.starters");
         if (!slots.length || !("prompt" in command.run)) continue;
         commands.push({ id: `${entry.id}:${command.id}`, plugin: entry.id, title: localizePluginString(entry, command.title, locale), slots, run: command.run });
       }
-    return commands;
+    return { plugins: entries.map((entry) => entry.id), commands };
   }
 
   /** The Library's sources from plugins that may run outside projects, in `locale`. */
