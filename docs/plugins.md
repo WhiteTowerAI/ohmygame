@@ -22,7 +22,11 @@ market plugin dialog.
 
 Plugins are sorted into the [categories](#more-manifest-fields) they declare.
 A plugin is listed in each category it names but grouped under its first, and
-one with none is under **Other**. Search shows every match in one list. An
+one with none is under **Other**. Search shows every match in one list: it
+reads a plugin's name, description, id and [keywords](#more-manifest-fields),
+and the titles of the model providers and agents it adds, so "Gemini" finds the
+plugin that adds Gemini CLI. A plugin's page lists its keywords; picking one
+searches for it, on Discover across every category. An
 installed plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
@@ -66,7 +70,7 @@ that failed).
     its description and publisher (after their GitHub avatar); a row of its
     numbers, as an app store shows them (weekly downloads, stars, version,
     size, when it was updated); its screenshots, long description (**About**),
-    what it adds and asks for; and its categories, project types, first
+    what it adds and asks for; and its categories, keywords, project types, first
     publish, npm package and repository, with whether its source is verified.
     It doesn't load the package's README: that is written for developers,
     often only in English, and would need its Markdown and pictures made safe;
@@ -824,8 +828,10 @@ nothing is read.
   `@publisher/name` or whose version isn't exact.
 - **What a listing shows.** Besides its name, description, grants and counts of
   what it adds, an index entry's `plugin` can carry `categories`, `appliesTo`,
-  `beta`, a localized `longDescription`, and the manifest's `icon` and
-  `screenshots` (up to ten `{ path, caption? }`), as paths beside the index. A
+  `beta`, a localized `longDescription`, localized `keywords`, `names` (the
+  localized titles of the model providers and agents it adds, for search), and
+  the manifest's `icon` and `screenshots` (up to ten `{ path, caption? }`), as
+  paths beside the index. A
   version can carry `unpackedSize`, npm's `dist.unpackedSize`. A package's
   facts can carry `createdAt`, its first publish, and `avatar`, the repository
   owner's `avatar_url` from GitHub's API. The app reads fields it doesn't know
@@ -851,13 +857,17 @@ nothing is read.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `categories` sorts it on the
-Plugins page, grouped under the first: `engine` (engines and platforms),
-`templates` (starter games and presets), `publishing`, `online` (multiplayer,
-leaderboards, saves, analytics, ads and purchases), `design` (game design and
-level tools), `story` (narrative, dialogue and translation), `art`, `3d`,
-`audio`, `video`, `testing`, `learning` (tutorials and classes), `agent`
-(coding agents), `provider` (model providers), `workflow`, `integration`
-(other apps and services) and `theme`. `screenshots` (API 2.4.0)
+Plugins page, grouped under the first, in the order a game is made:
+`engine` (engines and platforms), `templates` (starter games and presets),
+`agent` (coding agents), `provider` (model providers), `art`, `3d`, `audio`,
+`video`, `design` (game design and level tools), `story` (narrative, dialogue
+and translation), `workflow`, `testing`, `publishing`, `online` (multiplayer,
+leaderboards, saves, analytics, ads and purchases), `integration` (other apps
+and services), `theme` and `learning` (tutorials and classes). `keywords`
+(API 2.5.0) are up to eight words, each up to 30 characters and `%key%`
+localizable, that search finds the plugin by and its page shows; spell out
+what someone might type that the name and description don't say, such as a
+service's other name. `screenshots` (API 2.4.0)
 lists up to six PNG, JPEG or WebP files in the package, each up to 1 MB with
 an optional `caption`, shown on its page through
 `GET /plugins/:pluginId/screenshots/:index`. `projectFiles` (API 2.3.0)

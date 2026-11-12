@@ -12,7 +12,7 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Button, Dialog, FilterChips, Select } from "./ui/index.js";
+import { Button, Chip, Dialog, FilterChips, Select } from "./ui/index.js";
 
 // What the Plugins page browses by: the categories plugins name, how the
 // market is sorted, and the market's cards and pages. A plugin may name up to
@@ -39,6 +39,21 @@ export function inCatalogCategory(categories: readonly string[] | undefined, fil
 }
 
 export const categoryLabel = (category: CatalogCategory) => t(`pluginCatalog.categories.${category}`);
+
+/** What search reads of a market plugin: its name, description, ids, keywords and what it adds by name. */
+export function marketSearchText(plugin: MarketPlugin): string {
+  return [plugin.displayName, plugin.description, plugin.id, plugin.package, ...(plugin.keywords ?? []), ...(plugin.names ?? [])].join(" ").toLowerCase();
+}
+
+/** A plugin's keywords; each searches for itself when the page can search. */
+export function PluginKeywords({ keywords, onSearch }: { keywords: readonly string[]; onSearch?: ((keyword: string) => void) | undefined }): ReactNode {
+  return <span className="plugin-keywords">
+    {keywords.map((keyword) => onSearch
+      ? <button key={keyword} type="button" className="ui-chip ui-chip-outline plugin-keyword" title={t("pluginCatalog.searchKeyword", { keyword })}
+        onClick={() => onSearch(keyword)}><span className="ui-chip-label">{keyword}</span></button>
+      : <Chip key={keyword} outline>{keyword}</Chip>)}
+  </span>;
+}
 
 /** The categories to pick from: those some plugin here is in, with how many, and the one picked even when none are. */
 export function CategoryChips({ items, value, onChange }: {
@@ -349,13 +364,15 @@ function marketAddRows(adds: Record<string, number>): PluginAddRow[] {
  * its numbers in one row, as an app store shows them, its screenshots and
  * description, what it adds and asks for, and where it comes from.
  */
-export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage }: {
+export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage, onSearch }: {
   plugin: MarketPlugin;
   installed: boolean;
   onClose: () => void;
   onGet: () => void;
   /** Opens the installed plugin's own page. */
   onManage: () => void;
+  /** Searches the market for one of its keywords. */
+  onSearch?: (keyword: string) => void;
 }): ReactNode {
   const compact = new Intl.NumberFormat(language, { notation: "compact" });
   const rows = marketAddRows(plugin.adds);
@@ -411,6 +428,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
         <dl className="plugin-props plugin-dialog-props">
           <dt>{t("pluginCatalog.categoriesLabel")}</dt>
           <dd>{categories.length ? categories.map(categoryLabel).join(" · ") : categoryLabel("other")}</dd>
+          {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           <dt>{t("pluginCatalog.worksWith")}</dt>
           <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}

@@ -894,6 +894,24 @@
   text-decoration: underline;
 }
 
+.plugin-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plugin-keyword {
+  border: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.plugin-keyword:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
 /* A plugin's versions, each with its own Uninstall (plugin-store.tsx). */
 .plugin-store-versions {
   display: grid;

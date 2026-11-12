@@ -213,6 +213,9 @@ describe("PluginMarket listing", () => {
       ...version("@a/b", "1.0.0", "a/b").plugin,
       categories: ["art", "hologram", "3d"], appliesTo: ["web-game"], beta: true,
       longDescription: { en: "Long", "zh-CN": "长" },
+      // Each in the person's language, or English, once.
+      keywords: [{ en: "image", "zh-CN": "图片" }, { en: "pixel" }, { en: "art", "zh-CN": "图片" }],
+      names: [{ en: "SiliconFlow", "zh-CN": "硅基流动" }],
       // An index field from a later schema is passed over.
       rating: 5,
       icon: "assets/icon.svg",
@@ -224,6 +227,7 @@ describe("PluginMarket listing", () => {
     const [plugin] = (await subject.listing("zh-CN")).plugins;
     expect(plugin).toMatchObject({
       categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长",
+      keywords: ["图片", "pixel"], names: ["硅基流动"],
       icon: "assets/icon.svg",
       screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
     });
