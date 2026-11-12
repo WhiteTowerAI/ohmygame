@@ -43,7 +43,7 @@ every provider, such as a first and last frame for video.
         "adapter": "./media.js",
         "auth": { "header": "authorization", "scheme": "Bearer" },
         "image": { "models": [{ "id": "Kwai-Kolors/Kolors", "title": "Kolors",
-          "aspectRatios": ["1:1", "16:9", "9:16"], "maxReferenceImages": 1, "maxOutputs": 4 }] },
+          "resolutions": ["1K"], "aspectRatios": ["1:1", "16:9", "9:16"], "maxReferenceImages": 1 }] },
         "video": { "maxMinutes": 30, "models": [{ "id": "MiniMaxAI/MiniMax-H3", "title": "MiniMax-H3",
           "durations": [5, 10, 15], "resolutions": ["768p", "480p"], "aspectRatios": ["16:9", "9:16"],
           "maxReferenceImages": 2, "referenceModes": ["frame"] }] }
@@ -92,7 +92,7 @@ export default {
     async start(input, host) {
       const response = await host.fetch("https://api.siliconflow.cn/v1/images/generations", {
         method: "POST", auth: true,
-        json: { model: input.model, prompt: input.prompt, image_size: size(input.aspectRatio), batch_size: input.count },
+        json: { model: input.model, prompt: input.prompt, image_size: size(input.aspectRatio) },
       });
       if (!response.ok) return { error: (await response.json()).message };
       return { outputs: (await response.json()).images.map((image) => ({ url: image.url })) };

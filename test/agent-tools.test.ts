@@ -368,7 +368,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
     expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined);
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined, expect.objectContaining({ begin: expect.any(Function) }));
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
   it("registers standalone image and frame processing tools", async () => {
