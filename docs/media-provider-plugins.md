@@ -186,7 +186,9 @@ better, and the adapter decides the pace:
 - Without one, the app waits 2 s, then longer each time, up to 15 s.
 - Checks run only while a task is running, and the whole task gives up after
   the kind's limit (image: 10 minutes; video: 15 minutes, as now, the
-  download included).
+  download included). A provider whose videos take longer, such as a
+  self-hosted model or a vendor with a long queue, sets
+  `media.video.maxMinutes`, up to 120.
 - Webhooks aren't used. A desktop app has no public address for a vendor to
   call, and a relay of our own would cost money and see people's prompts.
   Streaming answers (`text/event-stream`) can be added to `host.fetch` when a

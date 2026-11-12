@@ -528,7 +528,14 @@ const ProviderMedia = Type.Object(
     ),
     video: Type.Optional(
       Type.Object(
-        { models: Type.Array(MediaVideoModel, { minItems: 1, maxItems: 100 }) },
+        {
+          /**
+           * How long one video may take, the download included, in minutes:
+           * 15 when left out. A self-hosted model or a long queue needs more.
+           */
+          maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })),
+          models: Type.Array(MediaVideoModel, { minItems: 1, maxItems: 100 }),
+        },
         { additionalProperties: false },
       ),
     ),

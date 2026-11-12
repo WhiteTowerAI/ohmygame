@@ -230,10 +230,12 @@ describe("plugin manifest", () => {
       "/contributes/providers/0/media list what it makes: image, video or both",
     ]);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
-    const video = { models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
+    const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);
     expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
       contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { models: [{ ...video.models[0], durations: [60] }] } } }] } }).ok).toBe(false);
+    expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { ...video, maxMinutes: 121 } } }] } }).ok).toBe(false);
     expect(validatePluginManifest({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, adapter: "../media.js" } }] } }).ok).toBe(false);
     const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
     const runs = { capabilities: { processes: ["gemini"] } };

@@ -40,6 +40,7 @@ const TASK_MAX_CHARACTERS = 16 * 1024;
 /** How long an image may take, checks included. */
 const IMAGE_LIMIT_MS = 10 * 60_000;
 /** How long a video may take, checks and the download included, as for built-in providers. */
+/** A video's limit when its provider doesn't set `maxMinutes`. */
 const VIDEO_LIMIT_MS = 15 * 60_000;
 /** How long telling the vendor to stop may take. */
 const CANCEL_LIMIT_MS = 30_000;
@@ -189,7 +190,7 @@ export class PluginMediaProviders {
       aspectRatio,
       ...(pictures.length ? { referenceMode } : {}),
       references: pictures,
-    }, { limitMs: VIDEO_LIMIT_MS, signal, Failure: VideoGenerationError, journal }, async (outputs, stopped) => {
+    }, { limitMs: item.media.video.maxMinutes ? item.media.video.maxMinutes * 60_000 : VIDEO_LIMIT_MS, signal, Failure: VideoGenerationError, journal }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, VIDEO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, VideoGenerationError, stopped);
       if (bytes.length < 12 || bytes.subarray(4, 8).toString("latin1") !== "ftyp") throw new VideoGenerationError(`${this.#name(item)} returned a file that isn't an MP4 video`);
       return { bytes, mediaType: "video/mp4" };
