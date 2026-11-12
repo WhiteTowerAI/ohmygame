@@ -436,14 +436,15 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
       {plugin.keyHint ? <p className="settings-detail-hint">{plugin.keyHint}</p> : null}
     </form> : provider.configured ? null : <p className="settings-detail-hint">{t("providers.plugin.unavailable")}</p>}
     {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
-    <div className="settings-provider-connection">
+    {plugin.baseUrl ? <div className="settings-provider-connection">
       <div className="settings-provider-setting-row">
         <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
         <span className="settings-provider-setting-value" title={plugin.baseUrl}>{plugin.baseUrl}</span>
         <span />
       </div>
-    </div>
-    {provider.configured ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+    </div> : null}
+    {/* Chat models only: a provider that only makes media has none in the model runtime. */}
+    {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
   </section>;
 }
 

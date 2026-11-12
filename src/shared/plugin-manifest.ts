@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
-import { CUSTOM_MODEL_APIS } from "./contracts.js";
+import { CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
@@ -82,6 +82,9 @@ export const PLUGIN_CATEGORIES = [
   "learning",
 ] as const;
 export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
+
+/** The largest media adapter script a provider may have. */
+export const PLUGIN_MEDIA_ADAPTER_MAX_BYTES = 512 * 1024;
 
 /** How many keywords a plugin may name, and how long each may be. */
 export const PLUGIN_KEYWORDS_MAX = 8;
@@ -458,13 +461,64 @@ const Theme = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * How the app adds a provider's key to a request its media adapter marks
+ * `auth: true`: in a header, with a scheme such as `Bearer`, or as a query
+ * parameter. The adapter never sees the key.
+ */
+const MediaAuth = Type.Union([
+  Type.Object(
+    {
+      header: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9-]{0,63}$" }),
+      scheme: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9-]{0,31}$" })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { query: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }) },
+    { additionalProperties: false },
+  ),
+]);
+
+const MediaImageModel = Type.Object(
+  {
+    id: Type.String({ minLength: 1, maxLength: 200 }),
+    title: Type.Optional(Text()),
+    resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
+    aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
+    /** How many pictures a request may pass along, 0 for none. */
+    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * What a provider makes besides chat (API 2.5.0). `adapter` is a script in
+ * the package that turns OhMyGame's requests into the vendor's API, run in a
+ * sandbox whose only way out is `host.fetch` to `capabilities.network`.
+ */
+const ProviderMedia = Type.Object(
+  {
+    adapter: RelativePath("\\.js"),
+    auth: Type.Optional(MediaAuth),
+    image: Type.Optional(
+      Type.Object(
+        { models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const Provider = Type.Object(
   {
     id: Slug,
     title: Text(),
     icon: Type.Optional(Icon),
-    api: Literals(CUSTOM_MODEL_APIS),
-    baseUrl: HttpsUrl,
+    /** Chat, with `baseUrl`; a provider that only makes media leaves both out. */
+    api: Type.Optional(Literals(CUSTOM_MODEL_APIS)),
+    baseUrl: Type.Optional(HttpsUrl),
     /** A `secret` configuration field holding the key. */
     apiKey: Type.Optional(CamelId),
     models: Type.Optional(
@@ -480,6 +534,7 @@ const Provider = Type.Object(
       ),
     ),
     discoverModels: Type.Optional(Type.Boolean()),
+    media: Type.Optional(ProviderMedia),
   },
   { additionalProperties: false },
 );
@@ -1142,8 +1197,21 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       if (field?.type !== "secret")
         issue(`${path}/apiKey`, "must name a secret configuration field");
     }
-    if (!provider.models && !provider.discoverModels)
+    const chat = provider.api !== undefined || provider.baseUrl !== undefined;
+    if (chat && (!provider.api || !provider.baseUrl))
+      issue(path, "chat needs both api and baseUrl");
+    if (chat && !provider.models && !provider.discoverModels)
       issue(path, "list models or discover them");
+    if (!chat && (provider.models || provider.discoverModels))
+      issue(path, "models and discoverModels are for chat, which needs api and baseUrl");
+    if (!chat && !provider.media)
+      issue(path, "a provider needs chat (api and baseUrl) or media");
+    if (provider.media) {
+      if (!provider.media.image)
+        issue(`${path}/media`, "list what it makes, such as image");
+      if (!capabilities.network?.length)
+        issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
+    }
   });
 
   const processes = new Set(capabilities.processes);

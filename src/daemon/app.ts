@@ -13,6 +13,7 @@ import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
+import { PluginMediaProviders } from "./plugin-media-providers.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js";
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
@@ -802,6 +803,11 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
     defaultModel: () => providerModelSettings.defaultImageModel(),
+    // Made with the plugin services below, before any request comes.
+    pluginImages: {
+      imageProviders: () => pluginMediaProviders.imageProviders(),
+      generateImage: (model, input, signal) => pluginMediaProviders.generateImage(model, input, signal),
+    },
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
@@ -1247,6 +1253,8 @@ export function createApp(options: AppOptions = {}) {
   // Model providers from installed plugins join the model runtime and follow
   // their plugins and keys; a project's file doesn't change them.
   const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
+  const pluginMediaProviders = new PluginMediaProviders(pluginServices, options.imageFetch,
+    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`));
   const syncPluginModelProviders = async () => {
     // Joins the queue now, so a list asked for after a change waits for it.
     const changed = await pluginModelProviders.sync(getModelRuntime());
@@ -3398,7 +3406,8 @@ export function createApp(options: AppOptions = {}) {
           custom: providerModelSettings.isCustom(provider.id),
           ...(custom?.preset ? { preset: custom.preset } : {}),
           status: configured ? "connected" as const : "not_configured" as const,
-          capabilities: custom?.modelConfigurationVersion === 2
+          capabilities: plugin ? pluginModelProviders.capabilities(provider.id)
+            : custom?.modelConfigurationVersion === 2
             ? [...new Set(custom.models.flatMap(modelUsageList))]
             : provider.id === "openrouter"
             ? ["language", "image", "video"] as const
@@ -3410,9 +3419,10 @@ export function createApp(options: AppOptions = {}) {
     const pluginProviders = pluginModelProviders.list()
       .filter((item) => !piProviders.some((provider) => provider.id === item.id))
       .map((item) => ({
-        id: item.id, name: pluginModelProviders.title(item.id, locale) ?? item.id, configured: false,
-        enabled: providerEnabled(item.id), custom: false, status: "not_configured" as const,
-        methods: [], capabilities: ["language"] as const, plugin: pluginModelProviders.info(item.id, locale)!,
+        // One that only makes media never joins the model runtime: its key is all it needs.
+        id: item.id, name: pluginModelProviders.title(item.id, locale) ?? item.id, configured: item.configured,
+        enabled: providerEnabled(item.id), custom: false, status: item.configured ? "connected" as const : "not_configured" as const,
+        methods: [], capabilities: pluginModelProviders.capabilities(item.id), plugin: pluginModelProviders.info(item.id, locale)!,
       }));
     const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,

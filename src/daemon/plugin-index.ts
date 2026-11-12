@@ -26,6 +26,7 @@ import {
   pluginApiIssue,
   pluginUiIssue,
   toolSchemaIssues,
+  PLUGIN_MEDIA_ADAPTER_MAX_BYTES,
   PLUGIN_SCREENSHOT_MAX_BYTES,
   validatePluginManifest,
   type PluginContributions,
@@ -280,9 +281,13 @@ function checkPackage(
   contributes.commands?.forEach((command, index) =>
     file(`/contributes/commands/${index}/icon`, command.icon),
   );
-  contributes.providers?.forEach((provider, index) =>
-    file(`/contributes/providers/${index}/icon`, provider.icon),
-  );
+  contributes.providers?.forEach((provider, index) => {
+    file(`/contributes/providers/${index}/icon`, provider.icon);
+    const adapter = provider.media?.adapter, at = `/contributes/providers/${index}/media/adapter`;
+    const bytes = adapter ? files.get(adapter) : undefined;
+    if (adapter && !bytes) issue(at, `${adapter} is not in the package`);
+    else if (bytes && bytes.length > PLUGIN_MEDIA_ADAPTER_MAX_BYTES) issue(at, `${adapter} is larger than ${PLUGIN_MEDIA_ADAPTER_MAX_BYTES / 1024} KB`);
+  });
   contributes.canvasPresets?.forEach((preset, index) => {
     const at = `/contributes/canvasPresets/${index}/board`, bytes = files.get(preset.board);
     if (!bytes) return issue(at, `${preset.board} is not in the package`);
