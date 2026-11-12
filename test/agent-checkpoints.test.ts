@@ -2509,7 +2509,7 @@ describe("The end of a turn", () => {
       const artifact = vi
         .spyOn(
           ArtifactBuilder.prototype,
-          route === "publish" ? "create" : "build",
+          route === "publish" ? "prepare" : "build",
         )
         .mockRejectedValue(new PublishError("Fixture build stopped", 422));
       await send("Write the notes");

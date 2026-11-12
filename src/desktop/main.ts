@@ -15,6 +15,7 @@ import { setGlobalDispatcher } from "undici/index.js";
 import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
 import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
+import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
@@ -61,6 +62,8 @@ mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${pro
 // Windows shows notifications only for the app ID of the installer's Start menu shortcut, the `appId` in electron-builder.yml.
 if (process.platform === "win32") app.setAppUserModelId("ai.ohmygame.desktop");
 let mainWindow: BrowserWindow | undefined;
+/** The account service published games sign in with, from the daemon's environment. */
+let gameSignIn: string | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
@@ -774,6 +777,7 @@ try {
     environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
     resolveProxy: (url) => systemProxySession.resolveProxy(url),
   });
+  gameSignIn = gameSignInIssuer(network.environment);
   // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
   setGlobalDispatcher(createNetworkDispatcher(network.active));
   const proxyConfig = electronProxyConfig(network.active);
@@ -885,6 +889,7 @@ async function openMainWindow(): Promise<void> {
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
     integratedWindowControls: true,
+    gameSignInIssuer: gameSignIn,
     beforeLoad: (window) => {
       mainWindow = window;
       if (process.platform === "win32") showWaitingOverlay();
@@ -949,11 +954,15 @@ async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
   // esbuild spawns a native binary, which cannot run from inside app.asar.
   environment.ESBUILD_BINARY_PATH ??= packagedEsbuildBinary();
+  const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
+    cloudApiUrl?: unknown;
+    publishApiUrl?: unknown;
+    gameServiceUrl?: unknown;
+  };
+  // Published games reach rooms, cloud saves and leaderboards on this service.
+  if (!environment.OHMYGAME_GAME_SERVICE_URL && !environment.MULTIPLAYER_PUBLISH_SERVER_URL && typeof config.gameServiceUrl === "string" && config.gameServiceUrl)
+    environment.OHMYGAME_GAME_SERVICE_URL = config.gameServiceUrl;
   if (!environment.CLOUD_API_URL && !environment.PUBLISH_API_URL) {
-    const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
-      cloudApiUrl?: unknown;
-      publishApiUrl?: unknown;
-    };
     const cloudApiUrl = typeof config.cloudApiUrl === "string" && config.cloudApiUrl
       ? config.cloudApiUrl
       : typeof config.publishApiUrl === "string" && config.publishApiUrl ? config.publishApiUrl : undefined;

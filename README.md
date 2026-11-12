@@ -55,7 +55,8 @@ coding agent you already use: [first run](https://ohmygame.ai/docs/first-run/).
   voices, sound effects, and music with AI, and keep them organized on one
   canvas, ready to use in your game.
 - **Publish to a link.** Anyone can play it in the browser, and it shows up in
-  the [Community](https://ohmygame.ai/community/).
+  the [Community](https://ohmygame.ai/community/). A multiplayer game's rooms,
+  and its players' sign-in, saves, and leaderboards, come with it.
 - **Extend it with plugins.** A plugin can teach the agent new skills, give it
   new tools, and add panels and project types to the app. Bundled plugins cover
   Godot, Unity, Unreal Engine, Blender, Aseprite, Tiled, and platforms like
@@ -87,6 +88,9 @@ Three games our team made with OhMyGame:
 **Web games** (Phaser, Three.js, React Three Fiber) are the best place to
 start. **Interactive stories** cover visual novels, interactive films, and
 story games. **General games** work with any engine or stack.
+Web games can be **multiplayer**, from board and card games to realtime arenas,
+played online with friends with no server of your own. See
+[Multiplayer](docs/multiplayer.md).
 [Play what others made](https://ohmygame.ai/community/).
 
 ## Documentation

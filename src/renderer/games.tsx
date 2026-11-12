@@ -325,7 +325,8 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
               onPlayerLoad(game.deploymentId);
             }}
             title={game.title}
-            sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+            // A published game may open the OhMyGame sign-in popup; the desktop app allows only that page.
+            sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
             allow="autoplay; fullscreen"
           />
         ) : null}
