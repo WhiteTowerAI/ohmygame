@@ -108,7 +108,20 @@ export function registerPluginIconRoutes(
   app: FastifyInstance,
   readIcon: (id: string) => ReturnType<typeof readPluginIconAsset>,
   readScreenshot: (id: string, index: number) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined>,
+  readProviderIcon: (providerId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
 ) {
+  app.get<{ Params: { providerId: string } }>(
+    "/plugin-providers/:providerId/icon",
+    async (request, reply) => {
+      try {
+        const image = await readProviderIcon(request.params.providerId);
+        if (!image) return reply.code(404).send({ error: "Provider icon not found" });
+        return sendImage(request.headers["if-none-match"], reply, image);
+      } catch {
+        return reply.code(404).send({ error: "Provider icon not found" });
+      }
+    },
+  );
   app.get<{ Params: { pluginId: string; index: string } }>(
     "/plugins/:pluginId/screenshots/:index",
     async (request, reply) => {

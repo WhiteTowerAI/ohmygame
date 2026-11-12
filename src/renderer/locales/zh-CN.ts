@@ -528,10 +528,8 @@ const zhCN: typeof en = {
       plugin: "来自 {{plugin}}",
     },
     plugin: {
-      open: "打开插件设置",
-      hint: "这个服务商来自插件 {{plugin}}，请在插件页面修改它的设置。",
-      needsKey: "在插件页面填写“{{field}}”后即可使用这个服务商。",
-      keyMissing: "未设置",
+      title: "模型服务商",
+      open: "打开插件",
       unavailable: "无法添加这个服务商。请检查插件设置，或更新插件。",
     },
     status: {

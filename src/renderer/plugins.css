@@ -1126,3 +1126,22 @@
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+
+/* A plugin's model providers, as Settings lists them, and the dialog each opens. */
+/* Settings sets its text size on its scroll area, which the plugin page doesn't have. */
+.settings-body.plugin-providers {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-md);
+}
+
+.plugin-provider-dialog-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-provider-actions {
+  justify-content: flex-end;
+}
