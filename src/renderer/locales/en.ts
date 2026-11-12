@@ -1692,7 +1692,6 @@ const en = {
     sourceBy: "From the {{plugin}} plugin",
     sourceFailed: "Could not search {{title}}",
     sourceEmpty: "Nothing found",
-    loadMore: "Load more",
     addToLibrary: "Add to Library",
     adding: "Adding...",
     added: "In Library",

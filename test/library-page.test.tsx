@@ -235,6 +235,16 @@ it("browses a plugin's source in its own tab and adds a result to Local", async 
   sources = [{ id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "Shapes", title: "Shapes", description: "Simple shapes.", media: ["image"] }];
   // Added before: its tile says so.
   assets.push({ ...assets[2]!, id: "old-square", name: "square.png", mediaType: "image", contentType: "image/png", sourcedFrom: { source: "acme/shapes:shapes", item: "square" } });
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private readonly notify: IntersectionObserverCallback) {}
+    target?: Element;
+    observe(target: Element) {
+      this.target = target;
+      observed.set(target, () => this.notify([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+    }
+    disconnect() { if (this.target) observed.delete(this.target); }
+  });
   await act(async () => root!.unmount());
   root = createRoot(container!);
   await act(async () => root!.render(<LibraryPage onNavigate={() => {}} onOpenProject={onOpenProject} />));
@@ -250,9 +260,11 @@ it("browses a plugin's source in its own tab and adds a result to Local", async 
   expect(document.querySelector(".library-source-description")?.textContent).toBe("Simple shapes. · From the Shapes plugin");
   expect(tiles()).toEqual(["circle.png", "square.png"]);
   expect(document.querySelector('[role=tabpanel][aria-label="Shapes"] [aria-label="In Library"]')).not.toBeNull();
-  await click(button("Load more"));
+  // Scrolling to the end loads the next page.
+  const end = document.querySelector(".library-source-more")!;
+  await act(async () => { observed.get(end)!(); });
   expect(tiles()).toEqual(["circle.png", "square.png", "star.png"]);
-  expect(button("Load more")).toBeUndefined();
+  expect(button("Show more")).toBeUndefined();
 
   await openTile("circle.png");
   const sheet = document.querySelector(".ui-sheet")!;

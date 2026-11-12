@@ -32,6 +32,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
   const [addError, setAddError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const search = useRef<AbortController>(undefined);
+  const end = useRef<HTMLDivElement>(null);
 
   // A new query waits for typing to pause; each search stops the one before.
   useEffect(() => {
@@ -59,6 +60,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
     if (!next || more) return;
     const controller = search.current;
     setMore(true);
+    setError(undefined);
     try {
       const results = await searchLibrarySource({ source: source.id, query: query.trim(), ...(media === "all" ? {} : { media }), cursor: next }, controller?.signal);
       if (controller?.signal.aborted) return;
@@ -70,6 +72,22 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
       setMore(false);
     }
   }
+
+  // Like the Local tab, the next page loads when the end of the list comes into view.
+  // After a failed page it waits for the button, so it doesn't retry in a loop.
+  useEffect(() => {
+    const node = end.current;
+    if (!node || !next || more || error || typeof IntersectionObserver === "undefined") return;
+    // A notification already queued still arrives after disconnect, with this render's query and cursor.
+    let gone = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (gone || !entry?.isIntersecting) return;
+      observer.disconnect();
+      void loadMore();
+    }, { rootMargin: "160px" });
+    observer.observe(node);
+    return () => { gone = true; observer.disconnect(); };
+  });
 
   async function add(item: LibrarySourceItem): Promise<void> {
     setAdding(item.id);
@@ -102,7 +120,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
           preview={<SourcePreview item={item} />}
           badge={inLibrary.has(item.id) ? <Check size={12} aria-label={t("library.added")} /> : undefined} />)}</div>
         {error ? <Alert tone="danger" title={error} /> : null}
-        {next ? <div className="library-source-more"><Button disabled={more} icon={more ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void loadMore()}>{t("library.loadMore")}</Button></div> : null}
+        {next ? <div ref={end} className="library-source-more"><Button size="sm" variant="ghost" disabled={more} icon={more ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void loadMore()}>{t("common.showMore")}</Button></div> : null}
       </>}
 
     <Sheet open={Boolean(selected)} onClose={() => setSelected(undefined)} title={selected?.name ?? ""}
