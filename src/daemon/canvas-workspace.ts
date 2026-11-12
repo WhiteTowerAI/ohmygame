@@ -628,7 +628,11 @@ export class CanvasStore {
       const skeleton = node.data.model?.provider === "pixellab" && node.data.model.id === "animate-skeleton-v3" && firstAssetId
         ? manifest.assets[firstAssetId]?.skeleton
         : undefined;
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), ...(skeleton ? { skeleton } : {}), images }, revision, undefined, reuse);
+      const sourceDescription = firstAssetId ? manifest.assets[firstAssetId]?.prompt?.trim() : undefined;
+      const skeletonAnimation = node.data.model?.provider === "pixellab" && node.data.model.id === "animate-skeleton-v3";
+      const skeletonRecognition = node.data.model?.provider === "pixellab" && node.data.model.id === "estimate-skeleton";
+      const generationPrompt = skeletonAnimation ? imagePrompt : skeletonRecognition && sourceDescription ? sourceDescription : node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic");
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generationPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), ...(skeleton ? { skeleton } : {}), ...(skeletonAnimation && sourceDescription ? { characterDescription: sourceDescription } : {}), images }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

@@ -3718,6 +3718,13 @@ const en = {
         generating: "Generating image...",
         prompt: "Image prompt",
         placeholder: "Describe the image you want to create",
+        skeletonLabel: "Skeleton recognition",
+        skeletonPlaceholder: "No prompt needed — the connected character image will be analyzed",
+        skeletonAnimationHint: "Connect the image output from Skeleton Recognition before generating.",
+        animationLabel: "Action description",
+        animationPlaceholder: "For example: walk forward in place, with a gentle staff swing",
+        directionsLabel: "Character or object description (optional)",
+        directionsPlaceholder: "For example: mage holding a staff, viewed from the front",
       },
       video: {
         label: "Video",

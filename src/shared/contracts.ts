@@ -203,6 +203,7 @@ export interface Model3DMetadata {
   operation?: Model3DOperation;
 }
 /** A normalized 2D joint returned by PixelLab's skeleton estimator. */
+export const PIXELLAB_SKELETON_LABELS = ["NOSE", "NECK", "RIGHT SHOULDER", "RIGHT ELBOW", "RIGHT ARM", "LEFT SHOULDER", "LEFT ELBOW", "LEFT ARM", "RIGHT HIP", "RIGHT KNEE", "RIGHT LEG", "LEFT HIP", "LEFT KNEE", "LEFT LEG", "RIGHT EYE", "LEFT EYE", "RIGHT EAR", "LEFT EAR"] as const;
 export interface SkeletonKeypoint {
   x: number;
   y: number;
@@ -1290,6 +1291,8 @@ interface RunSizedImageToolRequest {
   outputs?: never;
   image?: never;
   skeleton?: SkeletonMetadata;
+  /** Character appearance retained from the source asset for skeleton animation. */
+  characterDescription?: string;
   /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
   requestedPrompt?: string;
   pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
@@ -1305,6 +1308,8 @@ interface RunConfiguredImageToolRequest {
   outputs?: ImageOutputCount;
   images?: PromptImage[];
   skeleton?: SkeletonMetadata;
+  /** Character appearance retained from the source asset for skeleton animation. */
+  characterDescription?: string;
   /** Set by the app once plugins changed the request: the prompt asked for, and who changed what. */
   requestedPrompt?: string;
   pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];

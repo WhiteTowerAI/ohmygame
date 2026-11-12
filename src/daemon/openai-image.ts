@@ -22,6 +22,7 @@ export interface ImageGenerationInput {
   /** Request and validate a real alpha background for sprite/effect assets. */
   transparentBackground?: boolean;
   skeleton?: SkeletonMetadata;
+  characterDescription?: string;
 }
 
 export interface ImageGenerator {

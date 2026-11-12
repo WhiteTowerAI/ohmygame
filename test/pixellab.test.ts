@@ -41,14 +41,23 @@ it("packs eight directional frames into a sprite sheet", async () => {
 
 it("keeps the inspected skeleton as reusable rig data", async () => {
   const source = await fixturePng(32, 32);
-  const request = vi.fn<typeof fetch>(async () => Response.json({ keypoints: [{ label: "head", x: 0.5, y: 0.2, z_index: 1 }] }));
+  const request = vi.fn<typeof fetch>(async () => Response.json({ keypoints: fixtureSkeleton() }));
   const result = await new PixelLab(() => "pixel-key", request).generate({
     prompt: "", imageModel: { provider: "pixellab", id: "estimate-skeleton" }, images: [{ mediaType: "image/png", data: source.toString("base64") }],
   });
 
   expect(request).toHaveBeenCalledWith("https://api.pixellab.ai/v2/estimate-skeleton", expect.anything());
   await expect(sharp(result.bytes).metadata()).resolves.toMatchObject({ width: 32, height: 32 });
-  expect(result.skeleton).toEqual({ keypoints: [{ label: "head", x: 0.5, y: 0.2, zIndex: 1 }] });
+  expect(result.skeleton?.keypoints).toHaveLength(18);
+  expect(result.skeleton?.keypoints[0]).toEqual({ label: "NOSE", x: 0.5, y: 0.2 });
+});
+
+it("rejects incomplete skeleton recognition results before they can be animated", async () => {
+  const source = await fixturePng(32, 32);
+  const request = vi.fn<typeof fetch>(async () => Response.json({ keypoints: [{ label: "NOSE", x: 0.5, y: 0.2 }] }));
+  await expect(new PixelLab(() => "pixel-key", request).generate({
+    prompt: "", imageModel: { provider: "pixellab", id: "estimate-skeleton" }, images: [{ mediaType: "image/png", data: source.toString("base64") }],
+  })).rejects.toMatchObject({ statusCode: 422 });
 });
 
 it("returns Pixel Animation frames as individual images", async () => {
@@ -65,6 +74,28 @@ it("returns Pixel Animation frames as individual images", async () => {
   expect(result.additionalImages).toHaveLength(2);
 });
 
+it("uses Skeleton Animation v3 with the recognized skeleton and action prompt", async () => {
+  const source = await fixturePng(512, 256);
+  const frame = await fixturePng(16, 16);
+  const request = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ background_job_id: "job" }))
+    .mockResolvedValueOnce(Response.json({ status: "completed", last_response: { images: [{ base64: frame.toString("base64") }, { base64: frame.toString("base64") }] } }));
+  const result = await new PixelLab(() => "pixel-key", request).generate({
+    prompt: "run", characterDescription: "blue-robed mage with a wooden staff", imageModel: { provider: "pixellab", id: "animate-skeleton-v3" }, images: [{ mediaType: "image/png", data: source.toString("base64") }], skeleton: { keypoints: fixtureSkeleton() },
+  });
+
+  expect(request).toHaveBeenCalledWith("https://api.pixellab.ai/v2/animate-with-skeleton-v3", expect.anything());
+  const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+  expect(body).toMatchObject({ description: "blue-robed mage with a wooden staff", action: "run", direction: "south", first_frame_keypoints: fixtureSkeleton() });
+  await expect(sharp(Buffer.from(body.first_frame.base64.replace(/^data:image\/png;base64,/, ""), "base64")).metadata()).resolves.toMatchObject({ width: 256, height: 128 });
+  expect(result.bytes).toEqual(frame);
+  expect(result.additionalImages).toHaveLength(1);
+});
+
 function fixturePng(width: number, height: number): Promise<Buffer> {
   return sharp({ create: { width, height, channels: 4, background: "#ff00ff" } }).png().toBuffer();
+}
+
+function fixtureSkeleton() {
+  return ["NOSE", "NECK", "RIGHT SHOULDER", "RIGHT ELBOW", "RIGHT ARM", "LEFT SHOULDER", "LEFT ELBOW", "LEFT ARM", "RIGHT HIP", "RIGHT KNEE", "RIGHT LEG", "LEFT HIP", "LEFT KNEE", "LEFT LEG", "RIGHT EYE", "LEFT EYE", "RIGHT EAR", "LEFT EAR"].map((label, index) => ({ label, x: 0.5, y: 0.2 + index / 200 }));
 }

@@ -1,8 +1,9 @@
-import type { ImageModel, SkeletonKeypoint } from "../shared/contracts.js";
+import { PIXELLAB_SKELETON_LABELS, type ImageModel, type SkeletonKeypoint } from "../shared/contracts.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import sharp from "sharp";
 
 const ENDPOINT = "https://api.pixellab.ai/v2/create-image-pixen";
+const SKELETON_LABEL_SET = new Set<string>(PIXELLAB_SKELETON_LABELS);
 
 /** PixelLab's fast, native-resolution text-to-pixel-art model. */
 export const PIXELLAB_PIXEN_MODEL: ImageModel = {
@@ -51,7 +52,7 @@ export const PIXELLAB_SKELETON_MODEL: ImageModel = {
 export const PIXELLAB_SKELETON_ANIMATION_MODEL: ImageModel = {
   ...PIXELLAB_ANIMATION_MODEL,
   id: "animate-skeleton-v3",
-  name: "Skeleton Animation",
+  name: "Skeleton Animation (Beta)",
 };
 
 /** Keeps PixelLab's token and HTTP details out of the renderer. */
@@ -133,7 +134,7 @@ export class PixelLab implements ImageGenerator {
       image: { base64: `data:image/png;base64,${source.bytes.toString("base64")}` },
     }, signal);
     const keypoints = Array.isArray(response.keypoints) ? response.keypoints.flatMap(keypoint) : [];
-    if (!keypoints.length) throw new ImageGenerationError("PixelLab returned no skeleton keypoints");
+    if (!completeSkeleton(keypoints)) throw new ImageGenerationError("PixelLab could not identify a complete 18-joint character skeleton. Use a clear, full-body character image.", 422);
     // Keep the actual sprite clean: the rig is persisted beside it as structured
     // data, so this output can feed the next animation node directly.
     return { bytes: source.bytes, mediaType: "image/png", skeleton: { keypoints } };
@@ -142,12 +143,13 @@ export class PixelLab implements ImageGenerator {
   private async animateSkeleton(input: ImageGenerationInput, key: string, signal?: AbortSignal): Promise<GeneratedImage> {
     const first = input.images?.[0], skeleton = input.skeleton;
     if (!first) throw new ImageGenerationError("Skeleton Animation needs one character image", 400);
-    if (!skeleton?.keypoints.length) throw new ImageGenerationError("Run Skeleton Recognition on this character first", 400);
+    if (!completeSkeleton(skeleton?.keypoints)) throw new ImageGenerationError("Skeleton Animation needs a complete Skeleton Recognition result from this character", 400);
+    const source = await normalizedSource(first, 256);
     const response = await this.json("https://api.pixellab.ai/v2/animate-with-skeleton-v3", key, {
-      description: "pixel art game character",
+      description: input.characterDescription?.trim() || "pixel art game character",
       action: input.prompt.trim() || "idle",
       direction: "south",
-      first_frame: { base64: `data:${first.mediaType};base64,${first.data}` },
+      first_frame: { base64: `data:image/png;base64,${source.bytes.toString("base64")}` },
       first_frame_keypoints: skeleton.keypoints.map(toPixelLabKeypoint),
       keypoints: actionFrames(skeleton.keypoints, input.prompt),
       template_id: "mannequin",
@@ -164,7 +166,7 @@ export class PixelLab implements ImageGenerator {
   private async jobImages(jobId: string, key: string, signal: AbortSignal | undefined, kind: string): Promise<Buffer[]> {
     const started = Date.now();
     while (Date.now() - started < 190_000) {
-      await wait(2_000, signal);
+      await wait(5_000, signal);
       const job = await this.getJson(`https://api.pixellab.ai/v2/background-jobs/${encodeURIComponent(jobId)}`, key, signal) as { status?: unknown; last_response?: { detail?: unknown; images?: unknown[] } };
       if (job.status === "failed" || job.status === "cancelled") throw new ImageGenerationError(`PixelLab ${kind} failed: ${typeof job.last_response?.detail === "string" ? job.last_response.detail : "unknown error"}`, 502);
       if (job.status !== "completed") continue;
@@ -229,9 +231,13 @@ function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
 function keypoint(value: unknown): SkeletonKeypoint[] {
   if (!value || typeof value !== "object") return [];
   const point = value as { x?: unknown; y?: unknown; label?: unknown; z_index?: unknown };
-  return typeof point.x === "number" && point.x >= 0 && point.x <= 1 && typeof point.y === "number" && point.y >= 0 && point.y <= 1 && typeof point.label === "string"
+  return typeof point.x === "number" && point.x >= 0 && point.x <= 1 && typeof point.y === "number" && point.y >= 0 && point.y <= 1 && typeof point.label === "string" && SKELETON_LABEL_SET.has(point.label)
     ? [{ x: point.x, y: point.y, label: point.label, ...(typeof point.z_index === "number" && Number.isInteger(point.z_index) ? { zIndex: point.z_index } : {}) }]
     : [];
+}
+
+function completeSkeleton(keypoints: SkeletonKeypoint[] | undefined): keypoints is SkeletonKeypoint[] {
+  return Boolean(keypoints && keypoints.length === PIXELLAB_SKELETON_LABELS.length && new Set(keypoints.map((point) => point.label)).size === PIXELLAB_SKELETON_LABELS.length && keypoints.every((point) => SKELETON_LABEL_SET.has(point.label) && Number.isFinite(point.x) && point.x >= 0 && point.x <= 1 && Number.isFinite(point.y) && point.y >= 0 && point.y <= 1));
 }
 
 function toPixelLabKeypoint(point: SkeletonKeypoint) { return { x: point.x, y: point.y, label: point.label, ...(point.zIndex !== undefined ? { z_index: point.zIndex } : {}) }; }

@@ -325,7 +325,7 @@ export class ToolRunner {
       return this.#runAudio(input as AudioGenerationRequest, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "skeleton", "requestedPrompt", "pluginChanges"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "skeleton", "characterDescription", "requestedPrompt", "pluginChanges"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
@@ -362,7 +362,7 @@ export class ToolRunner {
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
-        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}), ...(input.skeleton ? { skeleton: input.skeleton } : {}) } : { size }),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}), ...(input.skeleton ? { skeleton: input.skeleton } : {}), ...(input.characterDescription ? { characterDescription: input.characterDescription } : {}) } : { size }),
       }, signal)))).flatMap((image) => [image, ...(image.additionalImages ?? [])]);
       // PixelLab returns one PNG per animation frame. Keep the canvas compact by
       // publishing a loopable GIF as the primary asset; users can extract frames

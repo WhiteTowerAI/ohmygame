@@ -3650,6 +3650,13 @@ const zhCN: typeof en = {
         generating: "正在生成图片…",
         prompt: "图片提示词",
         placeholder: "描述你想生成的图片",
+        skeletonLabel: "骨骼识别",
+        skeletonPlaceholder: "无需提示词；会识别接入角色图片的骨骼关键点",
+        skeletonAnimationHint: "请先连接 Skeleton Recognition 的图片输出，再生成动画。",
+        animationLabel: "动作描述",
+        animationPlaceholder: "例如：原地向前行走，法杖随步伐轻微摆动",
+        directionsLabel: "角色或物体说明（可选）",
+        directionsPlaceholder: "例如：手持法杖的法师，正面视角",
       },
       video: {
         label: "视频",
