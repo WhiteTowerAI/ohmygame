@@ -14,7 +14,7 @@ import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
-import { pluginAgentDefinitions } from "./plugin-agents.js";
+import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js";
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
@@ -1402,6 +1402,10 @@ export function createApp(options: AppOptions = {}) {
     return entry && screenshot ? readPluginScreenshot(entry.root, screenshot.path) : undefined;
   }, async (providerId) => {
     const file = pluginModelProviders.iconFile(providerId);
+    return file ? readPluginIconAsset(file.root, { type: "asset", path: file.path }) : undefined;
+  }, async (agentId) => {
+    await pluginServices.ready();
+    const file = pluginAgentIconFile(await pluginServices.installed(), agentId);
     return file ? readPluginIconAsset(file.root, { type: "asset", path: file.path }) : undefined;
   });
 

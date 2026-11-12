@@ -30,6 +30,7 @@ import {
   localizePluginString,
 } from "../src/daemon/plugin-index.js";
 import {
+  PLUGIN_HOST_API_VERSION,
   pluginApiIssue,
   pluginUiIssue,
   satisfiesVersionRange,
@@ -213,6 +214,8 @@ describe("plugin manifest", () => {
     const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
     const runs = { capabilities: { processes: ["gemini"] } };
     expect(messages({ ...minimal, ...runs, contributes: { agents: [agent] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [{ ...agent, icon: "./assets/gemini.svg" }] } })).toEqual([]);
+    expect(messages({ ...minimal, ...runs, contributes: { agents: [{ ...agent, icon: "./assets/gemini.gif" }] } })).toHaveLength(1);
     expect(messages({ ...minimal, ...runs, contributes: { agents: [agent, agent] } })).toEqual([
       "/contributes/agents/1/id duplicate id gemini",
     ]);
@@ -818,8 +821,24 @@ describe("plugin index", () => {
     expect(rebuilt.get("ohmygame/solarized")!.strings.en?.description).toBe(
       "Changed.",
     );
-    expect(JSON.parse(await readFile(file, "utf8")).schema).toBe(
-      PLUGIN_INDEX_SCHEMA_VERSION,
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      schema: PLUGIN_INDEX_SCHEMA_VERSION,
+      api: PLUGIN_HOST_API_VERSION,
+    });
+
+    // An older app dropped the manifest fields it didn't know, so this one reads the package again.
+    await writeFile(
+      file,
+      JSON.stringify({
+        schema: PLUGIN_INDEX_SCHEMA_VERSION,
+        api: "2.4.0",
+        entries: [{ ...stored.entries[0], strings: {} }],
+      }),
+    );
+    const upgraded = new PluginIndex(file);
+    await upgraded.load();
+    expect(upgraded.get("ohmygame/solarized")!.strings.en?.description).toBe(
+      "Changed.",
     );
   });
 

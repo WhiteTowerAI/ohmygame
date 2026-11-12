@@ -1150,6 +1150,12 @@
                 "minLength": 1,
                 "maxLength": 200
               },
+              "icon": {
+                "type": "string",
+                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:svg|png|webp)$",
+                "minLength": 3,
+                "maxLength": 500
+              },
               "command": {
                 "type": "string",
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",

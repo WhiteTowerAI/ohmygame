@@ -161,8 +161,12 @@ describe("coding agent routes", () => {
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       id: "acme/fake-acp", version: "1.0.0", engines: { "ohmygame-api": "^2.3.0" }, displayName: "Fake ACP", description: "An ACP agent",
       capabilities: { processes: ["fake-acp"] },
-      contributes: { agents: [{ id: "fake", title: "Fake ACP", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" }] },
+      contributes: { agents: [
+        { id: "fake", title: "Fake ACP", icon: "./fake.svg", command: "fake-acp", args: ["--acp", "--note=a b"], loginCommand: "fake-acp login" },
+        { id: "plain", title: "Plain ACP", command: "fake-acp" },
+      ] },
     }));
+    await writeFile(path.join(source, "fake.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#4285f4"/></svg>');
     const payload = { source: { type: "directory", path: source } };
     const inspected = await call<{ digest: string }>("POST", "/plugin-sources/inspect", payload);
     expect(inspected.status).toBe(200);
@@ -172,9 +176,14 @@ describe("coding agent routes", () => {
     const id = "agent.acme.fake-acp.fake";
     await vi.waitFor(async () =>
       expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === id)).toMatchObject({
-        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow",
+        name: "Fake ACP", plugin: "acme/fake-acp", launch: 'fake-acp --acp "--note=a b"', enabled: false, permissionMode: "allow", iconRevision: inspected.body.digest,
       }),
     );
+    // Its own logo, read from the package; an agent without one has none.
+    const icon = await app.inject({ method: "GET", url: `/plugin-agents/${id}/icon`, headers: { authorization: "Bearer app-token" } });
+    expect([icon.statusCode, icon.headers["content-type"]]).toEqual([200, "image/svg+xml"]);
+    expect((await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes")).body.find((agent) => agent.id === "agent.acme.fake-acp.plain")?.iconRevision).toBeUndefined();
+    expect((await app.inject({ method: "GET", url: "/plugin-agents/agent.acme.fake-acp.plain/icon", headers: { authorization: "Bearer app-token" } })).statusCode).toBe(404);
     const executable = path.join(dataDirectory, "fake-acp");
     await writeFile(executable, FAKE_ACP, { mode: 0o700 });
     expect((await call("PATCH", `/agent-runtimes/${id}`, { permissionMode: ":workspace" })).status).toBe(400);
