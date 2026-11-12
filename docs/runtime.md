@@ -1047,7 +1047,11 @@ publication details (`PUT /community/games/:gameId/name`, with
 `GET /community/game-names/:name?gameId=` to check a name while typing). The
 name before stays with the game and redirects to the new one until the next
 rename frees it. A Cloud without pages leaves `name` and `pageUrl` out, and the
-app shares `playUrl` instead. The Cloud's rules are in its `docs/publish-v1.md`.
+app shares `playUrl` instead. A publication saved without a page (published
+before the Cloud named games) gets it from the owner's games when the
+publication details open, and loading the owner's games
+(`GET /community/me/games`) brings every publication up to date. The name can
+only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in its `docs/publish-v1.md`.
 
 ### Community and creator profiles
 
