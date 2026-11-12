@@ -913,6 +913,13 @@ export async function getHomeComposerCapabilities(): Promise<ConversationCapabil
 export async function readPluginMarket(): Promise<import("../shared/plugins.js").PluginMarketListing> {
   return request(`/plugin-market?locale=${encodeURIComponent(language)}`);
 }
+/** Where Discover reads from: the main index and any others. */
+export async function getPluginMarketSettings(): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+  return request("/settings/plugin-market");
+}
+export async function setPluginMarketSettings(settings: { index: string; extra: string[] }): Promise<import("../shared/plugins.js").PluginMarketSettings> {
+  return request("/settings/plugin-market", { method: "PUT", body: JSON.stringify(settings) });
+}
 
 export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview> {
   return request(`/plugin-sources/inspect?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source }) });
@@ -1808,8 +1815,8 @@ export async function readPluginProviderIcon(providerId: string, signal?: AbortS
   return response.blob();
 }
 /** The icon or a screenshot the market lists for a plugin version, by its path in the package. */
-export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role })}`), { headers: runtimeHeaders(), signal });
+export async function readPluginMarketImage(path: string, role: "icon" | "screenshot", source: string | undefined, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugin-market/images?${new URLSearchParams({ path, role, ...(source ? { source } : {}) })}`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }

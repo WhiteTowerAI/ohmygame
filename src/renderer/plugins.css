@@ -543,6 +543,79 @@
   flex: 1;
 }
 
+/* the foot of the side list: where the market is listed from, and how often */
+.plugins-rail-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.plugins-rail-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: help;
+}
+
+.plugins-rail-help:hover {
+  color: var(--color-text-secondary);
+}
+
+.plugins-rail-help:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+/* the sources dialog */
+.plugin-market-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-market-settings > .plugins-note {
+  margin: 0;
+}
+
+.plugin-market-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plugin-market-settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.plugin-market-settings-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-market-settings-url {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-market-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1000px) {
   .plugins-browse {
     grid-template-columns: minmax(0, 1fr);
@@ -562,6 +635,10 @@
 
   .plugins-rail-item {
     flex: none;
+  }
+
+  .plugins-rail-foot {
+    margin: 0 0 0 auto;
   }
 }
 
