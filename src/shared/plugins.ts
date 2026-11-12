@@ -52,7 +52,24 @@ export interface MarketPlugin {
   asks: string[];
   /** How many of each list its manifest contributes, and how many Skills. */
   adds: Record<string, number>;
+  /** The categories this app knows, of those its manifest names. */
+  categories?: PluginCategory[];
+  /** The project types it works in; absent means every type. */
+  appliesTo?: string[];
+  beta?: boolean;
+  longDescription?: string;
+  /** Its icon, by its path beside the market's index, which `/plugin-market/images` reads. */
+  icon?: string;
+  /** Screenshots by their path beside the index, read the same way. */
+  screenshots?: Array<{ path: string; caption?: string }>;
+  /** GitHub's id for the publisher, whose avatar `/plugin-market/avatars/<id>` reads; only when the source is verified. */
+  avatar?: string;
+  /** When the listed version was published. */
   publishedAt?: string;
+  /** When the package was first published. */
+  createdAt?: string;
+  /** The listed version's files, unpacked, in bytes. */
+  size?: number;
   repository?: string;
   /** npm's provenance names the repository, or the repository's package.json names the package. */
   sourceVerified: boolean;
@@ -321,12 +338,16 @@ export interface StorePlugin {
   longDescription?: string;
   /** Prompts its page offers to try it with. */
   examples: string[];
+  /** Its screenshots in order; each reads from `/plugins/:id/screenshots/:index`. */
+  screenshots?: Array<{ caption?: string }>;
   /** The project types it works in; absent means every type. */
   appliesTo?: string[];
   homepage?: string;
   settings: StorePluginSetting[];
   /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
   skills: Array<{ id: string; name: string; description: string }>;
+  /** It adds only model providers and agents, which join the app itself whatever projects turn on. */
+  appOnly?: true;
   /** What it adds, by title; tools and skills are counted. */
   adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
 }

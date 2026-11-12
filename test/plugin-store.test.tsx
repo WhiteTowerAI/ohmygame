@@ -8,8 +8,7 @@ import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } fr
 let configuration: StorePluginConfiguration;
 let uninstallPreview: PluginUninstallPreview;
 const api = {
-  consentToPlugin: vi.fn(async () => {}),
-  setStorePluginEnabled: vi.fn(async () => {}),
+  restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
   readPluginUninstall: vi.fn(async () => uninstallPreview),
@@ -81,28 +80,20 @@ it("groups the store's rows by plugin, newest version first", () => {
   ]);
 });
 
-it("asks for what isn't allowed yet, turns it on in every project with a warning, stops it everywhere, and uninstalls one version", async () => {
+it("lists what it asks for, turns it on with its one switch and nothing to confirm, and uninstalls one version", async () => {
   const onChanged = vi.fn(async () => {});
   const onRemoved = vi.fn();
   const [group] = groupStorePlugins([row("2.0.0"), row("1.0.0")]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={onChanged} onRemoved={onRemoved} />));
-  expect(document.body.textContent).toContain("network:api.example.com");
+  expect(document.body.textContent).toContain("Connect to these sitesapi.example.com");
   expect(document.querySelector(".plugin-store-adds")!.textContent).toContain("MCP serviceMaker CLI");
-  await act(async () => button("Allow").click());
-  expect(api.consentToPlugin).toHaveBeenCalledWith("acme/maker", ["native", "network:api.example.com"]);
-  expect(onChanged).toHaveBeenCalledTimes(1);
-
-  // Turning it on in every project asks again, saying it then runs in each of them.
+  // Turning it on is allowing it, so nothing asks first; nor is there a second switch to stop it everywhere.
   await act(async () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!.click());
-  expect(document.querySelector("[role=dialog]")!.textContent).toContain("It will run in every project it works in");
-  expect(api.setStorePluginEveryProject).not.toHaveBeenCalled();
-  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Allow and turn on")!.click());
-  expect(api.consentToPlugin).toHaveBeenLastCalledWith("acme/maker", ["network:api.example.com"]);
+  expect(document.querySelector("[role=dialog]")).toBeNull();
   expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
-  expect(onChanged).toHaveBeenCalledTimes(2);
-
-  await act(async () => button("Disable everywhere").click());
-  expect(api.setStorePluginEnabled).toHaveBeenCalledWith("acme/maker", false);
+  expect(onChanged).toHaveBeenCalledTimes(1);
+  expect(document.body.textContent).not.toContain("Disable everywhere");
+  expect(document.body.textContent).not.toContain("Allow what this plugin asks for");
 
   const uninstall = [...document.querySelectorAll(".plugin-store-versions button")] as HTMLButtonElement[];
   expect(uninstall).toHaveLength(2);
@@ -147,7 +138,11 @@ it("says a plugin stopped after crashing, shows its log, and turns it on again",
   expect(api.readPluginLog).toHaveBeenCalledWith("acme/maker");
   expect(dialog.querySelector("pre")!.textContent).toBe("2026-11-04T08:00:00.000Z ERROR [host] Its extension host stopped (1) while it was running");
   await act(async () => [...dialog.querySelectorAll("button")].find((item) => item.textContent === "Turn on again")!.click());
-  expect(api.setStorePluginEnabled).toHaveBeenCalledWith("acme/maker", true);
+  expect(api.restartStorePlugin).toHaveBeenCalledWith("acme/maker");
+  // Turning it off from its log turns it off in every project.
+  await act(async () => [...document.querySelectorAll("button")].find((item) => item.textContent === "View log")!.click());
+  await act(async () => [...document.querySelector("[role=dialog]")!.querySelectorAll("button")].find((item) => item.textContent === "Turn off")!.click());
+  expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", false);
 });
 
 it("says what uninstalling the last version removes and leaves, and can keep its settings and data", async () => {
@@ -169,21 +164,6 @@ it("says what uninstalling the last version removes and leaves, and can keep its
   await act(async () => [...dialog().querySelectorAll("button")].find((item) => item.textContent === "Uninstall")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/maker", "1.0.0", { keepData: true });
   expect(onRemoved).toHaveBeenCalled();
-});
-
-it("warns before a plugin already allowed goes on in every project, allowing nothing more", async () => {
-  const onChanged = vi.fn(async () => {});
-  const [group] = groupStorePlugins([row("1.0.0", { bundled: true, grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
-  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={onChanged} onRemoved={() => {}} />));
-  const everyProject = () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!;
-  await act(async () => everyProject().click());
-  expect(document.querySelector("[role=dialog]")!.textContent).toContain("It will run in every project it works in");
-  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Cancel")!.click());
-  expect(api.setStorePluginEveryProject).not.toHaveBeenCalled();
-  await act(async () => everyProject().click());
-  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Allow and turn on")!.click());
-  expect(api.consentToPlugin).not.toHaveBeenCalled();
-  expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
 });
 
 it("offers Uninstall only for the versions that didn't ship with the app", async () => {
@@ -232,6 +212,7 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(document.querySelector("h1")!.textContent).toContain("Beta");
   expect(panel("About").hidden).toBe(false);
   expect(panel("About").textContent).toContain("All about Maker.");
+  expect(panel("About").textContent).toContain("in that project alone");
   expect(panel("Skills").hidden).toBe(true);
 
   await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
@@ -243,6 +224,13 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(panel("Skills").textContent).not.toContain("name: maker");
   // Unsaved settings stay on the page while another tab shows.
   expect(panel("Settings").querySelector("form")).not.toBeNull();
+});
+
+it("leaves out what projects turn on for a plugin that only adds model providers and agents", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { appOnly: true, skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["NVIDIA"], agents: ["Gemini CLI"], tools: 0, skills: 0 } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.body.textContent).toContain("NVIDIA");
+  expect(document.body.textContent).not.toContain("in that project alone");
 });
 
 it("tries an example in a project it suits, turning it on there, or in a new one", async () => {
@@ -263,13 +251,16 @@ it("tries an example in a project it suits, turning it on there, or in a new one
   expect(onTry).toHaveBeenLastCalledWith(target, "Build a level", undefined);
 });
 
-it("holds Try back until what the plugin asks for is allowed, and offers no new project of a type only a plugin adds", async () => {
+it("offers Try without allowing first, holds it back in safe mode, and offers no new project of a type only a plugin adds", async () => {
   const onTry = vi.fn(async () => {});
+  // Trying it turns it on in the project, which allows it.
   const [waiting] = groupStorePlugins([row("1.0.0", { examples: ["Build a level"] })]);
   await act(async () => root.render(<StorePluginDetail group={waiting!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
+  expect(button("Build a level").disabled).toBe(false);
+  const [safe] = groupStorePlugins([row("1.0.0", { examples: ["Build a level"], grants: { enabled: false, allowed: [] } })]);
+  await act(async () => root.render(<StorePluginDetail key="safe" group={safe!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
   expect(button("Build a level").disabled).toBe(true);
   expect(document.body.textContent).not.toContain("Try now");
-  expect(document.querySelector(".plugins-note")!.textContent).toBe("Allow what it asks for to try it.");
 
   const [typed] = groupStorePlugins([row("1.0.0", { id: "acme/typed", examples: ["Build a level"], appliesTo: ["acme/typed:game"], grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
   await act(async () => root.render(<StorePluginDetail key="typed" group={typed!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
