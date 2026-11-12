@@ -58,8 +58,6 @@ describe("client addresses", () => {
       expect((await guests(proxied.port, (index) => ({ "x-real-ip": `198.51.100.${index}` }))).every((status) => status === 201)).toBe(true);
       await proxied.stop();
     } finally {
-      // Bun keeps a closed database open until its statements are collected.
-      (globalThis as { Bun?: { gc(sync: boolean): void } }).Bun?.gc(true);
       await rm(directory, { recursive: true, force: true });
     }
   });

@@ -102,5 +102,8 @@ export class RoomStore {
   }
   close(): void {
     this.db.close();
+    // Bun's node:sqlite keeps a closed database's files open until its prepared statements
+    // are collected, and Windows cannot delete files that are open. Node closes them at once.
+    (globalThis as { Bun?: { gc(sync: boolean): void } }).Bun?.gc(true);
   }
 }

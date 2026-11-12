@@ -106,9 +106,6 @@ describe("multiplayer service over HTTP and WebSocket", () => {
       void room.leave(true).catch(() => {});
     }
     await service.stop();
-    // Under Bun a closed database keeps its files until its statements are
-    // collected, and Windows will not delete files that are still open.
-    (globalThis as { Bun?: { gc(sync: boolean): void } }).Bun?.gc(true);
     await rm(directory, { recursive: true, force: true });
   });
   async function transport(token?: string) {
