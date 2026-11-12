@@ -991,6 +991,7 @@ const en = {
       projectContext: "Project context (AGENTS.md)",
       skills: "Skills",
       cwd: "Project folder",
+      restoreNotice: "Workspace restore notice",
     },
   },
   floatingChat: {

@@ -16,6 +16,7 @@ const SECTION_LABELS: Record<string, () => string> = {
   project_context: () => t("conversationInstructions.section.projectContext"),
   skills: () => t("conversationInstructions.section.skills"),
   cwd: () => t("conversationInstructions.section.cwd"),
+  restore_notice: () => t("conversationInstructions.section.restoreNotice"),
 };
 
 function sectionLabel(name: string): string {

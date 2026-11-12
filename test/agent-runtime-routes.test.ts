@@ -482,6 +482,8 @@ describe("coding agent routes", () => {
     const instructions = (await call<ConversationInstructions>("GET", `${base}/instructions`)).body;
     expect(instructions).toMatchObject({ kind: "coding-agent", runtime: "codex-cli" });
     expect(instructions.kind === "coding-agent" && instructions.text).toContain("Do not create or change files for casual conversation");
+    // With what every coding agent hears about OhMyGame's tools.
+    expect(instructions.kind === "coding-agent" && instructions.text).toContain("come from its ohmygame tool server");
     const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
     const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     expect((await turn("Hello")).status).toBe(202);

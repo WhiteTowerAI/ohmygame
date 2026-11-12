@@ -51,7 +51,7 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
-import { AgentRuntimeService } from "./agent-runtimes/service.js";
+import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
@@ -4446,10 +4446,13 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const provider = (await conversations.model(project, conversation))?.provider;
       if (isAgentRuntimeId(provider)) {
-        const text = appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n");
+        const text = nativeAgentInstructions(appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n"));
         return { kind: "coding-agent", runtime: provider, text };
       }
-      return conversationInstructions((await conversations.view(project, conversation)).buildSessionContext().messages);
+      const instructions = conversationInstructions((await conversations.view(project, conversation)).buildSessionContext().messages);
+      // A restore's notice joins each request's system prompt without entering the transcript.
+      const notice = instructions.started ? await readWorkspaceNotice(project).catch(() => undefined) : undefined;
+      return notice ? { ...instructions, sections: [...instructions.sections, { name: "restore_notice", text: notice }] } : instructions;
     },
   );
 

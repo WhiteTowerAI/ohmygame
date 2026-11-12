@@ -976,6 +976,7 @@ const zhCN: typeof en = {
       projectContext: "项目上下文（AGENTS.md）",
       skills: "Skill",
       cwd: "项目文件夹",
+      restoreNotice: "工作区恢复提示",
     },
   },
   floatingChat: {

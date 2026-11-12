@@ -86,6 +86,10 @@ const STATUS_TTL_MS = 60_000;
  */
 const NATIVE_INSTRUCTIONS =
   "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+/** What a coding agent hears from OhMyGame: a project's instructions, then how to use OhMyGame's tools. */
+export function nativeAgentInstructions(projectInstructions: string): string {
+  return `${projectInstructions}\n\n${NATIVE_INSTRUCTIONS}`;
+}
 const MODELS_TTL_MS = 10 * 60_000;
 const MODELS_WAIT_MS = 6_000;
 
@@ -597,7 +601,7 @@ export class AgentRuntimeService {
       env,
       privateDirectory: folder.path,
       processDirectory: path.join(this.#root, "processes"),
-      instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
+      instructions: nativeAgentInstructions(request.instructions),
       bridge,
       saveGeneratedImage: request.saveGeneratedImage,
       permissionMode: settings.permissionMode,

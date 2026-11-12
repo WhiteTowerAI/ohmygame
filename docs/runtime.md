@@ -243,8 +243,13 @@ the new instructions from its next message.
 
 **This conversation's instructions**, in the conversation menu, shows the
 system prompt and tools OhMyGame's agent last sent the model, section by
-section, read from the conversation's transcript. A coding agent keeps its own
-instructions to itself, so for one only what OhMyGame adds is shown.
+section, read from the conversation's transcript, and the workspace restore
+notice each request adds while there is one. A coding agent keeps its own
+instructions to itself, so for one only what OhMyGame adds is shown: the
+project's instructions and how to use OhMyGame's tools. Claude Code, Codex and
+OpenCode get these each time their process starts; a plugin's ACP agent gets
+them with a new session's first prompt and again, as a replacement, with the
+first prompt of a process that continues the session.
 
 | Route | Purpose |
 | --- | --- |
