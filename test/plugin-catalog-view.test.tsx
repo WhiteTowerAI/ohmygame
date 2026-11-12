@@ -372,6 +372,28 @@ describe("plugin catalog browsing", () => {
       expect(cards()).toEqual(["Market flow", "Market router"]);
     });
 
+    it("narrows model providers by what they make, which their cards show", async () => {
+      market = { status: "ready", blocked: [], plugins: [
+        listed("chat", { categories: ["provider"], providerKinds: ["language"] }),
+        listed("studio", { categories: ["provider"], providerKinds: ["language", "image", "video"] }),
+        listed("frames", { categories: ["provider"], providerKinds: ["video"] }),
+        listed("pixels", { categories: ["art"] }),
+      ] };
+      await renderCatalog(undefined, "discover");
+      const kinds = () => container.querySelector('[aria-label="What it makes"][role="group"]');
+      const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Art"))!.click());
+      expect(kinds()).toBeNull();
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Model providers"))!.click());
+      expect([...kinds()!.querySelectorAll("button")].map((item) => item.textContent)).toEqual(["All", "Language", "Image", "Video"]);
+      expect([...card("Market studio").querySelectorAll(".plugin-card-kind")].map((item) => item.textContent)).toEqual(["Language", "Image", "Video"]);
+      await act(async () => [...kinds()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Video")!.click());
+      expect(cards().sort()).toEqual(["Market frames", "Market studio"]);
+      // Picked again, it shows them all.
+      await act(async () => [...kinds()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Video")!.click());
+      expect(cards()).toHaveLength(3);
+    });
+
     it("reviews a listed plugin from Get in its dialog, which a link opens too", async () => {
       market = { status: "ready", blocked: [], plugins: [listed("picked", { longDescription: "Picks things.", categories: ["art"], appliesTo: ["web-game"], asks: ["native"], adds: { skills: 2, panels: 1 },
         publishedAt: "2026-11-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z", size: 1_572_864 })] };

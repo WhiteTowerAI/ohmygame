@@ -216,6 +216,8 @@ describe("PluginMarket listing", () => {
       // Each in the person's language, or English, once.
       keywords: [{ en: "image", "zh-CN": "图片" }, { en: "pixel" }, { en: "art", "zh-CN": "图片" }],
       names: [{ en: "SiliconFlow", "zh-CN": "硅基流动" }],
+      // In the app's order, without a kind it doesn't know.
+      providerKinds: ["video", "hologram", "language"],
       // An index field from a later schema is passed over.
       rating: 5,
       icon: "assets/icon.svg",
@@ -227,7 +229,7 @@ describe("PluginMarket listing", () => {
     const [plugin] = (await subject.listing("zh-CN")).plugins;
     expect(plugin).toMatchObject({
       categories: ["art", "3d"], appliesTo: ["web-game"], beta: true, longDescription: "长",
-      keywords: ["图片", "pixel"], names: ["硅基流动"],
+      keywords: ["图片", "pixel"], names: ["硅基流动"], providerKinds: ["language", "video"],
       icon: "assets/icon.svg",
       screenshots: [{ path: "assets/one.png", caption: "一" }, { path: "assets/two.webp" }],
     });

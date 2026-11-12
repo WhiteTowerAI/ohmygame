@@ -238,7 +238,7 @@ can't promise what the plugin doesn't do.
 2. Video, with tasks, `check`, `cancel`, `retryAfter`, and resuming after a
    restart. *Done.*
 3. The market's kinds: the index field, the chips under Model providers, and
-   the tags on cards.
+   the tags on cards. *Done.*
 4. Later: audio and 3D, then moving the built-in media providers (Seedance,
    MiniMax, Meshy, Tripo, Doubao) to official plugins, with their saved keys
    moved to the plugin's settings.
