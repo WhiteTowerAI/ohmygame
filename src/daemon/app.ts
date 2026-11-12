@@ -116,12 +116,10 @@ import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audi
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
-import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
-import { ElevenLabsAudioProvider, ELEVENLABS_PROVIDER_NAME } from "./elevenlabs-audio-provider.js";
-import { AUDIO_KINDS, DOUBAO_SPEECH_PROVIDER_ID, DOUBAO_SPEECH_PROVIDER_NAME, type AudioGenerationRequest } from "../shared/audio.js";
-import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { AUDIO_KINDS, type AudioGenerationRequest } from "../shared/audio.js";
+import { MediaProviderRegistry } from "./providers/registry.js";
+import { builtInMediaProviders } from "./providers/built-in.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
-import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
@@ -816,16 +814,12 @@ export function createApp(options: AppOptions = {}) {
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
   });
-  const doubaoSpeechProvider = new DoubaoSpeechProvider({
-    key: (service) => doubaoVoiceSettings.key(service),
-    defaultVoiceId: () => doubaoVoiceSettings.defaultVoiceId(),
-    enabled: () => providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
-    request: options.audioFetch,
-  });
-  const elevenLabsProvider = new ElevenLabsAudioProvider(
-    () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
-  );
-  const providerAudio = new ProviderAudio([doubaoSpeechProvider, elevenLabsProvider], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+  /** The built-in media providers, listed once; summaries, removal and the audio adapters read from this list. */
+  const mediaProviders = new MediaProviderRegistry(builtInMediaProviders({
+    native3D: native3DProviders, seedance: seedanceSettings, minimax: minimaxSettings, doubaoVoice: doubaoVoiceSettings,
+    elevenLabs: elevenLabsSettings, audioFetch: options.audioFetch, enabled: providerEnabled,
+  }), providerEnabled);
+  const providerAudio = new ProviderAudio(mediaProviders.audioAdapters(), () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
@@ -3406,60 +3400,7 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(item.id), custom: false, status: "not_configured" as const,
         methods: [], capabilities: ["language"] as const, plugin: pluginModelProviders.info(item.id, locale)!,
       }));
-    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
-      id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
-      status: settings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${name} API key` }],
-      credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
-      const definition = SEEDANCE_PROVIDERS[providerId];
-      const configured = seedanceSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
-      };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
-      const definition = MINIMAX_PROVIDERS[providerId];
-      const configured = minimaxSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: ["video"] as const,
-      };
-    }), {
-      id: DOUBAO_SPEECH_PROVIDER_ID,
-      name: DOUBAO_SPEECH_PROVIDER_NAME,
-      configured: doubaoVoiceSettings.get().configured,
-      enabled: providerEnabled(DOUBAO_SPEECH_PROVIDER_ID),
-      custom: false,
-      status: doubaoVoiceSettings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }, {
-      id: "elevenlabs",
-      name: ELEVENLABS_PROVIDER_NAME,
-      configured: Boolean(elevenLabsSettings.key()),
-      enabled: providerEnabled("elevenlabs"),
-      custom: false,
-      status: elevenLabsSettings.key() ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${ELEVENLABS_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }];
+    const directProviders = [...pluginProviders, ...mediaProviders.summaries()];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -3550,6 +3491,7 @@ export function createApp(options: AppOptions = {}) {
     projects,
     agents,
     modelDiscoveryFetch: options.modelDiscoveryFetch,
+    providers: mediaProviders,
     native3DProviders,
     openAIEndpoint,
     seedanceSettings,
@@ -3557,7 +3499,6 @@ export function createApp(options: AppOptions = {}) {
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    doubaoSpeechProvider,
     providerEnabled,
     cloudModels,
     modelAuth,

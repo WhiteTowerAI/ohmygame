@@ -7,7 +7,7 @@ import { modelUsageList, modelUsages } from "../shared/custom-models.js";
 import { isNative3DProvider, model3DPreset, normalizeNativeModel3D, MODEL_3D_CATALOG_DOCS, MODEL_3D_CATALOG_REVIEWED } from "../shared/model3d-presets.js";
 import { supportedReasoningLevels } from "../shared/reasoning.js";
 import type { AgentManager } from "./agent.js";
-import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
+import { AudioGenerationError } from "./audio-generation.js";
 import type { CloudModelsClient } from "./cloud-models.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
 import type { MediaProviderKeyStore } from "./media-provider-settings.js";
@@ -18,6 +18,7 @@ import { MODEL_CATALOG_REFRESH_ERROR, type ModelCatalogRefresh } from "./model-c
 import type { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { OpenAIImageSettingsStore } from "./openai-image-settings.js";
 import type { ProjectManager } from "./projects.js";
+import type { MediaProviderRegistry } from "./providers/registry.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import type { PluginModelProviders } from "./plugin-model-providers.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderModelSettingsStore } from "./provider-model-settings.js";
@@ -73,6 +74,8 @@ export interface ProviderSettingsRouteOptions {
   projects: ProjectManager;
   agents: AgentManager;
   modelDiscoveryFetch: typeof fetch | undefined;
+  /** The built-in media providers; removal clears their keys through it. */
+  providers: MediaProviderRegistry;
   native3DProviders: readonly (readonly [string, string, MediaProviderKeyStore])[];
   openAIEndpoint: ModelEndpointSettingsStore;
   seedanceSettings: SeedanceSettingsStore;
@@ -80,7 +83,6 @@ export interface ProviderSettingsRouteOptions {
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
-  doubaoSpeechProvider: AudioProviderAdapter;
   providerEnabled: (id: string) => boolean;
   cloudModels: CloudModelsClient;
   modelAuth: ModelAuthManager;
@@ -100,6 +102,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     projects,
     agents,
     modelDiscoveryFetch,
+    providers,
     native3DProviders,
     openAIEndpoint,
     seedanceSettings,
@@ -107,7 +110,6 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    doubaoSpeechProvider,
     providerEnabled,
     cloudModels,
     modelAuth,
@@ -181,21 +183,15 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   });
   const removeProvider = async (providerId: string) => {
     const runtime = await getModelRuntime();
-    const native = native3DProviders.find(([id]) => id === providerId);
-    const seedance = isSeedanceProviderId(providerId);
-    const minimax = isMinimaxProviderId(providerId);
-    const doubaoSpeech = providerId === DOUBAO_SPEECH_PROVIDER_ID;
-    if (!native && !seedance && !minimax && !doubaoSpeech && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const builtIn = providers.removable(providerId);
+    if (!builtIn && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
         await runtime.refresh({ allowNetwork: false });
         if (previousEndpoint) await openAIEndpoint.update(openAIEndpoint.defaultBaseUrl);
-        if (native) await native[2].clear();
-        else if (seedance) await seedanceSettings.clear(providerId);
-        else if (minimax) await minimaxSettings.clear(providerId);
-        else if (doubaoSpeech) await doubaoVoiceSettings.clear();
+        if (builtIn) await providers.clear(providerId);
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -293,7 +289,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
       if (!providerEnabled(DOUBAO_SPEECH_PROVIDER_ID)) return reply.code(409).send({ error: "Doubao Speech is disabled" });
       const { model = "seed-tts-2.0", text, ...speech } = request.body;
       try {
-        const generated = await doubaoSpeechProvider.generate(model === "seed-audio-1.0"
+        const generated = await providers.get(DOUBAO_SPEECH_PROVIDER_ID)!.audio!.generate(model === "seed-audio-1.0"
           ? { model: { provider: DOUBAO_SPEECH_PROVIDER_ID, id: model }, prompt: text, durationSeconds: 2, output: { format: "mp3", sampleRate: 48_000 } }
           : { model: { provider: DOUBAO_SPEECH_PROVIDER_ID, id: model }, prompt: text, ...speech, output: { format: "mp3", sampleRate: 24_000 } });
         reply.header("content-type", generated.mediaType);
@@ -331,12 +327,11 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     || id.startsWith("cloud-") && cloudModels.hasProvider(id);
   const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
     if (isNative3DProvider(providerId)) {
-      const native = native3DProviders.find(([id]) => id === providerId)!;
       return { models: providerModelSettings.models3D(providerId).map((definition) => ({
-        provider: providerId, providerName: native[1], id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
+        provider: providerId, providerName: providers.get(providerId)!.name, id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
         visible: providerModelSettings.isVisible({ provider: providerId, id: definition.id }), custom: !model3DPreset(providerId, definition.id),
         source: model3DPreset(providerId, definition.id) ? "preset" : "custom", model3d: definition,
-      })), defaultApi: providerId, canAddCustomModel: native[2].get().configured, model3DProtocol: providerId,
+      })), defaultApi: providerId, canAddCustomModel: providers.configured(providerId), model3DProtocol: providerId,
       catalogNotice: `Official presets · reviewed ${MODEL_3D_CATALOG_REVIEWED}. No model-list API; new versions arrive with app updates or can be added manually. Key access is determined by the provider.`,
       catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
     }
