@@ -38,7 +38,7 @@ import {
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { usePluginProviderIcon } from "./plugin-provider-icon.js";
+import { usePluginIcon } from "./plugin-mark-icon.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { OpenAIImageModels } from "./openai-image-models.js";
@@ -257,7 +257,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
 
 // A provider without a logo shows its initial, as the model picker does.
 function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset" | "name" | "plugin"> }) {
-  const pluginIcon = usePluginProviderIcon(provider.plugin?.icon ? provider.id : undefined, provider.plugin?.icon);
+  const pluginIcon = usePluginIcon(provider.plugin?.icon ? provider.id : undefined, provider.plugin?.icon);
   const known = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
   const icon = known ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
   const initial = provider.name.trim().charAt(0).toUpperCase();

@@ -109,7 +109,20 @@ export function registerPluginIconRoutes(
   readIcon: (id: string) => ReturnType<typeof readPluginIconAsset>,
   readScreenshot: (id: string, index: number) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined>,
   readProviderIcon: (providerId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
+  readAgentIcon: (agentId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
 ) {
+  app.get<{ Params: { agentId: string } }>(
+    "/plugin-agents/:agentId/icon",
+    async (request, reply) => {
+      try {
+        const image = await readAgentIcon(request.params.agentId);
+        if (!image) return reply.code(404).send({ error: "Agent icon not found" });
+        return sendImage(request.headers["if-none-match"], reply, image);
+      } catch {
+        return reply.code(404).send({ error: "Agent icon not found" });
+      }
+    },
+  );
   app.get<{ Params: { providerId: string } }>(
     "/plugin-providers/:providerId/icon",
     async (request, reply) => {

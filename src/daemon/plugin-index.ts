@@ -22,6 +22,7 @@ import {
 import { manifestHooks } from "../shared/plugin-hooks.js";
 import {
   agentToolName,
+  PLUGIN_HOST_API_VERSION,
   pluginApiIssue,
   pluginUiIssue,
   toolSchemaIssues,
@@ -482,6 +483,11 @@ export interface IndexedContribution<K extends ContributionKind> {
 
 interface IndexFile {
   schema: number;
+  /**
+   * The plugin API that read the manifests. An older app drops the fields it
+   * doesn't know, so a newer one reads the packages again.
+   */
+  api?: string;
   entries: PluginIndexEntry[];
 }
 
@@ -511,7 +517,7 @@ export class PluginIndex {
       ) as IndexFile | undefined;
       this.#entries.clear();
       if (!data || !Array.isArray(data.entries)) return;
-      if (data.schema === PLUGIN_INDEX_SCHEMA_VERSION) {
+      if (data.schema === PLUGIN_INDEX_SCHEMA_VERSION && data.api === PLUGIN_HOST_API_VERSION) {
         for (const entry of data.entries)
           this.#entries.set(key(entry.id, entry.version), entry);
         return;
@@ -639,6 +645,7 @@ export class PluginIndex {
   async #save(): Promise<void> {
     const data: IndexFile = {
       schema: PLUGIN_INDEX_SCHEMA_VERSION,
+      api: PLUGIN_HOST_API_VERSION,
       entries: this.entries(),
     };
     await mkdir(path.dirname(this.file), { recursive: true });

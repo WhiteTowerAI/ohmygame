@@ -549,6 +549,8 @@ const Agent = Type.Object(
   {
     id: Slug,
     title: Text(),
+    /** Its logo, shown in Settings → Agents and the model menu (API 2.5.0). */
+    icon: Type.Optional(Icon),
     command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
     /** What starts the protocol, such as `["--acp"]`. */
     args: Type.Optional(

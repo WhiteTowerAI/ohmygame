@@ -38,6 +38,7 @@ import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
 import { pluginHash, pluginsTabHash } from "./routes.js";
+import { usePluginIcon } from "./plugin-mark-icon.js";
 
 type PermissionModeKey =
   | "claudeDefault"
@@ -182,7 +183,7 @@ export function CodingAgentsGroup({
           <SettingsRow
             key={agent.id}
             className="settings-agent-row"
-            icon={<AgentMark id={agent.id} />}
+            icon={<AgentMark id={agent.id} iconRevision={agent.iconRevision} />}
             title={
               <>
                 {agent.name}
@@ -334,7 +335,7 @@ export function CodingAgentDetail({
     <div className="settings-form coding-agent-detail">
       {turningOn ? <PluginAgentTurnOn agent={agent} onClose={() => setTurningOn(false)} onConfirm={() => { setTurningOn(false); void update({ enabled: true }); }} /> : null}
       <SettingsDetailHead
-        mark={<AgentMark id={agent.id} />}
+        mark={<AgentMark id={agent.id} iconRevision={agent.iconRevision} />}
         title={agent.name}
         description={agentSummary(agent)}
         onBack={onBack}
@@ -564,11 +565,14 @@ function Diagnostic({
   );
 }
 
-export function AgentMark({ id }: { id: AgentRuntimeId }) {
-  const icon = PROVIDER_ICONS[id];
+/** An agent's logo: built in, the plugin's own, or a terminal. `iconRevision` is set when its plugin brings one. */
+export function AgentMark({ id, iconRevision }: { id: AgentRuntimeId; iconRevision?: string }) {
+  const pluginIcon = usePluginIcon(iconRevision ? id : undefined, iconRevision);
+  const icon = PROVIDER_ICONS[id] ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">
-      {icon ? <img src={icon.src} alt="" /> : <Terminal size={18} />}
+      {/* A plugin's icon loading keeps the space empty, rather than flashing the terminal. */}
+      {icon ? <img src={icon.src} alt="" /> : pluginIcon === undefined ? null : <Terminal size={18} />}
     </span>
   );
 }

@@ -122,6 +122,8 @@ the project it starts in and mentions it.
   field, a `categories` or `contributes.hooks` value, or a theme token this app
   doesn't know, lists it as `ignored`, and checks the rest. A plugin that uses
   something newer as a nice-to-have still installs on an older app, without it.
+  The app reads its installed plugins' packages again when its API version
+  changes, so updating the app brings those fields in.
   A value whose form can't be told apart, such as an unknown key in a choice of
   objects, is still refused, and so are names in a map, which stay the
   plugin's own. `ohmygame-plugin check` warns about each ignored entry, so a
@@ -595,6 +597,9 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
   agent, it is off until the person turns it on in Settings → Agents, which
   first shows the whole command line; only its `--version` runs before that.
   `installUrl` and `loginCommand` are shown when it is missing or signed out.
+- `icon` (API 2.5.0) is its logo in Settings → Agents and the model menu,
+  served at `/plugin-agents/:id/icon` and checked as the plugin's own icon is;
+  without one it shows a terminal, and its first letter in the model menu.
 - Checking it runs `command --version`, then starts an ACP session in an empty
   folder to read its models and reasoning levels from the session's config
   options. An agent that answers `auth_required` shows as signed out. One
