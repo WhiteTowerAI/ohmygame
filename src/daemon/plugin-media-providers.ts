@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { ImageModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
@@ -208,11 +209,11 @@ export class PluginMediaProviders {
     const stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
     // Out of time reads as such; stopped by the person or the app, as they stopped it.
     const why = (aborted: AbortSignal) => deadline.aborted && aborted.reason === deadline.reason ? outOfTime : aborted.reason as unknown;
-    // Requests `start` sent that have no answer yet: one lost may have started a task.
-    let unanswered = 0;
+    // Whether `start` sent anything but a read: the vendor may have taken it, whatever came of the answer.
+    let submitted = false;
     const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
-      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal, step === "start" ? (change) => { unanswered += change; } : undefined),
+      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined),
       log: (message) => this.log(item.entry.id, message),
       signal: stepSignal,
     }).catch((cause: unknown) => {
@@ -223,7 +224,10 @@ export class PluginMediaProviders {
     let begun: MediaTaskStart = { state: "new" };
     if (journal) {
       try {
-        begun = await journal.begin({ plugin: item.entry.id, provider: item.provider.id, kind, input });
+        // With the key's digest, so a task isn't checked with another account's key.
+        const key = item.provider.apiKey ? this.services.values.secret(item.entry, item.provider.apiKey) : undefined;
+        const account = key === undefined ? undefined : createHash("sha256").update(key).digest("hex").slice(0, 16);
+        begun = await journal.begin({ plugin: item.entry.id, provider: item.provider.id, account, kind, input });
       } catch (cause) {
         journal.release();
         throw cause instanceof MediaTaskBusyError ? new Failure(cause.message, 409) : cause;
@@ -231,7 +235,7 @@ export class PluginMediaProviders {
       if (begun.state === "changed" || begun.state === "unconfirmed") {
         journal.release();
         throw new Failure(begun.state === "changed"
-          ? `${name}: the provider or the request changed since this ${kind} started. Restore them to resume, or start a new generation.`
+          ? `${name}: the provider, its key or the request changed since this ${kind} started. Restore them to resume, or start a new generation.`
           : `${name} may have started this ${kind} already, but its answer was lost. Check ${name}'s own site before starting a new one; retrying won't start another.`, 409);
       }
     }
@@ -239,6 +243,8 @@ export class PluginMediaProviders {
     let saved = task === undefined ? undefined : JSON.stringify(task);
     // Whether the vendor answered for good; until then, a failure leaves its task running.
     let settled = false;
+    // Whether the vendor has the result ready, so only fetching it is left.
+    let ready = false;
     // Whether the journal keeps the request after this run, for a retry to resume.
     let keep = false;
     try {
@@ -248,8 +254,8 @@ export class PluginMediaProviders {
         try {
           answer = answerOf(await call("start", [input], stopped), undefined, Failure);
         } catch (cause) {
-          // Never send a start again that may have reached the vendor.
-          if (unanswered > 0) keep = true;
+          // Never send a start again that may have reached the vendor; only `{ error }` says it didn't.
+          if (submitted) keep = true;
           throw cause;
         }
       }
@@ -269,11 +275,16 @@ export class PluginMediaProviders {
       }
       settled = true;
       if ("error" in answer) throw new Failure(`${name}: ${answer.error}`);
+      ready = true;
       return await finish(answer.outputs, stopped);
     } catch (cause) {
-      if (signal?.aborted && signal.reason instanceof GenerationShutdown) {
+      const shutdown = signal?.aborted && signal.reason instanceof GenerationShutdown;
+      if (shutdown) {
         // The app is closing: keep the task for a retry to resume, and let the vendor go on.
         if (task !== undefined) keep = true;
+      } else if (ready && task !== undefined && !signal?.aborted) {
+        // Done, but its result couldn't be had: a retry checks the task again rather than paying anew.
+        keep = true;
       } else if (!settled && task !== undefined) {
         // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
         void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
@@ -310,9 +321,9 @@ export class PluginMediaProviders {
 
   /**
    * `host.fetch`: HTTPS to the plugin's approved hosts, with the key added
-   * when asked. `pending` hears of a request sent (+1) and answered (-1).
+   * when asked. `writing` hears of a request sent that isn't a read.
    */
-  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, pending?: (change: number) => void): Promise<MediaFetchResponse> {
+  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void): Promise<MediaFetchResponse> {
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
     if (!METHODS.has(method)) throw new Error(`host.fetch can't send ${method}`);
@@ -333,7 +344,7 @@ export class PluginMediaProviders {
       if ("query" in auth) url.searchParams.set(auth.query, key);
       else headers.set(auth.header, auth.scheme ? `${auth.scheme} ${key}` : key);
     }
-    pending?.(1);
+    if (method !== "GET" && method !== "HEAD") writing?.();
     const response = await this.request(url, {
       method,
       headers,
@@ -365,9 +376,7 @@ export class PluginMediaProviders {
       const value = response.headers.get(name);
       if (value !== null) answer[name] = hide(value);
     }
-    const text = (await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8");
-    pending?.(-1);
-    return { status: response.status, headers: answer, body: hideBody(text) };
+    return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8")) };
   }
 
   /** Downloads or decodes one output. */

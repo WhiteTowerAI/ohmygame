@@ -273,6 +273,44 @@ describe("plugin media providers: video", () => {
     await expect(refused.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-3"))).rejects.toThrow("bad input");
   });
 
+  it("keeps a task whose start may have gone through, or whose result couldn't be fetched", async () => {
+    // The vendor took the start, but the adapter couldn't read its answer: a retry doesn't pay again.
+    const misread = await setup(`export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/videos", { method: "POST", auth: true });
+      throw new Error("unexpected answer");
+    } } };`, { media: VIDEO_MEDIA });
+    const model = await firstVideo(misread.media);
+    await expect(misread.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-4"))).rejects.toThrow("unexpected answer");
+    await expect(misread.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-4"))).rejects.toThrow("its answer was lost");
+    // A read that fails before anything was sent leaves nothing to fear.
+    const lookup = await setup(`export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/quota");
+      return { error: "unreachable" };
+    } } };`, { media: VIDEO_MEDIA, reply: (url) => { if (url.endsWith("/quota")) throw new TypeError("socket hang up"); return undefined; } });
+    await expect(lookup.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-5"))).rejects.toThrow("could not be reached");
+    await expect(lookup.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-5"))).rejects.toThrow("could not be reached");
+    // Done, but the download failed: a retry checks the task again instead of starting one.
+    let down = true;
+    const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => down && url.endsWith(".mp4") ? new Response("busy", { status: 503 }) : undefined });
+    await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).rejects.toThrow("answered 503");
+    down = false;
+    expect((await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).bytes).toEqual(MP4);
+    expect(requests.filter((request) => request.url === "https://api.flow.example/v1/videos")).toHaveLength(1);
+  }, 20_000);
+
+  it("won't check a task with another account's key", async () => {
+    const first = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, key: "sk-one" });
+    const model = await firstVideo(first.media);
+    const controller = new AbortController();
+    const pending = first.media.generateVideo(model, { prompt: "a fox" }, controller.signal, await journalAt("job-7"));
+    await expect.poll(() => first.requests.length).toBe(1);
+    controller.abort(new GenerationShutdown());
+    await expect(pending).rejects.toBeInstanceOf(GenerationShutdown);
+    const other = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, key: "sk-two" });
+    await expect(other.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-7"))).rejects.toThrow("its key or the request changed");
+    expect(other.requests).toEqual([]);
+  });
+
   it("tells the vendor to stop when the person stops, and starts afresh on retry", async () => {
     const { media, requests } = await setup(VIDEO_TASK.replaceAll("retryAfter: 0", "retryAfter: 30"), { media: VIDEO_MEDIA });
     const model = await firstVideo(media);
