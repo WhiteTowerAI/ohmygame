@@ -7,6 +7,7 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import type { MediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { MAX_ANIMATION_ACTIONS } from "../src/shared/generation-config.js";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
@@ -152,10 +153,12 @@ describe("tool runner", () => {
   });
 
   it("runs the selected video model with a Library image reference", async () => {
-    const generate = vi.fn().mockResolvedValue({
-      bytes: Buffer.from("video"),
-      mediaType: "video/mp4" as const,
-      requestId: "video-task-1",
+    // A plugin's generation leaves the vendor's result in the journal until the video is stored.
+    const generate = vi.fn(async (_input: unknown, _signal: unknown, options: { journal: MediaTaskJournal }) => {
+      await options.journal.begin({ request: 1 });
+      await options.journal.finish([{ url: "https://cdn.example/v.mp4" }]);
+      options.journal.release();
+      return { bytes: Buffer.from("video"), mediaType: "video/mp4" as const, requestId: "video-task-1" };
     });
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
@@ -185,6 +188,10 @@ describe("tool runner", () => {
       aspectRatio: "16:9",
       resolution: "720p",
     }, undefined, { journal: expect.any(Object) });
+    // Stored, so the journal was cleared: nothing is left for a retry to fetch.
+    const journal = generate.mock.calls[0]![2].journal;
+    await expect(journal.begin({ request: 1 })).resolves.toEqual({ state: "new" });
+    journal.release();
     expect(run).toMatchObject({
       toolId: "generate-video",
       files: [{ name: "output.mp4", mediaType: "video/mp4", assetId: expect.any(String) }],

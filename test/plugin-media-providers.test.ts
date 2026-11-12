@@ -228,7 +228,11 @@ describe("plugin media providers: video", () => {
     expect(video).toEqual({ bytes: MP4, mediaType: "video/mp4" });
     expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "wan", seconds: 5, frames: 1, mode: "frame" });
     expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1", "https://api.flow.example/v1/videos/t1", "https://cdn.flow.example/t1.mp4"]);
-    // Done, there's nothing left to resume.
+    // The task stays until the caller stores the video: a retry checks it again, for a fresh address, without paying.
+    const again = await media.generateVideo(model, { prompt: "a fox runs", duration: 5, references: [{ type: "image", name: "first.png", mediaType: "image/png", absolutePath: path.join(root, "first.png") }] }, undefined, await journalAt());
+    expect(again.bytes).toEqual(MP4);
+    expect(requests.map((request) => request.url).slice(4).filter((url) => url === "https://api.flow.example/v1/videos")).toEqual([]);
+    await (await journalAt()).clear();
     expect((await journalAt().then((journal) => journal.begin({}))).state).toBe("new");
     await expect(media.generateVideo(model, { prompt: "x", duration: 10 })).rejects.toThrow("duration is not supported");
   }, 15_000);
@@ -296,6 +300,16 @@ describe("plugin media providers: video", () => {
     down = false;
     expect((await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-6"))).bytes).toEqual(MP4);
     expect(requests.filter((request) => request.url === "https://api.flow.example/v1/videos")).toHaveLength(1);
+    // A vendor that answered at once, with a download that failed: a retry fetches the same result, not a new one.
+    let gone = true;
+    const direct = await setup(`export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/videos", { method: "POST", auth: true });
+      return { outputs: [{ url: "https://cdn.flow.example/now.mp4" }] };
+    } } };`, { media: VIDEO_MEDIA, reply: (url) => gone && url.endsWith(".mp4") ? new Response("busy", { status: 503 }) : undefined });
+    await expect(direct.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-9"))).rejects.toThrow("answered 503");
+    gone = false;
+    expect((await direct.media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt("job-9"))).bytes).toEqual(MP4);
+    expect(direct.requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://cdn.flow.example/now.mp4", "https://cdn.flow.example/now.mp4"]);
     // A check that failed once (a network blip) is tried again: the task goes on, not cancelled.
     let blips = 0;
     const flaky = await setup(VIDEO_TASK, { media: VIDEO_MEDIA, reply: (url) => {
