@@ -326,8 +326,9 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
             }}
             title={game.title}
             // A published game may open the OhMyGame sign-in popup; the desktop app allows only that page.
-            sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-            allow="autoplay; fullscreen"
+            // It may also save and copy what players make, as it can at its own address.
+            sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+            allow="autoplay; fullscreen; clipboard-write"
           />
         ) : null}
         <GameLoader loading={!playing} />
