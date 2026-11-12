@@ -51,11 +51,13 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, offersGameUse, projectPiToolNames } from "./agent-tools.js";
-import { AgentRuntimeService } from "./agent-runtimes/service.js";
+import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/service.js";
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { AgentInstructionsError, AgentInstructionsStore, conversationInstructions } from "./agent-instructions.js";
+import { USER_INSTRUCTIONS_MAX_CHARACTERS, type AgentInstructionsView, type ConversationInstructions } from "../shared/agent-instructions.js";
 import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
 import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
@@ -343,6 +345,17 @@ const renameAssetSchema = {
 } as const;
 
 const nullableSecretSchema = { anyOf: [{ type: "string", maxLength: 10_000 }, { type: "null" }] } as const;
+/** The kinds of project whose instructions Settings shows, in the order it shows them. */
+const BUILT_IN_INSTRUCTION_TYPES = ["web-game", "general", "interactive-story", "asset-canvas", "plugin"] as const;
+
+const agentInstructionsSchema = {
+  body: {
+    type: "object", additionalProperties: false, required: ["custom"],
+    // The store trims and checks the length; the schema only keeps a request's size in bounds.
+    properties: { custom: { type: "string", maxLength: USER_INSTRUCTIONS_MAX_CHARACTERS * 2 } },
+  },
+} as const;
+
 const webSearchSettingsSchema = {
   body: {
     type: "object", additionalProperties: false, required: ["enabled", "provider", "fallback"],
@@ -704,6 +717,7 @@ export function createApp(options: AppOptions = {}) {
   const checkpoints = new CheckpointStore();
   const projectWrites = new ProjectWrites();
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const agentInstructions = new AgentInstructionsStore(dataDirectory);
   const onboarding = new OnboardingStore(dataDirectory);
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
@@ -1143,7 +1157,7 @@ export function createApp(options: AppOptions = {}) {
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
-      instructions: appendSystemPromptForProject(project).join("\n\n"),
+      instructions: appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
@@ -1220,7 +1234,7 @@ export function createApp(options: AppOptions = {}) {
       }
       const effectiveMcp = await projectMcp(project);
       return createPiSession(
-        project,
+        { ...project, userInstructions: await agentInstructions.get() },
         conversations.open(project, conversation),
         [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
@@ -2385,6 +2399,32 @@ export function createApp(options: AppOptions = {}) {
       return settings;
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  // The person's own instructions for every project, and what OhMyGame tells
+  // the agent in each kind of project, for Settings › Agents › Instructions.
+  const agentInstructionsView = async (): Promise<AgentInstructionsView> => {
+    const [custom, problem] = await Promise.all([agentInstructions.get(), agentInstructions.problem()]);
+    return {
+      custom,
+      ...(problem ? { problem } : {}),
+      builtIn: BUILT_IN_INSTRUCTION_TYPES.map((type) => ({
+        type,
+        // A general project as it starts: with its web preview on.
+        text: appendSystemPromptForProject(type === "general" ? { type, webPreviewEnabled: true } : { type }).join("\n\n"),
+      })),
+    };
+  };
+  app.get("/settings/agent-instructions", agentInstructionsView);
+  app.put<{ Body: { custom: string } }>("/settings/agent-instructions", { schema: agentInstructionsSchema }, async (request, reply) => {
+    try {
+      await agentInstructions.set(request.body.custom);
+      // A session keeps the instructions it started with; idle ones start again with the new ones.
+      invalidatePluginSessions();
+      return await agentInstructionsView();
+    } catch (cause) {
+      return reply.code(cause instanceof AgentInstructionsError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
 
@@ -4390,6 +4430,29 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+    },
+  );
+
+  // What the conversation's agent is told. For OhMyGame's agent, the system
+  // prompt and tools as its model last received them, read from the
+  // transcript without loading a session; a coding agent's own instructions
+  // are its own, so only what OhMyGame adds is shown.
+  app.get<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/instructions",
+    async (request, reply): Promise<ConversationInstructions | undefined> => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const provider = (await conversations.model(project, conversation))?.provider;
+      if (isAgentRuntimeId(provider)) {
+        const text = nativeAgentInstructions(appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n"));
+        return { kind: "coding-agent", runtime: provider, text };
+      }
+      const instructions = conversationInstructions((await conversations.view(project, conversation)).buildSessionContext().messages);
+      // A restore's notice joins each request's system prompt without entering the transcript.
+      const notice = instructions.started ? await readWorkspaceNotice(project).catch(() => undefined) : undefined;
+      return notice ? { ...instructions, sections: [...instructions.sections, { name: "restore_notice", text: notice }] } : instructions;
     },
   );
 

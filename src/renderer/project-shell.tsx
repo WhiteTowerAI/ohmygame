@@ -119,6 +119,7 @@ import {
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
+import { ConversationInstructionsDialog } from "./conversation-instructions-dialog.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
@@ -259,6 +260,7 @@ export function ProjectShell({
   /** Says why a new project's first message is back in the input box, until a message is sent. */
   const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
@@ -1692,6 +1694,7 @@ export function ProjectShell({
                 restore: unarchive,
                 remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
               } : undefined}
+              onShowInstructions={() => setInstructionsOpen(true)}
             />
             <button
               className="icon-button pane-header-action"
@@ -1704,6 +1707,7 @@ export function ProjectShell({
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
     </div>, nodes.chat.toolbar)}
+    {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
       <div className="agent-body" ref={timeline} onScroll={(event) => {
         const element = event.currentTarget;

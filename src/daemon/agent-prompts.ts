@@ -2,7 +2,10 @@ import type { ProjectState } from "../shared/contracts.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
-  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">>;
+  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">> & {
+    /** The person's own instructions for every project, from Settings › Agents. */
+    userInstructions?: string;
+  };
 
 const COMMON_AGENT_INSTRUCTIONS = [
   "Do not create or change files for casual conversation or for questions that need no code.",
@@ -59,7 +62,19 @@ const PLUGIN_WORKSPACE_INSTRUCTIONS = [
   "Reply briefly, in the user's language.",
 ] as const;
 
+/** What OhMyGame tells the agent in a project: its own instructions, then the person's. */
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
+  const own = builtInInstructions(project);
+  const user = project.userInstructions?.trim();
+  return user ? [...own, userInstructionsPrompt(user)] : own;
+}
+
+/** The person's instructions as the agent receives them, after OhMyGame's. */
+export function userInstructionsPrompt(text: string): string {
+  return `The user's own instructions for every project follow. Apply them unless they conflict with the current request, which takes precedence.\n\n${text}`;
+}
+
+function builtInInstructions(project: AgentPromptProject): string[] {
   if (project.type === "plugin") return [...PLUGIN_WORKSPACE_INSTRUCTIONS];
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,
