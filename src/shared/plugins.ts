@@ -1,9 +1,15 @@
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import type { PluginMention } from "./contracts.js";
+import type { PluginMention, ProviderCapability } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
 import type { PreviewColorFilter } from "./preview-filter.js";
 import type { GamepadKeyMap } from "./preview-input.js";
+
+/**
+ * What a plugin's model providers can make, as Settings → Providers names
+ * them: chat (`language`), and the media kinds their adapters make.
+ */
+export const PROVIDER_KINDS = ["language", "image", "video", "audio", "3d"] as const satisfies readonly ProviderCapability[];
 
 export type PluginOrigin =
   /** `ref`: the branch or tag it was added from; without one, the default branch. */
@@ -58,6 +64,8 @@ export interface MarketPlugin {
   keywords?: string[];
   /** The titles of the model providers and agents it adds, which search also reads. */
   names?: string[];
+  /** What its model providers make, in the order of `PROVIDER_KINDS`. */
+  providerKinds?: ProviderCapability[];
   /** The project types it works in; absent means every type. */
   appliesTo?: string[];
   beta?: boolean;

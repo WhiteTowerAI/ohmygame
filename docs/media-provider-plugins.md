@@ -1,9 +1,10 @@
 # Media provider plugins
 
-Plugin API 2.5.0. Built so far: the sandbox, `host.fetch` and images
+Plugin API 2.5.0. Built: the sandbox, `host.fetch`, images and videos
 (`src/daemon/plugin-media-sandbox.ts`, `src/daemon/plugin-media-providers.ts`,
-wired into `ProviderImages`). Video, tasks that survive a restart and the
-market's kinds follow, in [Order of work](#order-of-work).
+wired into `ProviderImages` and `ProviderVideos`), video tasks a retry resumes
+after a restart (`src/daemon/media-task-journal.ts`), and the market's kinds.
+Audio and 3D follow, in [Order of work](#order-of-work).
 
 A plugin's model provider can make images and videos, not only chat. The
 vendor's API, which differs from vendor to vendor and changes often, is the
@@ -121,16 +122,20 @@ plugin API:
 - **Image:** `model`, `prompt`, `resolution` and `aspectRatio` (one of the
   model's, after a legacy size is matched to them), `transparentBackground`
   when the asset needs one, and `references` (`[{ mediaType, base64 }]`).
-- **Video:** model, prompt, duration, resolution, aspect ratio, reference
-  mode (`frame` or `reference`), and the reference images.
+- **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
+  `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
+  base64 }]`, pictures only), and `referenceMode` when there are references:
+  `frame` (the first, and the last if there are two) or `reference` (a look
+  to follow). A model's `referenceModes` lists the modes it takes, `frame`
+  when it leaves them out.
 
 `outputs` are `{ url }`, which the app downloads without the key, or
 `{ base64, mediaType }`. A `url` must be on a `capabilities.network` host too,
 so list the host the vendor's results are on (SiliconFlow's are on
 `sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
-host's name. The app checks what it got (an image must be PNG, JPEG or WebP)
-and writes it to the project, as a built-in provider's result is. An image
-request takes the first output.
+host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
+a video MP4, at most 500 MB) and writes it to the project, as a built-in
+provider's result is. A request takes the first output.
 
 `host` holds:
 
@@ -179,16 +184,34 @@ better, and the adapter decides the pace:
 - `check` returns `retryAfter` in seconds, from the vendor's `Retry-After`
   or its own estimate. The app keeps it between 1 and 60.
 - Without one, the app waits 2 s, then longer each time, up to 15 s.
+- A check that fails, such as on a network blip, is tried again twice
+  before the task is given up.
 - Checks run only while a task is running, and the whole task gives up after
-  the kind's limit (video: 15 minutes, as now).
+  the kind's limit (image: 10 minutes; video: 15 minutes, as now, the
+  download included). A provider whose videos take longer, such as a
+  self-hosted model or a vendor with a long queue, sets
+  `media.video.maxMinutes`, up to 120.
 - Webhooks aren't used. A desktop app has no public address for a vendor to
   call, and a relay of our own would cost money and see people's prompts.
   Streaming answers (`text/event-stream`) can be added to `host.fetch` when a
   vendor needs them.
 
-A task survives a restart. The app stores the task value with the request,
-as it does for 3D jobs (`model3d-journal.ts`), and checks it again when the
-daemon starts. A paid `start` is never repeated for the same request.
+A video's task survives a restart, as a 3D job's does (`model3d-journal.ts`).
+The app keeps the task value under the generation's recovery id
+(`media-tasks/<id>.json` in the app's data), writing it before `start` and
+whenever `check` changes it. A generation the restart cut off shows as
+interrupted; **Retry** checks the same task again instead of starting a new
+one:
+
+- While the app shuts down, it doesn't call `cancel`, so the vendor goes on.
+- When the person stops a generation, a step fails, or time runs out, the app
+  calls `cancel` and forgets the task: a retry starts afresh.
+- A paid `start` is never repeated for the same request. If a `start` request
+  was sent but no answer came back, the retry is refused with a message to
+  check the vendor's site. So is a retry whose provider or request changed.
+
+Agent tool calls that a restart cut off aren't retried, since the agent's turn
+ended with them. Images, which rarely take a task, start again.
 
 ## In the app
 
@@ -199,8 +222,9 @@ daemon starts. A paid `start` is never repeated for the same request.
 - Image and video requests for those models go to the adapter through the
   sandbox. Everything after the result (checking it, saving it, the Library,
   undo) is shared with built-in providers.
-- The provider's page in Settings and on the plugin's page lists its models
-  under **Chat**, **Images** and **Videos**.
+- Settings → Providers shows what a provider makes (chat, images, videos)
+  from what it declares. Listing its media models there, under **Images** and
+  **Videos**, is still to do.
 
 ## Market
 
@@ -214,11 +238,11 @@ can't promise what the plugin doesn't do.
 ## Order of work
 
 1. The sandbox, `host.fetch`, and image `start`. This includes the official
-   SiliconFlow plugin's images, end to end.
+   SiliconFlow plugin's images, end to end. *Done.*
 2. Video, with tasks, `check`, `cancel`, `retryAfter`, and resuming after a
-   restart.
+   restart. *Done.*
 3. The market's kinds: the index field, the chips under Model providers, and
-   the tags on cards.
+   the tags on cards. *Done.*
 4. Later: audio and 3D, then moving the built-in media providers (Seedance,
    MiniMax, Meshy, Tripo, Doubao) to official plugins, with their saved keys
    moved to the plugin's settings.

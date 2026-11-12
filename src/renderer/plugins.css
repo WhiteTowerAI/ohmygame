@@ -652,6 +652,23 @@
   font-size: var(--text-xs);
 }
 
+/* What a model provider makes, as small tags under its description */
+.plugin-card-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.plugin-card-kind {
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+
 /* a market card's last line: the publisher on the left, cut short when long; the version and downloads at the right */
 .plugin-card-foot {
   flex-wrap: nowrap;

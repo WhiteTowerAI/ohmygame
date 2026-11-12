@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
-import type { MarketPlugin } from "../shared/plugins.js";
+import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
+import type { ProviderCapability } from "../shared/contracts.js";
 import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
 import { Check, CircleHelp, Download, ExternalLink, SlidersHorizontal } from "./icons.js";
@@ -68,6 +69,25 @@ export function CategoryChips({ items, value, onChange }: {
     options={[{ value: "all", label: t("pluginCatalog.all") }, ...options]}
     value={[value]}
     // A chip turns the others off; turning the picked one off shows everything again.
+    onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
+}
+
+/** A model provider kind to narrow the Model providers list by, or all of them. */
+export type ProviderKindFilter = ProviderCapability | "all";
+
+export const inProviderKind = (plugin: MarketPlugin, kind: ProviderKindFilter) => kind === "all" || Boolean(plugin.providerKinds?.includes(kind));
+
+/** Under Model providers: what the providers here make, to narrow them by; none when there's nothing to pick between. */
+export function ProviderKindChips({ plugins, value, onChange }: {
+  plugins: readonly MarketPlugin[];
+  value: ProviderKindFilter;
+  onChange: (value: ProviderKindFilter) => void;
+}): ReactNode {
+  const kinds = PROVIDER_KINDS.filter((kind) => kind === value || plugins.some((plugin) => plugin.providerKinds?.includes(kind)));
+  if (!kinds.length || kinds.length === 1 && value === "all" && plugins.every((plugin) => plugin.providerKinds?.includes(kinds[0]!))) return null;
+  return <FilterChips<ProviderKindFilter> label={t("pluginCatalog.providerKindsLabel")}
+    options={[{ value: "all", label: t("pluginCatalog.all") }, ...kinds.map((kind) => ({ value: kind as ProviderKindFilter, label: t(`capability.${kind}`) }))]}
+    value={[value]}
     onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
 }
 
@@ -247,6 +267,9 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
           <MarketBadges plugin={plugin} installed={installed} />
         </strong>
         <small>{plugin.description}</small>
+        {plugin.providerKinds?.length ? <span className="plugin-card-kinds" aria-label={t("pluginCatalog.providerKindsLabel")}>
+          {plugin.providerKinds.map((kind) => <span key={kind} className="plugin-card-kind">{t(`capability.${kind}`)}</span>)}
+        </span> : null}
         <span className="plugins-meta plugin-card-foot">
           <span className="plugin-card-author">{publisherName(plugin)}</span>
           <span className="plugin-card-numbers">

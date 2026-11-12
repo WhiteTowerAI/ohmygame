@@ -2768,6 +2768,7 @@ const en = {
     categoriesLabel: "Categories",
     keywords: "Keywords",
     searchKeyword: "Search for {{keyword}}",
+    providerKindsLabel: "What it makes",
     categories: {
       engine: "Engines & platforms",
       templates: "Templates",

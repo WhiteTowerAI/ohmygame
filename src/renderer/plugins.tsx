@@ -8,7 +8,7 @@ import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type 
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, sortMarket } from "./plugin-catalog.js";
+import { CATALOG_CATEGORIES, catalogSection, categoryLabel, CategoryChips, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginDialog, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -53,6 +53,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
   const [kind, setKind] = useState<PluginContribution | "all">("all");
   const [marketSection, setMarketSection] = useState<MarketSection>("home");
+  // Under Model providers: what the providers make.
+  const [providerKind, setProviderKind] = useState<ProviderKindFilter>("all");
   const [only, setOnly] = useState<MarketOnly[]>([]);
   const [installedCategory, setInstalledCategory] = useState<CatalogFilter>("all");
   const [sort, setSort] = useState<MarketSort>("recommended");
@@ -179,7 +181,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const searched = marketPlugins.filter(plugin => marketSearchText(plugin).includes(normalizedQuery)
     && (adds === "all" || marketContributions(plugin).includes(adds)) && marketOnly(plugin, only));
   const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
-  const listed = sortMarket(searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory)), sort);
+  const inCategory = searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory));
+  const makes: ProviderKindFilter = marketSection === "provider" ? providerKind : "all";
+  const listed = sortMarket(inCategory.filter(plugin => inProviderKind(plugin, makes)), sort);
   const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
     onOpen={() => setPreview(plugin.id)} />;
   // The overview reads like a store's front page, the same few rows however many plugins there are.
@@ -220,7 +224,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
               <MarketSortSelect value={sort} onChange={setSort} />
             </div>
           </div>
-          {listed.length ? <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketSection}\n${only.join()}\n${sort}`} cards={listed.map(marketCard)} />
+          {marketSection === "provider" ? <ProviderKindChips plugins={inCategory} value={makes} onChange={setProviderKind} /> : null}
+          {listed.length ? <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketSection}\n${makes}\n${only.join()}\n${sort}`} cards={listed.map(marketCard)} />
             : <Empty title={t("plugins.noMatch")} />}
         </section>}
       </div>
