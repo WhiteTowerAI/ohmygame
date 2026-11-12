@@ -243,6 +243,12 @@ describe("plugin manifest", () => {
     ]);
     expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
       contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { models: [{ ...model3D.models[0], operations: ["remesh"] }] } } }] } }).ok).toBe(false);
+    // A kind may list more of the vendor's models; a model may carry the adapter's own data, up to 4 KB.
+    const image = { discoverModels: true, models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"], description: "Fast", data: { size: "image_size" } }] };
+    expect(mediaOf({ image })).toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], data: { blob: "x".repeat(5000) } }] } })).toEqual([
+      "/contributes/providers/0/media/image/models/0/data must be at most 4 KB as JSON",
+    ]);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);

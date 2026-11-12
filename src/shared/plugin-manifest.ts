@@ -501,10 +501,24 @@ const MediaAuth = Type.Union([
   ),
 ]);
 
+/**
+ * What every media model has: its id and title, and for one the adapter lists
+ * (`discoverModels`) a short description to find it by. `data` is the
+ * adapter's own, at most 4 KB as JSON, given back as `input.modelData`, such
+ * as which of the vendor's fields the model takes (API 2.5.0).
+ */
+const MEDIA_MODEL_COMMON = {
+  id: Type.String({ minLength: 1, maxLength: 200 }),
+  title: Type.Optional(Text()),
+  description: Type.Optional(Text(500)),
+  data: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+};
+/** The most a model's `data` may hold, as JSON. */
+export const PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS = 4096;
+
 const MediaImageModel = Type.Object(
   {
-    id: Type.String({ minLength: 1, maxLength: 200 }),
-    title: Type.Optional(Text()),
+    ...MEDIA_MODEL_COMMON,
     resolutions: Type.Array(Literals(IMAGE_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
     aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
     /** How many pictures a request may pass along, 0 for none. */
@@ -515,8 +529,7 @@ const MediaImageModel = Type.Object(
 
 const MediaVideoModel = Type.Object(
   {
-    id: Type.String({ minLength: 1, maxLength: 200 }),
-    title: Type.Optional(Text()),
+    ...MEDIA_MODEL_COMMON,
     /** Lengths in seconds it can make. */
     durations: Type.Array(Type.Integer({ minimum: 1, maximum: 30 }), { minItems: 1, maxItems: 30, uniqueItems: true }),
     resolutions: Type.Array(Literals(VIDEO_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
@@ -534,8 +547,7 @@ const MediaVideoModel = Type.Object(
 
 const MediaAudioModel = Type.Object(
   {
-    id: Type.String({ minLength: 1, maxLength: 200 }),
-    title: Type.Optional(Text()),
+    ...MEDIA_MODEL_COMMON,
     /** What it makes: `speech`, `sound-effect`, `music`. */
     kinds: Type.Array(Literals(AUDIO_KINDS), { minItems: 1, uniqueItems: true }),
     /** Speaks the prompt word for word in a voice, rather than following a description. */
@@ -568,8 +580,7 @@ export const PLUGIN_3D_OPERATIONS = ["text", "image"] as const;
 
 const Media3DModel = Type.Object(
   {
-    id: Type.String({ minLength: 1, maxLength: 200 }),
-    title: Type.Optional(Text()),
+    ...MEDIA_MODEL_COMMON,
     /** `text`: from a prompt; `image`: from pictures of the object. */
     operations: Type.Array(Literals(PLUGIN_3D_OPERATIONS), { minItems: 1, uniqueItems: true }),
     /** Views of one object an `image` request may pass, the first the front; 1 when left out. */
@@ -593,6 +604,12 @@ const Media3DModel = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * The adapter's `models` step lists more of the vendor's models, which the
+ * person turns on in Settings; the ones here are on by default (API 2.5.0).
+ */
+const DiscoverModels = Type.Optional(Type.Boolean());
+
 /** How long one request may take, the download included, in minutes. */
 const MaxMinutes = Type.Integer({ minimum: 1, maximum: 120 });
 
@@ -607,7 +624,7 @@ const ProviderMedia = Type.Object(
     auth: Type.Optional(MediaAuth),
     image: Type.Optional(
       Type.Object(
-        { models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
+        { discoverModels: DiscoverModels, models: Type.Array(MediaImageModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -619,6 +636,7 @@ const ProviderMedia = Type.Object(
            * 15 when left out. A self-hosted model or a long queue needs more.
            */
           maxMinutes: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })),
+          discoverModels: DiscoverModels,
           models: Type.Array(MediaVideoModel, { minItems: 1, maxItems: 100 }),
         },
         { additionalProperties: false },
@@ -627,20 +645,75 @@ const ProviderMedia = Type.Object(
     /** Speech, sound effects and music; 10 minutes a request when `maxMinutes` is left out. */
     audio: Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
+        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
     /** 3D models as GLB; 15 minutes a request when `maxMinutes` is left out. */
     "3d": Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
+        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
   },
   { additionalProperties: false },
 );
+
+/** What a provider's media section can make, by the names of its sections. */
+export const PLUGIN_MEDIA_KINDS = ["image", "video", "audio", "3d"] as const;
+export type PluginMediaKind = (typeof PLUGIN_MEDIA_KINDS)[number];
+const MEDIA_MODEL_SCHEMAS = { image: MediaImageModel, video: MediaVideoModel, audio: MediaAudioModel, "3d": Media3DModel };
+/** One model of a kind, as a manifest lists it and an adapter's `models` step returns it. */
+export interface PluginMediaModels {
+  image: Static<typeof MediaImageModel>;
+  video: Static<typeof MediaVideoModel>;
+  audio: Static<typeof MediaAudioModel>;
+  "3d": Static<typeof Media3DModel>;
+}
+export type PluginMediaModel = PluginMediaModels[PluginMediaKind];
+
+/** A kind's models as Settings shows them: the manifest's, those turned on, and those the adapter listed. */
+export interface PluginMediaModelList {
+  kind: PluginMediaKind;
+  /** Whether the adapter can list more of the vendor's models. */
+  discoverable: boolean;
+  /** When they were last listed in this session. */
+  listedAt?: string;
+  /** Listed models left out because they didn't pass the checks. */
+  skipped?: number;
+  models: Array<{ id: string; name: string; description?: string; default: boolean; shown: boolean }>;
+}
+
+/** What's wrong with a model of a kind beyond its schema, as [field, message]. */
+export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel): Array<[string, string]> {
+  const issues: Array<[string, string]> = [];
+  if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
+    issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
+  if (kind === "audio") {
+    const audio = model as PluginMediaModels["audio"];
+    if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
+    if (audio.minDurationSeconds && audio.maxDurationSeconds && audio.minDurationSeconds > audio.maxDurationSeconds)
+      issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
+  }
+  if (kind === "3d") {
+    const range = (model as PluginMediaModels["3d"]).polycount;
+    if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
+      issues.push(["polycount", "needs min ≤ default and presets ≤ max"]);
+  }
+  return issues;
+}
+
+/**
+ * Checks a model an adapter's `models` step returned, as a manifest's models
+ * are checked: what's wrong with it, or undefined when it can be listed.
+ */
+export function pluginMediaModelProblem(kind: PluginMediaKind, value: unknown): string | undefined {
+  const [error] = Errors(MEDIA_MODEL_SCHEMAS[kind], value);
+  if (error) return `${error.instancePath || "/"} ${error.message}`;
+  const [issue] = mediaModelIssues(kind, value as PluginMediaModel);
+  return issue ? `/${issue[0]} ${issue[1]}` : undefined;
+}
 
 const Provider = Type.Object(
   {
@@ -1346,17 +1419,11 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       const media = provider.media;
       if (!media.image && !media.video && !media.audio && !media["3d"])
         issue(`${path}/media`, "list what it makes: image, video, audio or 3d");
-      media.audio?.models.forEach((model, modelIndex) => {
-        const at = `${path}/media/audio/models/${modelIndex}`;
-        if (model.voices && !model.readsText) issue(`${at}/voices`, "voices are for a model that reads text");
-        if (model.minDurationSeconds && model.maxDurationSeconds && model.minDurationSeconds > model.maxDurationSeconds)
-          issue(`${at}/minDurationSeconds`, "must not be more than maxDurationSeconds");
-      });
-      media["3d"]?.models.forEach((model, modelIndex) => {
-        const range = model.polycount;
-        if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
-          issue(`${path}/media/3d/models/${modelIndex}/polycount`, "needs min ≤ default and presets ≤ max");
-      });
+      for (const kind of PLUGIN_MEDIA_KINDS) {
+        media[kind]?.models.forEach((model, modelIndex) => {
+          for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
+        });
+      }
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
     }

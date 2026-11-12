@@ -6,7 +6,6 @@ import type {
   ModelAuthMethod,
   ModelAuthNotification,
   ImageModel,
-  Model3DModel,
   ModelProviderSummary,
   ProviderCapability,
   ProviderSummary,
@@ -32,7 +31,6 @@ import {
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
   listAudioModelCatalog,
-  listModel3DCatalog,
   loginAgentRuntime,
   recheckCodexImages,
   saveStorePluginConfiguration,
@@ -43,6 +41,8 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 import { usePluginIcon } from "./plugin-mark-icon.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
+import { PluginMediaModels } from "./plugin-media-models.js";
+import { PLUGIN_MEDIA_KINDS } from "../shared/plugin-manifest.js";
 import { OpenAIImageModels } from "./openai-image-models.js";
 import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
@@ -447,48 +447,9 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
     </div> : null}
     {/* Chat models only: a provider that only makes media has none in the model runtime. */}
     {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
-    {/* What its media adapter makes, as the catalogs list it once the key is set. */}
-    {provider.configured && provider.capabilities.includes("image") ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
-    {provider.configured && provider.capabilities.includes("video") ? <SeedanceModels key={`videos-${modelsRevision}`} providerId={provider.id} /> : null}
-    {provider.configured && provider.capabilities.includes("audio") ? <AudioModels key={`audio-${modelsRevision}`} providerId={provider.id} /> : null}
-    {provider.configured && provider.capabilities.includes("3d") ? <PluginModel3DModels key={`3d-${modelsRevision}`} providerId={provider.id} /> : null}
+    {/* What its media adapter makes once the key is set: its models, and more listed from the vendor. */}
+    {provider.configured ? PLUGIN_MEDIA_KINDS.filter((kind) => provider.capabilities.includes(kind)).map((kind) => <PluginMediaModels key={`${kind}-${modelsRevision}`} providerId={provider.id} providerName={provider.name} kind={kind} />) : null}
   </section>;
-}
-
-/** A plugin provider's 3D models, as its manifest lists them. */
-function PluginModel3DModels({ providerId }: { providerId: string }) {
-  const [models, setModels] = useState<Model3DModel[]>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    let active = true;
-    void listModel3DCatalog().then((catalog) => {
-      if (active) setModels(catalog.models.filter((model) => model.provider === providerId));
-    }).catch((cause) => {
-      if (active) setError(errorMessage(cause));
-    });
-    return () => { active = false; };
-  }, [providerId]);
-  return (
-    <section className="settings-detail-section provider-models" aria-label={t("providers.model3DModels")}>
-      <div className="provider-models-heading">
-        <h4>{t("providers.model3DModels")} <small>{models?.length ?? ""}</small></h4>
-      </div>
-      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
-      {models ? (
-        <div className="provider-models-list" role="list" aria-label={t("providers.model3DModels")}>
-          {models.map((model) => <div className="provider-model-row" key={model.id} role="listitem">
-            <div className="provider-model-readonly">
-              <span className="provider-model-copy">
-                <strong title={model.name}>{model.name}</strong>
-                <small title={model.id}>{model.id}</small>
-              </span>
-            </div>
-          </div>)}
-          {!models.length && !error ? <p className="settings-empty">{t("providers.noModel3DModels")}</p> : null}
-        </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
-    </section>
-  );
 }
 
 function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onOpenAgents?: () => void }) {
