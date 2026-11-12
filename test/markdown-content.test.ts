@@ -1,6 +1,8 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { createElement, act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownContent, workspaceFileIconKind, workspaceLinkPath } from "../src/renderer/markdown-content.js";
 
 describe("workspaceLinkPath", () => {
@@ -56,5 +58,35 @@ describe("workspace file link icons", () => {
     expect(html).toContain('class="workspace-file-link"');
     expect(html).toContain('data-file-kind="code"');
     expect(html.match(/workspace-file-link/g)).toHaveLength(1);
+  });
+});
+
+describe("code block copy button", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the result of the latest copy attempt", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const writeText = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Document is not focused."))
+      .mockResolvedValueOnce(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(MarkdownContent, { text: "```\nnpm test\n```" })));
+
+    const button = container.querySelector("button")!;
+    try {
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Copied");
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Could not copy");
+      await act(async () => button.click());
+      expect(button.textContent).toBe("Copied");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });
