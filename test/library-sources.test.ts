@@ -22,6 +22,8 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 const PNG = "${PNG}";
 const ALL = ["circle", "square", "star"];
+// What is already stored isn't downloaded again; a second fetch of one fails.
+const fetched = new Set();
 export function activate(context) {
   context.registerCommand("search", async ({ query, cursor }) => {
     if (query === "broken") return { items: [{ id: "x" }] };
@@ -36,6 +38,8 @@ export function activate(context) {
     };
   });
   context.registerCommand("fetch", async ({ id }) => {
+    if (fetched.has(id)) throw new Error(id + " was fetched again");
+    fetched.add(id);
     if (id === "escape") return { file: "../outside.png" };
     // Every fetch under one name, as a simple source may do.
     if (id.startsWith("same-")) {

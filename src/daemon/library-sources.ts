@@ -9,9 +9,8 @@ import type { PluginServices } from "./plugin-services.js";
 import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
 import { isLibraryMediaOfType } from "./library-routes.js";
 import { workspaceMediaInfo } from "./workspace.js";
+import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 
-/** The largest file a source may add, as for an upload. */
-export const LIBRARY_SOURCE_MAX_BYTES = 200 * 1024 * 1024;
 const Optional = (maxLength: number) => Type.Optional(Type.String({ minLength: 1, maxLength }));
 const HttpsUrl = Type.Optional(Type.String({ pattern: "^https://", maxLength: 2000 }));
 
@@ -84,6 +83,10 @@ export class LibrarySources {
 
   async #add(source: LibrarySource, item: { id: string; mediaType: LibraryAsset["mediaType"] }, signal?: AbortSignal): Promise<LibraryAsset> {
     if (!source.media.includes(item.mediaType)) throw new AssetLibraryError(`${source.title} has no ${item.mediaType}`, 400);
+    const sourceKey = `library-source:${source.id}:${item.id}`;
+    // Added before, and maybe removed from the Library since: its file is still stored, so it comes back without a download.
+    const stored = this.library.bySource(sourceKey);
+    if (stored) return stored.saved ? stored : await this.library.save(stored.id);
     const value = await this.#run(source.id, "fetch", { id: item.id, mediaType: item.mediaType }, signal);
     if (!Check(FetchResult, value)) throw new AssetLibraryError(`${source.title} returned a file the Library can't read`, 502);
     const fetched = value as Static<typeof FetchResult>;
@@ -93,14 +96,14 @@ export class LibrarySources {
       const media = workspaceMediaInfo(name);
       if (!media || media.mediaType !== item.mediaType) throw new AssetLibraryError(`${source.title} returned ${name}, which isn't ${item.mediaType}`, 502);
       const { size } = await stat(file);
-      if (size === 0 || size > LIBRARY_SOURCE_MAX_BYTES) throw new AssetLibraryError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
+      if (size === 0 || size > LIBRARY_UPLOAD_MAX_BYTES) throw new AssetLibraryError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
       // An SVG is checked whole, as text; other kinds by their first bytes.
       const head = media.contentType === "image/svg+xml" ? await readFile(file) : await readHead(file);
       if (!isLibraryMediaOfType(head, media.contentType as LibraryUploadMediaType)) throw new AssetLibraryError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
       const asset = await this.library.addFile(name, file, {
         origin: "uploaded",
         saved: true,
-        sourceKey: `library-source:${source.id}:${item.id}`,
+        sourceKey,
         sourcedFrom: {
           source: source.id,
           item: item.id,
@@ -109,8 +112,7 @@ export class LibrarySources {
           ...(fetched.url ? { url: fetched.url } : {}),
         },
       });
-      // Added before and since removed from the Library: adding it again puts it back.
-      return asset.saved ? asset : await this.library.save(asset.id);
+      return asset;
     } finally {
       await rm(file, { force: true });
     }

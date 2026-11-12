@@ -14,7 +14,7 @@ import { hasTransferredFiles } from "./file-transfer.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { AssetPeriodSelect, AssetSortSelect, useAssetSort } from "./library-filters.js";
 import type { AssetPeriod } from "./asset-sort.js";
-import { mediaFileInfo, MEDIA_FILE_TYPES } from "../shared/media-files.js";
+import { LIBRARY_UPLOAD_MAX_BYTES, mediaFileInfo, MEDIA_FILE_TYPES } from "../shared/media-files.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
@@ -37,8 +37,6 @@ const LOCAL = "local";
 /** Kinds in the order the tabs list them; each kind is also its category hue. */
 const KINDS: readonly Kind[] = ["image", "video", "audio", "model"];
 
-/** The largest file the Library takes, as on the canvas. */
-const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const UPLOAD_ACCEPT = Object.keys(MEDIA_FILE_TYPES).join(",");
 
 /** A dialog over the page; the details sheet steps aside while one is open and comes back after. */
@@ -304,7 +302,7 @@ function clock(seconds: number): string {
 async function uploadToLibrary(file: File): Promise<{ id: string }> {
   const info = mediaFileInfo(file.name);
   if (!info) throw new Error(t("library.uploadType"));
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error(t("assetCanvas.uploadSize"));
+  if (file.size > LIBRARY_UPLOAD_MAX_BYTES) throw new Error(t("assetCanvas.uploadSize"));
   const duration = info.mediaType === "video" || info.mediaType === "audio" ? await readMediaFileDuration(file, info.mediaType) : undefined;
   return uploadLibraryAsset(file, info.contentType, { ...(duration !== undefined ? { duration } : {}), saved: true });
 }

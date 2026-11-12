@@ -355,19 +355,13 @@ export class PluginServices {
    * allowed everything it asks for when it was added.
    */
   async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
-    await this.ready();
-    const entry = this.index.get(id);
-    const grant = this.grants.plugin(id);
-    if (!entry || pluginApiIssue(entry.manifest) || grant?.enabled === false || !this.onInEveryProject(id)) return undefined;
-    return missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []).length ? undefined : entry;
+    return (await this.everyProject()).find((entry) => entry.id === id);
   }
 
   /** The Library's sources from plugins that may run outside projects, in `locale`. */
   async assetSources(locale: PluginLocale = "en"): Promise<LibrarySource[]> {
     const sources: LibrarySource[] = [];
-    for (const installed of await this.installed()) {
-      const entry = installed.manifest.contributes?.assetSources?.length ? await this.appPlugin(installed.id) : undefined;
-      if (!entry) continue;
+    for (const entry of await this.everyProject()) {
       const text = (value: string) => localizePluginString(entry, value, locale);
       for (const source of entry.manifest.contributes?.assetSources ?? [])
         sources.push({

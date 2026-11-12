@@ -210,6 +210,11 @@ export class AssetLibrary {
     });
   }
 
+  /** The asset already stored for `sourceKey`, which `add` and `addFile` would return. */
+  bySource(sourceKey: string): LibraryAsset | undefined {
+    return this.#existing(sourceKey);
+  }
+
   #existing(sourceKey?: string): LibraryAsset | undefined {
     const id = sourceKey ? this.#state.sources[sourceKey] : undefined;
     return id ? this.get(id) : undefined;

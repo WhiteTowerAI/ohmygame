@@ -74,6 +74,7 @@ import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
 import { ASSET_NAME_BODY_SCHEMA, registerLibraryRoutes } from "./library-routes.js";
 import { LibrarySources } from "./library-sources.js";
+import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
@@ -548,7 +549,6 @@ const setConversationReasoningSchema = {
     properties: { level: { type: "string", minLength: 1, maxLength: 100 } },
   },
 } as const;
-const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 const toolRunSchema = {
   body: {
@@ -1422,7 +1422,7 @@ export function createApp(options: AppOptions = {}) {
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
     done(null, body);
   });
-  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: MAX_LIBRARY_UPLOAD_BYTES }, (_request, body, done) => {
+  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: LIBRARY_UPLOAD_MAX_BYTES }, (_request, body, done) => {
     done(null, body);
   });
   app.addContentTypeParser("application/vnd.ohmygame.attachment", { bodyLimit: MAX_AGENT_ATTACHMENT_BYTES }, (_request, payload, done) => {

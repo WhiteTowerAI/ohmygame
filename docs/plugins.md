@@ -688,8 +688,8 @@ and adds what they pick; only an added item becomes a Library asset.
   in and deletes the plugin's copy. A plugin's adds run one at a time, so it
   may save every fetch under the same name. `author`, `license` and `url`
   stay with the asset as `sourcedFrom` and show in its details.
-- Adding the same item again finds the same asset, and puts it back in the
-  Library after a remove.
+- Adding the same item again finds the same asset without fetching it again,
+  and puts it back in the Library after a remove.
 - These calls run outside any project, in an app-wide extension host, so a
   project's own plugin choices don't apply. A source is offered only while
   its plugin is installed, runs in this app, is on (its switch on the Plugins
