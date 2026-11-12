@@ -153,6 +153,8 @@ which the agent runtime already ships), inside the daemon:
 
 - each call gets 64 MB of memory and 2 seconds of its own CPU time (waiting on
   `host.fetch` doesn't count), and 2 minutes in all;
+- it has at most 4 `host.fetch` requests open at once, since their answers
+  wait in the app, outside those 64 MB; a fifth fails until one is answered;
 - there is no `fetch`, `require`, `process`, file system or clock beyond
   `Date`;
 - the app reads only strings back from the VM, so nothing of the script's
