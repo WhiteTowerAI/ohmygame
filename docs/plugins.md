@@ -572,7 +572,7 @@ elsewhere.
 ## Model providers
 
 `contributes.providers` adds model providers to Settings → Providers: chat,
-media (images so far), or both under one key.
+media (images and videos), or both under one key.
 `PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
 the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
 installed, runs in this app and isn't disabled everywhere; projects' plugin
@@ -902,9 +902,11 @@ nothing is read.
   A version only another index lists can be added only while the main index (or
   its saved copy) can be read, so the main index's blocks can't be passed by.
   A block from any index is listed on installed plugins.
-- **How fresh it is.** The index job runs every 30 minutes, and so does the
-  app's read, so a new version can take up to an hour to show. The `?` beside
-  the sources icon says so. A maintainer who needs it sooner runs the job by hand
+- **How fresh it is.** The index job is scheduled every 30 minutes, but
+  GitHub runs scheduled jobs late or skips them under load: in November 2026
+  it ran only every 7–8 hours. With the app's read every 30 minutes, a new
+  version can take some hours to show, as the `?` beside the sources icon
+  says. A maintainer who needs it sooner runs the job by hand
   (`workflow_dispatch`).
 
 - **Reading the index.** At most every 30 minutes the app reads the small pointer
