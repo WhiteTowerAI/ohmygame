@@ -411,8 +411,8 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    /** `build: "web"`: the app builds the game for the command first. */
-    | { native: string; build?: "web" };
+    /** `build: "web"`: the app builds the game for the command first. `input`: the JSON Schema of what it takes. */
+    | { native: string; input?: string; build?: "web" };
 }
 
 /** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */

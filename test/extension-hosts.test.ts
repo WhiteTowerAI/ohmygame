@@ -1643,8 +1643,8 @@ describe("plugin settings and commands", () => {
             { name: "leak", description: "Fails with the token.", input: "./tools/empty.json" },
           ],
           commands: [
-            { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
-            { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
+            { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }, { slot: "home.starters" }] },
+            { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." }, slots: [{ slot: "home.starters", when: "platform == 'darwin'" }] },
           ],
           previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
           inputMaps: [{ id: "pad", title: "Pad", buttons: { a: "Space", start: "Enter" }, sticks: { left: { left: "ArrowLeft", right: "ArrowRight" } } }],
@@ -1690,7 +1690,13 @@ describe("plugin settings and commands", () => {
         ["acme/keys:check", null],
         ["acme/keys:ask", "ask"],
       ]);
-      expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }]);
+      expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }, { slot: "home.starters" }]);
+      // Home shows only prompts, which fill the box; a tool has no project there to run in.
+      expect(await services.starters()).toEqual([]);
+      await services.setEveryProject("acme/keys", true);
+      expect(await services.starters()).toEqual([
+        { id: "acme/keys:ask", plugin: "acme/keys", title: "Ask", slots: [{ slot: "home.starters", when: "platform == 'darwin'" }], run: { prompt: "Check the settings." } },
+      ]);
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
       expect(await services.preview(folder)).toEqual({
