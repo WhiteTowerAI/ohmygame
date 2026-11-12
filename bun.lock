@@ -31,6 +31,7 @@
         "mediabunny": "1.61.3",
         "npm-packlist": "10.0.4",
         "pi-mcp-adapter": "2.27.0",
+        "quickjs-wasi": "3.6.2",
         "sharp": "^0.35.5",
         "typebox": "1.3.27",
         "undici": "7.29.0",
@@ -82,7 +83,7 @@
     },
     "packages/create-ohmygame-plugin": {
       "name": "create-ohmygame-plugin",
-      "version": "2.3.0",
+      "version": "2.5.0",
       "bin": {
         "create-ohmygame-plugin": "dist/create.mjs",
       },
@@ -101,14 +102,14 @@
     },
     "packages/plugin-cli": {
       "name": "@ohmygame/plugin-cli",
-      "version": "2.3.0",
+      "version": "2.5.0",
       "bin": {
         "ohmygame-plugin": "dist/cli.mjs",
       },
     },
     "packages/plugin-ui": {
       "name": "@ohmygame/plugin-ui",
-      "version": "2.3.0",
+      "version": "2.5.0",
     },
     "packages/sdk": {
       "name": "@ohmygame/sdk",

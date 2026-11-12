@@ -83,6 +83,9 @@ export const PLUGIN_CATEGORIES = [
 ] as const;
 export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
 
+/** The largest media adapter script a provider may have. */
+export const PLUGIN_MEDIA_ADAPTER_MAX_BYTES = 512 * 1024;
+
 /** How many keywords a plugin may name, and how long each may be. */
 export const PLUGIN_KEYWORDS_MAX = 8;
 export const PLUGIN_KEYWORD_MAX_LENGTH = 30;

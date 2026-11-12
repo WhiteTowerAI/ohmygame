@@ -210,6 +210,25 @@ describe("plugin manifest", () => {
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
     ]);
+    // Media (API 2.5.0): a provider may make only media, through an adapter that reaches approved hosts.
+    const media = { adapter: "./media.js", image: { models: [{ id: "kolors", resolutions: ["1K"], aspectRatios: ["1:1"] }] } };
+    const keyed = { configuration: { key: { type: "secret", title: "Key" } } };
+    expect(messages({ ...minimal, ...keyed, capabilities: { network: ["api.flow.example"] },
+      contributes: { providers: [{ id: "flow", title: "Flow", apiKey: "key", media: { ...media, auth: { query: "key" } } }] } })).toEqual([]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", media }] } })).toEqual([
+      "/contributes/providers/0/media media needs capabilities.network, the hosts its adapter reaches",
+    ]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", api: "openai-completions", discoverModels: true }] } })).toEqual([
+      "/contributes/providers/0 chat needs both api and baseUrl",
+    ]);
+    expect(messages({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", discoverModels: true }] } })).toEqual([
+      "/contributes/providers/0 models and discoverModels are for chat, which needs api and baseUrl",
+      "/contributes/providers/0 a provider needs chat (api and baseUrl) or media",
+    ]);
+    expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js" } }] } })).toEqual([
+      "/contributes/providers/0/media list what it makes, such as image",
+    ]);
+    expect(validatePluginManifest({ ...minimal, contributes: { providers: [{ id: "flow", title: "Flow", media: { ...media, adapter: "../media.js" } }] } }).ok).toBe(false);
     const agent = { id: "gemini", title: "Gemini CLI", command: "gemini", args: ["--acp"] };
     const runs = { capabilities: { processes: ["gemini"] } };
     expect(messages({ ...minimal, ...runs, contributes: { agents: [agent] } })).toEqual([]);

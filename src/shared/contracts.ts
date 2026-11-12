@@ -141,7 +141,8 @@ export interface PluginProviderInfo {
   /** The plugin's id, `publisher/name`. */
   id: string;
   name: string;
-  baseUrl: string;
+  /** Its chat endpoint; a provider that only makes media has none. */
+  baseUrl?: string;
   /** The plugin's setting that holds the key, when it needs one. */
   keySetting?: string;
   /** That setting's description, such as where to get a key. */
@@ -401,7 +402,8 @@ export interface ImageModel extends ImageModelRef {
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
-  protocol: ImageProtocol | "codex-cli";
+  /** `plugin`: a plugin's media adapter makes it. */
+  protocol: ImageProtocol | "codex-cli" | "plugin";
   supportsResolution?: boolean;
   supportsAspectRatio?: boolean;
 }

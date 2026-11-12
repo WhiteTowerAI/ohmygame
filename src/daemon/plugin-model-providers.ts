@@ -65,7 +65,7 @@ export class PluginModelProviders {
     return {
       id: item.entry.id,
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
-      baseUrl: item.provider.baseUrl,
+      ...(item.provider.baseUrl ? { baseUrl: item.provider.baseUrl } : {}),
       ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),
       ...(keyField?.description ? { keyHint: localizePluginString(item.entry, keyField.description, locale) } : {}),
       ...(item.provider.icon ? { icon: item.entry.digest } : {}),
@@ -76,6 +76,13 @@ export class PluginModelProviders {
   iconFile(id: string): { root: string; path: string } | undefined {
     const item = this.#providers.get(id);
     return item?.provider.icon ? { root: item.entry.root, path: item.provider.icon } : undefined;
+  }
+
+  /** What a provider makes: chat, and the kinds of media its adapter makes. */
+  capabilities(id: string): Array<"language" | "image"> {
+    const provider = this.#providers.get(id)?.provider;
+    if (!provider) return [];
+    return [...(provider.api ? ["language" as const] : []), ...(provider.media?.image ? ["image" as const] : [])];
   }
 
   title(id: string, locale: PluginLocale): string | undefined {
@@ -107,20 +114,22 @@ export class PluginModelProviders {
         const id = pluginModelProviderId(entry.id, provider.id);
         const key = provider.apiKey ? this.services.values.secret(entry, provider.apiKey) : NO_KEY;
         providers.set(id, { id, entry, provider, configured: key !== undefined });
-        if (key === undefined) continue;
+        // Only chat joins the model runtime; a provider that only makes media has none.
+        if (key === undefined || !provider.api || !provider.baseUrl) continue;
+        const { api, baseUrl } = provider;
         const signature = JSON.stringify([entry.id, entry.version, provider, key]);
         const models = (provider.models ?? []).map((model) =>
-          chatModel(model.id, model.title ? localizePluginString(entry, model.title, "en") : model.id, provider.api, catalog));
+          chatModel(model.id, model.title ? localizePluginString(entry, model.title, "en") : model.id, api, catalog));
         wanted.set(id, {
           signature,
           config: {
             name: localizePluginString(entry, provider.title, "en"),
-            baseUrl: provider.baseUrl,
-            api: provider.api,
+            baseUrl,
+            api,
             apiKey: literalConfigValue(key),
             models,
             ...(provider.discoverModels
-              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, signature, provider, key, models, context) }
+              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, signature, { ...provider, api, baseUrl }, key, models, context) }
               : {}),
           },
         });
@@ -151,7 +160,7 @@ export class PluginModelProviders {
   }
 
   /** The models a discovering provider lists, or the last list when it can't look. */
-  async #discover(runtime: ModelRuntime, id: string, signature: string, provider: ManifestProvider, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
+  async #discover(runtime: ModelRuntime, id: string, signature: string, provider: ManifestProvider & Required<Pick<ManifestProvider, "api" | "baseUrl">>, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
     if (!context.allowNetwork) return this.#discovered.get(id) ?? listed;
     const catalog = customModelCatalog(runtime.getModels());
     const result = await discoverProviderModels({

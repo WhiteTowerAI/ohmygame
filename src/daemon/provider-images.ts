@@ -6,6 +6,7 @@ import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.
 import { customMediaSource } from "./custom-media-source.js";
 import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
+import type { PluginMediaProviders } from "./plugin-media-providers.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
 
 const CAPABILITY_TTL_MS = 10 * 60_000;
@@ -25,6 +26,8 @@ interface ProviderImagesOptions {
   customProviders?: () => Promise<CustomProviderDetails[]>;
   migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
   defaultModel?: () => ImageModelRef | undefined;
+  /** Plugins' model providers that make images. */
+  pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage">;
 }
 
 interface ImageSelection {
@@ -51,11 +54,13 @@ export class ProviderImages implements ImageGenerator {
   async catalog(signal?: AbortSignal): Promise<ImageModelCatalog> {
     const runtime = await this.runtime().catch(() => undefined);
     const custom = runtime ? await this.#customImageProviders(runtime) : [];
+    const plugins = await this.#pluginProviders();
     const entries = await Promise.all([
       runtime ? this.#openRouterEntry(runtime, signal) : undefined,
       runtime || this.options.openAIConnection ? this.#openAIEntry(runtime, signal) : undefined,
       this.#seedreamEntry(),
       ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
+      ...plugins.map((provider) => catalogEntry(provider.id, provider.name, async () => provider.models, "")),
       this.isEnabled("codex-cli") && this.options.codexImages ? this.options.codexImages.catalog(signal).then((catalog) => ({ models: catalog.models, status: catalog.providers[0]! })) : undefined,
     ]);
     const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
@@ -171,6 +176,13 @@ export class ProviderImages implements ImageGenerator {
       const supported = definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
+    if (definition.protocol === "plugin") {
+      if (!this.options.pluginImages) throw new ImageGenerationError("Image generation is unavailable", 503);
+      const { size: _size, resolution: _resolution, aspectRatio: _aspectRatio, ...rest } = generationInput;
+      const generated = await this.options.pluginImages.generateImage(definition, { ...rest, ...(resolution ? { resolution } : {}), ...(aspectRatio ? { aspectRatio } : {}) }, signal);
+      if (input.transparentBackground) await assertTransparentImage(generated.bytes);
+      return generated;
+    }
     if (!selection.source) throw new ImageGenerationError("Image connection is unavailable", 503);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
     const generated = await adapter.generate(selection.source, selection.model.id, {
@@ -187,6 +199,8 @@ export class ProviderImages implements ImageGenerator {
 
   async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<ImageSelection | undefined> {
     if (requested?.provider === "codex-cli") return this.#codexSelection(requested.id, signal);
+    // A plugin's provider needs no model runtime.
+    if (requested?.provider.startsWith("plugin.")) return this.#pluginSelection(requested.provider, requested.id);
     if (requested?.provider === SEEDREAM_PROVIDER_ID) return this.#seedreamSelection(requested.id);
     if (requested?.provider === "openai" && this.options.openAIConnection) return this.#configuredOpenAISelection(requested.id, signal);
     let runtime: ModelRuntime;
@@ -217,6 +231,7 @@ export class ProviderImages implements ImageGenerator {
       () => this.options.openAIConnection ? this.#configuredOpenAISelection(undefined, signal) : this.#compatibleSelection(runtime, "openai", undefined, signal),
       () => this.#seedreamSelection(),
       ...custom.map((provider) => () => this.#customSelection(runtime, provider, undefined, signal)),
+      () => this.#pluginSelection(),
       () => this.#codexSelection(undefined, signal),
     ];
     for (const select of candidates) {
@@ -229,6 +244,18 @@ export class ProviderImages implements ImageGenerator {
       }
     }
     return undefined;
+  }
+
+  /** Plugins' image providers that are on. */
+  async #pluginProviders(): Promise<Array<{ id: string; name: string; models: ImageModel[] }>> {
+    return (await this.options.pluginImages?.imageProviders() ?? []).filter((provider) => this.isEnabled(provider.id));
+  }
+
+  async #pluginSelection(providerId?: string, requestedId?: string): Promise<ImageSelection | undefined> {
+    const providers = await this.#pluginProviders();
+    const models = providers.filter((provider) => providerId === undefined || provider.id === providerId).flatMap((provider) => provider.models);
+    const model = requestedId ? models.find((candidate) => candidate.id === requestedId) : models[0];
+    return model ? { model } : undefined;
   }
 
   async #codexSelection(id?: string, signal?: AbortSignal): Promise<ImageSelection | undefined> {

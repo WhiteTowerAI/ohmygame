@@ -1042,9 +1042,7 @@
             "type": "object",
             "required": [
               "id",
-              "title",
-              "api",
-              "baseUrl"
+              "title"
             ],
             "properties": {
               "id": {
@@ -1123,6 +1121,169 @@
               },
               "discoverModels": {
                 "type": "boolean"
+              },
+              "media": {
+                "type": "object",
+                "required": [
+                  "adapter"
+                ],
+                "properties": {
+                  "adapter": {
+                    "type": "string",
+                    "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.js$",
+                    "minLength": 3,
+                    "maxLength": 500
+                  },
+                  "auth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "header"
+                        ],
+                        "properties": {
+                          "header": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$"
+                          },
+                          "scheme": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9-]{0,31}$"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "query"
+                        ],
+                        "properties": {
+                          "query": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "image": {
+                    "type": "object",
+                    "required": [
+                      "models"
+                    ],
+                    "properties": {
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "resolutions",
+                            "aspectRatios"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "title": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "resolutions": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "512"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1K"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2K"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4K"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            },
+                            "aspectRatios": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "1:1"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:2"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:4"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4:5"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "5:4"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:16"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "16:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "21:9"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            },
+                            "maxReferenceImages": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 100
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false

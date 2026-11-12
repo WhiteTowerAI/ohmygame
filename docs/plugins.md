@@ -350,6 +350,7 @@ was opened.
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
+| Model and media providers | `src/daemon/plugin-model-providers.ts`, `src/daemon/plugin-media-providers.ts`, `src/daemon/plugin-media-sandbox.ts` | `test/custom-providers.test.ts`, `test/plugin-media-providers.test.ts`, `test/plugin-media-sandbox.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -536,13 +537,16 @@ elsewhere.
 
 ## Model providers
 
-`contributes.providers` adds chat model providers to Settings → Providers.
+`contributes.providers` adds model providers to Settings → Providers: chat,
+media (images so far), or both under one key.
 `PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
 the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
 installed, runs in this app and isn't disabled everywhere; projects' plugin
 switches don't apply. It follows installs, updates and setting changes.
 
-- `api` and `baseUrl` say how to reach it, as for a provider the person adds.
+- `api` and `baseUrl` say how to reach its chat, as for a provider the person
+  adds. A provider that only makes media leaves both out, and doesn't join the
+  model runtime: its key is all it needs.
   `icon` is its mark in Settings and on the plugin's page, checked as the
   plugin's own icon is; without one it shows its first letter.
 - `apiKey` names a `secret` configuration field. The provider joins once the
@@ -562,6 +566,15 @@ switches don't apply. It follows installs, updates and setting changes.
   form, and its description shows under the key. Either place saves the key as the plugin's setting, and removing it
   clears that. Signing in another way, removing the provider or adding models
   is refused.
+- `media` (API 2.5.0) adds what the provider makes besides chat, through a
+  script in the package that translates OhMyGame's requests into the vendor's
+  API, so a change on the vendor's side ships as a plugin update. The script
+  runs in a sandbox and reaches only `capabilities.network`, which a provider
+  with `media` must list; the app adds the key to the requests it marks.
+  `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
+  models it lists under `image` to the image catalog while the key is set and
+  the provider is on. [Media provider plugins](media-provider-plugins.md) has
+  the contract.
 
 ## Coding agents
 

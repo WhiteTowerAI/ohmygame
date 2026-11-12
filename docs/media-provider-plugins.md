@@ -1,6 +1,9 @@
-# Media provider plugins (design)
+# Media provider plugins
 
-Status: proposed for plugin API 2.5.0. Nothing here is built yet.
+Plugin API 2.5.0. Built so far: the sandbox, `host.fetch` and images
+(`src/daemon/plugin-media-sandbox.ts`, `src/daemon/plugin-media-providers.ts`,
+wired into `ProviderImages`). Video, tasks that survive a restart and the
+market's kinds follow, in [Order of work](#order-of-work).
 
 A plugin's model provider can make images and videos, not only chat. The
 vendor's API, which differs from vendor to vendor and changes often, is the
@@ -16,7 +19,9 @@ behind them (#649) move onto it.
 - A provider is one entry in `contributes.providers`, one row in Settings →
   Providers and on the plugin's page, with one key. A vendor that serves chat,
   images and video is one provider, not three.
-- Its key is a `secret` setting the app reads. The plugin's code never sees it.
+- Its key is a `secret` setting the app reads. The plugin's code never sees it;
+  the app adds it to the requests the adapter marks, which can only go to the
+  hosts the person approved.
 - The hosts it reaches are its `capabilities.network`, which the person
   approves when adding it. A media provider asks for nothing more.
 
@@ -50,7 +55,8 @@ behind them (#649) move onto it.
 
 - `api` and `baseUrl` become optional, so a provider can make media only.
   It needs at least one of chat (`api`, `baseUrl`) and `media`.
-- `media.adapter` is a JavaScript file in the package (at most 512 KB).
+- `media.adapter` is a JavaScript file in the package (at most 512 KB), one
+  module with no `import`s: bundle anything it needs into it.
 - `media.auth` says how the app adds the key to a request the adapter marks
   `auth: true`. It can be a header with an optional scheme (`Bearer`), or a
   query parameter. Signing a request with the key, as Volcengine's API does,
@@ -111,14 +117,19 @@ that takes minutes are written the same way:
 `input` is what OhMyGame asks for. It is fixed per kind and versioned with the
 plugin API:
 
-- **Image:** model, prompt, aspect ratio or size, count, and reference images
-  (`{ mediaType, base64 }`).
+- **Image:** `model`, `prompt`, `resolution` and `aspectRatio` (one of the
+  model's, after a legacy size is matched to them), `transparentBackground`
+  when the asset needs one, and `references` (`[{ mediaType, base64 }]`).
 - **Video:** model, prompt, duration, resolution, aspect ratio, reference
   mode (`frame` or `reference`), and the reference images.
 
-`outputs` are `{ url }`, which the app downloads, or `{ base64, mediaType }`.
-The app checks what it got and writes it to the project, as a built-in
-provider's result is.
+`outputs` are `{ url }`, which the app downloads without the key, or
+`{ base64, mediaType }`. A `url` must be on a `capabilities.network` host too,
+so list the host the vendor's results are on (SiliconFlow's are on
+`sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
+host's name. The app checks what it got (an image must be PNG, JPEG or WebP)
+and writes it to the project, as a built-in provider's result is. An image
+request takes the first output.
 
 `host` holds:
 
@@ -126,7 +137,8 @@ provider's result is.
   hosts only.
   - `auth: true` adds the key as `media.auth` says. `json` sends a JSON body.
   - The answer gives `status`, `ok`, a few headers (`content-type`,
-    `retry-after`, `location`), and `json()` or `text()` of at most 5 MB.
+    `content-length`, `retry-after`, `location`, `x-request-id`), and `json()`
+    or `text()` of at most 20 MB, so a picture sent back as base64 fits.
   - Redirects aren't followed, and cookies aren't kept.
   - This is the same rule as a project panel's `net.fetch`.
 - **`host.log(message)`**: writes to the plugin's log.
@@ -136,8 +148,8 @@ provider's result is.
 The adapter runs in QuickJS compiled to WebAssembly (`quickjs-wasi`, MIT,
 which the agent runtime already ships), inside the daemon:
 
-- each call gets 32 MB of memory and 2 seconds of its own CPU time (waiting on
-  `host.fetch` doesn't count);
+- each call gets 64 MB of memory and 2 seconds of its own CPU time (waiting on
+  `host.fetch` doesn't count), and 2 minutes in all;
 - there is no `fetch`, `require`, `process`, file system or clock beyond
   `Date`;
 - an adapter that throws, runs out of memory or time, or returns something
