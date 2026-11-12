@@ -15,7 +15,6 @@ import type {
 import {
   getCustomProvider,
   getVolcengineTtsSettings,
-  previewSeedAudio,
   removeProvider,
   setProviderEnabled,
   getOpenAIEndpointSettings,
@@ -46,7 +45,8 @@ import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
-import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
+import { useModelProviderAuth } from "./use-model-provider-auth.js";
+import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -309,7 +309,7 @@ function ElevenLabsProviderAuthView({ provider, onBack, onCompleted }: { provide
       </div>
       {error ? <p className="settings-note is-danger">{error}</p> : null}
     </form>
-    {provider.configured ? <AudioModels providerIds={[provider.id]} /> : null}
+    {provider.configured ? <AudioModels providerId={provider.id} /> : null}
   </section>;
 }
 
@@ -354,6 +354,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
   const [error, setError] = useState<string>();
   const [command, setCommand] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const link = useExternalLink();
   async function recheck() {
     setBusy(true); setError(undefined);
     try {
@@ -370,7 +371,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
     setBusy(true); setError(undefined); setCommand(undefined);
     try {
       const result = await loginAgentRuntime("codex-cli");
-      if (result.url) await openExternal(result.url);
+      if (result.url) await link.open(result.url);
       if (result.command) setCommand(result.command);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
@@ -390,6 +391,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
       </div>
       {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
+      <ExternalLinkFallback url={link.failedUrl} />
     </section>
     <ProviderImageModels key={revision} providerId="codex-cli" />
   </section>;
@@ -713,13 +715,10 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinc
           {distinctKeys ? <p className="settings-note">{t("providers.doubaoDistinctKeys")}</p> : null}
           {keyError ? <p className="settings-note is-danger" role="alert">{keyError}</p> : null}
       </form>
-      {provider.configured ? <AudioModels providerIds={DOUBAO_SPEECH_PROVIDER_IDS} /> : null}
+      {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
   );
 }
-
-/** Seed Audio models keep their own provider ID, so saved model choices still match. */
-const DOUBAO_SPEECH_PROVIDER_IDS = ["volcengine-tts", "volcengine-seed-audio"];
 
 /** A short, billable test of one Doubao Speech service: a spoken line, or a Seed Audio sound. */
 function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; voiceId?: string; disabled: boolean }) {
@@ -736,7 +735,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
     try {
       const blob = speech
         ? await previewVolcengineTtsSpeech({ text: text.trim(), ...(voiceId ? { voiceId } : {}) })
-        : await previewSeedAudio(text.trim());
+        : await previewVolcengineTtsSpeech({ model: "seed-audio-1.0", text: text.trim() });
       setUrl(URL.createObjectURL(blob));
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
@@ -757,7 +756,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
   );
 }
 
-function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
+function AudioModels({ providerId }: { providerId: string }) {
   const [models, setModels] = useState<AudioModel[]>();
   const [emptyMessage, setEmptyMessage] = useState(t("providers.noAudioModels"));
   const [error, setError] = useState<string>();
@@ -765,16 +764,21 @@ function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
     let active = true;
     void listAudioModelCatalog().then((catalog) => {
       if (!active) return;
-      const status = catalog.providers.find((provider) => provider.provider === providerIds[0]);
-      setModels(catalog.models.filter((model) => providerIds.includes(model.provider)));
+      const status = catalog.providers.find((provider) => provider.provider === providerId);
+      setModels(catalog.models.filter((model) => model.provider === providerId));
       setEmptyMessage(status?.message ?? t("providers.noAudioModels"));
       setError(status?.state === "error" ? status.message : undefined);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
-    // Keyed by value: callers pass a new array on every render.
-  }, [providerIds.join(",")]);
+  }, [providerId]);
+  const groups = [
+    ["speech", t("mediaDefaults.usage.speech"), (model: AudioModel) => model.capabilities.produces.includes("speech")],
+    ["sound-effect", t("mediaDefaults.usage.sound-effect"), (model: AudioModel) => model.capabilities.produces.includes("sound-effect")],
+    ["music", t("mediaDefaults.usage.music"), (model: AudioModel) => model.capabilities.produces.includes("music")],
+    ["transcription", t("mediaDefaults.usage.transcription"), (model: AudioModel) => model.capabilities.transcribes === true],
+  ] as const;
 
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>
@@ -783,17 +787,22 @@ function AudioModels({ providerIds }: { providerIds: readonly string[] }) {
       </div>
       {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       {models ? (
-        <div className="provider-models-list" role="list" aria-label={t("providers.audioModels")}>
-          {models.map((model) => (
-            <div className="provider-model-row" key={model.id} role="listitem">
-              <div className="provider-model-readonly">
-                <span className="provider-model-copy">
-                  <strong title={model.name}>{model.name}</strong>
-                  <small title={model.id}>{model.id}</small>
-                </span>
-              </div>
-            </div>
-          ))}
+        <div className="provider-models-list provider-audio-models-list" role="list" aria-label={t("providers.audioModels")}>
+          {groups.map(([kind, label, matches]) => {
+            const entries = models.filter(matches);
+            if (!entries.length) return null;
+            return <section className="provider-audio-model-group" key={kind} aria-label={label}>
+              <h5>{label} <small>{entries.length}</small></h5>
+              {entries.map((model) => <div className="provider-model-row" key={model.id} role="listitem">
+                <div className="provider-model-readonly">
+                  <span className="provider-model-copy">
+                    <strong title={model.name}>{model.name}</strong>
+                    <small title={model.id}>{model.id}</small>
+                  </span>
+                </div>
+              </div>)}
+            </section>;
+          })}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
       ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
@@ -1245,8 +1254,9 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
             <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
-            {external ? <Button variant="primary" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
+            {external ? <Button variant="primary" onClick={() => void auth.openBrowser(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
           </div>
+          <ExternalLinkFallback url={auth.openFailedUrl} />
           {browserFallback && prompt ? (
             <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
               <label className="settings-detail-hint" htmlFor="model-auth-redirect">{t("providers.redirectHint")}</label>

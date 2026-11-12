@@ -59,7 +59,7 @@
 
 .project-panel-gate ul {
   margin: 0;
-  padding-left: var(--space-5);
+  padding-left: var(--space-6);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }

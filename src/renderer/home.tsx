@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { listProjects, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
-import { publishRecentProjects } from "./app-sidebar.js";
+import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
 import { ProjectCard, useProjectActions } from "./project-card.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
@@ -62,7 +62,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   // Renames, removals and automatic names reach the sidebar too.
-  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
+  useEffect(() => { if (phase === "ready") publishSidebarProjects(projects); }, [phase, projects]);
   const [loadError, setLoadError] = useState<string>();
   const [importError, setImportError] = useState<string>();
   const [creating, setCreating] = useState<CreateRequest>();

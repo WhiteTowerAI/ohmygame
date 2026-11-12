@@ -15,11 +15,12 @@ import {
   DEFAULT_COMMUNITY_FILTERS,
   filterCommunityGames,
 } from "./community-filters.js";
-import { GameGrid } from "./community-game-card.js";
-import { LoaderCircle, RefreshCw } from "./icons.js";
+import { GameGrid, GameGridSkeleton } from "./community-game-card.js";
+import { cachedProfile, communityViewer, keepProfile, updateCachedGame } from "./community-cache.js";
+import { RefreshCw } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { CommunityPage, CommunityState } from "./community-page.js";
-import { Button, IconButton } from "./ui/index.js";
+import { Button, IconButton, Skeleton } from "./ui/index.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { UserAvatar } from "./user-avatar.js";
 
@@ -50,9 +51,11 @@ export function CommunityProfilePage({
 }) {
   const auth = useAuth();
   const generation = useReadyRuntimeGeneration();
+  const viewer = communityViewer(auth.state);
   const owner =
     auth.state.status === "signed-in" && auth.state.user.id === authorId;
-  const [profile, setProfile] = useState<CommunityProfile>();
+  // A profile seen earlier in this window shows at once while it reloads.
+  const [profile, setProfile] = useState(() => cachedProfile(viewer, authorId));
   const [accessToken, setAccessToken] = useState<string>();
   const [filters, setFilters] = useState({ ...DEFAULT_COMMUNITY_FILTERS });
   const [error, setError] = useState<string>();
@@ -79,7 +82,9 @@ export function CommunityProfilePage({
         ? await getMyCommunityGames(token!)
         : await getCommunityProfile(authorId, token);
       if (current !== version.current) return;
-      setProfile(applyProfileStats(loaded, changes));
+      const next = applyProfileStats(loaded, changes);
+      keepProfile(viewer, next);
+      setProfile(next);
       setAccessToken(owner ? token : undefined);
     } catch (cause) {
       if (current === version.current)
@@ -93,6 +98,7 @@ export function CommunityProfilePage({
 
   function updateStats(gameId: string, stats: CommunityGameStats) {
     pendingChanges.current?.set(gameId, stats);
+    updateCachedGame(viewer, gameId, { stats });
     setProfile((previous) =>
       previous?.author.id === authorId
         ? applyProfileStats(previous, new Map([[gameId, stats]]))
@@ -100,34 +106,36 @@ export function CommunityProfilePage({
     );
   }
 
+  const shown = useRef({ authorId, generation, owner, viewer });
   useEffect(() => {
-    setProfile(undefined);
-    setAccessToken(undefined);
-  }, [authorId, generation, owner]);
-
-  useEffect(() => {
-    setProfile((previous) =>
-      previous
-        ? {
-            ...previous,
-            games: previous.games.map((game) =>
-              game.stats
-                ? { ...game, stats: { ...game.stats, liked: undefined } }
-                : game,
-            ),
-          }
-        : previous,
-    );
+    const previous = shown.current;
+    shown.current = { authorId, generation, owner, viewer };
+    if (
+      previous.authorId !== authorId ||
+      previous.generation !== generation ||
+      previous.owner !== owner
+    ) {
+      setProfile(cachedProfile(viewer, authorId));
+      setAccessToken(undefined);
+    } else if (previous.viewer !== viewer) {
+      setProfile((previous) =>
+        previous
+          ? {
+              ...previous,
+              games: previous.games.map((game) =>
+                game.stats
+                  ? { ...game, stats: { ...game.stats, liked: undefined } }
+                  : game,
+              ),
+            }
+          : previous,
+      );
+    }
     void load();
     return () => {
       version.current += 1;
     };
-  }, [
-    authorId,
-    generation,
-    auth.state.status,
-    auth.state.status === "signed-in" ? auth.state.user.id : undefined,
-  ]);
+  }, [authorId, generation, owner, viewer]);
 
   const visible = filterCommunityGames(profile?.games ?? [], filters);
   // The service has no total; sum the games' counts while every one has them.
@@ -138,6 +146,7 @@ export function CommunityProfilePage({
     <CommunityPage
       onNavigate={onNavigate}
       onBack={onBack}
+      scrollKey={`profile:${authorId}`}
       actions={
         <IconButton
           label={t("common.refresh")}
@@ -185,10 +194,20 @@ export function CommunityProfilePage({
         </CommunityState>
       ) : null}
       {loading && !profile ? (
-        <CommunityState>
-          <LoaderCircle className="spin" size={16} />
-          {t("community.loadingProfile")}
-        </CommunityState>
+        <>
+          <header
+            className="community-profile-summary"
+            aria-busy="true"
+            aria-label={t("community.loadingProfile")}
+          >
+            <Skeleton width={72} height={72} radius={36} />
+            <div className="community-skeleton-lines">
+              <Skeleton width={180} height={22} />
+              <Skeleton width={240} />
+            </div>
+          </header>
+          <GameGridSkeleton label={t("community.loading")} count={4} />
+        </>
       ) : null}
       {profile ? (
         <section className="community-section">
@@ -204,6 +223,7 @@ export function CommunityProfilePage({
           {visible.length ? (
             <GameGrid
               games={visible}
+              keepPageAs={`community-profile:${authorId}`}
               accessToken={owner ? accessToken : undefined}
               onOpen={(game) => onOpenGame(game.id)}
               onStatsChange={owner ? undefined : updateStats}

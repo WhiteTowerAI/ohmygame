@@ -97,7 +97,6 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "vercel-ai-gateway": monochrome(vercel),
   "volcengine-ark": color(volcengine),
   "volcengine-tts": color(volcengine),
-  "volcengine-seed-audio": color(volcengine),
   "byteplus-modelark": color(byteDance),
   xai: monochrome(xAI),
   xiaomi: monochrome(xiaomi),

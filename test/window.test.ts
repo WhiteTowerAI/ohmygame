@@ -241,6 +241,25 @@ describe("desktop window", () => {
     expect(electron.openExternal).toHaveBeenNthCalledWith(2, "http://127.0.0.1:43130/games/game-1");
   });
 
+  it("logs a link the system cannot open instead of leaving it unhandled", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    const window = electron.windows[0] as {
+      onWindowOpen?: (details: { url: string }) => { action: string };
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    electron.openExternal.mockRejectedValueOnce(new Error("Failed to open: no application is associated (0x483)"));
+
+    expect(window.onWindowOpen?.({ url: "https://example.com/game" })).toEqual({ action: "deny" });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(
+      "Could not open https://example.com/game in the browser: Failed to open: no application is associated (0x483)",
+    ));
+    warn.mockRestore();
+  });
+
   it("loads and permits a renderer hash route", async () => {
     await createDesktopWindow({
       runtime: { url: "http://127.0.0.1:43110", token: "token" },

@@ -57,8 +57,9 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   getProjectCover: async () => undefined,
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
-const { ProjectRail, publishRecentProjects, refreshRecentProject } =
-  await import("../src/renderer/app-sidebar.js");
+const { ProjectRail } = await import("../src/renderer/app-sidebar.js");
+const { publishSidebarProjects, refreshSidebarProject, setVisibleProjects } =
+  await import("../src/renderer/sidebar-projects.js");
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -126,45 +127,133 @@ it("lists the sections without the studios and marks the current one", async () 
   expect(container.querySelector(".page-sheet")?.textContent).toBe("Page");
 });
 
-it("lists recent projects newest first, folds them, and opens one", async () => {
+const quickAccess = () =>
+  [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map(
+    (item) => item.textContent,
+  );
+const numbered = (count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    project(`p${index}`, `Project ${index}`, `2026-10-${10 + index}T00:00:00Z`));
+
+it("seeds the projects newest first, folds them, and opens one", async () => {
   // Library has no project list of its own, so the sidebar loads one.
   await render("library");
-  const recent = () =>
-    [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map(
-      (item) => item.textContent,
-    );
-  expect(recent()).toEqual(["New Rocket", "Old Garden"]);
+  expect(quickAccess()).toEqual(["New Rocket", "Old Garden"]);
 
   // A page that reloads the list hands it over, so a rename shows at once.
   await act(async () =>
-    publishRecentProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
+    publishSidebarProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
   );
-  expect(recent()).toEqual(["Renamed Garden"]);
+  expect(quickAccess()).toEqual(["Renamed Garden"]);
   // A project renamed from inside shows its new name too.
-  await act(async () => refreshRecentProject({ ...projects[0]!, name: "Garden" }));
-  expect(recent()).toEqual(["Garden"]);
+  await act(async () => refreshSidebarProject({ ...projects[0]!, name: "Garden" }));
+  expect(quickAccess()).toEqual(["Garden"]);
   await act(async () =>
-    publishRecentProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
+    publishSidebarProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
   );
 
-  await act(async () => button("Recent projects")!.click());
-  expect(recent()).toEqual([]);
+  await act(async () => button("Quick access")!.click());
+  expect(quickAccess()).toEqual([]);
   expect(localStorage.getItem("ohmygame-sidebar-recent-open")).toBe("false");
-  await act(async () => button("Recent projects")!.click());
+  await act(async () => button("Quick access")!.click());
   button("Renamed Garden")!.click();
   expect(window.location.hash).toBe("#/projects/old");
 });
 
-it("keeps five recent projects", async () => {
-  await render("library");
-  await act(async () =>
-    publishRecentProjects(Array.from({ length: 7 }, (_, index) => ({
-      ...projects[0]!, id: `p${index}`, name: `Project ${index}`, updatedAt: `2026-10-2${index}T00:00:00Z`,
-    }))),
-  );
-  const recent = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map((item) => item.textContent);
-  // Projects in the sections above lists the rest.
-  expect(recent).toEqual(["Project 6", "Project 5", "Project 4", "Project 3", "Project 2"]);
+describe("the project list's order and count", () => {
+  beforeEach(async () => {
+    await render("library");
+    await act(async () => {
+      publishSidebarProjects([]);
+      publishSidebarProjects(numbered(3));
+      setVisibleProjects(8);
+    });
+  });
+
+  const rowFor = (label: string) =>
+    [...sidebar().querySelectorAll<HTMLElement>("[data-project-id]")].find((row) => row.textContent === label)!;
+  const dragEvent = (type: string, clientY = 0) =>
+    Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+      clientY,
+      dataTransfer: { setData: () => undefined, effectAllowed: "", dropEffect: "" },
+    });
+
+  it("doesn't move a project when it is edited, and puts a new one first", async () => {
+    expect(quickAccess()).toEqual(["Project 2", "Project 1", "Project 0"]);
+    await act(async () =>
+      publishSidebarProjects(numbered(3).map((item) => (item.id === "p0" ? { ...item, updatedAt: "2026-11-01T00:00:00Z" } : item))),
+    );
+    expect(quickAccess()).toEqual(["Project 2", "Project 1", "Project 0"]);
+    await act(async () => publishSidebarProjects([...numbered(3), project("fresh", "Fresh", "2026-09-01T00:00:00Z")]));
+    expect(quickAccess()).toEqual(["Fresh", "Project 2", "Project 1", "Project 0"]);
+  });
+
+  it("shows the chosen count and remembers it", async () => {
+    await act(async () => publishSidebarProjects(numbered(14)));
+    expect(quickAccess()).toHaveLength(8);
+    const menu = () => button("Project list options")!;
+    await act(async () => menu().click());
+    expect(menuLabels()).toEqual(["5 projects", "8 projects", "12 projects", "All projects"]);
+    await act(async () => button("5 projects")!.click());
+    expect(quickAccess()).toHaveLength(5);
+    expect(JSON.parse(localStorage.getItem("ohmygame-sidebar-projects")!)).toMatchObject({ version: 1, visible: 5 });
+    await act(async () => menu().click());
+    await act(async () => button("All projects")!.click());
+    expect(quickAccess()).toHaveLength(14);
+  });
+
+  it("reorders by dragging, marking where a project will land", async () => {
+    const rows = ["Project 2", "Project 1", "Project 0"].map(rowFor);
+    rows.forEach((row, index) => {
+      row.getBoundingClientRect = () => ({ top: index * 40, bottom: index * 40 + 34, height: 34 }) as DOMRect;
+    });
+    const list = sidebar().querySelector<HTMLElement>(".sidebar-project-list")!;
+    await act(async () => rows[2]!.dispatchEvent(dragEvent("dragstart")));
+    expect(rows[2]!.hasAttribute("data-dragged")).toBe(true);
+    await act(async () => list.dispatchEvent(dragEvent("dragover", 5)));
+    expect(list.querySelector(".sidebar-drop-line")).not.toBeNull();
+    await act(async () => list.dispatchEvent(dragEvent("drop", 5)));
+    expect(quickAccess()).toEqual(["Project 0", "Project 2", "Project 1"]);
+    expect(list.querySelector(".sidebar-drop-line")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("ohmygame-sidebar-projects")!).order).toEqual(["p0", "p2", "p1"]);
+  });
+
+  it("ignores a drag that leaves the list", async () => {
+    const list = sidebar().querySelector<HTMLElement>(".sidebar-project-list")!;
+    const row = rowFor("Project 0");
+    await act(async () => row.dispatchEvent(dragEvent("dragstart")));
+    await act(async () => list.dispatchEvent(dragEvent("dragover", 0)));
+    await act(async () => list.dispatchEvent(Object.assign(dragEvent("dragleave"), { relatedTarget: document.body })));
+    await act(async () => list.dispatchEvent(dragEvent("drop", 0)));
+    expect(quickAccess()).toEqual(["Project 2", "Project 1", "Project 0"]);
+  });
+
+  it("reorders with Alt and the arrows, keeping focus on the project", async () => {
+    const press = async (key: string) => act(async () =>
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true })));
+    await act(async () => rowFor("Project 2").focus());
+    await press("ArrowUp");
+    expect(quickAccess()).toEqual(["Project 2", "Project 1", "Project 0"]);
+    await press("ArrowDown");
+    expect(quickAccess()).toEqual(["Project 1", "Project 2", "Project 0"]);
+    expect(document.activeElement).toBe(rowFor("Project 2"));
+    await press("ArrowDown");
+    expect(quickAccess()).toEqual(["Project 1", "Project 0", "Project 2"]);
+    expect(document.activeElement).toBe(rowFor("Project 2"));
+  });
+});
+
+it.each([
+  ["damaged", "{not json"],
+  ["from a newer version", JSON.stringify({ version: 2, order: ["p1"] })],
+])("leaves a saved list that is %s as it is", async (_name, saved) => {
+  vi.resetModules();
+  localStorage.setItem("ohmygame-sidebar-projects", saved);
+  const store = await import("../src/renderer/sidebar-projects.js");
+  store.publishSidebarProjects(projects);
+  store.setVisibleProjects(5);
+  expect(localStorage.getItem("ohmygame-sidebar-projects")).toBe(saved);
+  localStorage.removeItem("ohmygame-sidebar-projects");
 });
 
 it("collapses to icons and resizes from its edge, remembering both", async () => {
@@ -277,7 +366,7 @@ describe("in a project", () => {
     [...document.querySelectorAll(".rail-popover-item span")].map((item) => item.textContent);
 
   beforeEach(async () => {
-    publishRecentProjects(projects);
+    publishSidebarProjects(projects);
     await act(async () =>
       root.render(
         <ProjectRail projectId="new" onNavigate={onNavigate} onLeave={onLeave} conversations={{
@@ -290,7 +379,7 @@ describe("in a project", () => {
     );
   });
 
-  it("keeps only the way home, the recent projects, search and the account", async () => {
+  it("keeps only the way home, the projects, search and the account", async () => {
     expect(sidebar().textContent).not.toContain("Library");
     expect(sidebar().querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("New Rocket");
     await act(async () => button("OhMyGame home")!.click());
@@ -354,17 +443,39 @@ describe("in a project", () => {
     expect(document.activeElement).toBe(button("Search"));
   });
 
-  it("lists an open project that isn't among the recent ones, and saves before going back", async () => {
+  it("leaves an open project past the count in its place when another project moves", async () => {
+    publishSidebarProjects([]);
+    publishSidebarProjects(numbered(8));
+    setVisibleProjects(5);
+    await act(async () =>
+      root.render(<ProjectRail projectId="p0" project={numbered(8)[0]}
+        onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />),
+    );
+    await act(async () => button("Project 7")!.focus());
+    await act(async () =>
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true })));
+    expect(JSON.parse(localStorage.getItem("ohmygame-sidebar-projects")!).order).toEqual(["p6", "p7", "p5", "p4", "p3", "p2", "p1", "p0"]);
+    // Moving the open project itself brings it into the list.
+    await act(async () => button("Project 0")!.focus());
+    await act(async () =>
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true })));
+    expect(JSON.parse(localStorage.getItem("ohmygame-sidebar-projects")!).order).toEqual(["p6", "p7", "p5", "p4", "p0", "p3", "p2", "p1"]);
+    await act(async () => setVisibleProjects(8));
+  });
+
+  it("lists an open project past the count without moving the others, and saves before going back", async () => {
     vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
     const recent = Array.from({ length: 8 }, (_, index) => project(`p${index}`, `Project ${index}`, `2026-10-2${index}T00:00:00Z`));
-    publishRecentProjects([...recent, project("older", "Older Cave", "2026-09-01T00:00:00Z")]);
+    publishSidebarProjects([]);
+    publishSidebarProjects([...recent, project("older", "Older Cave", "2026-09-01T00:00:00Z")]);
     await act(async () =>
       root.render(<ProjectRail projectId="older" project={project("older", "Older Cave", "2026-09-01T00:00:00Z")}
         onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />),
     );
     const icons = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-app[aria-haspopup]")].map((item) => item.getAttribute("aria-label"));
-    expect(icons).toHaveLength(8);
+    expect(icons).toHaveLength(9);
+    expect(icons.slice(0, 2)).toEqual(["Project 7", "Project 6"]);
     expect(icons.at(-1)).toBe("Older Cave");
     expect(sidebar().querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("Older Cave");
     onLeave.mockClear();

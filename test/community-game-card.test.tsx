@@ -100,23 +100,16 @@ describe("Community covers", () => {
     expect(onOpen).toHaveBeenLastCalledWith(games[28]);
   });
 
-  it("loads hosted covers straight from the play domain once visible", async () => {
+  it("shows hosted covers at once as lazy images from the play domain", async () => {
     const render = async (value = game, accessToken?: string) =>
       act(async () =>
         root.render(<GameTile game={value} onOpen={() => undefined} accessToken={accessToken} />),
       );
     await render();
-    expect(observers[0].observe).toHaveBeenCalledWith(
-      container.querySelector("article"),
-    );
-    expect(container.querySelector("img.community-card-cover")).toBeNull();
-    await act(async () => observers[0].notify([{ isIntersecting: false }]));
-    expect(container.querySelector("img.community-card-cover")).toBeNull();
-    await act(async () => observers[0].notify([{ isIntersecting: true }]));
-    expect(
-      container.querySelector("img.community-card-cover")?.getAttribute("src"),
-    ).toBe("https://play.example/cover.webp");
-    expect(observers[0].disconnect).toHaveBeenCalled();
+    // A list shown again finds its covers in the browser's cache, without a placeholder first.
+    const cover = container.querySelector("img.community-card-cover");
+    expect(cover?.getAttribute("src")).toBe("https://play.example/cover.webp");
+    expect(cover?.getAttribute("loading")).toBe("lazy");
     await render({ ...game, stats: { viewCount: 5, likeCount: 3 } }, "owner-token");
     expect(
       container.querySelector("img.community-card-cover")?.getAttribute("src"),

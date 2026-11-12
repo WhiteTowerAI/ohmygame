@@ -32,9 +32,19 @@ function links(markdown: string): string[] {
     ...[...text.matchAll(/(?:href|src)="([^"]+)"/g)].map((match) => match[1]!),
     ...(text.match(/^https:\/\/github\.com\/user-attachments\/\S+$/gm) ?? []),
   ];
-  return targets.filter(
-    (target) => !target.startsWith("#") && !LANGUAGE_LINKS.has(target),
-  );
+  return targets
+    .filter((target) => !target.startsWith("#") && !LANGUAGE_LINKS.has(target))
+    .map(sameInEnglish);
+}
+
+/**
+ * The Chinese README links the website's Chinese pages and shows Chinese
+ * screenshots (`-zh` before the extension); each stands for its English one.
+ */
+function sameInEnglish(target: string): string {
+  return target
+    .replace(/^https:\/\/ohmygame\.ai(?:\/zh)?(?:\/|$)/, "https://ohmygame.ai/")
+    .replace(/^(docs\/assets\/.+)-zh(\.\w+)$/, "$1$2");
 }
 
 /** GitHub's heading anchors: lowercase, punctuation removed, spaces become hyphens. */

@@ -25,20 +25,23 @@ Each layer stays separate:
   needs a voice from the provider's list, `speedRange` narrows the shared
   speed scale, and `minDurationSeconds`/`maxDurationSeconds` bound generated
   length.
-- **Adapters** (`AudioProviderAdapter`) translate one provider's API. They may
-  also list account voices (`voices`) and transcribe audio (`transcribe`).
+- **Adapters** (`AudioProviderAdapter`): one per provider, with one key and one
+  switch. An adapter calls whichever of the provider's APIs a model needs. It
+  may also list account voices (`voices`) and transcribe audio (`transcribe`).
 - **One canvas node and one tool**: the `audio` node and `generate-audio`
-  (`generate_audio` for agents). Without a model, `kind` picks a ready model
-  that makes it, preferring a `readsText` model for speech. Options the model
+  (`generate_audio` for agents). Without a model, `kind` picks the default
+  set for it (see below), or else a ready model that makes it, preferring a
+  `readsText` model for speech. Options the model
   doesn't take are dropped before the adapter sees them. Transcription is a
   media tool on an audio node, not a node of its own.
 
 **Doubao Speech** (豆包语音) covers speech synthesis (TTS 2.0) and Seed Audio.
 Both are services of the same Volcengine product: one console and one API key
 (**Console → API Key management**, sent as `X-Api-Key`). So OhMyGame has one
-provider for them, with one key, one enable switch, one deletion action, a
-default voice, a preview for each service, and both models. It is not Volcengine
-Ark (火山方舟), which sells Seedance and Seedream with a different key.
+provider and one adapter (`DoubaoSpeechProvider`) for them, with one key, one
+enable switch, one deletion action, a default voice, a preview for each model,
+and both models. Each model calls its own API. It is not Volcengine Ark
+(火山方舟), which sells Seedance and Seedream with a different key.
 
 A key works for each service only once it is activated in the console. A
 service that isn't fails at generation with the provider's entitlement error
@@ -52,20 +55,22 @@ says when they still differ. Credentials remain in the daemon's settings
 directory with restricted file permissions and are never returned by settings
 or catalog endpoints.
 
-The adapters keep their provider IDs, `volcengine-tts` and
-`volcengine-seed-audio`, so saved model choices still match; both show as
-Doubao Speech. The `volcengine-tts` switch enables both. Models are fixed by the
+The provider ID is `volcengine-tts`, from before Seed Audio joined it, so saved
+speech choices still match. Seed Audio used to have its own ID,
+`volcengine-seed-audio`; boards, drafts, copied nodes, plugin presets,
+generation history and requests that still name it are read as
+`volcengine-tts` (`src/shared/audio-legacy.ts`). Models are fixed by the
 official resource IDs and model names; Volcengine has no model-list API for these
 services.
 
-| Model                   | Produces                     | Prompt                             |
-| ----------------------- | ---------------------------- | ---------------------------------- |
-| TTS 2.0                 | speech                       | Spoken word for word               |
-| Seed Audio 1.0          | speech, sound effects, music | Describes voices, sounds and music |
-| Eleven v4, Flash v2.5   | speech                       | Spoken word for word               |
-| Eleven Sound Effects v2 | sound effects                | Describes the sound                |
-| Eleven Music v1         | music                        | Describes the music                |
-| Scribe v2               | (transcribes)                | —                                  |
+| Model                       | Produces                     | Prompt                             |
+| --------------------------- | ---------------------------- | ---------------------------------- |
+| TTS 2.0                     | speech                       | Spoken word for word               |
+| Seed Audio 1.0              | speech, sound effects, music | Describes voices, sounds and music |
+| Eleven v4, Flash v2.5       | speech                       | Spoken word for word               |
+| Eleven Sound Effects v3, v2 | sound effects                | Describes the sound                |
+| Eleven Music v2.5, v1       | music                        | Describes the music                |
+| Scribe v2                   | (transcribes)                | —                                  |
 
 Seed Audio mixes several speakers, effects and music from one description; this
 is not a structured per-speaker synthesis API. No adapter offers separate audio
@@ -79,13 +84,33 @@ text moves to the prompt; lyrics and negative prompts, which no provider took,
 are dropped. Seed Audio used to add a fixed instruction per operation; it is
 folded into the migrated prompt so older work sounds the same.
 
+## Default models
+
+Speech, sound effects and music each have their own default, since most audio
+models make one kind. They sit with the image, video and 3D defaults: globally
+in **Settings → Providers**, and per project under Canvas's **Default models**,
+where an unset kind uses the global one. They are stored as `speech`,
+`sound-effect` and `music` in the same places as the others: the provider
+preferences (`defaultSpeechModel`, `defaultSoundEffectModel`,
+`defaultMusicModel`), `PUT`/`DELETE /audio-models/<kind>/default`, and a
+project's `mediaModelDefaults`.
+
+When a request names no model, its `kind` resolves to the project default, then
+the global default, then the automatic choice. A request without a `kind`, such
+as an audio node with no model, uses the speech defaults. A default that isn't connected,
+is disabled, or doesn't make that kind is skipped. A new audio node starts with
+the last audio node's model, or else the speech default, since a node isn't
+tied to one kind.
+
 ## Asset Canvas
 
 The canvas creation menu has one **Audio** node. Its model picker describes
 what each model makes. A text-to-speech model labels the prompt **Lines to
 speak**; the others ask for a description. Text and Document nodes can supply
 prompt content, and generated audio is saved in the Library. Switching models
-clears the voice and any option the new model doesn't take.
+clears any option the new model doesn't take, and the voice when the new model
+uses a different API. A model that reads text needs a voice: the node's, or the
+provider's default.
 
 Selecting one audio node that holds an asset shows **Transcribe to text** in
 the media toolbar. It sends the audio to the first ready model with the
@@ -159,9 +184,9 @@ format every plan can use.
   characters) or `eleven_flash_v2_5` (40,000). A voice is required. Language is
   reduced to its ISO 639 primary subtag as `language_code`; speed maps
   `1 + speed / 100` onto `voice_settings.speed`, clamped to 0.7…1.2.
-- Sound effects: `POST /v1/sound-generation` with `eleven_text_to_sound_v2`,
-  0.5–30 seconds and an optional `loop`.
-- Music: `POST /v1/music` with `music_v1`, 3–600 seconds as `music_length_ms`
+- Sound effects: `POST /v1/sound-generation` with `eleven_text_to_sound_v3` or
+  `eleven_text_to_sound_v2`, 0.5–30 seconds and an optional `loop`.
+- Music: `POST /v1/music` with `music_v2_5` or `music_v1`, 3–600 seconds as `music_length_ms`
   and `force_instrumental` when the node sets it.
 - Voices: `GET /v2/voices` with `page_size=100`, `search` and
   `next_page_token`. Only `https` preview URLs are passed to the renderer.
@@ -217,8 +242,8 @@ ignored and omitted from new companion files.
 - GET/PUT `/settings/models/providers/volcengine-tts` — the Doubao Speech key
   for both services and `defaultVoiceId`; GET also reports `distinctKeys`;
 - `DELETE /settings/models/providers/volcengine-tts` — disconnect both services;
-- `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
-- `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
+- `POST /settings/models/providers/volcengine-tts/preview` — a short test of one
+  model: speech by default, or a two-second sound with `model: "seed-audio-1.0"`;
 - GET/PUT `/settings/models/providers/elevenlabs` (key) and
   `DELETE /settings/models/providers/elevenlabs/credential`;
 - `GET /audio-providers/<provider-id>/voices?search=&pageToken=` — one page of
@@ -229,8 +254,8 @@ ignored and omitted from new companion files.
 - `POST /tools/<tool-id>/jobs` — enqueue one of the tools above.
 
 The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
-settings endpoints and the Library audio companion download endpoint are
-removed. New audio requests reject `references`, `referenceAssetId` and
+settings and preview endpoints and the Library audio companion download endpoint
+are removed. New audio requests reject `references`, `referenceAssetId` and
 `subtitles`.
 
 ## Capability validation

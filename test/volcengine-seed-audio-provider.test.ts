@@ -4,7 +4,7 @@ import { VolcengineSeedAudioProvider } from "../src/daemon/volcengine-seed-audio
 import { mp3Fixture, wavFixture } from "./audio-fixtures.js";
 
 const MODEL = {
-  provider: "volcengine-seed-audio",
+  provider: "volcengine-tts",
   id: "seed-audio-1.0",
 } as const;
 const MP3 = mp3Fixture(48000);

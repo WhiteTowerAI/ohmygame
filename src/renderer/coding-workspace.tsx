@@ -1050,7 +1050,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         <Disclosure summary={t("common.errorDetails")}><pre>{diagnostic.message}</pre></Disclosure>
         <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
-          <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message)}>{t("workspace.copyError")}</button>
+          <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message).catch(() => undefined)}>{t("workspace.copyError")}</button>
           {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
           {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</button> : null}
           {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</button> : null}

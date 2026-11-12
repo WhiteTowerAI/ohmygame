@@ -10,7 +10,7 @@ import {
   setProjectCoverMode,
   setProjectLogo,
 } from "./api.js";
-import { refreshRecentProject } from "./app-sidebar.js";
+import { refreshSidebarProject } from "./sidebar-projects.js";
 import { ChevronDown, LoaderCircle, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
@@ -58,7 +58,7 @@ function ProjectAppearanceSettings({ project }: { project: ProjectState }) {
     try {
       const updated = await change();
       setCurrent(updated);
-      refreshRecentProject(updated);
+      refreshSidebarProject(updated);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

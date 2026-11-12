@@ -112,7 +112,9 @@ export interface ModelProviderSummary {
 
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video" | "audio";
-export type MediaModelUsage = "image" | "3d" | "video";
+/** What a default model is for: a kind of media, with audio split by what it makes, since most audio models make one kind. */
+export const MEDIA_MODEL_USAGES = ["image", "video", "3d", "speech", "sound-effect", "music"] as const;
+export type MediaModelUsage = (typeof MEDIA_MODEL_USAGES)[number];
 /** Missing entries inherit the global default for that kind of generation. */
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 

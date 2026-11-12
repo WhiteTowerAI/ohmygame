@@ -595,11 +595,11 @@ first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
 
-Inside a project the sidebar becomes a rail: the logo (Home), the recent
-projects as covers, **New project** (Home), Search, the desktop update and the
-account. The open project is marked; hovering a project lists its
-conversations, newest first, and the open project's list ends with **New
-conversation**. The rail's Back and Forward lead the top bar: beside the
+Inside a project the sidebar becomes a rail: the logo (Home), the person's
+projects as covers, the list's options, **New project** (Home), Search, the
+desktop update and the account. The open project is marked; hovering a project
+lists its conversations, newest first, and the open project's list ends with
+**New conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
 Minimize, Maximize or Restore, and Close in the app's colours over the page's
@@ -633,9 +633,18 @@ preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, the five most recently edited projects (Projects lists the
-rest), and the account.
-Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
+Community, Plugins, **Quick access**, and the account.
+
+Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
+saved in browser storage). Its order is the person's: editing a project doesn't
+move it, a new project starts at the top, and dragging a project, or Alt with
+the up and down arrows, reorders it. The list's options set how many show (5,
+8, 12 or all; 8 by default), and the list scrolls when it outgrows the column.
+A project opened from past that count shows after the others until it is
+closed, or dragged into place. Home's **Recent projects** stays sorted by last
+edit.
+
+The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
 signed out, it leads with **Sign in…**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
@@ -741,11 +750,20 @@ column.
 Long conversations open at the most recent 40 turns. Scroll toward the top
 or choose **Show earlier messages** to read the preceding turns.
 
-Generated images appear as small thumbnails inside their tool's details
-([example](assets/chat-generated-image-details.png)),
-with the same click-to-enlarge, copy and save actions as other chat images.
-They are not repeated below the response. The files remain in the project's
-`assets/generated/` folder, and the conversation keeps their references.
+When an agent runs several tool calls one at a time, the calls waiting behind
+the running one are labelled **Queued**, and the group is named for the call
+that is running.
+
+Generated images, videos and 3D models appear as small thumbnails under the
+tool calls that made them, without opening those calls. A call still running
+holds its place with a loading tile. Choosing an image shows it larger, with
+the same copy and save actions as other chat images; choosing a video or a 3D
+model opens it in a dialog, where the model can be turned and played. A 3D
+model's tile shows the model itself, held still; a row of them loads two at a
+time as it nears the screen. Results
+are not repeated under the response; open a finished turn's work to see them.
+The files remain in the project's `assets/generated/` folder, and the
+conversation keeps their references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
@@ -993,10 +1011,25 @@ description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
 likes stay independently clickable. Covers are requested only when cards approach
-the visible area. Creator profiles and related games use the same cards, with
+the visible area; hosted covers are lazy images the browser keeps cached.
+Creator profiles and related games use the same cards, with
 colors following the app's light or dark theme. See the
 [dark](assets/community-gallery-dark.webp) and
 [light](assets/community-gallery-light.webp) examples (sample games).
+
+While a page's first read is in flight, the grid and profile show placeholder
+card shapes instead of a message. `src/renderer/community-cache.ts` keeps what
+the Community pages have read in the window: going back to the list or a
+profile shows it at once, with its filters and scroll position, and reloads it
+in the background, keeping it if that fails. A game opened from a card shows
+its title, creator, actions and related games, and starts its player, before
+its own read returns; a game opened by link shows placeholder details until
+then. The player is black with the controller's halftone loading animation
+(the website's player loader) until the game's page loads, and stays at least
+long enough not to flash. Likes and edits made on one page update the kept
+copies. A different account, or signing out, clears them, so likes and an
+owner's hidden works never carry over; a game that is no longer found leaves
+them too.
 
 Author links open their public profile with listed works. **My games**, next to
 the search and in the account menu, opens your own profile; it requires sign-in

@@ -325,6 +325,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const [audioModels, setAudioModels] = useState<AudioModel[]>([]);
   const [audioProviders, setAudioProviders] = useState<AudioProviderCatalogStatus[]>([]);
+  const [globalDefaultSpeechModel, setDefaultSpeechModel] = useState<ModelRef>();
   const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
@@ -334,6 +335,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const defaultImageModel = project.mediaModelDefaults?.image ?? globalDefaultImageModel;
   const defaultVideoModel = project.mediaModelDefaults?.video ?? globalDefaultVideoModel;
   const defaultModel3D = project.mediaModelDefaults?.["3d"] ?? globalDefaultModel3D;
+  // An audio node makes any kind; it starts from the speech default, the most common start.
+  const defaultAudioModel = project.mediaModelDefaults?.speech ?? globalDefaultSpeechModel;
   const [operationModels3D, setOperationModels3D] = useState<Model3DModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
@@ -450,6 +453,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         if (disposed) return;
         setAudioModels(audioCatalog.models);
         setAudioProviders(audioCatalog.providers);
+        setDefaultSpeechModel(audioCatalog.defaultModels?.speech);
       }).catch(() => undefined);
       setNotice(undefined);
       setPhase("ready");
@@ -491,7 +495,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       }).catch(() => undefined);
       void listAudioModelCatalog().then((catalog) => {
         if (!active || current !== revision) return;
-        setAudioModels(catalog.models); setAudioProviders(catalog.providers);
+        setAudioModels(catalog.models); setAudioProviders(catalog.providers); setDefaultSpeechModel(catalog.defaultModels?.speech);
       }).catch(() => undefined);
       void listModel3DOperations().then((models) => {
         if (active && current === revision) setOperationModels3D(models);
@@ -1024,7 +1028,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function configuredNode(type: Exclude<AssetCanvasNodeType, "asset">, position = { x: 0, y: 0 }): AssetCanvasFlowNode {
     if (type === "document") return { id: crypto.randomUUID(), type, position, data: { documentId: "new-document" } };
-    return applyRememberedSettings(createFlowNode(type, position, imageModels, videoModels, defaultTextModel), rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
+    return applyRememberedSettings(createFlowNode(type, position, imageModels, videoModels, defaultTextModel), rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, defaultAudioModel, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
   }
   const portNode = nodes.find((node) => node.id === portMenu?.nodeId);
   const portOptions = portNode && portMenu ? canvasCreationGroups(documents, tables)
@@ -2725,6 +2729,14 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
   const [toolbarHeight, setToolbarHeight] = useState(180);
   const [formOffset, setFormOffset] = useState(0);
   useLayoutEffect(() => {
+    // Audio's single transcribe action is fixed above its node. It does not
+    // need to follow the composer below, whose settings popover can otherwise
+    // trigger a ResizeObserver/MutationObserver measurement loop.
+    if (mediaType === "audio") {
+      setToolbarHeight(0);
+      setFormOffset(0);
+      return;
+    }
     const canvas = canvasElement.current;
     if (!canvas) return;
     let observed: Element[] = [];
@@ -2748,9 +2760,11 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
     mutations.observe(canvas, { childList: true, subtree: true });
     measure();
     return () => { observer.disconnect(); mutations.disconnect(); };
-  }, [canvasElement, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
+  }, [canvasElement, mediaType, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
   const screenTop = y + canvasAbsolutePosition(node, nodes).y * zoom;
-  const below = screenTop < toolbarHeight + 20;
+  // Audio exposes one shortcut (transcribe); keeping it above the node avoids
+  // colliding with the audio settings panel that expands beneath the composer.
+  const below = mediaType !== "audio" && screenTop < toolbarHeight + 20;
   return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10 + (below ? formOffset : 0)} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} /></div>
   </NodeToolbar>;
@@ -3403,7 +3417,7 @@ export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | 
 export function applyRememberedSettings(
   node: AssetCanvasFlowNode,
   settings: NodeGenerationSettings | undefined,
-  catalogs: { imageModels: readonly ImageModel[]; defaultImageModel?: ImageModelRef; videoModels: readonly VideoModel[]; defaultVideoModel?: ModelRef; audioModels?: readonly AudioModel[]; model3DModels?: readonly Model3DModel[]; defaultModel3D?: ModelRef; textModels: readonly AgentModel[] },
+  catalogs: { imageModels: readonly ImageModel[]; defaultImageModel?: ImageModelRef; videoModels: readonly VideoModel[]; defaultVideoModel?: ModelRef; audioModels?: readonly AudioModel[]; defaultAudioModel?: ModelRef; model3DModels?: readonly Model3DModel[]; defaultModel3D?: ModelRef; textModels: readonly AgentModel[] },
 ): AssetCanvasFlowNode {
   if (node.type === "image") {
     const reference = catalogs.defaultImageModel ?? settings?.model;
@@ -3447,8 +3461,10 @@ export function applyRememberedSettings(
   }
   if (node.type === "audio") {
     const compatibleModels = catalogs.audioModels?.filter((candidate) => candidate.capabilities.produces.length) ?? [];
+    // The last audio node's model, or else the default, or else the first.
     const reference = settings?.audioModel;
-    const model = reference ? compatibleModels.find((candidate) => sameModel(candidate, reference)) : compatibleModels[0];
+    const preferred = catalogs.defaultAudioModel && compatibleModels.find((candidate) => sameModel(candidate, catalogs.defaultAudioModel!));
+    const model = reference ? compatibleModels.find((candidate) => sameModel(candidate, reference)) : preferred ?? compatibleModels[0];
     return {
       ...node,
       data: {
