@@ -144,6 +144,8 @@ declare global {
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      readUsageData?: () => Promise<boolean>;
+      onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
       updateUsageData?: (enabled: boolean, initialize: boolean) => Promise<boolean>;
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */

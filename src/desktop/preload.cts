@@ -33,6 +33,10 @@ if (process.isMainFrame) {
     }),
     setAppearance: (appearance: "system" | "light" | "dark") =>
       ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
+    readUsageData: () => ipcRenderer.invoke("ohmygame:read-usage-data") as Promise<boolean>,
+    onUsageDataChanged: (listener: (enabled: boolean) => void) => {
+      ipcRenderer.on("ohmygame:usage-data-changed", (_event, enabled: boolean) => listener(enabled));
+    },
     updateUsageData: (enabled: boolean, initialize: boolean) =>
       ipcRenderer.invoke("ohmygame:update-usage-data", enabled, initialize) as Promise<boolean>,
     restartApp: () => ipcRenderer.invoke("ohmygame:restart-app") as Promise<void>,

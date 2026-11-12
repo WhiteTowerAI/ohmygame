@@ -132,3 +132,22 @@ it("hands the legacy choice to the desktop at startup and uses the saved desktop
   expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
   expect(localStorage.getItem("ohmygame:usage-data")).toBe("off");
 });
+
+it("uses the desktop preference and applies opt-out in a playtest window", async () => {
+  localStorage.setItem("ohmygame:usage-data", "off");
+  let notify!: (enabled: boolean) => void;
+  const readUsageData = vi.fn().mockResolvedValue(true);
+  const onUsageDataChanged = vi.fn((listener: typeof notify) => { notify = listener; });
+  const updateUsageData = vi.fn();
+  vi.stubGlobal("ohMyGameDesktop", { readUsageData, onUsageDataChanged, updateUsageData });
+
+  const analytics = await loadAnalytics();
+  await analytics.initializeUsageData(false);
+  expect(updateUsageData).not.toHaveBeenCalled();
+  analytics.initializeAnalytics();
+  await settle();
+
+  notify(false);
+  expect(analytics.readUsageDataEnabled()).toBe(false);
+  expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
+});

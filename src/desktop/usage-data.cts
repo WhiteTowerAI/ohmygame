@@ -44,6 +44,10 @@ export function initializeCrashReporting(dsn: string | undefined): void {
   crashClient = getClient();
 }
 
+export function readUsageData(): boolean {
+  return preference.enabled;
+}
+
 export function updateUsageData(
   enabled: boolean,
   initialize: boolean,

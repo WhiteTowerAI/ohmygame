@@ -29,7 +29,7 @@ const route = parseAppRoute(window.location.hash);
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
 const mainRoute = !thumbnail && route.page !== "playtest";
-if (mainRoute) await initializeUsageData();
+if (!thumbnail) await initializeUsageData(mainRoute);
 if (window.ohMyGameDesktop) initSentry();
 applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
