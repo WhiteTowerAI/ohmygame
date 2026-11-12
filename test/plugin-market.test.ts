@@ -1,9 +1,10 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { indexImage, marketScore, PluginMarket, PluginMarketError } from "../src/daemon/plugin-market.js";
+import { PluginMarketSettingsError, PluginMarketSettingsStore } from "../src/daemon/plugin-market-settings.js";
 import type { MarketPlugin } from "../src/shared/plugins.js";
 
 const URL_INDEX = "https://plugins.example.com/plugins/index.json";
@@ -418,5 +419,148 @@ describe("PluginMarket release", () => {
     const subject = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: fetcher });
     await expect(subject.release("@sigstore/core", "4.0.1")).resolves.toMatchObject({ integrity: real.integrity });
     await expect(subject.release("@sigstore/core", "4.0.2")).rejects.toThrow("no valid npm signature");
+  });
+});
+
+describe("PluginMarket sources", () => {
+  const EXTRA = "https://lists.example.org/ohmygame/index.json";
+  /** Serves an index at each address, as the job writes it. */
+  function servers(bodies: Record<string, unknown>) {
+    const files: Record<string, Buffer> = {};
+    const fetcher = (async (input: string | URL) => {
+      const url = String(input);
+      for (const [pointer, body] of Object.entries(bodies)) {
+        const text = JSON.stringify(body);
+        const digest = createHash("sha256").update(text).digest("hex");
+        if (url === pointer) return Response.json({ schemaVersion: 1, latest: `index.${digest}.json`, sha256: digest });
+        if (url === new URL(`index.${digest}.json`, pointer).href) return new Response(text);
+      }
+      return files[url] ? new Response(new Uint8Array(files[url])) : new Response("", { status: 404 });
+    }) as typeof fetch;
+    return { fetcher, files };
+  }
+
+  it("adds what another index lists and the main one doesn't, without the marks only the main one gives", async () => {
+    const facts = { repository: "https://github.com/acme/tools", sourceVerified: true, stars: 900, weeklyDownloads: 5000, avatar: "https://avatars.githubusercontent.com/u/42?v=4" };
+    const { fetcher } = servers({
+      [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a")], featured: ["acme/a"] }),
+      [EXTRA]: index({
+        versions: [
+          version("@acme/a", "2.0.0", "acme/a", { plugin: { ...version("@acme/a", "2.0.0", "acme/a").plugin, displayName: { en: "Not the main one's" } } }),
+          version("@acme/b", "1.0.0", "acme/b"),
+          // OhMyGame's seal comes only from the main index.
+          version("@acme/fake", "1.0.0", "ohmygame/fake"),
+        ],
+        packages: { "@acme/b": facts },
+        featured: ["acme/b"],
+      }),
+    });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA, "http://lists.example.org/index.json"], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    const listing = await subject.listing("en");
+    expect(listing.status).toBe("ready");
+    // The address that isn't HTTPS is passed over.
+    expect(listing.sources).toEqual([{ url: URL_INDEX, status: "ready" }, { url: EXTRA, status: "ready" }]);
+    expect(listing.plugins.map((plugin) => [plugin.id, plugin.version, plugin.displayName, plugin.featured])).toEqual([
+      ["acme/a", "1.0.0", "acme/a name", true],
+      ["acme/b", "1.0.0", "acme/b name", false],
+    ]);
+    const added = listing.plugins[1]!;
+    expect(added).toMatchObject({ source: EXTRA, sourceVerified: false, repository: facts.repository });
+    expect(added).not.toHaveProperty("stars");
+    expect(added).not.toHaveProperty("weeklyDownloads");
+    expect(added).not.toHaveProperty("avatar");
+    expect(listing.plugins[0]).not.toHaveProperty("source");
+    expect(await subject.avatar("42")).toBeUndefined();
+  });
+
+  it("reads another index's pictures from beside it, only when asked for that index", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const { fetcher, files } = servers({
+      [URL_INDEX]: index(),
+      [EXTRA]: index({ versions: [version("@acme/b", "1.0.0", "acme/b", { plugin: { ...version("@acme/b", "1.0.0", "acme/b").plugin, screenshots: [{ path: "assets/shot.png" }] } })] }),
+    });
+    files[new URL("assets/shot.png", EXTRA).href] = png;
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    expect(await subject.image("assets/shot.png", "screenshot", EXTRA)).toMatchObject({ bytes: png });
+    expect(await subject.image("assets/shot.png", "screenshot")).toBeUndefined();
+    expect(await subject.image("assets/shot.png", "screenshot", "https://elsewhere.example/index.json")).toBeUndefined();
+  });
+
+  it("lets the first index that lists a version decide about it, the main one first", async () => {
+    const { fetcher } = servers({
+      [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a", { plugin: undefined, rejected: ["blocked: steals keys"] })].map((item) => JSON.parse(JSON.stringify(item))) }),
+      [EXTRA]: index({ versions: [version("@acme/a", "1.0.0", "acme/a"), version("@acme/b", "1.0.0", "acme/b")] }),
+    });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    await expect(subject.release("@acme/a", "1.0.0")).rejects.toThrow("was blocked: steals keys");
+    expect(await subject.release("@acme/b", "1.0.0")).toEqual({ package: "@acme/b", version: "1.0.0", integrity: INTEGRITY });
+    expect((await subject.listing("en")).blocked).toEqual([{ package: "@acme/a", version: "1.0.0", reason: "steals keys" }]);
+  });
+
+  it("takes no other index's word for a version while the main one can't be read", async () => {
+    const { fetcher } = servers({ [EXTRA]: index({ versions: [version("@acme/b", "1.0.0", "acme/b")] }) });
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY } } });
+    expect(await subject.release("@acme/b", "1.0.0")).toBeUndefined();
+  });
+
+  it("starts from the copy saved before each index had its own file, and drops it once it has its own", async () => {
+    const directory = await temporary();
+    const old = index({ versions: [version("@acme/a", "1.0.0", "acme/a")] });
+    await writeFile(path.join(directory, "market-index.json"), JSON.stringify(old));
+    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("@acme/a", "1.1.0", "acme/a")] }) });
+    const offline = new PluginMarket({ url: URL_INDEX, directory, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch, keys: { test: { key: KEY } } });
+    expect(await offline.listing("en")).toMatchObject({ status: "stale", plugins: [{ id: "acme/a", version: "1.0.0" }] });
+    const online = new PluginMarket({ url: URL_INDEX, directory, fetch: fetcher, keys: { test: { key: KEY } } });
+    // It shows what it has while it reads the new one.
+    await vi.waitFor(async () => expect(await online.listing("en")).toMatchObject({ status: "ready", plugins: [{ id: "acme/a", version: "1.1.0" }] }));
+    await vi.waitFor(() => expect(readFile(path.join(directory, "market-index.json"))).rejects.toThrow());
+  });
+
+  it("says which index can't be read, and changes where it reads without losing what it read", async () => {
+    const { fetcher } = servers({ [URL_INDEX]: index({ versions: [version("@acme/a", "1.0.0", "acme/a")] }) });
+    const reads = vi.fn(fetcher);
+    const subject = new PluginMarket({ url: URL_INDEX, extra: [EXTRA], directory: await temporary(), fetch: reads as typeof fetch, keys: { test: { key: KEY } } });
+    expect((await subject.listing("en")).sources).toEqual([{ url: URL_INDEX, status: "ready" }, { url: EXTRA, status: "unavailable" }]);
+    const before = reads.mock.calls.length;
+    subject.setSources({ url: URL_INDEX, extra: [] });
+    expect((await subject.listing("en")).plugins.map((plugin) => plugin.id)).toEqual(["acme/a"]);
+    expect(reads.mock.calls.length).toBe(before);
+    subject.setSources({ url: undefined, extra: [EXTRA] });
+    expect(await subject.listing("en")).toEqual({ status: "off", plugins: [], blocked: [] });
+  });
+});
+
+describe("PluginMarketSettingsStore", () => {
+  it("keeps another main index and more indexes, going back to the default when asked", async () => {
+    const directory = await temporary();
+    const store = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await store.load();
+    expect(store.settings()).toEqual({ index: URL_INDEX, defaultIndex: URL_INDEX, extra: [] });
+    const mirror = "https://mirror.example.cn/plugins/index.json";
+    expect(await store.set({ index: ` ${mirror} `, extra: ["https://lists.example.org/a/index.json", "https://lists.example.org/a/index.json", "", mirror] }))
+      .toEqual({ index: mirror, defaultIndex: URL_INDEX, extra: ["https://lists.example.org/a/index.json"] });
+    const reloaded = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await reloaded.load();
+    expect(reloaded.sources()).toEqual({ url: mirror, extra: ["https://lists.example.org/a/index.json"] });
+    expect((await reloaded.set({ index: "", extra: [] })).index).toBe(URL_INDEX);
+    expect(JSON.parse(await readFile(path.join(directory, "plugin-market-sources.json"), "utf8"))).toEqual({ version: 1, extra: [] });
+  });
+
+  it("refuses an address that isn't HTTPS, too many indexes, and a file it can't read", async () => {
+    const directory = await temporary();
+    const store = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await expect(store.set({ index: "http://mirror.example.cn/index.json", extra: [] })).rejects.toBeInstanceOf(PluginMarketSettingsError);
+    await expect(store.set({ index: "", extra: Array.from({ length: 6 }, (_, at) => `https://lists.example.org/${at}/index.json`) })).rejects.toThrow("At most 5");
+    await expect(store.set({ index: "", extra: [`https://lists.example.org/${"插".repeat(60)}/index.json`] })).rejects.toThrow("at most 500");
+    await writeFile(path.join(directory, "plugin-market-sources.json"), '{"version": 1, "extra": ["https://lists.exa');
+    const cut = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await expect(cut.load()).rejects.toThrow();
+    await expect(cut.set({ index: "", extra: [] })).rejects.toThrow("isn't replaced");
+    await writeFile(path.join(directory, "plugin-market-sources.json"), JSON.stringify({ version: 2, extra: [] }));
+    const newer = new PluginMarketSettingsStore(directory, URL_INDEX);
+    await expect(newer.load()).rejects.toThrow("can read");
+    expect(newer.sources()).toEqual({ url: URL_INDEX, extra: [] });
+    await expect(newer.set({ index: "", extra: [] })).rejects.toThrow("isn't replaced");
+    expect(JSON.parse(await readFile(path.join(directory, "plugin-market-sources.json"), "utf8")).version).toBe(2);
   });
 });

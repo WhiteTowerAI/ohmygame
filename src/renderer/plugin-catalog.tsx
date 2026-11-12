@@ -5,7 +5,7 @@ import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, Download, ExternalLink } from "./icons.js";
+import { Check, CircleHelp, Download, ExternalLink, SlidersHorizontal } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -13,7 +13,7 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Button, Chip, Dialog, FilterChips, Select } from "./ui/index.js";
+import { Button, Chip, Dialog, FilterChips, IconButton, Select, Tooltip } from "./ui/index.js";
 
 // What the Plugins page browses by: the categories plugins name, how the
 // market is sorted, and the market's cards and pages. A plugin may name up to
@@ -157,16 +157,16 @@ function publisherName(plugin: MarketPlugin): string {
  * through the daemon from beside the index, as addresses an `img` can show:
  * undefined while reading, null for one that can't be read.
  */
-function useMarketImages(role: "icon" | "screenshot", paths: readonly (string | undefined)[]): (string | null | undefined)[] {
+function useMarketImages(role: "icon" | "screenshot", source: string | undefined, paths: readonly (string | undefined)[]): (string | null | undefined)[] {
   const generation = useReadyRuntimeGeneration();
   const [urls, setUrls] = useState<(string | null | undefined)[]>([]);
-  const key = [role, ...paths].join("\n");
+  const key = [role, source ?? "", ...paths].join("\n");
   useEffect(() => {
     setUrls([]);
     const controller = new AbortController();
     const made: string[] = [];
     void Promise.all(paths.map((path) => path
-      ? readPluginMarketImage(path, role, controller.signal).then((blob) => {
+      ? readPluginMarketImage(path, role, source, controller.signal).then((blob) => {
         const url = URL.createObjectURL(blob);
         made.push(url);
         return url;
@@ -225,7 +225,7 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
 
 /** A market plugin's own icon, as an installed one's tile shows it, or its first letter. */
 function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
-  const [icon] = useMarketImages("icon", [plugin.icon]);
+  const [icon] = useMarketImages("icon", plugin.source, [plugin.icon]);
   const size = large ? 40 : 24;
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>
     {icon ? <img className="plugin-icon-image" src={icon} width={size} height={size} alt="" aria-hidden="true" />
@@ -301,13 +301,15 @@ export type MarketOnly = "official" | "verified";
 export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
   (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
 
-export function MarketRail({ plugins, section, onSection, only, onOnly }: {
+export function MarketRail({ plugins, section, onSection, only, onOnly, onSettings }: {
   /** What the search and filters leave, to count. */
   plugins: readonly MarketPlugin[];
   section: MarketSection;
   onSection: (section: MarketSection) => void;
   only: readonly MarketOnly[];
   onOnly: (only: MarketOnly[]) => void;
+  /** Opens where the market is listed from, from the foot of the list. */
+  onSettings: () => void;
 }): ReactNode {
   const counts = new Map(CATALOG_CATEGORIES.map((category) => [category, plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length]));
   const item = (value: MarketSection, label: string, count?: number) =>
@@ -331,6 +333,12 @@ export function MarketRail({ plugins, section, onSection, only, onOnly }: {
     <h3>{t("pluginCatalog.showOnly")}</h3>
     {filter("official", t("plugins.official"))}
     {filter("verified", t("plugins.sourceVerified"))}
+    <div className="plugins-rail-foot">
+      <IconButton size="sm" label={t("pluginMarketSettings.open")} onClick={onSettings}><SlidersHorizontal size={14} /></IconButton>
+      <Tooltip content={t("pluginMarketSettings.updates")} placement="top-start">
+        <button type="button" className="plugins-rail-help" aria-label={t("pluginMarketSettings.updates")}><CircleHelp size={14} /></button>
+      </Tooltip>
+    </div>
   </nav>;
 }
 
@@ -407,7 +415,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
   };
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
-  const shots = useMarketImages("screenshot", (plugin.screenshots ?? []).map((shot) => shot.path));
+  const shots = useMarketImages("screenshot", plugin.source, (plugin.screenshots ?? []).map((shot) => shot.path));
   const stats = [
     plugin.weeklyDownloads !== undefined ? { label: t("pluginCatalog.weekly"), value: compact.format(plugin.weeklyDownloads) } : undefined,
     plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,
@@ -455,6 +463,7 @@ export function MarketPluginDialog({ plugin, installed, onClose, onGet, onManage
           <dt>{t("pluginCatalog.worksWith")}</dt>
           <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
+          {plugin.source ? <><dt>{t("pluginMarketSettings.listedBy")}</dt><dd>{new URL(plugin.source).host}</dd></> : null}
           <dt>{t("pluginStore.npmPackage")}</dt>
           <dd><a href={`https://www.npmjs.com/package/${plugin.package}`} target="_blank" rel="noreferrer">{plugin.package}<ExternalLink size={11} /></a></dd>
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>

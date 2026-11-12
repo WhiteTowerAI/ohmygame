@@ -138,6 +138,7 @@ import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
+import { PluginMarketSettingsError, PluginMarketSettingsStore } from "./plugin-market-settings.js";
 import { PluginDevelopment } from "./plugin-development.js";
 import { exportPlugin, PluginExportError } from "./plugin-export.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
@@ -1447,7 +1448,9 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginConfiguration.load(), connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginConfiguration.load(),
+      pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
@@ -1628,6 +1631,7 @@ export function createApp(options: AppOptions = {}) {
       };
     }));
   });
+  const pluginMarketSettings = new PluginMarketSettingsStore(dataDirectory, options.pluginIndexUrl || undefined);
   const pluginMarket = new PluginMarket({
     url: options.pluginIndexUrl,
     directory: path.dirname(pluginServices.packagesDirectory),
@@ -1675,12 +1679,28 @@ export function createApp(options: AppOptions = {}) {
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
   app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
-  app.get<{ Querystring: { path: string; role: "icon" | "screenshot" } }>("/plugin-market/images", {
-    schema: { querystring: { type: "object", required: ["path", "role"], additionalProperties: false, properties: {
-      path: { type: "string", maxLength: 500 }, role: { enum: ["icon", "screenshot"] },
+  app.get("/settings/plugin-market", () => pluginMarketSettings.settings());
+  app.put<{ Body: { index: string; extra: string[] } }>("/settings/plugin-market", {
+    schema: { body: { type: "object", required: ["index", "extra"], additionalProperties: false, properties: {
+      index: { type: "string", maxLength: 500 },
+      extra: { type: "array", maxItems: 20, items: { type: "string", maxLength: 500 } },
     } } },
   }, async (request, reply) => {
-    const image = await pluginMarket.image(request.query.path, request.query.role).catch(() => undefined);
+    try {
+      const saved = await pluginMarketSettings.set(request.body);
+      pluginMarket.setSources(pluginMarketSettings.sources());
+      return saved;
+    } catch (cause) {
+      if (cause instanceof PluginMarketSettingsError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+  app.get<{ Querystring: { path: string; role: "icon" | "screenshot"; source?: string } }>("/plugin-market/images", {
+    schema: { querystring: { type: "object", required: ["path", "role"], additionalProperties: false, properties: {
+      path: { type: "string", maxLength: 500 }, role: { enum: ["icon", "screenshot"] }, source: { type: "string", maxLength: 500 },
+    } } },
+  }, async (request, reply) => {
+    const image = await pluginMarket.image(request.query.path, request.query.role, request.query.source).catch(() => undefined);
     if (!image) return reply.code(404).send({ error: "Image not found" });
     return reply
       .header("Cache-Control", "private, max-age=86400, immutable")
