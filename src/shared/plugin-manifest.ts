@@ -1114,6 +1114,14 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
           issue(`${path}/${appearance}/${token}`, "must be a colour");
       }
   });
+  // A theme left with nothing this app knows would change nothing when picked.
+  const emptyThemes = new Set(contributes.themes?.filter((theme) => (theme.dark || theme.light) && !Object.keys({ ...theme.dark, ...theme.light }).length));
+  if (emptyThemes.size) {
+    contributes.themes!.forEach((theme, index) => {
+      if (emptyThemes.has(theme)) ignored.push({ path: `/contributes/themes/${index}`, message: "sets no colour this version of OhMyGame knows, so it's ignored" });
+    });
+    contributes.themes = contributes.themes!.filter((theme) => !emptyThemes.has(theme));
+  }
 
   contributes.providers?.forEach((provider, index) => {
     const path = `/contributes/providers/${index}`;

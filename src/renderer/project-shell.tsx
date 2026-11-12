@@ -1336,7 +1336,8 @@ export function ProjectShell({
         toast({ title: panel.plugin, description: t("pluginLog.panelError", { plugin: panel.plugin }), tone: "danger",
           action: { label: t("pluginLog.viewLog"), onClick: () => setPluginLog(panel.plugin) } });
       },
-      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : { turnOff: () => turnPluginOff(panel.plugin) }),
+      // The type's own plugin can't be turned off in its project; Reload is left.
+      ...(own ? { fetch: (request) => pluginNetFetch(current.id, panel.plugin, request) } : panel.plugin === current.pluginType?.plugin ? {} : { turnOff: () => turnPluginOff(panel.plugin) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));

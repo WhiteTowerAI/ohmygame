@@ -479,6 +479,11 @@ describe("plugin manifest", () => {
     expect(ignored(radius)).toEqual(["/contributes/themes/0/dark/--radius-md"]);
     const read = validatePluginManifest(radius);
     expect(read.ok && read.manifest.contributes?.themes?.[0]?.dark).toEqual({ "--gray-0": "#000" });
+    // One with only such tokens would change nothing, so it isn't listed.
+    const onlyNewer = { ...minimal, contributes: { themes: [{ id: "round", title: "Round", dark: { "--radius-md": "0" } }, { id: "dim", title: "Dim", light: { "--gray-0": "#fff" } }] } };
+    expect(ignored(onlyNewer)).toEqual(["/contributes/themes/0/dark/--radius-md", "/contributes/themes/0"]);
+    const kept = validatePluginManifest(onlyNewer);
+    expect(kept.ok && kept.manifest.contributes?.themes?.map((theme) => theme.id)).toEqual(["dim"]);
   });
 
   it("matches the plugin API version against a manifest's range", () => {

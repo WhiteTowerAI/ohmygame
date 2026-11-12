@@ -362,7 +362,7 @@ export type ProjectPluginStatus =
   | "not-applicable"
   /** This version wants capabilities the person hasn't allowed. */
   | "needs-consent"
-  /** Not yet allowed in this project folder, or this version wants more. */
+  /** Not yet allowed in this project folder. */
   | "needs-approval";
 
 export interface ProjectPluginState {

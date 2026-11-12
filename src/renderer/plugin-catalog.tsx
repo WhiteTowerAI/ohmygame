@@ -148,6 +148,8 @@ function useMarketImages(role: "icon" | "screenshot", paths: readonly (string | 
 
 /** Avatars by GitHub id, read once a run: many plugins share a publisher. */
 const avatars = new Map<string, Promise<string | null>>();
+/** How many cards show each avatar now; one on screen is never dropped. */
+const avatarUsers = new Map<string, number>();
 const AVATAR_CACHE_LIMIT = 200;
 
 function useMarketAvatar(id: string | undefined): string | null | undefined {
@@ -165,15 +167,23 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
         return null;
       });
       avatars.set(id, read);
-      if (avatars.size > AVATAR_CACHE_LIMIT) {
-        const [oldest, old] = avatars.entries().next().value!;
-        avatars.delete(oldest);
-        void old.then((made) => { if (made) URL.revokeObjectURL(made); });
-      }
+      if (avatars.size > AVATAR_CACHE_LIMIT)
+        for (const [oldest, old] of avatars) {
+          if (oldest === id || avatarUsers.get(oldest)) continue;
+          avatars.delete(oldest);
+          void old.then((made) => { if (made) URL.revokeObjectURL(made); });
+          break;
+        }
     }
+    avatarUsers.set(id, (avatarUsers.get(id) ?? 0) + 1);
     let live = true;
     void read.then((next) => { if (live) setUrl(next); });
-    return () => { live = false; };
+    return () => {
+      live = false;
+      const users = (avatarUsers.get(id) ?? 1) - 1;
+      if (users > 0) avatarUsers.set(id, users);
+      else avatarUsers.delete(id);
+    };
   }, [id, generation]);
   return url;
 }
