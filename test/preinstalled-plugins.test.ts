@@ -613,3 +613,31 @@ it("does not overwrite a package installed while the seed waits for the package 
     expect(await sources.origin(ID, "1.0.0")).toBeUndefined();
   } finally { spy.mockRestore(); await services.close(); }
 });
+
+it("restores bundled origin after a failed placement without discarding a committed npm origin", async () => {
+  const data = await temporary("npm-placement-failure-");
+  const prepared = await preparedPlugin({ npm: true });
+  const services = new PluginServices({ directory: path.join(data, "plugin-store") });
+  const sources = new PluginSources(services, path.join(data, "plugin-store", "origins.json"));
+  const manager = new PreinstalledPluginManager(prepared.directory, data);
+  await services.ready();
+  expect((await services.index.add(prepared.packaged)).ok).toBe(true);
+  const original = services.index.get(ID)!;
+  const install = services.installManaged.bind(services);
+  const spy = vi.spyOn(services, "installManaged").mockImplementation(async (_root, options) => {
+    await options?.before?.();
+    throw new Error("placement failed");
+  });
+  try {
+    expect(await manager.seed(services, sources)).toEqual([expect.stringContaining("placement failed")]);
+    expect(services.index.get(ID)?.root).toBe(original.root);
+    expect(await sources.origin(ID, "1.0.0")).toBeUndefined();
+    spy.mockImplementation(async (...args) => {
+      await install(...args);
+      throw new Error("notification failed after commit");
+    });
+    expect(await manager.seed(services, sources)).toEqual([expect.stringContaining("notification failed")]);
+    expect(services.index.get(ID)?.root.startsWith(services.packagesDirectory)).toBe(true);
+    expect(await sources.origin(ID, "1.0.0")).toMatchObject({ type: "npm", package: "@ohmygame/reference-tools" });
+  } finally { spy.mockRestore(); await services.close(); }
+});

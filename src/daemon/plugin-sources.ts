@@ -171,12 +171,23 @@ export class PluginSources {
       const origins = Object.entries(await this.#loadOrigins()).filter(([key]) => key.startsWith(`${entry.id}@`));
       if (origins.some(([, previous]) => !isSameSource(previous, origin)))
         throw new PluginSourceError("Preinstallation cannot reuse data from another plugin source");
-      return this.services.installManaged(root, { consent: false, before: async () => {
-        // Another installer may have finished while this waited for the package lock.
-        if (hasManaged()) throw new PluginSourceError("Plugin was installed while preinstallation was waiting");
-        await before();
-        await this.#recordOrigin(`${entry.id}@${entry.version}`, origin);
-      } });
+      const previousOrigin = await this.origin(entry.id, entry.version);
+      let recorded = false;
+      try {
+        return await this.services.installManaged(root, { consent: false, before: async () => {
+          // Another installer may have finished while this waited for the package lock.
+          if (hasManaged()) throw new PluginSourceError("Plugin was installed while preinstallation was waiting");
+          await before();
+          await this.#recordOrigin(`${entry.id}@${entry.version}`, origin);
+          recorded = true;
+        } });
+      } catch (cause) {
+        // The same-version bundled entry still exists when copying/indexing
+        // fails. Do not leave it claiming npm ownership. A committed package
+        // whose later notification failed must keep its new origin, however.
+        if (recorded && !hasManaged()) await this.#recordOrigin(`${entry.id}@${entry.version}`, previousOrigin);
+        throw cause;
+      }
     });
     this.#adding = run.catch(() => undefined);
     return run;
