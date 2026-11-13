@@ -150,7 +150,7 @@ describe("plugin catalog API", () => {
       indexedWhenClosed = indexed;
       return closePluginServices.call(this);
     });
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-close-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-close-")), bundledPluginsDirectory: path.resolve(".runtime/preinstalled-plugin-sources") });
     apps.push(app);
     // Indexing finishes only once shutdown has started.
     app.addHook("preClose", async () => { setTimeout(finishIndexing, 200); });
@@ -235,7 +235,7 @@ describe("plugin catalog API", () => {
       await this.grants.consent("acme/tools", ["process:node"]);
       return results;
     });
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-api-")), bundledPluginsDirectory: path.resolve(".runtime/preinstalled-plugin-sources") });
     apps.push(app);
     await app.ready();
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
@@ -255,7 +255,7 @@ describe("plugin catalog API", () => {
       return addBundled.call(this, directory);
     });
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-store-api-"));
-    const app = createApp({ dataDirectory });
+    const app = createApp({ dataDirectory, bundledPluginsDirectory: path.resolve(".runtime/preinstalled-plugin-sources") });
     apps.push(app);
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -389,11 +389,11 @@ describe("plugin catalog API", () => {
       // Home knows no project yet, so it offers each with what it suits; a mention keeps its old form.
       expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
       expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
-      // One off in every project is offered too, to turn on in the new project; the app's own ask for nothing more.
+      // One off in every project is offered too; preinstalled network access still needs consent.
       expect.objectContaining({ id: "ohmygame/unity", off: true }),
       expect.objectContaining({ id: "ohmygame/unreal-engine", off: true }),
     ]));
-    expect(home.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/unreal-engine")).not.toHaveProperty("asks");
+    expect(home.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/unreal-engine")).toHaveProperty("asks", ["network:127.0.0.1", "network:localhost"]);
     // Plugins that add a project type are picked as the type instead.
     expect(home.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
     // One turned off in every project is offered as off, and its Skills aren't.
@@ -513,7 +513,7 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/unity/every-project", payload: { on: true } })).statusCode).toBe(204);
     const unity = ((await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as typeof store).find((plugin) => plugin.id === "ohmygame/unity");
     expect(unity?.everyProject).toBe(true);
-    expect(store.every((plugin) => plugin.bundled)).toBe(true);
+    expect(store.every((plugin) => !plugin.bundled)).toBe(true);
     // Only an installed plugin can be switched, so nothing waits for a package added later under that id.
     expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/later/every-project", payload: { on: true } })).statusCode).toBe(409);
   });

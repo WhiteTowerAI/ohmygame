@@ -1,7 +1,0 @@
-{
-  "displayName": "Tiled",
-  "description": "制作瓦片地图、碰撞和玩法对象层。",
-  "longDescription": "创建或编辑 TMX/TMJ 地图和 TSX/TSJ 图块集，保留图片引用和玩法属性，用本机的 Tiled 命令行导出，并在游戏引擎里检查效果。",
-  "example.1": "用 Tiled 做一个小关卡，包含玩家出生点、碰撞层和终点，再接入这个游戏。",
-  "example.2": "检查这张 Tiled 地图的图块集、对象属性和在目标引擎里的导入。"
-}

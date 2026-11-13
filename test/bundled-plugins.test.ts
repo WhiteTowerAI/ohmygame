@@ -10,7 +10,7 @@ describe("bundled plugins", () => {
   async function bundled() {
     const services = new PluginServices({
       directory: path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-")), "store"),
-      bundled: path.resolve("plugins"),
+      bundled: path.resolve(".runtime/preinstalled-plugin-sources"),
       bundledOff: BUNDLED_PLUGINS_OFF,
     });
     await services.ready();
@@ -80,7 +80,7 @@ describe("bundled plugins", () => {
     const store = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-gone-")), "store");
     const folders = async (names: string[]) => {
       const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-folders-"));
-      for (const name of names) await cp(path.resolve("plugins", name), path.join(directory, name), { recursive: true });
+      for (const name of names) await cp(path.resolve(".runtime/preinstalled-plugin-sources", name), path.join(directory, name), { recursive: true });
       return directory;
     };
     const start = async (directory: string) => {

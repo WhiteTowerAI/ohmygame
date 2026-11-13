@@ -1023,7 +1023,7 @@ describe("plugin check", () => {
   });
 
   it("finds nothing wrong in the plugins the app ships or shows", async () => {
-    for (const folder of ["plugins/taptap-maker", "packages/plugin-ui/gallery"]) expect(await messages(folder, "error"), folder).toEqual([]);
+    for (const folder of [".runtime/preinstalled-plugin-sources/taptap-maker", "packages/plugin-ui/gallery"]) expect(await messages(folder, "error"), folder).toEqual([]);
   });
 
   it("fails on what can't work", async () => {

@@ -23,7 +23,7 @@ desktop lifecycle and native game windows; shared modules define contracts.
 | Image, sprite, and video tools  | `src/daemon/media-tools.ts`, `src/daemon/agent-tools.ts`, `src/daemon/pixel-art-fixer.ts`, `src/daemon/pixel-art-check.ts`                            | [Media processing tools](media-tools.md)                                                                                 | `test/media-tools.test.ts`, `test/agent-tools.test.ts`, `test/pixel-art-fixer.test.ts`, `test/pixel-art-check.test.ts`               |
 | Interactive Stories              | `src/shared/playable-*.ts`, `src/story-web/`, `src/daemon/story-web-project.ts`, `src/daemon/playable-project.ts`, `src/daemon/playable-presets.ts`, `src/daemon/assets/story-templates/`, `src/renderer/playable-editor-workspace.tsx` | [Playable Nodes](playable-nodes/README.md)                                                                              | `test/playable-graph.test.ts`, `test/playable-runtime.test.ts`, `test/story-web-project.test.ts`                                     |
 | MCP connections                  | `src/daemon/connections.ts`, `src/daemon/connection-routes.ts`, `src/renderer/connections-settings.tsx` | [Connections](plugins.md#connections) | `test/connections.test.ts`, `test/connections-api.test.ts` |
-| Plugins, Skills, and MCP         | `src/daemon/plugin-services.ts`, `src/daemon/plugin-mcp-host.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/tool-hooks.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-sessions.ts`, `src/daemon/plugin-authoring.ts`, `src/daemon/project-panels.ts`, `src/renderer/plugins.tsx`, `plugins/` | [Plugin package and runtime contract](plugins.md), [project panels](plugins.md#project-panels), [app sessions](plugins.md#app-sessions-and-persistent-connections) | `test/tool-hooks.test.ts`, `test/plugin-mcp-host.test.ts`, `test/extension-hosts.test.ts`, `test/plugin-sessions.test.ts`, `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`, `test/plugin-files-api.test.ts` |
+| Plugins, Skills, and MCP         | `src/daemon/plugin-services.ts`, `src/daemon/plugin-mcp-host.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/tool-hooks.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-sessions.ts`, `src/daemon/plugin-authoring.ts`, `src/daemon/project-panels.ts`, `src/renderer/plugins.tsx`, `config/preinstalled-plugins.json` | [Plugin package and runtime contract](plugins.md), [project panels](plugins.md#project-panels), [app sessions](plugins.md#app-sessions-and-persistent-connections) | `test/tool-hooks.test.ts`, `test/plugin-mcp-host.test.ts`, `test/extension-hosts.test.ts`, `test/plugin-sessions.test.ts`, `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugin author tools and development | `src/daemon/plugin-pack.ts`, `src/daemon/plugin-check.ts`, `src/daemon/plugin-development.ts`, `src/daemon/plugin-export.ts`, `src/shared/plugin-template.ts`, `packages/plugin-cli/`, `packages/create-ohmygame-plugin/`, `packages/plugin-examples/` | [Tools for plugin authors](plugins.md#tools-for-plugin-authors) | `test/plugin-pack.test.ts`, `test/plugin-sources.test.ts` |
 | Built-in browser | `src/shared/browser.ts`, `src/daemon/browser-store.ts`, `src/desktop/browser-views.ts`, `src/desktop/browser-driver.ts`, `src/daemon/browser-tools.ts`, `src/daemon/web-fetch.ts`, `src/renderer/browser-panel.tsx` | [Browser panel](runtime.md#browser-panel), [plugin browser contributions](plugins.md#browser) | `test/browser-store.test.ts`, `test/browser-views.test.ts`, `test/browser-panel.test.tsx`, `test/web-fetch.test.ts` |
 | Desktop lifecycle and updates    | `src/desktop/main.ts`, `src/desktop/daemon-supervisor.ts`, `src/desktop/updater.ts`, `src/desktop/update-check-scheduler.ts`, `src/renderer/changelog-panel.tsx`, `src/shared/changelog.ts`                                                           | [Runtime](runtime.md), [service recovery](runtime-recovery.md), [desktop releases](desktop-releases.md)                 | `test/daemon-supervisor.test.ts`, `test/desktop-updater.test.ts`, `test/desktop-update-scheduler.test.ts`, `test/desktop-runtime-packaging.test.ts`, `test/desktop-release-notes.test.ts`, `test/changelog-panel.test.tsx`                          |
@@ -156,32 +156,32 @@ guidance in [CONTRIBUTING.md](../CONTRIBUTING.md#make-and-check-your-change).
 For the additional engine, mini-game, and asset-tool Beta packages, use the
 [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md).
 
-- [Blender Assets](../plugins/blender/skills/blender-assets/SKILL.md),
-  [Godot Game](../plugins/godot/skills/godot-game/SKILL.md),
-  [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md), and
-  [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md).
+- [Blender Assets](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/blender/skills/blender-assets/SKILL.md),
+  [Godot Game](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/godot/skills/godot-game/SKILL.md),
+  [TapTap Maker](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-maker/SKILL.md), and
+  [TapTap Release](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-release/SKILL.md).
 
-- [Game Studio](../plugins/game-studio/skills/game-studio/SKILL.md),
-  [Game Foundations](../plugins/game-studio/skills/game-foundations/SKILL.md),
-  and [Game QA](../plugins/game-studio/skills/game-qa/SKILL.md).
-- [Web Game Studio](../plugins/web-game-studio/skills/web-game-studio/SKILL.md),
-  [Web Game Foundations](../plugins/web-game-studio/skills/web-game-foundations/SKILL.md),
-  [Game Playtest](../plugins/web-game-studio/skills/game-playtest/SKILL.md),
-  [Game Tuning](../plugins/web-game-studio/skills/game-tuning/SKILL.md),
-  [Game UI Frontend](../plugins/web-game-studio/skills/game-ui-frontend/SKILL.md),
-  [Phaser 2D](../plugins/web-game-studio/skills/phaser-2d-game/SKILL.md),
-  [React Three Fiber](../plugins/web-game-studio/skills/react-three-fiber-game/SKILL.md),
-  [Three.js](../plugins/web-game-studio/skills/three-webgl-game/SKILL.md),
-  [Sprite Pipeline](../plugins/web-game-studio/skills/sprite-pipeline/SKILL.md),
-  and [Web 3D Assets](../plugins/web-game-studio/skills/web-3d-asset-pipeline/SKILL.md).
+- [Game Studio](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/game-studio/skills/game-studio/SKILL.md),
+  [Game Foundations](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/game-studio/skills/game-foundations/SKILL.md),
+  and [Game QA](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/game-studio/skills/game-qa/SKILL.md).
+- [Web Game Studio](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/web-game-studio/SKILL.md),
+  [Web Game Foundations](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/web-game-foundations/SKILL.md),
+  [Game Playtest](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/game-playtest/SKILL.md),
+  [Game Tuning](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/game-tuning/SKILL.md),
+  [Game UI Frontend](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/game-ui-frontend/SKILL.md),
+  [Phaser 2D](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/phaser-2d-game/SKILL.md),
+  [React Three Fiber](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/react-three-fiber-game/SKILL.md),
+  [Three.js](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/three-webgl-game/SKILL.md),
+  [Sprite Pipeline](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/sprite-pipeline/SKILL.md),
+  and [Web 3D Assets](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/web-game-studio/skills/web-3d-asset-pipeline/SKILL.md).
 - Beta engine and platform workflows:
-  [Cocos Creator](../plugins/cocos-creator/skills/cocos-creator/SKILL.md),
-  [WeChat Mini Games](../plugins/wechat-minigame/skills/wechat-minigame/SKILL.md),
-  [Douyin Mini Games](../plugins/douyin-minigame/skills/douyin-minigame/SKILL.md),
-  [Unity](../plugins/unity/skills/unity-game/SKILL.md), and
-  [Unreal Engine](../plugins/unreal-engine/skills/unreal-game/SKILL.md).
-- Beta asset tools: [Aseprite](../plugins/aseprite/skills/aseprite-assets/SKILL.md)
-  and [Tiled](../plugins/tiled/skills/tiled-maps/SKILL.md).
+  [Cocos Creator](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/cocos-creator/skills/cocos-creator/SKILL.md),
+  [WeChat Mini Games](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/wechat-minigame/skills/wechat-minigame/SKILL.md),
+  [Douyin Mini Games](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/douyin-minigame/skills/douyin-minigame/SKILL.md),
+  [Unity](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/unity/skills/unity-game/SKILL.md), and
+  [Unreal Engine](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/unreal-engine/skills/unreal-game/SKILL.md).
+- Beta asset tools: [Aseprite](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/aseprite/skills/aseprite-assets/SKILL.md)
+  and [Tiled](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/tiled/skills/tiled-maps/SKILL.md).
 
 Plugin brand assets and their per-package source notices are described in
 [Plugin logos](plugin-logos.md).
