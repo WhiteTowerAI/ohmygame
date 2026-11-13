@@ -1,3 +1,4 @@
+import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
@@ -1496,9 +1497,31 @@ export function createApp(options: AppOptions = {}) {
     pluginModelProvidersReady = syncPluginModelProviders()
       .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
     void syncPluginAgents();
+    // Slow indexing or connections must not hold the application's ready gate.
+    void Promise.all([pluginServicesReady, pluginModelProvidersReady])
+      .then(() => pluginServices.native.startPersistent(() => pluginServices.everyProject()))
+      .catch((err: unknown) => app.log.warn({ err }, "Could not start app plugins"));
     // Folders in development may have changed while the app was closed.
     void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
+
+  pluginServices.native.serveSessions(new PluginSessions({
+    projects, conversations, agents, events,
+    prepare: async (project, conversation) => {
+      const selected = await conversations.model(project, conversation);
+      if (selected && !modelProviderEnabled(selected.provider)) throw new Error("The selected provider is disabled. Enable it in Settings to continue.");
+      if (!selected && !agents.sessionRuntime(project.id, conversation.summary.id) && !await startConversationOnDefault(project, conversation)) throw new Error("Choose a model in OhMyGame first");
+      if (project.pluginType) {
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en");
+        if (!ready.ready) throw new Error(ready.message ?? "Finish setting up this project in its panel first");
+      }
+    },
+    sent: (project, conversation, text) => {
+      void projects.touch(project.id).catch((err: unknown) => app.log.warn({ err }, "Could not update plugin project activity"));
+      const titled = conversations.setInitialTitle(project, conversation.summary.id, text);
+      if (titled) publishConversationRenamed(titled);
+    },
+  }));
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
   app.addHook("onRequest", async (request, reply) => {
@@ -4878,6 +4901,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await pluginServices.native.stopPersistent();
     limitContinuations.close();
     await scheduledMessages.close();
     notices.close();

@@ -1242,6 +1242,7 @@ const zhCN: typeof en = {
     developmentError: "文件夹最近的改动没能添加",
     homepage: "主页",
     doesNotSuitProject: "这个插件不能用于那个项目。",
+    sessionScopeHint: "设为所有项目开启后，此插件会在后台运行，并可访问所有项目的对话。单个项目的插件开关不会限制这项访问权限。",
     scopeHint: "设为所有项目开启后，它会在每个适用的项目中开启。在项目的插件面板里，或用 @ 提及它，可以只为那个项目开启或关闭。",
     asksFor: "请求的权限",
     adds: "提供的内容",
@@ -1278,6 +1279,7 @@ const zhCN: typeof en = {
     notInstalled: "没有安装这个插件。",
   },
   pluginCapabilities: {
+    sessions: "在后台读取所有项目的对话、发送消息和停止任务",
     native: "在这台电脑上运行自己的代码",
     processes: "运行这些程序",
     network: "连接这些网站",
@@ -2391,6 +2393,7 @@ const zhCN: typeof en = {
     saveFailed: "无法保存图片",
   },
   timeline: {
+    pluginSource: "来自 {{plugin}}",
     earlierMessages: "显示更早的消息",
     waitingToSteer: "等待引导",
     branchChat: "在新聊天中创建分支",

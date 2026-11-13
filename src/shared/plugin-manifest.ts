@@ -170,6 +170,8 @@ const Capabilities = Type.Object(
      * contain a plugin that ignores it.
      */
     game: Type.Optional(Type.Boolean()),
+    /** App-wide native session access and persistent activation (API 2.5.0). */
+    sessions: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
         Type.String({ pattern: "^[a-z0-9.-]+(?::\\d+)?$", maxLength: 253 }),
@@ -1208,6 +1210,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         ? "a native entrypoint needs the native capability"
         : "the native capability needs a native entrypoint",
     );
+  if (capabilities.sessions && !native)
+    issue("/capabilities/sessions", "only native code accesses app sessions");
   if (capabilities.game && !native)
     issue("/capabilities/game", "only native code plays the game");
 

@@ -1,3 +1,4 @@
+import type { PluginSessionRequest, PluginSessionResults, PluginSessions } from "../shared/plugin-sessions.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,6 +35,7 @@ interface LoadedPlugin {
   hooks: Map<string, ToolHandler>;
   disposers: Array<() => void | Promise<void>>;
   deactivate?: () => void | Promise<void>;
+  cancelSessions?: () => void;
 }
 
 const plugins = new Map<string, LoadedPlugin>();
@@ -56,6 +58,33 @@ const project =
 
 function send(message: HostMessage) {
   if (process.connected) process.send?.(message, () => {});
+}
+
+const sessionCalls = new Map<number, { resolve(value: unknown): void; reject(error: unknown): void }>();
+let nextSessionCall = 1;
+function pluginSessions(plugin: string, lifetime: AbortSignal): PluginSessions {
+  return {
+    request<R extends PluginSessionRequest>(request: R, options?: { signal?: AbortSignal }): Promise<PluginSessionResults[R["operation"]]> {
+      const signal = AbortSignal.any([lifetime, AbortSignal.timeout(30_000), ...(options?.signal ? [options.signal] : [])]);
+      if (signal.aborted || leaving) return Promise.reject(new Error("Session request cancelled"));
+      if (sessionCalls.size >= 64) return Promise.reject(new Error("Too many session requests"));
+      const id = nextSessionCall++;
+      return new Promise((resolve, reject) => {
+        const abort = () => {
+          sessionCalls.delete(id);
+          send({ type: "sessions-cancel", id });
+          reject(signal.reason);
+        };
+        const cleanup = () => signal.removeEventListener("abort", abort);
+        sessionCalls.set(id, {
+          resolve: (value) => { cleanup(); resolve(value as PluginSessionResults[R["operation"]]); },
+          reject: (error) => { cleanup(); reject(error); },
+        });
+        signal.addEventListener("abort", abort, { once: true });
+        send({ type: "sessions", id, plugin, request });
+      });
+    },
+  };
 }
 
 /** `context.game` requests waiting for the daemon's `game-reply`. */
@@ -193,11 +222,15 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
       },
     };
   };
+  const sessionLifetime = new AbortController();
+  loaded.cancelSessions = () => sessionLifetime.abort(new Error("Plugin deactivated"));
   const context: PluginContext = {
     pluginId: plugin.id,
     version: plugin.version,
     ...(project ? { project } : {}),
     dataFolder: plugin.dataFolder,
+    configuration: Object.freeze(plugin.configuration ?? {}),
+    ...(plugin.sessions && !project ? { sessions: pluginSessions(plugin.id, sessionLifetime.signal) } : {}),
     registerTool: (name, handler) =>
       register("tool", plugin.tools, loaded.tools, name, handler),
     registerCommand: (name, handler) =>
@@ -254,6 +287,7 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
 }
 
 async function disposeAll(loaded: LoadedPlugin) {
+  loaded.cancelSessions?.();
   loaded.tools.clear();
   loaded.commands.clear();
   loaded.projectTypes.clear();
@@ -358,6 +392,13 @@ process.on("message", (message: HostRequest) => {
     case "cancel":
       calls.get(message.id)?.abort(new Error("Plugin call cancelled"));
       return;
+    case "sessions-reply": {
+      const call = sessionCalls.get(message.id);
+      sessionCalls.delete(message.id);
+      if (message.error !== undefined) call?.reject(new Error(message.error));
+      else call?.resolve(message.value);
+      return;
+    }
     case "game-reply": {
       const call = gameCalls.get(message.id);
       gameCalls.delete(message.id);
@@ -400,6 +441,8 @@ async function leave() {
     controller.abort(new Error("Extension host stopping"));
   for (const call of gameCalls.values()) call.reject(new Error("Extension host stopping"));
   gameCalls.clear();
+  for (const call of sessionCalls.values()) call.reject(new Error("Extension host stopping"));
+  sessionCalls.clear();
   // A plugin still activating gets its cleanup too, once it is active.
   while (lifecycle.size) await Promise.allSettled([...lifecycle]);
   await Promise.allSettled([...plugins.keys()].map(deactivate));

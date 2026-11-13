@@ -847,8 +847,11 @@ export interface PlanState {
   steps: PlanStep[];
 }
 
+/** Trusted daemon metadata, never parsed from message text. */
+export interface PromptSource { plugin: string }
+
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
+  | { id: string; turnId: string; type: "userMessage"; text: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -1460,7 +1463,7 @@ export interface RuntimeEventData {
   "preview.picked": { client: string; pick?: PreviewPick };
   /** The project's tuned values, or who listens for them, changed. */
   "preview.tuning": GameTuningState;
-  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; source?: PromptSource; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
   "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };

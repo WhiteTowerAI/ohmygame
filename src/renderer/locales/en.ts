@@ -1260,6 +1260,7 @@ const en = {
     developmentError: "The folder's latest changes couldn't be added",
     homepage: "Homepage",
     doesNotSuitProject: "This plugin doesn't work in that project.",
+    sessionScopeHint: "When enabled for all projects, this plugin runs in the background and can access conversations across projects. Individual project switches do not limit that access.",
     scopeHint: "Switched on for every project, it is on in each project it works in. A project's Plugins sheet, or mentioning it with @, turns it on or off in that project alone.",
     asksFor: "Asks for",
     adds: "Adds",
@@ -1296,6 +1297,7 @@ const en = {
     notInstalled: "This plugin isn't installed.",
   },
   pluginCapabilities: {
+    sessions: "Read conversations across projects, send messages and stop agents in the background",
     native: "Run its own code on this computer",
     processes: "Run these programs",
     network: "Connect to these sites",
@@ -2423,6 +2425,7 @@ const en = {
     saveFailed: "Could not save the image",
   },
   timeline: {
+    pluginSource: "From {{plugin}}",
     earlierMessages: "Show earlier messages",
     waitingToSteer: "Waiting to steer",
     branchChat: "Branch in new chat",

@@ -8417,6 +8417,8 @@ button {
   font-size: 10px;
 }
 
+.user-message-source { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+
 .user-message-contexts {
   display: flex;
   max-width: min(86%, 520px);

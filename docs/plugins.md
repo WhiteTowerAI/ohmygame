@@ -190,7 +190,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | Static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
 ## Agent instructions
 
@@ -266,6 +266,88 @@ command the app runs, every message arrives as `plugin.command.progress`;
 the project offers to open a link after showing its host, and the plugin's
 own pages get the message as their `progress` event. An agent's tool call
 shows it in the call's progress.
+
+### App sessions and persistent connections
+
+API 2.5 adds `capabilities.sessions: true` for native plugins. The install/enable
+review asks separately to read conversations across projects, send text and stop
+agents. Turn the plugin on for every project to start its app activation; a
+project-only grant never enables this interface. Legacy consent migration does
+not grant it. Native code remains fully trusted Node code, not a sandbox.
+
+The app host activates these plugins after startup even with no project open,
+keeps them alive past the idle timeout, and retries disconnected hosts every two
+seconds. Repeated crashes quarantine the loaded session plugins. Activation
+failures back off up to 30 seconds. Configuration changes deactivate and reactivate
+the plugin; package reloads restart its host. Disable, uninstall, safe mode and
+Quit stop it. Register connection cleanup with `context.onDispose`, and return
+from `activate` after starting the connection; do not await its entire lifetime.
+Closing a project does not end an app connection. Desktop close-to-background
+remains the person's separate opt-in setting.
+
+`context.project` is absent in the app host. `context.configuration` contains the
+activation's settings (including secrets only when granted); per-call
+`call.configuration` remains available. `context.sessions` is absent in project
+hosts and plugins without the grant. The daemon checks current grants and host
+generation on every request, after waits and immediately before mutations.
+
+```js
+export async function activate(context) {
+  if (!context.sessions) return; // This entry may also activate in a project.
+  const { projects } = await context.sessions.request({ operation: "projects" });
+  // Connect your service here; close it in context.onDispose().
+}
+```
+
+Types live in `src/shared/plugin-sessions.ts`. `sessions.request(request,
+{ signal? })` accepts:
+
+| Operation | Input besides `operation` | Result |
+| --- | --- | --- |
+| `projects` | none | `projects: [{ id, name }], truncated` |
+| `conversations` | `projectId` | `conversations: [{ id, title }], truncated` |
+| `create` | `projectId` | New conversation `id`; empty conversations are not saved across app restarts |
+| `read` | `projectId, conversationId` | `messages, truncated, status, needsApproval, cursor` |
+| `send` | `projectId, conversationId, text` | Accepted `turnId`, before execution completes |
+| `stop` | `projectId, conversationId` | `stopped`, whether an active turn was asked to stop |
+| `events` | `projectId, after?, waitMs?` | `cursor, reset, events` with types, conversation/turn IDs and timestamps |
+
+Text messages are 1–32,000 characters. Lists return at most 500 entries; reads
+return the latest 200 user/assistant messages, at most 32,000 characters per
+message and 256,000 total, with explicit truncation. They exclude binary
+attachments, reasoning and raw tool payloads. Assistant messages include their
+status and, on failure, an error message (at most 2,000 characters) and optional
+code, including empty cancelled/failed responses after event history expires.
+Messages carry structured
+`source: { plugin }` when supplied by a plugin; this attribution also appears in
+the app and survives history reload. The agent receives an external-source
+notice. Editing a plugin message in the app creates human input without that
+attribution. The optional source field extends stored prompt details version 1;
+older histories remain readable and no existing records are rewritten.
+
+Send rejects busy projects and planned, archived or unready conversations. It
+uses the conversation's selected model or the app default; it never adds an
+implicit follow-up or changes a person's selected model. Pending dangerous-action
+approvals still require the person in OhMyGame. There is deliberately **no plugin
+approve/deny operation**. A future authenticated human approval transport must
+use the app's existing approval domain, not interpret bot text as consent.
+
+Read a snapshot first, then pass its cursor to `events`. Omitted `after` returns
+the current baseline. `waitMs` is 0–25,000; events wake promptly and contain
+metadata only, so re-read for content. A daemon restart or overflow of the
+existing 1,000-event buffer returns `reset: true`: re-read the snapshot and use
+its cursor. Repeated events are possible; missing history is never silently
+accepted as a complete replay. Each host permits at most 64 in-flight session
+requests, each with a 30-second client timeout.
+
+Cancellation, plugin disable or a disconnected host cancels waiting requests,
+**not an accepted agent turn**. Stop is explicit. A send reply confirms admission,
+not successful execution; observe subsequent state/events. Delivery is not
+exactly-once: after a lost acknowledgement, inspect conversation history and
+reconcile external message IDs before deciding whether to send again. Never
+blindly retry a send or create request. External connections own their durable
+deduplication, reconnection and credentials in the plugin's data folder; the
+session API does not persist a delivery queue.
 
 With `capabilities.game` (API 2.3.0), a project's context has `game`: the
 project's game as the agent's [`game_use`](runtime.md#agent-game-use) plays

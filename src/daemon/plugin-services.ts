@@ -838,7 +838,8 @@ export class PluginServices {
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
       await this.grants.consent(
         result.entry.id,
-        capabilityGrants(result.entry.manifest),
+        // Cross-project session access always needs a person's explicit consent, even for bundled updates.
+        capabilityGrants(result.entry.manifest).filter((grant) => grant !== "sessions"),
       );
     }
     // A plugin the app no longer brings goes too, not only an older version of

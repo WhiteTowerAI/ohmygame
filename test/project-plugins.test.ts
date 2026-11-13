@@ -703,7 +703,7 @@ describe("project plugins", () => {
     }, projects: { "/games/maze": { "ohmygame/godot": { allowed: ["native"] }, "someone/tilemaps": { allowed: [] } } } }));
     const grants = new PluginGrants(file);
     await grants.load();
-    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example"]], ["acme/new", []]]));
+    await grants.upgrade(new Map([["ohmygame/godot", ["native"]], ["someone/tilemaps", ["network:b.example", "sessions"]], ["acme/new", []]]));
     expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: true, everyProject: false, allowed: ["native"] });
     expect(grants.plugin("someone/tilemaps")).toEqual({ enabled: true, everyProject: true, allowed: ["network:a.example", "network:b.example"] });
     // A project that turns the stopped one on asks for it again.

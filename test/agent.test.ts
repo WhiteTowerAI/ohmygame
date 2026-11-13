@@ -752,6 +752,34 @@ describe("shutDownExtensionsOnDispose", () => {
 });
 
 describe("AgentManager", () => {
+  it("attributes plugin input live and on replay, rejects concurrent plugin sends, and clears source on human follow-up", async () => {
+    const session = new FakeSession();
+    const pending = deferred<void>();
+    session.prompt.mockImplementation(() => pending.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const source = { plugin: "acme/messenger" };
+    try {
+      const turn = manager.prompt(project, conversation, "Build", [], [], "normal", [], "00000000-0000-0000-0000-000000000001", "", [], source);
+      await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+      expect(manager.activeItems(project.id, conversation.summary.id)[0]).toMatchObject({ text: "Build", source });
+      expect(events.since(project.id).find((event) => event.type === "agent.started")?.data).toMatchObject({ source });
+      const wire = session.prompt.mock.calls[0]![0];
+      expect(wire).toContain("not a human approval");
+      const details = session.appendCustomEntry.mock.calls.find(([type]) => type === "ohmygame-user-prompt")![1];
+      expect(conversationItems([sessionEntry("details", "ohmygame-user-prompt", details as object), sessionMessage("user", { role: "user", content: wire, timestamp: 1 })] as never, false)[0]).toMatchObject({ text: "Build", source });
+      expect(() => manager.prompt(project, conversation, "Duplicate", [], [], "normal", [], "00000000-0000-0000-0000-000000000002", "", [], source)).toThrow("Wait for the project");
+      const follow = manager.prompt(project, conversation, "Human follow-up");
+      await follow.result;
+      session.emit({ type: "message_start", message: { role: "user", content: "Human follow-up", timestamp: 2 } } as never);
+      expect(manager.activeItems(project.id, conversation.summary.id)[0]).not.toHaveProperty("source");
+      pending.resolve();
+      await turn.result;
+    } finally { pending.resolve(); await manager.close(); }
+  });
+
   it.each(["completed", "cancelled", "failed"] as const)("runs owned-resource cleanup after a %s prompt", async (outcome) => {
     const session = new FakeSession();
     const pending = deferred<void>();
