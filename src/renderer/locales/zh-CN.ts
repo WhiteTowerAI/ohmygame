@@ -336,6 +336,9 @@ const zhCN: typeof en = {
       runSound: "提示音",
       runSoundHint: "同时播放一声提示音。",
       system: "系统",
+      backgroundRunning: "关闭窗口后继续在后台运行",
+      backgroundRunningWindowsHint: "从系统托盘重新打开或退出。电脑休眠时连接暂停。",
+      backgroundRunningMacHint: "从 Dock 重新打开，选择“退出 OhMyGame”停止运行。电脑休眠时连接暂停。",
       keepAwake: "运行时保持唤醒",
       keepAwakeHint: "有 agent 在运行时不让电脑休眠。",
       autoUpdate: "自动更新",
@@ -4167,6 +4170,7 @@ const zhCN: typeof en = {
     close: "关闭",
   },
   windowMenu: {
+    openApp: "打开 OhMyGame",
     file: "文件",
     edit: "编辑",
     view: "视图",

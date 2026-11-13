@@ -149,6 +149,7 @@ function GeneralSettings() {
       </SettingsGroup>
       {desktop ? (
         <SettingsGroup title={t("settings.general.system")}>
+          {window.ohMyGameDesktop?.backgroundRunning ? <BackgroundRunningRow /> : null}
           <SettingsRow title={t("settings.general.keepAwake")} description={t("settings.general.keepAwakeHint")}>
             <Switch label={t("settings.general.keepAwake")} checked={preferences.keepAwake} onChange={(value) => change("keepAwake", value)} />
           </SettingsRow>
@@ -161,6 +162,35 @@ function GeneralSettings() {
       ) : null}
     </>
   );
+}
+
+/** The desktop owns this preference so it is available before a renderer opens. */
+function BackgroundRunningRow() {
+  const bridge = window.ohMyGameDesktop!.backgroundRunning!;
+  const [enabled, setEnabled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void bridge.get().then((value) => {
+      if (active) { setEnabled(value); setLoaded(true); }
+    }, (cause: unknown) => { if (active) setError(String(cause)); });
+    return () => { active = false; };
+  }, [bridge]);
+  async function change(value: boolean) {
+    setBusy(true);
+    setError(undefined);
+    try { setEnabled(await bridge.set(value)); }
+    catch (cause) { setError(String(cause)); }
+    finally { setBusy(false); }
+  }
+  return <>
+    <SettingsRow title={t("settings.general.backgroundRunning")} description={t(window.ohMyGameDesktop?.platform === "win32" ? "settings.general.backgroundRunningWindowsHint" : "settings.general.backgroundRunningMacHint")}>
+      <Switch label={t("settings.general.backgroundRunning")} checked={enabled} disabled={!loaded || busy} onChange={(value) => { void change(value); }} />
+    </SettingsRow>
+    {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+  </>;
 }
 
 /** Where new projects go when no folder is chosen for them. */

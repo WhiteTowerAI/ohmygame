@@ -75,6 +75,9 @@ is dropped, as is one for a new conversation with no reply yet when OhMyGame
 restarts, because such a conversation isn't saved.
 `src/renderer/later-command.ts` reads the command.
 
+[Desktop background running](runtime.md#desktop-background-running) covers the
+opt-in close behavior, Windows tray, window restoration and explicit Quit.
+
 **Settings → Account** shows agents' token use and time whether or not someone
 is signed in: totals, a year of daily activity, use by model and project, and an
 image to share in three layouts, with the signed-in person's avatar and name

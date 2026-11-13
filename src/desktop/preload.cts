@@ -41,6 +41,10 @@ if (process.isMainFrame) {
     updateUsageData: (enabled: boolean, initialize: boolean) =>
       ipcRenderer.invoke("ohmygame:update-usage-data", enabled, initialize) as Promise<boolean>,
     restartApp: () => ipcRenderer.invoke("ohmygame:restart-app") as Promise<void>,
+    ...(process.platform === "darwin" || process.platform === "win32" ? { backgroundRunning: Object.freeze({
+      get: () => ipcRenderer.invoke("ohmygame:background-running") as Promise<boolean>,
+      set: (enabled: boolean) => ipcRenderer.invoke("ohmygame:background-running", enabled) as Promise<boolean>,
+    }) } : {}),
     setKeepAwake: (enabled: boolean) => ipcRenderer.invoke("ohmygame:set-keep-awake", enabled) as Promise<void>,
     focusWindow: () => ipcRenderer.invoke("ohmygame:focus-window") as Promise<void>,
     onPrepareClose: (listener: () => Promise<void>) => {
