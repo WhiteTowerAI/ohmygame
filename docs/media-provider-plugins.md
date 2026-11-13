@@ -147,7 +147,14 @@ plugin API. Every kind's input also has `modelData` when the model has
   base64 }]`, pictures only), and `referenceMode` when there are references:
   `frame` (the first, and the last if there are two) or `reference` (a look
   to follow). A model's `referenceModes` lists the modes it takes, `frame`
-  when it leaves them out.
+  when it leaves them out. API 2.7 adds `imageAspectRatios` (with pictures) and
+  `frameAspectRatios` (with first/last frames, taking precedence). With no
+  pictures, `aspectRatios` applies; omitted overrides fall back to it. Each
+  override must be a nonempty list of supported ratios and requires
+  `maxReferenceImages > 0`; `frameAspectRatios` also requires frame mode.
+  These lists may differ: a provider can offer only `adaptive` for frames
+  while requiring a concrete text-to-video ratio. The picker and request
+  validation use the same rule, including discovered models saved in Settings.
 - **Audio:** `model`, `kind` (one of the model's), `prompt` (the words for a
   model that reads text, a description for the rest), `format` (one of the
   model's), `voiceId` for a model that reads text (one of its `voices`, the
@@ -312,7 +319,11 @@ can't promise what the plugin doesn't do.
    *Done.*
 5. Listing the vendor's models (`discoverModels`, `models`, a model's `data`),
    with switches in Settings. *Done.*
-6. Later: 3D retexture, remesh and animation, transcription, and voices
+6. Vendor migration starts with an optional MiniMax video adapter and the
+   reference-ratio contract above. Existing builtin keys and model references
+   remain until a separate migration is verified against a published package.
+   Follow [#809](https://github.com/WhiteTowerAI/ohmygame/issues/809).
+7. Later: 3D retexture, remesh and animation, transcription, and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.

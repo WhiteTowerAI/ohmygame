@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
 import type { ImageModel, Model3DModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
 import { inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput } from "./model3d.js";
@@ -179,6 +180,8 @@ export class PluginMediaProviders {
             maxImageReferences: model.maxReferenceImages ?? 0,
             imageReferenceMode: referenceModes[0]!,
             referenceModes,
+            ...(model.imageAspectRatios ? { imageAspectRatios: model.imageAspectRatios } : {}),
+            ...(model.frameAspectRatios ? { frameAspectRatios: model.frameAspectRatios } : {}),
           };
         }),
       };
@@ -378,12 +381,13 @@ export class PluginMediaProviders {
     if (!item?.media.video) throw new VideoGenerationError("The selected video provider is unavailable. Check its plugin and key.", 503);
     const duration = input.duration ?? model.durations[0]!;
     const resolution = input.resolution ?? model.resolutions[0]!;
-    const aspectRatio = input.aspectRatio ?? model.aspectRatios[0]!;
-    if (!model.durations.includes(duration)) throw new VideoGenerationError("Video duration is not supported by the selected model", 400);
-    if (!model.resolutions.includes(resolution)) throw new VideoGenerationError("Video resolution is not supported by the selected model", 400);
-    if (!model.aspectRatios.includes(aspectRatio)) throw new VideoGenerationError("Video aspect ratio is not supported by the selected model", 400);
     const references = input.references ?? [];
     const referenceMode = input.referenceMode ?? model.imageReferenceMode ?? "frame";
+    const ratios = videoReferenceAspectRatios(model, references.length, referenceMode);
+    const aspectRatio = input.aspectRatio ?? ratios[0]!;
+    if (!model.durations.includes(duration)) throw new VideoGenerationError("Video duration is not supported by the selected model", 400);
+    if (!model.resolutions.includes(resolution)) throw new VideoGenerationError("Video resolution is not supported by the selected model", 400);
+    if (!ratios.includes(aspectRatio)) throw new VideoGenerationError("Video aspect ratio is not supported by the selected model", 400);
     if (references.length && !(model.referenceModes ?? [referenceMode]).includes(referenceMode)) throw new VideoGenerationError("The selected video model does not support this reference mode", 400);
     if (references.some((reference) => reference.type !== "image")) throw new VideoGenerationError("Plugin video providers take image references only", 400);
     // As frames, two at most: the first and the last.

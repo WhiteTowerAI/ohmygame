@@ -260,6 +260,11 @@ describe("plugin manifest", () => {
     ]);
     // Video: lengths, resolutions and ratios it makes, and how it uses pictures.
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
+    const ratios = { ...video.models[0], imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] };
+    expect(mediaOf({ video: { models: [ratios] } })).toEqual([]);
+    for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
+      expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
+
     expect(messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video } }] } })).toEqual([]);
     expect(validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] },
       contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", video: { models: [{ ...video.models[0], durations: [60] }] } } }] } }).ok).toBe(false);
