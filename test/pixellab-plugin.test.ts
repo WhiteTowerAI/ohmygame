@@ -14,6 +14,7 @@ afterEach(async () => {
 it("packages a valid PixelLab plugin and uses the character animation API without local pose data", async () => {
   const manifest = JSON.parse(await readFile("plugins/pixellab/.ohmygame-plugin/plugin.json", "utf8"));
   expect(validatePluginManifest(manifest).ok).toBe(true);
+  expect(manifest.appliesTo).toBeUndefined();
 
   const commands = new Map<string, (input: unknown, call: unknown) => Promise<unknown>>();
   const plugin = await import(pathToFileURL(path.resolve("plugins/pixellab/native/index.mjs")).href);

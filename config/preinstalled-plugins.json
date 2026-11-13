@@ -3,9 +3,9 @@
   "plugins": [
     {
       "pluginId": "b7e1197d-4c7f-4a07-a68f-0cfa1f489712",
-      "releaseId": "20955e41-f75d-4fbc-8057-ea8e820e771d",
+      "releaseId": "7f9f8c7a-4c05-4c62-a6b2-41767edf6e1d",
       "source": "./plugins/pixellab",
-      "version": "1.0.1"
+      "version": "1.0.2"
     }
   ]
 }
