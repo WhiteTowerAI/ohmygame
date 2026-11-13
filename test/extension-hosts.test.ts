@@ -1801,6 +1801,7 @@ describe("plugin hooks", () => {
     const setup = await hookSetup([await hookPackage("tool-guard", ["tool.beforeCall", "tool.afterCall"], `
       context.registerHook("tool.beforeCall", (input) => {
         if (input.tool === "hang") return new Promise(() => {});
+        if (input.tool === "invalid") return { decision: ["deny"], reason: "Stop" };
         input.args.value = "changed";
         return { decision: "ask", reason: "Control the desktop" };
       });
@@ -1815,6 +1816,7 @@ describe("plugin hooks", () => {
       expect(approve).toHaveBeenCalledWith("acme/tool-guard", input, "Control the desktop", undefined);
       await gates.after({ ...input, status: "succeeded", text: "done" });
       expect(setup.notices).toContainEqual({ plugin: "acme/tool-guard", message: "succeeded: done", tone: "default" });
+      await expect(gates.before({ ...input, tool: "invalid" })).rejects.toThrow(/must return/);
       await expect(gates.before({ ...input, tool: "hang" })).rejects.toThrow(/timed out/);
     } finally { await setup.cleanup(); }
   });

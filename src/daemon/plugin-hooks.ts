@@ -73,7 +73,7 @@ export class PluginHooks {
             const answer = value as Record<string, unknown> | null;
             if (!answer || typeof answer !== "object" || Array.isArray(answer) ||
               Object.keys(answer).some((key) => key !== "decision" && key !== "reason") ||
-              !["allow", "deny", "ask"].includes(String(answer.decision)) ||
+              typeof answer.decision !== "string" || !["allow", "deny", "ask"].includes(answer.decision) ||
               (answer.reason !== undefined && (typeof answer.reason !== "string" || answer.reason.length > HOOK_NOTICE_MAX_CHARS)) ||
               (answer.decision !== "allow" && (typeof answer.reason !== "string" || !answer.reason.trim())))
               throw new Error("tool.beforeCall must return allow, deny or ask, with a reason for deny/ask; it cannot change arguments");

@@ -100,6 +100,7 @@ describe("plugin tool gates", () => {
     {},
     { decision: "allow", args: {} },
     { decision: "deny" },
+    { decision: ["deny"], reason: "Stop" },
     { decision: "ask", reason: " " },
     { decision: "allow", reason: "x".repeat(301) },
   ])("refuses malformed answers: %j", async (answer) => {
