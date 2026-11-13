@@ -76,6 +76,7 @@ function fakeBridge() {
       },
     ),
     layout: vi.fn(async () => {}),
+    ready: vi.fn(async () => {}),
     detach: vi.fn(async () => {}),
     capture: vi.fn(async () => new Uint8Array()),
     open: vi.fn(async (_projectId: string, url = "") => {

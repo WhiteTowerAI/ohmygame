@@ -36,6 +36,8 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "canvas_initialize",
   "generate_canvas_media",
   "game_use",
+  "browser_use",
+  "web_fetch",
   "playable_add_node",
   "playable_check",
 ] as const;
@@ -52,6 +54,7 @@ const JOB_TOOLS = new Set<string>([
 
 /** Why a public tool can be missing from a project's tools. */
 const UNAVAILABLE_HINTS: Record<string, string> = {
+  browser_use: "It needs this project open in the OhMyGame desktop app.",
   game_use:
     "It needs the OhMyGame desktop app and a project with a game preview.",
   playable_add_node: "It needs an Interactive Story project.",

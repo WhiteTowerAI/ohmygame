@@ -300,6 +300,9 @@ export function ProjectShell({
   const [browserOpenRequests, setBrowserOpenRequests] = useState<Array<BrowserOpenRequest & { projectId: string }>>([]);
   const browserPlaced = !!layout && !!areaOf(layout, "browser");
   useEffect(() => { if (browserPlaced && state.project) setBrowserOpenedIn(state.project.id); }, [browserPlaced, state.project?.id]);
+  useEffect(() => window.ohMyGameDesktop?.browser?.onCommand((id, command) => {
+    if (command === "reveal" && id === state.project?.id) revealPanel("browser");
+  }), [state.project?.id]);
   const latestLayout = useRef({ current, offered, layout, homes });
   latestLayout.current = { current, offered, layout, homes };
   function changeLayout(next: Layout): void {

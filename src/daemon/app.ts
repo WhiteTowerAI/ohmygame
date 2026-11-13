@@ -1,3 +1,4 @@
+import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointConflictError, CheckpointStore } from "./checkpoints.js";
@@ -249,6 +250,7 @@ export interface AppOptions {
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
+  browserDriver?: BrowserDriver;
   webSearchFetch?: typeof fetch;
   networkSettings?: NetworkSettingsService;
   /** How Claude Code and Codex start the `ohmygame-mcp` launcher; the desktop app provides it. */
@@ -1071,6 +1073,7 @@ export function createApp(options: AppOptions = {}) {
         adapterId === "custom" ? await gameRulesFile(project) : undefined,
       ),
       () => localMultiplayer.gameServices(project.id),
+      options.browserDriver,
     ), ...await pluginSetup.agentTools(project)];
   };
   const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
@@ -1090,7 +1093,7 @@ export function createApp(options: AppOptions = {}) {
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
-      undefined, canvasStore,
+      undefined, canvasStore, undefined, undefined, options.browserDriver,
     ),
     // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
     pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
@@ -1106,7 +1109,7 @@ export function createApp(options: AppOptions = {}) {
       // game_use lists what any runtime takes; a project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -4890,6 +4893,7 @@ export function createApp(options: AppOptions = {}) {
     await pluginGamesForPlugins.close();
     for (const projectId of [...pluginGames.keys()]) closePluginGame(projectId);
     options.playtestDriver?.close();
+    options.browserDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();
     await localMultiplayer.close();

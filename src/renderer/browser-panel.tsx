@@ -179,6 +179,7 @@ export function BrowserPanel({
       ready.current = true;
       setState(next);
       synchronize.current();
+      await bridge.ready(projectId, attachment);
     };
     run().catch((cause: unknown) => {
       if (!disposed)
@@ -228,7 +229,7 @@ export function BrowserPanel({
       bridge.onCommand((id, command) => {
         if (id !== projectId) return;
         if (command === "focus-address") focusAddress();
-        else void openTab();
+        else if (command === "new-tab") void openTab();
       }),
     [bridge, projectId],
   );

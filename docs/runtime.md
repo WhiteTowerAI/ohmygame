@@ -820,6 +820,34 @@ the game workspace. Unreadable or newer files are left untouched and writes
 are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
 [shortcuts and opening requests](plugins.md#browser) use the same panel.
 
+### Agent browsing and page text
+
+`browser_use` operates the same Browser tabs as the person. It reveals the
+panel for the project currently open in the desktop app and waits for tab
+restoration before starting. `tabs` lists existing tabs; `open` creates a tab;
+`navigate`, `read`, `act`, `capture` and `close` take a `tabId`. Actions use the
+same CDP input and target helpers as game playtesting. Reads return up to 100
+interactive elements and 4,000 characters of visible text; captures use JPEG
+at the page's logical pixel size. Semantic targets address the main document;
+use screenshot coordinates for embedded content. The tool accepts no page
+scripts. Password values are excluded from element labels.
+
+Only one browser request runs per project at a time. Closing or switching the
+active tab stops a batch before its next action, and cancellation releases
+held keys. A conversation ending does not close the person's tabs. The tool's
+instructions hand login, payment and CAPTCHA steps to the person and treat
+page content as untrusted material. Browser use is unavailable in planning
+mode; `web_fetch` remains available for research.
+
+`web_fetch` reads HTTP(S) HTML or text without JavaScript or browser cookies.
+It returns the final URL, title, text and a truncation flag. HTML extraction
+prefers `main` or `article`, removes scripts and navigation, and resolves links.
+Requests have a 20-second deadline, at most five redirects and a 2 MiB download
+limit; returned text defaults to 20,000 characters and can be set to 1,000–50,000.
+Binary files are rejected. Both tools are also available to coding agents and
+the [external MCP server](external-agents.md); browser use still requires the
+selected project to be open in the desktop app.
+
 ## Workspace panels
 
 Below the top bar a project is a set of panels in four areas: left, middle,

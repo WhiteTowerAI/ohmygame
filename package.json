@@ -87,6 +87,7 @@
     "lexical": "0.52.0",
     "mediabunny": "1.61.3",
     "npm-packlist": "10.0.4",
+    "parse5": "8.0.0",
     "pi-mcp-adapter": "2.27.0",
     "quickjs-wasi": "3.6.2",
     "sharp": "^0.35.5",

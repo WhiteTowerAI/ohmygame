@@ -1,3 +1,4 @@
+import { ElectronBrowserDriver } from "../src/desktop/browser-driver.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserState } from "../src/shared/browser.js";
 
@@ -31,6 +32,9 @@ const electron = vi.hoisted(() => {
     reload = vi.fn();
     stop = vi.fn();
     isLoading = () => this.loading;
+    isLoadingMainFrame = () => this.loading;
+    executeJavaScript = vi.fn(async () => ({ url: "https://example.com/", title: "Example", viewport: { width: 600, height: 500 }, text: "Hello", elements: [] }));
+    debugger = { isAttached: vi.fn(() => false), attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn(async () => ({})) };
     setWindowOpenHandler = vi.fn((handler) => {
       this.openHandler = handler;
     });
@@ -45,7 +49,9 @@ const electron = vi.hoisted(() => {
   class View {
     webContents = new Contents();
     setBounds = vi.fn();
-    setVisible = vi.fn();
+    visible = false;
+    getVisible = () => this.visible;
+    setVisible = vi.fn((visible: boolean) => { this.visible = visible; });
     setBackgroundColor = vi.fn();
     constructor(readonly options: Record<string, any>) {
       views.push(this);
@@ -92,6 +98,7 @@ const electron = vi.hoisted(() => {
 });
 vi.mock("electron", () => ({
   WebContentsView: electron.View,
+  BrowserWindow: electron.Window,
   session: { fromPartition: electron.fromPartition },
   Menu: { buildFromTemplate: vi.fn(() => ({ popup: vi.fn() })) },
   clipboard: { writeText: vi.fn() },
@@ -402,4 +409,107 @@ describe("the Browser panel's pages", () => {
       }),
     ).toBeUndefined();
   });
+});
+
+
+describe("the agent's shared browser", () => {
+  it("reveals and reads the person's existing tab without another window", async () => {
+    const { views, editor } = create();
+    const reveal = vi.fn(() => { views.attach("p1", "panel", editor, layout, saved, labels); views.ready("p1", "panel"); });
+    const driver = new ElectronBrowserDriver(views, reveal);
+    const result = await driver.request({ projectId: "p1", operation: "read", tabId: "a" });
+    expect(reveal).toHaveBeenCalledWith("p1");
+    expect(result.page?.text).toBe("Hello");
+    expect(result.state.active).toBe("a");
+    expect(electron.views).toHaveLength(1);
+    driver.close();
+  });
+
+  it("stops a batch if the user switches tabs between actions", async () => {
+    const { views, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    views.ready("p1", "panel");
+    const contents = electron.views[0]!.webContents;
+    contents.debugger.sendCommand.mockImplementation(async () => {
+      views.select("p1", "b");
+      return {};
+    });
+    const driver = new ElectronBrowserDriver(views, () => {});
+    await expect(driver.request({ projectId: "p1", operation: "act", tabId: "a", actions: [
+      { type: "scroll", x: 100, y: 100, deltaY: 200 },
+      { type: "scroll", x: 100, y: 100, deltaY: 200 },
+    ] })).rejects.toThrow("switched");
+    expect(contents.debugger.sendCommand).toHaveBeenCalledTimes(1);
+    driver.close();
+  });
+
+  it("does not read a tab from a different project", async () => {
+    const { views, editor } = create();
+    views.attach("p1", "panel", editor, layout, saved, labels);
+    views.ready("p1", "panel");
+    views.attach("p2", "panel2", editor, layout, { tabs: [{ id: "c", url: "https://other.example/", title: "Other" }], visits: [] }, labels);
+    const driver = new ElectronBrowserDriver(views, () => {});
+    await expect(driver.request({ projectId: "p1", operation: "read", tabId: "c" })).rejects.toThrow("closed");
+    driver.close();
+  });
+
+  it("cancels an unopened project's reveal wait", async () => {
+    const { views } = create();
+    const driver = new ElectronBrowserDriver(views, () => {});
+    const controller = new AbortController();
+    const request = driver.request({ projectId: "p1", operation: "tabs" }, controller.signal);
+    controller.abort();
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    driver.close();
+  });
+});
+
+it("releases an agent request when a page inspection stops responding", async () => {
+  const { views, editor } = create();
+  views.attach("p1", "panel", editor, layout, saved, labels);
+  views.ready("p1", "panel");
+  electron.views[0]!.webContents.executeJavaScript.mockImplementationOnce(() => new Promise(() => {}));
+  const driver = new ElectronBrowserDriver(views, () => {});
+  const controller = new AbortController();
+  const pending = driver.request({ projectId: "p1", operation: "read", tabId: "a" }, controller.signal);
+  await vi.waitFor(() => expect(electron.views[0]!.webContents.executeJavaScript).toHaveBeenCalled());
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await expect(driver.request({ projectId: "p1", operation: "tabs" })).resolves.toMatchObject({ state: { active: "a" } });
+  driver.close();
+});
+
+it("waits for renderer restoration before opening an agent tab", async () => {
+  vi.useFakeTimers();
+  const { views, editor } = create();
+  views.attach("p1", "panel", editor, layout, saved, labels);
+  const driver = new ElectronBrowserDriver(views, () => {});
+  try {
+    const pending = driver.request({ projectId: "p1", operation: "open", url: "https://new.example/" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(views.state("p1").tabs).toHaveLength(2);
+    views.ready("p1", "panel");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pending;
+    expect(result.state.tabs).toHaveLength(3);
+    expect(result.state.tabs.at(-1)?.url).toBe("https://new.example/");
+  } finally {
+    driver.close();
+    vi.useRealTimers();
+  }
+});
+
+it("releases a held key when the agent cancels", async () => {
+  const { views, editor } = create();
+  views.attach("p1", "panel", editor, layout, saved, labels);
+  views.ready("p1", "panel");
+  const driver = new ElectronBrowserDriver(views, () => {});
+  const controller = new AbortController();
+  const pending = driver.request({ projectId: "p1", operation: "act", tabId: "a", actions: [{ type: "press", key: "ArrowDown", duration: 5_000 }] }, controller.signal);
+  const send = electron.views[0]!.webContents.debugger.sendCommand;
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith("Input.dispatchKeyEvent", expect.objectContaining({ type: "keyDown" })));
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(send).toHaveBeenCalledWith("Input.dispatchKeyEvent", expect.objectContaining({ type: "keyUp" }));
+  driver.close();
 });

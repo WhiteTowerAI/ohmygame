@@ -47,6 +47,7 @@ interface Tab {
 interface Editor extends WebGamePreviewLayout {
   id: string;
   window: BrowserWindow;
+  ready?: boolean;
 }
 
 interface Project {
@@ -76,6 +77,29 @@ export class BrowserViews {
   #session?: Session;
 
   constructor(private readonly options: BrowserViewsOptions) {}
+
+  attached(projectId: string): boolean {
+    const editor = this.#projects.get(projectId)?.editor;
+    return !!editor?.ready && !editor.window.isDestroyed();
+  }
+
+  ready(projectId: string, attachment: string): void {
+    const editor = this.#projects.get(projectId)?.editor;
+    if (editor?.id === attachment) editor.ready = true;
+  }
+
+  /** The agent uses the person's tab, with the same page and sign-in session. */
+  page(projectId: string, tabId: string): WebContents {
+    const tab = this.#requireTab(this.#require(projectId), tabId);
+    if (!tab.view || tab.view.webContents.isDestroyed()) throw new Error("This tab has no page");
+    return tab.view.webContents;
+  }
+
+  pageVisible(projectId: string, tabId: string): boolean {
+    const project = this.#projects.get(projectId);
+    const tab = project?.tabs.find((entry) => entry.id === tabId);
+    return project?.active === tabId && !!tab?.view?.getVisible();
+  }
 
   state(projectId: string): BrowserState {
     const project = this.#projects.get(projectId);

@@ -207,6 +207,8 @@ bound project does not have returns an error that says why.
 | `generate_audio`                                                            | Run as jobs                                                                 |
 | `canvas_check`, `canvas_initialize`, `generate_canvas_media`                | `generate_canvas_media` runs as a job                                       |
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |
+| `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
+| `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 `game_use` lists every operation and input any runtime takes. A project's own
