@@ -16,6 +16,7 @@ import { FakePeerConnection } from "./fake-peer-connection.js";
 import {
   applyStateChanges,
   multiplayerRoomType,
+  ROOM_MESSAGES_PER_SECOND,
   type MultiplayerManifestConfig,
   type MultiplayerSnapshot,
   type SnapshotDelta,
@@ -377,6 +378,55 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(white.snapshot!.state.game?.history).toEqual([]);
     expect(white.snapshot!.state.game?.blackWins).toBe(1);
     expect(white.snapshot!.state.currentPlayerId).toBe(black.ready!.playerId);
+  });
+
+  it("passes a seated player's message to the room in every kind of room, before a match too", async () => {
+    type Got = { from: string; message: Record<string, unknown> }[];
+    const listen = (got: Got) => ({ onMessage: (from: string, message: Record<string, unknown>) => got.push({ from, message }) });
+    // A turn-based room still waiting for its owner to start.
+    const [ownerGot, guestGot]: Got[] = [[], []];
+    const owner = player(config, {}, listen(ownerGot));
+    await owner.createRoom({ displayName: "Owner" });
+    const guest = player(config, {}, listen(guestGot));
+    await guest.joinRoom({ roomCode: owner.roomCode });
+    await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+    expect(owner.snapshot!.state.phase).toBe("lobby");
+    expect(owner.emit({ ready: true })).toBe(true);
+    expect(guest.emit({ emote: "wave" })).toBe(true);
+    await wait(() => expect(guestGot).toEqual([{ from: owner.playerId, message: { ready: true } }]));
+    await wait(() => expect(ownerGot).toEqual([{ from: guest.playerId, message: { emote: "wave" } }]));
+    expect(() => owner.emit({ big: "x".repeat(2000) })).toThrow("small plain object");
+
+    // A realtime room whose rules the service runs.
+    const deployment = await dropIn();
+    const got: Got = [];
+    const [first, second] = [player(deployment), player(deployment, {}, listen(got))];
+    await first.quickPlay();
+    await second.quickPlay();
+    await wait(() => expect(second.snapshot?.state.players).toHaveLength(2));
+    expect(first.emit({ say: "gg" })).toBe(true);
+    await wait(() => expect(got).toEqual([{ from: first.playerId, message: { say: "gg" } }]));
+  });
+
+  it("drops a player's messages beyond the limit each second", async () => {
+    // A realtime room, whose connections may send far more than the message limit.
+    const deployment = await dropIn();
+    const room = await (await transport()).joinOrCreate(multiplayerRoomType(deployment), joinOptions(deployment));
+    room.onMessage("*", () => {});
+    let received = 0;
+    const receiver = player(deployment, {}, { onMessage: () => received++ });
+    try {
+      await receiver.quickPlay();
+      expect(receiver.roomId).toBe(room.roomId);
+      // A page without the SDK's own check: within at most two seconds the service passes on two seconds' worth.
+      for (let index = 0; index < 4 * ROOM_MESSAGES_PER_SECOND; index++) room.send("owner.emit", { id: `m${index}`, message: { index } });
+      await wait(() => expect(received).toBeGreaterThanOrEqual(ROOM_MESSAGES_PER_SECOND));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(received).toBeLessThanOrEqual(2 * ROOM_MESSAGES_PER_SECOND);
+    } finally {
+      room.reconnection.enabled = false;
+      await room.leave(true).catch(() => {});
+    }
   });
 
   it("speaks the newest protocol version a client shares with it, and says which side is out of date", async () => {
