@@ -37,6 +37,7 @@
     "start:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun --bun node_modules/electron/cli.js . --built-renderer",
     "prepare:preinstalled-plugins": "node --conditions=ohmygame-source --import tsx scripts/prepare-preinstalled-plugins.ts",
     "prepare:examples": "bun scripts/prepare-examples.ts",
+    "inspect:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-minimax-migration.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
     "plugin:check": "node --import tsx scripts/plugin-check.ts",

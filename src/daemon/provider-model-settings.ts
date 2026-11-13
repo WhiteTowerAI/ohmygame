@@ -94,6 +94,14 @@ export class ProviderModelSettingsStore {
   }
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
+  /** A detached snapshot, including whether visibility was explicitly saved. */
+  providerVisibility(provider: string): { configured: boolean; enabled: boolean; hiddenModelIds: string[] } {
+    return {
+      configured: Object.hasOwn(this.#hidden, provider) || this.#disabled.includes(provider),
+      enabled: this.isEnabled(provider),
+      hiddenModelIds: [...(this.#hidden[provider] ?? [])],
+    };
+  }
   isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
 
   responsesTransport(provider: string): ResponsesTransportMode {
