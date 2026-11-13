@@ -5,6 +5,9 @@ import path from "node:path";
 import { isPreparedPluginIndex, type PreparedPluginRelease } from "../shared/preinstalled-plugins.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type PluginOrigin } from "../shared/plugins.js";
 import { extractArchive } from "./archive-extraction.js";
+import { unpackPlugin } from "./plugin-pack.js";
+import { indexPluginPackage } from "./plugin-index.js";
+import type { PluginSources } from "./plugin-sources.js";
 import type { PluginServices } from "./plugin-services.js";
 
 // Plugins the app brings along from other repositories. Unlike the bundled
@@ -16,6 +19,9 @@ interface PreinstalledPluginReceipt {
   /** The version last installed from here, the only one an update replaces. */
   version?: string;
   removed: boolean;
+  /** Identifies the exact npm seed; independent copies are not labelled preinstalled. */
+  digest?: string;
+  [key: string]: unknown;
 }
 
 // compat: since beta.5.6, remove from beta.7 and 2026-12-07. Plugins the app
@@ -28,10 +34,14 @@ const RETIRED: Readonly<Record<string, string>> = {
 interface PreinstalledPluginState {
   version: 1;
   plugins: Record<string, PreinstalledPluginReceipt>;
+  [key: string]: unknown;
 }
 
 export class PreinstalledPluginManager {
   readonly #statePath: string;
+  #ready?: Promise<void>;
+  #writes = Promise.resolve();
+  #removed = new Set<string>();
   #entries: PreparedPluginRelease[] = [];
   #state: PreinstalledPluginState = { version: 1, plugins: {} };
 
@@ -39,7 +49,21 @@ export class PreinstalledPluginManager {
     this.#statePath = path.join(dataDirectory, "plugins", "preinstalled-plugins.json");
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.#ready ??= this.#load();
+  }
+
+  /** Suppress the old bundled source, including after the person removes its seed. */
+  async bundledReplacements(): Promise<ReadonlySet<string>> {
+    await this.load();
+    return new Set(this.#entries.filter((entry) => entry.origin.type === "npm").map((entry) => entry.id));
+  }
+
+  #receipt(pluginId: string): PreinstalledPluginReceipt | undefined {
+    return Object.hasOwn(this.#state.plugins, pluginId) ? this.#state.plugins[pluginId] : undefined;
+  }
+
+  async #load(): Promise<void> {
     if (this.directory) {
       const value = JSON.parse(await readFile(path.join(this.directory, "index.json"), "utf8")) as unknown;
       if (!isPreparedPluginIndex(value)) throw new Error("Invalid preinstalled Plugin index");
@@ -54,9 +78,10 @@ export class PreinstalledPluginManager {
     }
   }
 
-  async seed(services: PluginServices): Promise<string[]> {
+  async seed(services: PluginServices, sources?: PluginSources): Promise<string[]> {
+    await this.load();
     const retired = Object.entries(RETIRED).filter(([pluginId]) => {
-      const receipt = this.#state.plugins[pluginId];
+      const receipt = this.#receipt(pluginId);
       return receipt && !receipt.removed && !this.#entries.some((entry) => entry.pluginId === pluginId);
     });
     // Starting up waits for this, and needn't wait for the store with nothing to do.
@@ -68,7 +93,7 @@ export class PreinstalledPluginManager {
     }
     const errors: string[] = [];
     for (const [pluginId, id] of retired) {
-      const receipt = this.#state.plugins[pluginId]!;
+      const receipt = this.#receipt(pluginId)!;
       try {
         if (receipt.version && services.index.get(id, receipt.version)) await services.uninstall(id, receipt.version);
         await this.#setReceipt(pluginId, { seededReleaseId: receipt.seededReleaseId, removed: true });
@@ -78,8 +103,13 @@ export class PreinstalledPluginManager {
     }
     for (const entry of this.#entries) {
       try {
-        const receipt = this.#state.plugins[entry.pluginId];
-        if (!receipt?.removed) {
+        const receipt = this.#receipt(entry.pluginId);
+        if (!receipt?.removed && !this.#removed.has(entry.pluginId)) {
+          if (entry.origin.type === "npm") {
+            if (!sources) throw new Error("Npm preinstallation requires the plugin source store");
+            await this.#install(entry, services, sources);
+            continue;
+          }
           if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId) {
             await this.#install(entry, services);
             if (receipt?.version && receipt.version !== entry.version) await services.uninstall(entry.id, receipt.version);
@@ -95,7 +125,7 @@ export class PreinstalledPluginManager {
     return errors;
   }
 
-  async #install(entry: PreparedPluginRelease, services: PluginServices): Promise<void> {
+  async #install(entry: PreparedPluginRelease, services: PluginServices, sources?: PluginSources): Promise<void> {
     const archivePath = path.join(this.directory!, entry.artifactFile);
     const archive = await readFile(archivePath);
     const digest = createHash("sha256").update(archive).digest("hex");
@@ -104,36 +134,64 @@ export class PreinstalledPluginManager {
     }
     const temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-preinstalled-plugin-"));
     try {
-      await extractArchive(archivePath, temporary, {
+      let root = temporary;
+      if (entry.artifactFile.endsWith(".tgz")) {
+        root = await unpackPlugin(archivePath, temporary, { published: true, error: (reason) => new Error(`the archive can't be read: ${reason}`) });
+        const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+        if (entry.origin.type !== "npm" || pkg.name !== entry.origin.package || pkg.version !== entry.version)
+          throw new Error("npm package identity does not match the prepared index");
+      } else await extractArchive(archivePath, temporary, {
         maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
         maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
         error: (reason) => new Error(`the archive can't be read: ${reason}`),
       });
-      const installed = await services.installManaged(temporary);
-      if (installed.id !== entry.id || installed.version !== entry.version) {
-        await services.uninstall(installed.id, installed.version);
-        throw new Error(`the archive holds ${installed.id} ${installed.version}`);
-      }
+      // Validate before touching an installed package: an incorrect archive must
+      // never replace/delete another plugin, even briefly.
+      const checked = await indexPluginPackage(root);
+      if (!checked.ok) throw new Error("the archive is not a valid plugin");
+      if (checked.entry.id !== entry.id || checked.entry.version !== entry.version)
+        throw new Error(`the archive holds ${checked.entry.id} ${checked.entry.version}`);
+      if (entry.origin.type === "npm") {
+        const installed = await sources!.installPreinstalled(root, entry.origin, async () => {
+          if (this.#removed.has(entry.pluginId) || this.#receipt(entry.pluginId)?.removed) throw new Error("Preinstalled plugin was removed");
+        });
+        if (installed) await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, version: entry.version, digest: installed.digest, removed: false });
+      } else await services.installManaged(root);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
   }
 
   /** Where the plugin came from, when the app brought it along. */
-  origin(id: string): PluginOrigin | undefined {
-    return this.#entries.find((entry) => entry.id === id)?.origin;
+  origin(id: string, version: string, digest: string): PluginOrigin | undefined {
+    const entry = this.#entries.find((entry) => entry.id === id && entry.version === version);
+    if (!entry) return undefined;
+    if (entry.origin.type === "npm") {
+      const receipt = this.#receipt(entry.pluginId);
+      if (!receipt || receipt.removed || receipt.version !== version || receipt.digest !== digest) return undefined;
+    }
+    return entry.origin;
   }
 
   /** The person removed it, so it doesn't come back when the app starts. */
   async markRemoved(id: string): Promise<void> {
+    await this.load();
     const entry = this.#entries.find((item) => item.id === id);
+    if (entry) this.#removed.add(entry.pluginId);
     if (entry) await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, removed: true });
   }
 
-  async #setReceipt(pluginId: string, receipt: PreinstalledPluginReceipt): Promise<void> {
+  #setReceipt(pluginId: string, receipt: PreinstalledPluginReceipt): Promise<void> {
+    const write = this.#writes.catch(() => {}).then(() => this.#writeReceipt(pluginId, receipt));
+    this.#writes = write;
+    return write;
+  }
+
+  async #writeReceipt(pluginId: string, receipt: PreinstalledPluginReceipt): Promise<void> {
+    await this.load();
     const next: PreinstalledPluginState = {
-      version: 1,
-      plugins: { ...this.#state.plugins, [pluginId]: receipt },
+      ...this.#state,
+      plugins: { ...this.#state.plugins, [pluginId]: { ...this.#receipt(pluginId), ...receipt, removed: receipt.removed || this.#receipt(pluginId)?.removed === true || this.#removed.has(pluginId) } },
     };
     await mkdir(path.dirname(this.#statePath), { recursive: true });
     const temporary = `${this.#statePath}.${randomUUID()}.tmp`;
@@ -150,7 +208,8 @@ export class PreinstalledPluginManager {
 function isState(value: unknown): value is PreinstalledPluginState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as Partial<PreinstalledPluginState>;
-  return state.version === 1 && Boolean(state.plugins) && Object.values(state.plugins ?? {}).every((receipt) =>
-    Boolean(receipt) && typeof receipt.seededReleaseId === "string" && typeof receipt.removed === "boolean"
-    && (receipt.version === undefined || typeof receipt.version === "string"));
+  return state.version === 1 && Boolean(state.plugins) && typeof state.plugins === "object" && !Array.isArray(state.plugins) && Object.values(state.plugins ?? {}).every((receipt) =>
+    Boolean(receipt) && typeof receipt === "object" && !Array.isArray(receipt) && typeof receipt.seededReleaseId === "string" && typeof receipt.removed === "boolean"
+    && (receipt.version === undefined || typeof receipt.version === "string")
+    && (receipt.digest === undefined || typeof receipt.digest === "string"));
 }

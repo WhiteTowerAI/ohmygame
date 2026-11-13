@@ -138,6 +138,8 @@ export interface PluginServicesOptions {
   hosts?: ExtensionHostOptions;
   /** The plugins that ship with the app, indexed by `ready()` before anything is served. */
   bundled?: string;
+  /** IDs moving to preinstalled packages retain state but no longer load from bundled folders. */
+  bundledReplacements?: () => Promise<ReadonlySet<string>>;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
   /** Bundled plugins that start off in every project, such as one in beta, until the person turns them on. */
@@ -206,7 +208,7 @@ export class PluginServices {
   readonly #projectFolders: (() => readonly string[] | undefined) | undefined;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
-  readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
+  readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError" | "bundledReplacements">;
   #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
   readonly #listeners = new Set<(folder?: string) => void>();
@@ -831,10 +833,15 @@ export class PluginServices {
     const folders = await readdir(directory, { withFileTypes: true }).catch(
       () => [],
     );
+    const replaced = await this.#bundled.bundledReplacements?.();
     const results: PluginPackageResult[] = [];
     for (const folder of folders) {
       if (!folder.isDirectory()) continue;
       const root = path.join(directory, folder.name);
+      if (replaced?.size) {
+        const checked = await indexPluginPackage(root);
+        if (checked.ok && replaced.has(checked.entry.id)) continue;
+      }
       const result = await this.index.add(root);
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
@@ -977,8 +984,13 @@ export class PluginServices {
    * grants with it and, unless `keepData`, its settings and data folder;
    * kept, a later install finds them again.
    */
-  uninstall(id: string, version?: string, options: { keepData?: boolean } = {}): Promise<void> {
-    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version, options.keepData ?? false));
+  uninstall(id: string, version?: string, options: { keepData?: boolean; beforeLast?: () => Promise<void> } = {}): Promise<void> {
+    return this.#onePackageChangeAtATime(async () => {
+      await this.ready();
+      const versions = this.index.versions(id);
+      if (versions.length && (version === undefined || (versions.length === 1 && versions[0]!.version === version))) await options.beforeLast?.();
+      await this.#uninstall(id, version, options.keepData ?? false);
+    });
   }
 
   /** A plugin's log, its saved secrets and anything shaped like a credential redacted. */

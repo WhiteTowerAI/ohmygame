@@ -933,10 +933,15 @@ export function createApp(options: AppOptions = {}) {
     return undefined;
   };
   let projectsSkipped = false;
+  const preinstalledPlugins = new PreinstalledPluginManager(
+    options.preinstalledPluginsDirectory,
+    dataDirectory,
+  );
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
+    bundledReplacements: () => preinstalledPlugins.bundledReplacements(),
     projectKind: projectKindAtFolder,
     // Unknown while a project couldn't be loaded, since it may run an older version.
     projectFolders: () => projectsSkipped ? undefined : projects.list().map((project) => project.workspacePath),
@@ -945,10 +950,7 @@ export function createApp(options: AppOptions = {}) {
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the plugins"));
-  const preinstalledPlugins = new PreinstalledPluginManager(
-    options.preinstalledPluginsDirectory,
-    dataDirectory,
-  );
+
   const pluginConfiguration = new PluginConfigurationStore(dataDirectory);
   const pluginMcpHost = new PluginMcpHost();
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginConfiguration, pluginMcpHost);
@@ -1494,7 +1496,7 @@ export function createApp(options: AppOptions = {}) {
       connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), elevenLabsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
-    for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
+    for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
     // Plugins are checked for updates once at startup and when the Plugins page opens; nothing updates by itself.
     void pluginUpdates.check();
     const examplesWarning = await examples.load();
@@ -1769,7 +1771,7 @@ export function createApp(options: AppOptions = {}) {
   };
   /** Only the copy the app installed: the same id indexed from anywhere else isn't what it brought along. */
   const preinstalledFields = (entry: PluginIndexEntry) => {
-    const origin = preinstalledPlugins.origin(entry.id);
+    const origin = preinstalledPlugins.origin(entry.id, entry.version, entry.digest);
     const inside = path.relative(pluginServices.packagesDirectory, entry.root);
     return origin && inside && !inside.startsWith("..") && !path.isAbsolute(inside) ? { preinstalled: true, origin } : {};
   };
@@ -1862,9 +1864,9 @@ export function createApp(options: AppOptions = {}) {
         revision: entry.digest,
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
+        ...preinstalledFields(entry),
         ...(added ? { origin: added } : {}),
         ...(added?.type === "development" && pluginDevelopment.error(entry.id) ? { developmentError: pluginDevelopment.error(entry.id) } : {}),
-        ...preinstalledFields(entry),
         everyProject: pluginServices.onInEveryProject(entry.id),
         ...(pluginServices.native.quarantined(entry.id) ? { quarantined: true } : {}),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
@@ -2139,9 +2141,15 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
-    if (entry && pluginServices.index.versions(id).length === 1 && request.query.keepData !== "true") await pluginToolApprovals.forget(id);
-    await pluginServices.uninstall(id, request.params.version, { keepData: request.query.keepData === "true" });
-    if (!pluginServices.index.versions(id).length) await preinstalledPlugins.markRemoved(id);
+    await pluginServices.uninstall(id, request.params.version, {
+      keepData: request.query.keepData === "true",
+      beforeLast: async () => {
+        // Record removal before deleting files, under the package mutation lock.
+        // A receipt failure leaves the installed plugin intact and retryable.
+        await preinstalledPlugins.markRemoved(id);
+        if (request.query.keepData !== "true") await pluginToolApprovals.forget(id);
+      },
+    });
     return reply.code(204).send();
   });
   // The project's Plugins sheet: every plugin that suits the project, and any its file asks for, each on or off here.

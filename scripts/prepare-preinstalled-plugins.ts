@@ -6,9 +6,11 @@ import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversio
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
+import { isLockedNpmPlugin, prepareNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
-interface LockedPlugin {
+interface LockedSkillsPlugin {
+  type?: "skills";
   pluginId: string;
   releaseId: string;
   repository: string;
@@ -27,7 +29,7 @@ interface LockedPlugin {
 
 interface LockFile {
   version: 1;
-  plugins: LockedPlugin[];
+  plugins: (LockedSkillsPlugin | LockedNpmPlugin)[];
 }
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
@@ -37,7 +39,7 @@ if (lock.version !== 1 || !Array.isArray(lock.plugins)) throw new Error("Invalid
 const output = path.join(repositoryRoot, ".runtime", "preinstalled-plugins");
 const lockHash = createHash("sha256").update(JSON.stringify(lock));
 for (const entry of lock.plugins) {
-  if (entry.assets) lockHash.update(await createPluginArchive(path.resolve(repositoryRoot, entry.assets)));
+  if ("assets" in entry && entry.assets) lockHash.update(await createPluginArchive(path.resolve(repositoryRoot, entry.assets)));
 }
 const lockSha256 = lockHash.digest("hex");
 
@@ -56,6 +58,19 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
   try {
     const plugins: PreparedPluginIndex["plugins"] = [];
     for (const entry of lock.plugins) {
+      if (entry.type === "npm") {
+        if (!isLockedNpmPlugin(entry)) throw new Error("Invalid pinned npm plugin");
+        const folder = await mkdtemp(path.join(temporary, "npm-"));
+        const archive = await prepareNpmPlugin(entry, folder);
+        const artifactFile = `${entry.releaseId}.tgz`;
+        await writeFile(path.join(prepared, artifactFile), archive);
+        plugins.push({
+          pluginId: entry.pluginId, releaseId: entry.releaseId, id: entry.id, version: entry.version,
+          artifactFile, artifactSha256: createHash("sha256").update(archive).digest("hex"), artifactBytes: archive.length,
+          origin: { type: "npm", package: entry.package, version: entry.version, registry: "npmjs" },
+        });
+        continue;
+      }
       const source = path.join(temporary, entry.pluginId);
       await git(["clone", "--quiet", "--no-checkout", `https://github.com/${entry.repository}.git`, source]);
       await git(["-c", "core.autocrlf=false", "-C", source, "checkout", "--quiet", entry.commit]);

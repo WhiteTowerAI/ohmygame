@@ -815,17 +815,57 @@ then the others by id. They have no per-Skill switches. Mentions keep
 
 A project that names an older version keeps running it, in place of the newest.
 
-`src/daemon/preinstalled-plugins.ts` installs the versions in
-`config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
-same path that checks a package with `indexPluginPackage` and copies it under
-`packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. One the app stops bringing is listed in
-`RETIRED` there: the copy it installed is uninstalled once, and a version
-installed apart is kept. Bundled plugins are indexed from `plugins/`
-and can't be uninstalled; when the app starts, an `ohmygame/` entry it didn't
-index from there, outside the store, is dropped if its folder is gone, which
-covers a plugin the app stopped bringing and one an earlier install kept
-elsewhere.
+### Preinstalled npm packages
+
+`config/preinstalled-plugins.json` is a build-time lock. A reviewed npm entry has
+`type: "npm"`, a stable `pluginId`, a unique `releaseId`, the plugin `id`, its
+`@ohmygame/<name>` `package`, an exact `version`, and the published tarball's
+`sha512-…` `integrity`. Read those values from the actual npm release; do not
+invent checksums or use version ranges. Only the official npm registry is used.
+The existing pinned GitHub Skills entries remain supported.
+
+`prepare:preinstalled-plugins` downloads and checks the pinned tarball, npm and
+plugin identities, manifest and lifecycle-script policy. It keeps the original
+npm bytes (including bundled dependencies and hidden template files), with a
+SHA-256/size record in the prepared index. Startup needs no registry access and
+runs no npm scripts. Extraction is bounded and restores templates' published
+`gitignore` files to `.gitignore` through the normal npm installation path.
+
+`PreinstalledPluginManager` validates identity before replacing anything, then
+uses `PluginSources.installPreinstalled` to record the npm origin and copy the
+package into `packages/<publisher>/<name>/<version>`. The host owns this path;
+there is no plugin or agent API that can select a package for preinstallation.
+
+A locked npm ID stops loading from the bundled folder, including after removal.
+Moving the same ID/version into the store does not uninstall it, rewrite its
+settings/secrets, grant capabilities, change global/project switches or modify
+project version pins. Existing grants remain unchanged. Fresh declaration-only
+plugins use their existing defaults; native plugins still require permission
+when enabled. A managed version already present belongs to the person and the
+updater: startup neither replaces it nor reinstalls an older seeded version.
+Subsequent updates use the normal npm source and review policy, not the app lock.
+
+The version-1 receipt keeps its existing shape and preserves unknown fields.
+Removal writes serialize; the last-version uninstall records the removal under
+the package mutation lock before deleting files. Failure to save the receipt
+leaves the installed copy intact. Removed packages stay removed across restart
+and later locks. Unreadable/future receipts and unreadable origins are never
+replaced with empty state. A late seed receipt cannot undo removal.
+
+Legacy GitHub seeds retain their existing release-replacement behavior. A seed
+the app stops bringing is listed in `RETIRED`: its seeded version is removed once,
+while independently installed versions remain. Bundled plugins outside the npm
+lock continue loading from `plugins/` and can only be turned off.
+
+The npm loader is ready for the 12-package migration, but the checked-in lock
+remains empty until the packages in `ohmygame-plugins` are published. Activation
+must pin their real npm integrity values and remove the corresponding bundled
+folders in the same app change. Before that cutover, reconcile package contents
+with the bundled sources and run the migration tests against the final archives.
+Keep the same plugin IDs and versions for the initial relocation; a new native
+version requires its normal review. Validate clean install, existing settings
+and project pins, restart, uninstall, and independently updated versions in an
+isolated data directory before shipping.
 
 ## Model providers
 
