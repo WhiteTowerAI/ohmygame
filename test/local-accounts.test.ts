@@ -1,8 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { init } from "@ohmygame/sdk";
+import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { createBuiltInAdapters } from "@ohmygame/games";
 import type { AccountEnvironment } from "../packages/sdk/src/account.js";
 import { createMultiplayerServer, MemoryGameDataStore } from "@ohmygame/server";
 import { localPlayerId } from "../packages/server/src/local-accounts.js";
@@ -27,11 +30,25 @@ function browserStorage(): Storage {
 let directory: string;
 let service: ReturnType<typeof createMultiplayerServer>;
 let base: string;
+const rooms: MultiplayerManifestConfig = {
+  enabled: true,
+  mode: "turn-based",
+  gameId: "puzzle",
+  deploymentId: "v1",
+  protocolVersion: 1,
+  serverUrl: "https://games.example.test",
+  authPolicy: "guest-or-account",
+  roomPolicy: "invite-or-public",
+  maxClients: 2,
+  reconnectSeconds: 2,
+  adapterId: "stones",
+};
 
 beforeAll(async () => {
   directory = await mkdtemp(path.join(tmpdir(), "ohmygame-local-accounts-"));
   service = createMultiplayerServer({
-    deployments: [],
+    deployments: [rooms],
+    adapters: createBuiltInAdapters(),
     auth: { guestSecret: "a".repeat(32) },
     databasePath: path.join(directory, "rooms.sqlite"),
     host: "127.0.0.1",
@@ -126,6 +143,14 @@ describe("local test accounts", () => {
     // The guest's progress moves into the test account, which follows the name to another browser.
     expect(await game.storage.get("progress")).toEqual({ level: 3 });
     expect(await game.leaderboard.submit("points", 120)).toMatchObject({ rank: 1, public: true });
+    // In a room, a signed-in player who names no one shows as their account.
+    const room = createMultiplayerClient({ ...game, multiplayer: { ...rooms, serverUrl: base } }, {}, { storage: browserStorage(), identityStorage: browserStorage() });
+    try {
+      await room.createRoom();
+      await vi.waitFor(() => expect(room.snapshot?.state.players.map((player) => player.displayName)).toEqual(["Ada"]));
+    } finally {
+      room.dispose();
+    }
 
     const phone = await browser().signIn("ada");
     expect(phone.auth.player?.id).toBe(localPlayerId("Ada"));

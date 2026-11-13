@@ -38,9 +38,12 @@ identity from `init({ identity })`, or the guest. A save made while the service
 cannot be reached stays marked as unsent; the next read or write of it, a call to
 `game.storage.sync()`, or the browser's `online` event sends it, and an unsent save
 wins over the service's copy. A save the service refuses, for a quota, is removed
-from the browser and rejects with the service's code. When a signed-in player reads
-a key their account does not have, a save they made under it as a guest in this
-browser moves into the account. Concurrent writes from two devices keep the last
+from the browser and rejects with the service's code. When a player signs in to
+OhMyGame in a browser that played as a guest, the first request after it gives the
+account everything that guest kept in the game (`merge-guest` below); the browser
+then forgets the guest, so signing out starts a new one. A save made as a guest
+that never reached the service still moves into the account when a read finds the
+account without it, and so does a save under a custom identity. Concurrent writes from two devices keep the last
 one; the service's `ifVersion` lets a game refuse that, though `game.storage` does
 not use it yet.
 
@@ -67,6 +70,7 @@ to 64 letters, digits, dots, dashes or underscores.
 | `POST /v1/games/:gameId/leaderboards/:board/scores` `{ score, order? }` | `{ score, at, rank, public, improved }`, the player's best |
 | `GET /v1/games/:gameId/leaderboards/:board?limit&offset` | `[{ rank, playerId, name, score, at }]`, public entries only     |
 | `GET /v1/games/:gameId/leaderboards/:board/me`          | `{ score, at, rank, public }`, or 404 before a first score        |
+| `POST /v1/games/:gameId/merge-guest` `{ guestToken }`   | `{ saves, scores }`. An account's token only; see below.          |
 | `DELETE /v1/admin/accounts/:accountId`                  | 204. Needs the operator token; removes the account's data everywhere. |
 
 A board keeps each player's best score, in the order of its first score:
@@ -84,6 +88,16 @@ privately for guests. The built-in gomoku, stones and arena rules count wins on
 `match.wins`; roam has no winners. Rules a game runs itself, on its host's browser
 (see [multiplayer](multiplayer.md)), cannot write to a match board, since their
 results could be forged.
+
+`merge-guest` gives the account what the guest named by `guestToken` kept in
+this game. The guest token proves the guest was the caller's, and is accepted
+while that guest could still renew, up to 30 days after it expired; a token
+that is not answers 401. A save the account already has stays the account's,
+and saves past the quota stay behind. On each board the account keeps the
+better score of the two, or their sum on a `match.…` board, public under the
+account's name. The guest keeps nothing in that game afterwards; their data in
+other games stays theirs. A self-hosted `ServerStore` implements it as
+`mergeGuest`.
 
 | Limit                                  | Value | Error            |
 | -------------------------------------- | ----- | ---------------- |

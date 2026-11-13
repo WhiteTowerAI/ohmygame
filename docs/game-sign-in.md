@@ -137,6 +137,19 @@ cross-origin requests from published games' origins.
   and a tab that waited uses the session the other saved: two renewals with one refresh
   token would look like a stolen token to the account service, which then ends the
   sign-in.
+- `signOut()` forgets the session in every tab of the browser, and the player is a
+  guest again. It does not sign them out of OhMyGame, and the account service has
+  no revocation endpoint yet: the forgotten refresh token stays valid until it
+  expires. A game embedded in an OhMyGame page is no longer handed the player
+  until they call `signIn()` again.
+- `onAuthChange(listener)` hears each change of player: signing in or out in this
+  tab or another (the `storage` event), a session that ended, or a new name at
+  renewal. It returns a function that stops it.
+- The first game-service request after signing in, in a browser that played as a
+  guest, gives the guest's saves and scores to the account; see
+  [cloud saves](cloud-saves.md#routes).
+- In a room, a signed-in player who joins without a `displayName` shows under the
+  name from their game token.
 
 ### Embedding pages
 

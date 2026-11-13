@@ -108,6 +108,14 @@ export class MultiplayerAuth {
       throw new Error("The account token is invalid, expired or for another game.");
     }
   }
+  /**
+   * The player ID of the guest a token names, while that guest could still be renewed:
+   * their data stays that long, so a player signing in after a while away keeps it.
+   */
+  renewableGuest(token: string): string | undefined {
+    const claims = this.readGuest(token);
+    return claims && claims.expiresAt + GUEST_RENEWAL_MS > Date.now() ? `guest:${claims.id}` : undefined;
+  }
   /** A test player from this service's local account service, when the token is one. */
   private async localAccount(token: string): Promise<MultiplayerIdentity | undefined> {
     try {
