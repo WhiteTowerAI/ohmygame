@@ -53,7 +53,7 @@ import {
   recoverAgentProcesses,
   recoverAgentDirectories,
 } from "./process-recovery.js";
-import { NativeCodingSession, type NativeDriver } from "./native-session.js";
+import { NativeCodingSession, type NativeDriver, type NativeTurnSink } from "./native-session.js";
 import type { HostedToolHooks } from "../tool-hooks.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
@@ -86,7 +86,7 @@ const STATUS_TTL_MS = 60_000;
  * their own planning habits, such as plan files; Pi needs neither line.
  */
 const NATIVE_INSTRUCTIONS =
-  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. For clarifying choices use questionnaire in any turn; mark a recommended option only when you have a clear preference. Never use questionnaire for action permissions. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
 /** What a coding agent hears from OhMyGame: a project's instructions, then how to use OhMyGame's tools. */
 export function nativeAgentInstructions(projectInstructions: string): string {
   return `${projectInstructions}\n\n${NATIVE_INSTRUCTIONS}`;
@@ -138,6 +138,7 @@ export interface NativeSessionRequest {
   instructions: string;
   snapshotBeforeMessage?: () => Promise<string>;
   turnNotice?: () => Promise<string | undefined>;
+  requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -665,6 +666,7 @@ export class AgentRuntimeService {
         ? { snapshotBeforeMessage: request.snapshotBeforeMessage }
         : {}),
       ...(request.turnNotice ? { turnNotice: request.turnNotice } : {}),
+      requestUserInput: request.requestUserInput,
       requestApproval: request.requestApproval,
       toolNames: bridge.names,
       setActiveTools: (names) => bridge.setActive(names),

@@ -5,6 +5,7 @@ import { sendsMessage } from "./general-preferences.js";
 import {
   Box,
   Check,
+  ChatSquare,
   Film,
   GitBranch,
   LoaderCircle,
@@ -641,6 +642,20 @@ function ThinkingActivity() {
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
   const workspaceLinks = useContext(WorkspaceLinkContext);
   if (item.type === "reasoning") return null;
+  if (item.type === "userInputRequest") return <LazyDetails className="questionnaire-outcome" summary={
+    <summary className={`timeline-event timeline-event-expandable${item.status === "completed" ? "" : " timeline-event-muted"}`}>
+      <ChatSquare size={13} aria-hidden="true" />
+      <span>{t(item.autoAnswered ? "questionnaire.answeredAutomatically" : item.status === "completed" ? "questionnaire.answered" : "questionnaire.notAnswered")}</span>
+      <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+    </summary>}>
+    <dl className="questionnaire-answers">{item.questions.map((question) => {
+      const answer = item.answers?.find((answer) => answer.questionId === question.id);
+      return <div key={question.id}>
+        <dt>{question.prompt}</dt>
+        {answer ? <dd>{answer.label}</dd> : null}
+      </div>;
+    })}</dl>
+  </LazyDetails>;
   if (item.type === "modelChange") {
     return (
       <div className="model-change-event" role="status">

@@ -1024,6 +1024,7 @@ describe("daemon", () => {
       "bash",
       "web_fetch",
       "web_search",
+      "questionnaire",
       "update_plan",
       "install_plugin",
       "generate_image",

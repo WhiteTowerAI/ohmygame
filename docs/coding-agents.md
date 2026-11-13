@@ -466,16 +466,15 @@ dropped merely because their session ID differs from the parent.
 
 Planning turns are read-only in every mode. Each agent plans in its own
 read-only mode: Claude Code in its default permission mode with file-changing
-tools refused, Codex in its `:read-only` profile, OpenCode with its `plan`
-agent. Whatever an agent would ask about while planning is refused without
-asking, with feedback, so the agent adjusts instead of stopping; a bare
+tools refused, Codex in its native Plan mode and `:read-only` profile, OpenCode with its `plan`
+agent. Tool permission requests while planning are refused without asking,
+with feedback, so the agent adjusts instead of stopping; a bare
 OpenCode rejection would end its loop. Native agents are told that OhMyGame's
 tools, including `update_plan`, come from its `ohmygame` tool server under
 their CLI's MCP names. Claude's `ExitPlanMode` is declined with a pointer to
 `update_plan`, because OhMyGame reviews plans itself. Claude's
-`AskUserQuestion` is disallowed: an approval card cannot answer it. Claude asks
-with `questionnaire` while planning and in its reply otherwise, like every
-agent. Codex registers every
+`AskUserQuestion` is routed to a question card, including during planning.
+Codex registers every
 OhMyGame tool when its thread starts, since a thread that begins in planning
 continues after the plan is approved; tools the current mode does not allow
 are refused when called.
@@ -496,6 +495,51 @@ Each CLI runs as the signed-in OS user. What it can read, including other CLIs'
 sign-ins and OhMyGame's data, is what its own configuration and sandbox allow.
 Strong confidentiality isolation requires a separate process/container sandbox
 and isolated credentials.
+
+## Questions during a task
+
+OhMyGame's `questionnaire` is available in normal and planning turns for every
+agent. Codex's `item/tool/requestUserInput` and Claude Code's `AskUserQuestion`
+use the same question cards above the composer. These are separate from tool
+permissions. Cards preserve single choices, multiple selections and free-text
+answers; submit the answers to continue, or **Skip** without providing an answer.
+OhMyGame's `questionnaire` always offers **Answer manually** alongside its choices;
+selecting it opens a text field and stops the countdown. Models cannot disable
+custom answers. Text-only questions show the field directly. Native question
+cards follow their protocol: Claude allows custom answers, while Codex uses
+`isOther` when choices are supplied.
+Concurrent requests remain queued. Switching chats or hiding the panel does not
+answer or cancel a question, and partial drafts survive those view changes in
+memory. Reloading the page restores pending questions from the daemon, but not
+unsubmitted drafts. Finished questions remain in the work history.
+
+Codex planning turns select native Plan mode, which makes its native question
+tool available; execution explicitly returns to Default mode. Codex nonblocking
+questions keep the composer available. A server-resolved request, CLI exit, turn
+end or cancellation clears its waiter. Late answers are rejected. Restarting the
+daemon does not resurrect a pending request. Native secret-input requests are
+rejected with an explanation; do not enter credentials into a chat question.
+MCP form and URL elicitation remain unsupported and are declined.
+
+**Settings → Agents → Automatically use recommended answers** offers Off,
+1 minute (the default), 3 or 5 minutes. Saved choices, including Off, are preserved.
+Unreadable settings leave automatic answers off and report the problem.
+The daemon commits a deadline when an eligible question arrives; it continues
+while the window or chat is hidden. The whole request must consist of single-choice
+questions with exactly one explicit recommendation each. Text-only questions,
+multiple selections and unmarked choices stay manual. The first option is never
+an implicit recommendation. The card displays its countdown; interacting with
+it cancels that request's deadline. Choosing **Off** cancels existing deadlines;
+other delay changes apply to future requests. Automatic answers are labeled in
+history. Quitting ends the timers.
+
+Automatic answers apply to OhMyGame's `questionnaire` (including when called by
+Codex or Claude) and Claude's native clarification questions with a literal
+`(Recommended)`, `(推荐)` or `（推荐）` label. Native Codex input requests remain
+manual: the same protocol can carry app action confirmations and does not provide
+a reliable clarification discriminator. Tool approvals are never answered by this
+setting. These boundaries follow the [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server)
+and [Claude user-input contract](https://code.claude.com/docs/en/agent-sdk/user-input).
 
 ## Environment and isolation
 
@@ -563,6 +607,9 @@ coding agent with OhMyGame's, after them.
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Select a native effort/variant string                                  |
 | `PUT /models/default`, `POST /projects/:p/conversations`  | Take `nativeReasoningLevel` for a native model, never `reasoningLevel` |
+| `GET /settings/questions`, `PUT /settings/questions` | Automatic recommendation delay: `delaySeconds` is 0, 60, 180 or 300 |
+| `POST /projects/:p/conversations/:c/questionnaire` | Answer or skip questions; multi-select answers carry explicit `values` |
+| `POST /projects/:p/conversations/:c/questionnaire/:requestId/hold` | Cancel a question's automatic deadline on manual interaction |
 | `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer an approval request: `allow`, `allow-always` or `deny`          |
 
 Status and models are probed only when asked for and cached by executable

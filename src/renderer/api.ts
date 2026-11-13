@@ -2096,3 +2096,13 @@ export async function undoProjectPluginChange(projectId: string, changeId: strin
 export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }
+
+export function getQuestionSettings(): Promise<{ delaySeconds: number; problem?: string }> {
+  return request("/settings/questions");
+}
+export function setQuestionSettings(delaySeconds: number): Promise<{ delaySeconds: number }> {
+  return request("/settings/questions", { method: "PUT", body: JSON.stringify({ delaySeconds }) });
+}
+export async function holdQuestionnaire(projectId: string, conversationId: string, requestId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/questionnaire/${encodeURIComponent(requestId)}/hold`, { method: "POST" });
+}

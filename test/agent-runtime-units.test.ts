@@ -205,6 +205,19 @@ describe("conversation handoff", () => {
     expect(handoffSummary([])).toBeUndefined();
   });
 
+  it("carries native question answers into a new agent without presenting automatic choices as user decisions", () => {
+    const session = SessionManager.inMemory("/tmp/p");
+    session.appendMessage({ role: "user", content: "Build a game", timestamp: 1 });
+    session.appendCustomEntry("ohmygame-user-input", { version: 1, item: {
+      type: "userInputRequest", status: "completed", requestId: "native", autoAnswered: true,
+      questions: [{ id: "color", prompt: "Which color?", allowOther: true, options: [] }],
+      answers: [{ questionId: "color", value: "Blue", label: "Blue", custom: true }],
+    } });
+    const summary = handoffSummary(session.getBranch())!;
+    expect(summary).toContain('Automatic recommended answers: [{"question":"Which color?","answer":"Blue"}]');
+    expect(summary).not.toContain("User answers");
+  });
+
   describe("what the earlier context would otherwise lose", () => {
     const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
     const user = (session: SessionManager, text: string) =>

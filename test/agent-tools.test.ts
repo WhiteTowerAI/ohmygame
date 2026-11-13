@@ -10,6 +10,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
@@ -20,25 +21,47 @@ import sharp from "sharp";
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("agent tools", () => {
+  it.each(["pi", "bridge"] as const)("always offers custom questionnaire answers through %s, even with an obsolete false flag", async (runtime) => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-question-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const answer = { questionId: "platform", value: "Mobile", label: "Mobile", custom: true };
+    const ask = vi.fn(async () => ({ cancelled: false, answers: [answer] }));
+    const tool = createAgentTools(project, runner, projects, ask).find(({ name }) => name === "questionnaire")!;
+    expect(JSON.stringify(tool.parameters)).not.toContain('"allowOther"');
+    const question = { id: "platform", prompt: "Which platform?", options: [{ value: "web", label: "Web" }], allowOther: false };
+    const signal = new AbortController().signal;
+    const input = { questions: [question] };
+    const output = runtime === "pi"
+      ? await tool.execute("question", input, signal, undefined, {} as never)
+      : (await new ToolBridge([tool]).call("questionnaire", input, "question", signal)).result;
+    expect(ask).toHaveBeenCalledWith("question", { questions: [{ ...question, allowOther: true }] }, signal);
+    expect(output.details).toEqual({ cancelled: false, answers: [answer] });
+    expect(output.content).toEqual([{ type: "text", text: "platform: Mobile" }]);
+  });
+
   it("maps enabled product tools to Pi tool names", () => {
     expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(["animate-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "animate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "animate_3d_asset",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("canvas_check");
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
     expect(activePiToolNames(["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("generate_canvas_media");
@@ -52,14 +75,14 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
     )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
     expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
-      "read", "write", "edit", "bash", "web_fetch", "update_plan", "install_plugin",
+      "read", "write", "edit", "bash", "web_fetch", "questionnaire", "update_plan", "install_plugin",
     ]);
   });
 
