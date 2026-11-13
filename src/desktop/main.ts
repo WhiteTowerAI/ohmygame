@@ -17,6 +17,7 @@ import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { gameSignInIssuer } from "./game-sign-in.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
+import { readUsageData, updateUsageData } from "./usage-data.cjs";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
@@ -395,6 +396,21 @@ handle("ohmygame:remove-project", async (event, projectId: unknown) => {
     throw new Error(`The project was removed, but its files could not be moved to the Trash. They are in ${result.movedTo}`);
   }
   await rmdir(path.dirname(result.movedTo)).catch(() => {});
+});
+handle("ohmygame:read-usage-data", () => readUsageData());
+handle("ohmygame:update-usage-data", (event, enabled: unknown, initialize: unknown) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame ||
+      typeof enabled !== "boolean" || typeof initialize !== "boolean") {
+    throw new Error("Invalid usage data request");
+  }
+  const saved = updateUsageData(enabled, initialize);
+  for (const opening of playtestWindows.values()) {
+    void Promise.resolve(opening).then((window) => {
+      if (!window.isDestroyed()) window.webContents.send("ohmygame:usage-data-changed", readUsageData());
+    }).catch(() => {});
+  }
+  return saved;
 });
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
