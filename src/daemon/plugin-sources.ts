@@ -150,6 +150,38 @@ export class PluginSources {
     return found.filter((update) => update !== undefined);
   }
 
+  /** Host-curated offline seed. Unlike Add, it never changes switches or grants. */
+  installPreinstalled(root: string, origin: Extract<PluginOrigin, { type: "npm" }>, before: () => Promise<void>): Promise<PluginIndexEntry | undefined> {
+    const run = this.#adding.then(async () => {
+      await this.services.ready();
+      const entry = await validPackage(root);
+      if (origin.registry !== "npmjs" || !origin.package.startsWith("@ohmygame/")
+        || !npmPackagePluginIds(origin.package)?.includes(entry.id) || origin.version !== entry.version)
+        throw new PluginSourceError("Invalid preinstalled npm identity");
+      // An installed managed version belongs to the person/updater now. Even
+      // a missing seeded version must not cause a downgrade or replacement.
+      const hasManaged = () => this.services.index.versions(entry.id).some((item) => {
+        const relative = path.relative(this.services.packagesDirectory, item.root);
+        return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+      });
+      if (hasManaged()) return undefined;
+      const bundled = this.services.index.versions(entry.id);
+      if (bundled.length && !bundled.some((installed) => installed.version === entry.version))
+        throw new PluginSourceError("Bundled relocation must keep its installed version; review a version update separately");
+      const origins = Object.entries(await this.#loadOrigins()).filter(([key]) => key.startsWith(`${entry.id}@`));
+      if (origins.some(([, previous]) => !isSameSource(previous, origin)))
+        throw new PluginSourceError("Preinstallation cannot reuse data from another plugin source");
+      return this.services.installManaged(root, { consent: false, before: async () => {
+        // Another installer may have finished while this waited for the package lock.
+        if (hasManaged()) throw new PluginSourceError("Plugin was installed while preinstallation was waiting");
+        await before();
+        await this.#recordOrigin(`${entry.id}@${entry.version}`, origin);
+      } });
+    });
+    this.#adding = run.catch(() => undefined);
+    return run;
+  }
+
   /** Where a package the person added came from; a local one has no origin. */
   async origin(id: string, version: string): Promise<PluginOrigin | undefined> {
     return (await this.#loadOrigins())[`${id}@${version}`];
@@ -441,10 +473,17 @@ export class PluginSources {
   }
 
   #loadOrigins(): Promise<Record<string, PluginOrigin>> {
-    // It only says where a package came from, so losing it costs just that.
     return this.#origins ??= readFile(this.originsPath, "utf8")
-      .then((text) => JSON.parse(text) as Record<string, PluginOrigin>)
-      .catch(() => ({}));
+      .then((text) => {
+        const value: unknown = JSON.parse(text);
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid plugin origins; file left unchanged");
+        return value as Record<string, PluginOrigin>;
+      })
+      .catch((cause: NodeJS.ErrnoException) => {
+        this.#origins = undefined;
+        if (cause.code === "ENOENT") return {};
+        throw cause;
+      });
   }
 
   /** Adding the same version from elsewhere replaces it, origin included. */
