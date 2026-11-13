@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
+import { PluginValues } from "../src/daemon/plugin-values.js";
+import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import {
   ExtensionHostError,
   ExtensionHosts,
@@ -2079,5 +2081,48 @@ describe("plugin hooks", () => {
       watches.dispose();
       await rm(folder, { recursive: true, force: true });
     }
+  });
+});
+
+describe("plugin configuration preservation", () => {
+  const entry = { id: "acme/keys", manifest: { configuration: { cn: { type: "secret" }, global: { type: "secret" } } } } as unknown as PluginIndexEntry;
+  it("retains root and field metadata, other plugins and secrets across queued writes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-preserve-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      const other = { unknown: { type: "text", value: "keep", future: [1, 2] } };
+      await writeFile(file, JSON.stringify({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "old", future: { account: "one" } } }, other,
+      } }));
+      const values = new PluginValues(file);
+      await values.load();
+      await Promise.all([values.update(entry, { cn: "cn-key" }), values.update(entry, { global: "global-key" })]);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: {
+        "acme/keys": { cn: { type: "secret", value: "cn-key", future: { account: "one" } }, global: { type: "secret", value: "global-key" } }, other,
+      } });
+      const restored = new PluginValues(file);
+      await restored.load();
+      expect(restored.secret(entry, "cn")).toBe("cn-key");
+      expect(restored.secret(entry, "global")).toBe("global-key");
+      expect(restored.forNative(entry)).toEqual({});
+      await restored.forget(entry.id);
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: { other } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("never rewrites malformed, future or partially unreadable plugin configuration", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-unreadable-"));
+    try {
+      const file = path.join(directory, "configuration.json");
+      for (const text of ["{broken", "null", "[]", JSON.stringify({ version: 2, plugins: {} }), JSON.stringify({ version: 1, plugins: [] }),
+        ...[[], null, { cn: { type: "future", value: "keep" } }, { cn: { type: "secret", value: true } }].map((fields) => JSON.stringify({ version: 1, plugins: { "acme/keys": fields } }))]) {
+        await writeFile(file, text);
+        const values = new PluginValues(file);
+        await values.load().catch(() => {});
+        await expect(Promise.resolve().then(() => values.update(entry, { cn: "replacement" }))).rejects.toThrow(/newer|unreadable/);
+        await values.forget(entry.id);
+        expect(await readFile(file, "utf8")).toBe(text);
+      }
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
