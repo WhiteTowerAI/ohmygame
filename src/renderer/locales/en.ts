@@ -336,6 +336,9 @@ const en = {
       runSound: "Sound",
       runSoundHint: "Play a short sound at the same moment.",
       system: "System",
+      backgroundRunning: "Keep running after closing the window",
+      backgroundRunningWindowsHint: "Reopen or quit from the system tray. Connections pause while the computer sleeps.",
+      backgroundRunningMacHint: "Reopen from the Dock; use Quit OhMyGame to stop. Connections pause while the computer sleeps.",
       keepAwake: "Keep the computer awake",
       keepAwakeHint: "While an agent is working, the computer does not go to sleep.",
       autoUpdate: "Automatic updates",
@@ -4243,6 +4246,7 @@ const en = {
   // Sent whole to the main process. Item keys are Electron's lowercase menu
   // item roles; a role that is worded differently on macOS has its own key.
   windowMenu: {
+    openApp: "Open OhMyGame",
     file: "File",
     edit: "Edit",
     view: "View",

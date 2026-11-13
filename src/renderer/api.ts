@@ -154,6 +154,10 @@ declare global {
       readUsageData?: () => Promise<boolean>;
       onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
       updateUsageData?: (enabled: boolean, initialize: boolean) => Promise<boolean>;
+      backgroundRunning?: {
+        get: () => Promise<boolean>;
+        set: (enabled: boolean) => Promise<boolean>;
+      };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;

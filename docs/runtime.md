@@ -941,6 +941,35 @@ keeps its open folders and scroll position, and the open file stays on screen,
 also when the refresh fails. Only choosing or opening a file, or coming back from
 Changes, which builds the tree anew, scrolls the tree.
 
+## Desktop background running
+
+**Settings → General → Keep running after closing the window** is off by
+default. With it on, closing the main window hides it without unmounting the
+workspace: agents, pending approvals, scheduled messages and plugin connections
+keep their existing owners. Reopening restores the same window, selections and
+view position. The option does not start the app at login or keep connections
+online through computer sleep.
+
+On Windows, a system tray icon offers **Open OhMyGame** and **Exit**; clicking
+its icon also restores the window. The tray must be created successfully before
+close-to-background is enabled. On macOS, the Dock restores the window and
+**Quit OhMyGame** exits. With the option off, Windows retains close-to-quit and
+macOS retains its existing close-window behavior (the app stays in the Dock).
+Launching the app again restores the existing instance for that user-data
+profile instead of starting another daemon.
+
+Quit, restart and update installation still wait for workspace saving before
+stopping services. A failed Quit shows the window again so its save error can
+be resolved. Hiding does not enter the renderer's closing state or cancel work.
+
+The main process owns `background-running.json` in the app's data directory
+(`version: 1`, boolean `enabled`). It loads before the first window; writes are
+serialized and atomic, preserve unknown fields, and refuse malformed or newer
+files. A failed setting change keeps the previous effective value and shows an
+error in Settings. Native handlers accept only the main window's main frame.
+See `src/desktop/background-running.ts` and `test/desktop-close.test.ts`.
+Bot-plugin enablement prompts belong to the later sessions/plugin stage.
+
 ## Agent notifications
 
 The desktop app shows a system notification when an agent needs the user or
@@ -966,8 +995,9 @@ has finished, in any project, including while the main window is closed.
   once on macOS or flashes the taskbar button on Windows. The Dock badge
   counts conversations waiting for the user. Windows has no count on taskbar
   buttons, so a red dot overlays the taskbar button instead.
-- On Windows, closing the main window quits the app, so notifications arrive
-  only while the window is open, minimized or in the background.
+- On Windows, closing the main window quits the app unless desktop background
+  running is enabled. With it enabled, notifications also arrive while hidden
+  in the system tray.
 - **Settings → Notifications** has one switch that turns notifications off.
   It preserves the earlier General → Notifications choice when upgrading.
   Desktop completion notices use this main-process path; browser notifications

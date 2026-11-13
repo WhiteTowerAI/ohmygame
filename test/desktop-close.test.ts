@@ -1,4 +1,6 @@
 import path from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const host = vi.hoisted(() => ({
@@ -10,7 +12,13 @@ const host = vi.hoisted(() => ({
   updateUsageData: vi.fn((enabled: boolean) => enabled),
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
   stopped: vi.fn(async () => {}),
-  quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
+  quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(), hide: vi.fn(), show: vi.fn(), focus: vi.fn(),
+  visible: true,
+  dataDirectory: "",
+  trayEvents: new Map<string, () => void>(),
+  trayMenu: undefined as { template: Array<{ label: string; click: () => void }> } | undefined,
+  trayDestroyed: false,
+  getFileIcon: vi.fn(async () => ({ isEmpty: () => false })),
   install: undefined as (() => Promise<void>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
   daemonOptions: undefined as Record<string, unknown> | undefined,
@@ -26,7 +34,15 @@ vi.mock("electron", () => ({
     on: (name: string, fn: (...args: any[]) => void) => host.appEvents.set(name, fn),
     whenReady: async () => {}, getPath: () => "/tmp/ohmygame-close-test", getVersion: () => "0.0.0",
     isReady: () => true, quit: host.quit, relaunch: host.relaunch, exit: vi.fn(),
-    setAppUserModelId: vi.fn(), setBadgeCount: vi.fn(),
+    setAppUserModelId: vi.fn(), setBadgeCount: vi.fn(), getFileIcon: host.getFileIcon,
+  },
+  Tray: class {
+    constructor() { host.trayDestroyed = false; }
+    setToolTip() {}
+    on(name: string, callback: () => void) { host.trayEvents.set(name, callback); }
+    setContextMenu(menu: typeof host.trayMenu) { host.trayMenu = menu; }
+    isDestroyed() { return host.trayDestroyed; }
+    destroy() { host.trayDestroyed = true; }
   },
   ipcMain: {
     handle: (name: string, fn: (...args: any[]) => any) => host.handlers.set(name, fn),
@@ -87,6 +103,8 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       return window;
     }
     const window = {
+      hide: host.hide, show: host.show, focus: host.focus, isMinimized: () => false,
+      isVisible: () => host.visible, isFocused: () => host.visible,
       webContents: host.sender, isDestroyed: () => false, close: host.close, setOverlayIcon: vi.fn(),
       on: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
       once: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
@@ -101,9 +119,18 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
   waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true,
 }));
 
+const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
 beforeEach(async () => {
+  Object.defineProperty(process, "platform", { value: "darwin" });
   vi.resetModules(); vi.clearAllMocks(); vi.useFakeTimers();
   host.appEvents.clear(); host.ipcEvents.clear(); host.handlers.clear(); host.windowEvents.clear();
+  host.dataDirectory = mkdtempSync(path.join(os.tmpdir(), "ohmygame-close-"));
+  vi.stubEnv("OHMYGAME_DATA_DIR", host.dataDirectory);
+  host.visible = true;
+  host.hide.mockImplementation(() => { host.visible = false; });
+  host.show.mockImplementation(() => { host.visible = true; });
+  host.trayEvents.clear();
+  host.trayMenu = undefined;
   host.thumbnails.length = 0;
   host.applicationMenu = undefined;
   host.menuBeforeLabels = undefined;
@@ -114,7 +141,7 @@ beforeEach(async () => {
   await import("../src/desktop/main.js");
   expect(host.options?.rendererFile).toMatch(/[\\/]renderer[\\/]index\.html$/);
 });
-afterEach(() => { process.argv.splice(process.argv.lastIndexOf("--built-renderer"), 1); vi.useRealTimers(); });
+afterEach(() => { process.argv.splice(process.argv.lastIndexOf("--built-renderer"), 1); vi.useRealTimers(); vi.unstubAllEnvs(); Object.defineProperty(process, "platform", originalPlatform); rmSync(host.dataDirectory, { recursive: true, force: true }); });
 
 const settle = async () => { await vi.advanceTimersByTimeAsync(0); };
 function acknowledge(error?: string, sender: { id: number; send: unknown } = host.sender, id?: number) {
@@ -261,4 +288,70 @@ it("cancels active and queued thumbnail captures and frees slots for the next ba
   } finally {
     warn.mockRestore();
   }
+});
+
+
+const background = (value?: unknown, event = { sender: host.sender, senderFrame: host.sender.mainFrame }) =>
+  host.handlers.get("ohmygame:background-running")!(event, value) as Promise<boolean>;
+
+it("hides without entering closing state and restores the same live window", async () => {
+  expect(await background()).toBe(false);
+  await background(true);
+  host.windowEvents.get("close")!({ preventDefault() {} });
+  expect(host.hide).toHaveBeenCalledOnce();
+  expect(host.sender.send).not.toHaveBeenCalled();
+  expect(host.close).not.toHaveBeenCalled();
+  expect(host.stopped).not.toHaveBeenCalled();
+  host.appEvents.get("second-instance")!();
+  await settle();
+  expect(host.show).toHaveBeenCalledOnce();
+  expect(host.focus).toHaveBeenCalledOnce();
+  expect(host.mainWindows).toBe(1);
+  await background(false);
+  host.windowEvents.get("close")!({ preventDefault() {} });
+  acknowledge(); await settle();
+  expect(host.close).toHaveBeenCalledOnce();
+});
+
+it("still saves on explicit Quit, and reopens a hidden window when saving fails", async () => {
+  await background(true);
+  host.windowEvents.get("close")!({ preventDefault() {} });
+  quit(); acknowledge("Save conflict"); await settle();
+  expect(host.visible).toBe(true);
+  expect(host.stopped).not.toHaveBeenCalled();
+  quit(); acknowledge(); await settle();
+  expect(host.stopped).toHaveBeenCalledOnce();
+});
+
+it("rejects subframe, foreign and malformed background preferences", async () => {
+  await expect(background(true, { sender: host.sender, senderFrame: {} })).rejects.toThrow("source");
+  await expect(background("true")).rejects.toThrow("setting");
+  expect(await background()).toBe(false);
+});
+
+it("creates a Windows tray with working restore, localized menu, and explicit Quit", async () => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+  try {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    vi.resetModules();
+    await import("../src/desktop/main.js");
+    await background(true);
+    expect(host.getFileIcon).toHaveBeenCalledWith(process.execPath, { size: "small" });
+    host.windowEvents.get("close")!({ preventDefault() {} });
+    host.trayEvents.get("click")!();
+    await settle();
+    expect(host.visible).toBe(true);
+    host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { openApp: "打开 OhMyGame", quit: "退出" });
+    expect(host.trayMenu!.template.map(item => item.label)).toEqual(["打开 OhMyGame", "退出"]);
+    host.windowEvents.get("close")!({ preventDefault() {} });
+    host.trayMenu!.template[0]!.click();
+    await settle();
+    expect(host.visible).toBe(true);
+    host.trayMenu!.template[1]!.click();
+    expect(host.stopped).not.toHaveBeenCalled();
+    acknowledge(); await settle();
+    expect(host.stopped).toHaveBeenCalledOnce();
+    host.appEvents.get("will-quit")!();
+    expect(host.trayDestroyed).toBe(true);
+  } finally { Object.defineProperty(process, "platform", original); }
 });

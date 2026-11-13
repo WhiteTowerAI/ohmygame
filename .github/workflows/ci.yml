@@ -75,6 +75,7 @@ jobs:
       # test:node-runtime already built the host used by the recording check.
       - run: bun run build:renderer
       - run: node scripts/test-game-recording.mjs
+      - run: node scripts/test-desktop-background.mjs
       # Loads plugins' panels in Electron, on this branch's page components and,
       # on a pull request, the target branch's, for what is newly wrong.
       - name: Load plugins' panels on the page components

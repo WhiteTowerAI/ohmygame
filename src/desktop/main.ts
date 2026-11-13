@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, session, shell, Tray } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
@@ -34,6 +34,7 @@ import { GAME_RECORDING_MAX_SECONDS, gameRecordingFileName, type GameRecordingSa
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { BrowserViews } from "./browser-views.js";
 import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../shared/browser.js";
+import { BackgroundRunning } from "./background-running.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
@@ -66,6 +67,47 @@ mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${pro
 // Windows shows notifications only for the app ID of the installer's Start menu shortcut, the `appId` in electron-builder.yml.
 if (process.platform === "win32") app.setAppUserModelId("ai.ohmygame.desktop");
 let mainWindow: BrowserWindow | undefined;
+let backgroundRunning: BackgroundRunning | undefined;
+let backgroundTray: Tray | undefined;
+let menuLabels: Record<string, string> = {};
+
+function refreshTrayMenu(): void {
+  if (!backgroundTray || backgroundTray.isDestroyed()) return;
+  backgroundTray.setContextMenu(Menu.buildFromTemplate([
+    { label: menuLabels.openApp ?? "Open OhMyGame", click: () => { void showMainWindow(); } },
+    { label: menuLabels.quit ?? "Exit", click: () => app.quit() },
+  ]));
+}
+
+async function createBackgroundTray(): Promise<Tray> {
+  // The packaged executable carries the application's icon; no separate asset path is needed.
+  const icon = await app.getFileIcon(process.execPath, { size: "small" });
+  if (icon.isEmpty()) throw new Error("Could not load the background tray icon");
+  const tray = new Tray(icon);
+  try {
+    tray.setToolTip("OhMyGame");
+    tray.on("click", () => { void showMainWindow(); });
+    backgroundTray = tray;
+    refreshTrayMenu();
+    return tray;
+  } catch (cause) {
+    tray.destroy();
+    throw cause;
+  }
+}
+
+async function showMainWindow(): Promise<void> {
+  if (!daemon || !startupComplete || quitting) return;
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) await openMainWindow();
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.show();
+    mainWindow?.focus();
+  } catch (cause) {
+    console.error(cause);
+    dialog.showErrorBox("OhMyGame could not open a window", cause instanceof Error ? cause.message : String(cause));
+  }
+}
 /** The account service published games sign in with, from the daemon's environment. */
 let gameSignIn: string | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
@@ -326,7 +368,9 @@ handle("ohmygame:set-application-menu-labels", (event, labels: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !isApplicationMenuLabels(labels)) {
     throw new Error("Invalid application menu labels");
   }
+  menuLabels = labels;
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(labels, process.platform)));
+  refreshTrayMenu();
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
@@ -822,18 +866,26 @@ handle("ohmygame:restart-app", (event) => {
   app.quit();
 });
 
-// On macOS, closing the last window keeps the app and its services running
-// until Quit, and clicking the Dock icon opens the main window again.
+handle("ohmygame:background-running", async (event, enabled?: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame)
+    throw new Error("Invalid background-running source");
+  if (process.platform !== "darwin" && process.platform !== "win32") throw new Error("Background running is unavailable on this platform");
+  if (!backgroundRunning) throw new Error("Background running is not ready");
+  if (enabled === undefined) return backgroundRunning.read();
+  if (typeof enabled !== "boolean") throw new Error("Invalid background-running setting");
+  const value = await backgroundRunning.set(enabled);
+  // A setting change that finishes after Close must not leave an unreachable hidden window.
+  if (!value && mainWindow && !mainWindow.isVisible()) await showMainWindow();
+  return value;
+});
+
+// Keep each platform's default when the opt-in is off. Explicit Quit always shuts down.
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin" && !backgroundRunning?.enabled) app.quit();
 });
-app.on("activate", () => {
-  if (!daemon || !startupComplete || mainWindow || quitting) return;
-  openMainWindow().catch((error) => {
-    console.error(error);
-    dialog.showErrorBox("OhMyGame could not open a window", error instanceof Error ? error.message : String(error));
-  });
-});
+app.on("activate", () => { void showMainWindow(); });
+app.on("second-instance", () => { void showMainWindow(); });
+app.on("will-quit", () => backgroundRunning?.dispose());
 app.on("before-quit", (event) => {
   if (quitting || !daemon) return;
   event.preventDefault();
@@ -842,7 +894,7 @@ app.on("before-quit", (event) => {
   void prepareShutdown().then(() => {
     if (restartPending) app.relaunch();
     app.quit();
-  }).catch(() => { quitPending = false; restartPending = false; });
+  }).catch(() => { quitPending = false; restartPending = false; void showMainWindow(); });
 });
 
 try {
@@ -852,6 +904,13 @@ try {
   nativeTheme.themeSource = "system";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data");
+  if (process.platform === "darwin" || process.platform === "win32") {
+    backgroundRunning = new BackgroundRunning(
+      path.join(dataDirectory, "background-running.json"),
+      process.platform === "win32" ? createBackgroundTray : undefined,
+    );
+    await backgroundRunning.initialize().catch((cause) => console.warn("Background running is unavailable", cause));
+  }
   const systemProxySession = session.fromPartition("ohmygame-system-proxy", { cache: false });
   await systemProxySession.setProxy({ mode: "system" });
   const network = await prepareDesktopNetwork({
@@ -1013,6 +1072,12 @@ async function openMainWindow(): Promise<void> {
       window.on("close", (event) => {
         if (quitting || allowClose) return;
         event.preventDefault();
+        if (backgroundRunning?.enabled && !quitPending) {
+          // Hiding keeps the renderer and its workspace alive; do not enter its closing state.
+          window.hide();
+          agentNotifications.focusChanged();
+          return;
+        }
         void close.request().then(() => {
           if (quitPending || quitting || allowClose || window.isDestroyed()) return;
           allowClose = true;
