@@ -192,7 +192,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
-| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
+| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); media video `imageAspectRatios` and `frameAspectRatios`; disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
 
 ## Agent instructions
 

@@ -221,6 +221,46 @@ const firstVideo = async (media: PluginMediaProviders): Promise<VideoModel> => (
 const journalAt = (id = "job-1") => mediaTaskJournal(path.join(root, "media-tasks"), id);
 
 describe("plugin media providers: video", () => {
+  it("uses the same ratios as the picker for text, frames and reference images", async () => {
+    const adapter = `export default { video: { async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/videos", { method: "POST", auth: true, json: { ratio: input.aspectRatio, mode: input.referenceMode } });
+      return { outputs: [{ url: "https://cdn.flow.example/result.mp4" }] };
+    } } };`;
+    const { media, requests } = await setup(adapter, { media: { video: { models: [{
+      id: "ratios", durations: [5], resolutions: ["720p"], aspectRatios: ["16:9", "9:16"],
+      maxReferenceImages: 9, referenceModes: ["frame", "reference"],
+      imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"],
+    }] } } as unknown as Partial<Media> });
+    const model = await firstVideo(media);
+    expect(model).toMatchObject({ imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] });
+    const file = path.join(root, "first.png");
+    await writeFile(file, PNG);
+    const references = [{ type: "image" as const, name: "first.png", mediaType: "image/png", absolutePath: file }];
+    await media.generateVideo(model, { prompt: "text" });
+    await media.generateVideo(model, { prompt: "frame", references });
+    await media.generateVideo(model, { prompt: "reference", references, referenceMode: "reference", aspectRatio: "16:9" });
+    expect(requests.filter((request) => request.method === "POST").map((request) => JSON.parse(request.body!)))
+      .toEqual([{ ratio: "16:9" }, { ratio: "adaptive", mode: "frame" }, { ratio: "16:9", mode: "reference" }]);
+    const count = requests.length;
+    await expect(media.generateVideo(model, { prompt: "text", aspectRatio: "adaptive" })).rejects.toThrow("aspect ratio is not supported");
+    await expect(media.generateVideo(model, { prompt: "frame", references, aspectRatio: "16:9" })).rejects.toThrow("aspect ratio is not supported");
+    await expect(media.generateVideo(model, { prompt: "reference", references, referenceMode: "reference", aspectRatio: "9:16" })).rejects.toThrow("aspect ratio is not supported");
+    expect(requests).toHaveLength(count);
+  });
+
+  it("preserves discovered reference ratios across model selection and restart", async () => {
+    const model = { id: "discovered", durations: [5], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2,
+      referenceModes: ["frame", "reference"], imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] };
+    const adapter = `export default { video: { models: () => ({ models: ${JSON.stringify([model, { ...model, id: "invalid", frameAspectRatios: [] }])} }) } };`;
+    const mediaSection: Partial<Media> = { video: { discoverModels: true, models: [] } };
+    const { media } = await setup(adapter, { media: mediaSection, choices: new PluginMediaModelChoices(root) });
+    const provider = "plugin.acme.flow.flow";
+    expect(await media.listModels(provider, "video", true)).toMatchObject({ skipped: 1, models: [{ id: "discovered", shown: false }] });
+    await media.setModelsShown(provider, "video", ["discovered"], true);
+    const again = await setup(adapter, { media: mediaSection, choices: new PluginMediaModelChoices(root) });
+    expect(await firstVideo(again.media)).toMatchObject({ imageAspectRatios: model.imageAspectRatios, frameAspectRatios: model.frameAspectRatios });
+  });
+
   it("lists a provider's video models and makes one through a task", async () => {
     const { media, requests } = await setup(VIDEO_TASK, { media: VIDEO_MEDIA });
     const model = await firstVideo(media);

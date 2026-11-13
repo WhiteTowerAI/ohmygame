@@ -554,6 +554,10 @@ const MediaVideoModel = Type.Object(
      * `reference` as a look to follow. The first is the default.
      */
     referenceModes: Type.Optional(Type.Array(Literals(VIDEO_REFERENCE_MODES), { minItems: 1, uniqueItems: true })),
+    /** Ratios with image references; defaults to aspectRatios. API 2.7. */
+    imageAspectRatios: Type.Optional(Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true })),
+    /** Ratios with first/last frames; overrides imageAspectRatios. API 2.7. */
+    frameAspectRatios: Type.Optional(Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true })),
   },
   { additionalProperties: false },
 );
@@ -703,6 +707,13 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel)
   const issues: Array<[string, string]> = [];
   if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
+  if (kind === "video") {
+    const video = model as PluginMediaModels["video"];
+    for (const field of ["imageAspectRatios", "frameAspectRatios"] as const)
+      if (video[field] && !video.maxReferenceImages) issues.push([field, "requires maxReferenceImages greater than zero"]);
+    if (video.frameAspectRatios && video.referenceModes && !video.referenceModes.some((mode) => mode === "frame"))
+      issues.push(["frameAspectRatios", "requires the frame reference mode"]);
+  }
   if (kind === "audio") {
     const audio = model as PluginMediaModels["audio"];
     if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
