@@ -272,6 +272,30 @@ it("keeps a setting changed again while the last change saves", async () => {
   expect(document.querySelector<HTMLButtonElement>(".plugin-configuration button[type=submit]")!.disabled).toBe(false);
 });
 
+it("offers longer field instructions without losing drafts, submitting, or expanding the input's label", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [
+    { name: "path", type: "path", title: "Folder", description: "Choose the app's folder.\n\nFind it in your app settings.\nOfficial guide: https://example.com/guide\n<script>literal text</script> javascript:alert(1)" },
+    { name: "token", type: "secret", title: "Token", description: "Keep this private." },
+  ] })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const input = host.querySelector<HTMLInputElement>('.plugin-configuration input')!;
+  const help = host.querySelector<HTMLDetailsElement>('.plugin-setting-help')!;
+  expect(input.labels?.[0]?.textContent).toBe("Folder");
+  expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe("Choose the app's folder.");
+  expect(host.querySelectorAll('.plugin-setting-help')).toHaveLength(1);
+  expect(help.open).toBe(false);
+  await act(async () => type(input, "/unsaved"));
+  await act(async () => help.querySelector("summary")!.click());
+  expect(help.open).toBe(true);
+  expect(input.value).toBe("/unsaved");
+  expect(api.saveStorePluginConfiguration).not.toHaveBeenCalled();
+  expect(help.querySelector("a")?.href).toBe("https://example.com/guide");
+  expect(help.querySelector("a")?.target).toBe("_blank");
+  expect(help.querySelectorAll("a")).toHaveLength(1);
+  expect(help.querySelector("script")).toBeNull();
+  expect(help.textContent).toContain("<script>literal text</script>");
+});
+
 it("shows the plugin's description, Skills and settings under tabs, without a switch per Skill", async () => {
   const [group] = groupStorePlugins([row("1.0.0", { beta: true, longDescription: "All about Maker.", grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));

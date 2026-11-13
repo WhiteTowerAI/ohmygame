@@ -3007,6 +3007,7 @@ const en = {
     ready: "Ready",
   },
   pluginControls: {
+    fieldHelp: "How to fill this in",
     needsConfiguration: "Needs configuration: {{fields}}",
     uninstall: "Uninstall plugin",
     confirmUninstall: "Uninstall “{{name}}”?",

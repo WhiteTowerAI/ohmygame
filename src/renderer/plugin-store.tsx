@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, PLUGIN_NPM_REGISTRIES, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
@@ -10,7 +10,7 @@ import { PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FolderOpen, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -552,6 +552,7 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */
 export function StorePluginSettings({ plugin, fields = plugin.settings }: { plugin: StorePlugin; fields?: StorePlugin["settings"] }): ReactNode {
+  const fieldPrefix = useId();
   const [config, setConfig] = useState<StorePluginConfiguration>();
   const [values, setValues] = useState<Record<string, string | boolean | null>>({});
   const [busy, setBusy] = useState(false);
@@ -590,6 +591,8 @@ export function StorePluginSettings({ plugin, fields = plugin.settings }: { plug
     <h2>{t("common.settings")}</h2>
     {config ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       {fields.map((field) => {
+        const fieldId = `${fieldPrefix}-${field.name}`;
+        const describedBy = field.description ? `${fieldId}-hint` : undefined;
         const view = config[field.name];
         const stored = view && view.type !== "secret" ? view.value : null;
         const configured = view?.type === "secret" && view.configured;
@@ -597,17 +600,19 @@ export function StorePluginSettings({ plugin, fields = plugin.settings }: { plug
         const set = (next: string | boolean | null) => setValues((current) => ({ ...current, [field.name]: next }));
         // An emptied secret field leaves the saved one alone; Clear removes it.
         const unset = () => setValues(({ [field.name]: _, ...rest }) => rest);
-        return <label key={field.name}>
-          <span>{field.title}{field.required ? " *" : ""}</span>
+        return <div className="plugin-configuration-field" key={field.name}>
+          <label htmlFor={fieldId}>{field.title}{field.required ? " *" : ""}</label>
           {field.type === "boolean" ? (
-            <input type="checkbox" checked={value === true} onChange={(event) => set(event.target.checked)} />
+            <input id={fieldId} aria-describedby={describedBy} type="checkbox" checked={value === true} onChange={(event) => set(event.target.checked)} />
           ) : field.type === "select" ? (
-            <select value={typeof value === "string" ? value : ""} onChange={(event) => set(event.target.value || null)}>
+            <select id={fieldId} aria-describedby={describedBy} value={typeof value === "string" ? value : ""} onChange={(event) => set(event.target.value || null)}>
               <option value="">{t("pluginControls.chooseOption")}</option>
               {field.options?.map((option) => <option key={option}>{option}</option>)}
             </select>
           ) : (
             <input
+              id={fieldId}
+              aria-describedby={describedBy}
               type={field.type === "secret" ? "password" : "text"}
               autoComplete="off"
               value={typeof value === "string" ? value : ""}
@@ -616,11 +621,11 @@ export function StorePluginSettings({ plugin, fields = plugin.settings }: { plug
               onChange={(event) => event.target.value ? set(event.target.value) : field.type === "secret" ? unset() : set(null)}
             />
           )}
-          {field.description ? <small>{field.description}</small> : null}
+          {field.description ? <PluginSettingDescription id={describedBy!} description={field.description} /> : null}
           {field.type === "secret" && configured ? <button className="plugin-detail-secondary" type="button" onClick={() => set(null)}>
             {values[field.name] === null ? t("pluginControls.willClear") : t("pluginControls.clearSaved")}
           </button> : null}
-        </label>;
+        </div>;
       })}
       <button className="plugin-detail-primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
         {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
@@ -629,6 +634,22 @@ export function StorePluginSettings({ plugin, fields = plugin.settings }: { plug
     {notice ? <p role="status">{notice}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
   </section>;
+}
+
+/** Keep the first paragraph visible; longer plain-text instructions are optional help. */
+function PluginSettingDescription({ id, description }: { id: string; description: string }) {
+  const [hint, ...paragraphs] = description.split(/\n\s*\n/);
+  return <>
+    <small id={id}>{hint}</small>
+    {paragraphs.length ? <details className="plugin-setting-help">
+      <summary><CircleHelp size={13} aria-hidden="true" />{t("pluginControls.fieldHelp")}</summary>
+      <div>{paragraphs.join("\n\n").split(/(https:\/\/[^\s<>"']+)/).map((part, index) =>
+        part.startsWith("https://") && URL.canParse(part)
+          ? <a key={index} href={part} target="_blank" rel="noreferrer" title={part}>{new URL(part).hostname}<ExternalLink size={11} aria-hidden="true" /></a>
+          : part,
+      )}</div>
+    </details> : null}
+  </>;
 }
 
 function message(cause: unknown): string {

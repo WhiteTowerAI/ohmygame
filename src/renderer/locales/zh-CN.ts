@@ -2961,6 +2961,7 @@ const zhCN: typeof en = {
     ready: "就绪",
   },
   pluginControls: {
+    fieldHelp: "如何填写",
     needsConfiguration: "需要配置：{{fields}}",
     uninstall: "卸载插件",
     confirmUninstall: "要卸载“{{name}}”吗？",

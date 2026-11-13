@@ -675,6 +675,10 @@ was opened.
   `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
+  In an installed plugin's Settings, a configuration `description` stays plain
+  text. Its first paragraph is the visible hint; paragraphs after a blank line
+  are expandable help, with HTTPS URLs made clickable. Keep essential constraints
+  in the first paragraph. Older apps display the full description as a hint.
 - A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
   that suit the project, and the type's own, with the version the project
   uses (none when off), its status, whether it is on in every project, what
