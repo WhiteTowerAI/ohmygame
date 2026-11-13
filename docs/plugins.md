@@ -7,7 +7,7 @@ in every project it suits, and a project can still turn it off or on for
 itself; see [Plugins for every project](#plugins-for-every-project). A plugin
 runs only once the person has allowed what it asks for.
 
-Plugins come bundled with the app, prepared with it from another repository, from
+Plugins come preinstalled with the app from pinned npm releases, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
 from the [plugin market](#the-plugin-market).
 
@@ -159,11 +159,11 @@ the project it starts in and mentions it.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Bundled:** `plugins/` ships with the app and is indexed in place by
-  `PluginServices.ready()`, which every service method and route waits for;
-  `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
-  on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
-  the person turns it on.
+- **Preinstalled:** `config/preinstalled-plugins.json` pins npm releases owned by
+  [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
+  Preparation supplies verified archives; startup installs managed copies that
+  can be updated and removed normally. Existing settings and switches survive
+  relocation. `packages/plugin-ui/` remains the host's `@ohmygame/plugin-ui`.
 
 ## API versions
 
@@ -626,8 +626,8 @@ was opened.
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
-| TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
+| Godot | `@ohmygame/godot` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
+| TapTap Maker | `@ohmygame/taptap-maker` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
@@ -794,7 +794,7 @@ was opened.
 The person's choice for every project is `grants.json`'s `everyProject`. Until
 they make one, a plugin that only adds Skills, with no native entry, settings
 or capabilities (`isAppWidePlugin`, judged on its newest version), is on in
-every project, unless it is a bundled one in `BUNDLED_PLUGINS_OFF`
+every project, unless its ID is in `BUNDLED_PLUGINS_OFF`
 (`src/daemon/plugin-services.ts`); any other plugin is off (`onInEveryProject`).
 The choice is live: changing it changes every project that hasn't set the
 plugin itself in `ohmygame.json`.
@@ -803,7 +803,7 @@ plugin itself in `ohmygame.json`.
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
-a bundled plugin is allowed when the app installs it. A plugin on in every
+preinstallation grants no native capabilities. A plugin on in every
 project needs no approval per folder. One that only a project's file turns on
 needs **Allow** once for that folder, unless it only adds Skills, since
 the file may come from someone else. `PluginServices.everyProject`
@@ -811,7 +811,7 @@ and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
 `{name, marketplaceId}`, with the publisher as `marketplaceId`, so
-`plugin://web-game-studio@ohmygame` names a bundled one.
+`plugin://web-game-studio@ohmygame` names a preinstalled one.
 
 A project that names an older version keeps running it, in place of the newest.
 
@@ -854,14 +854,15 @@ replaced with empty state. A late seed receipt cannot undo removal.
 
 Legacy GitHub seeds retain their existing release-replacement behavior. A seed
 the app stops bringing is listed in `RETIRED`: its seeded version is removed once,
-while independently installed versions remain. Bundled plugins outside the npm
-lock continue loading from `plugins/` and can only be turned off.
+while independently installed versions remain. Explicit legacy bundled folders
+remain supported for migration tests and custom hosts; the app ships none.
 
-The npm loader is ready for the 12-package migration, but the checked-in lock
-remains empty until the packages in `ohmygame-plugins` are published. Activation
-must pin their real npm integrity values and remove the corresponding bundled
-folders in the same app change. Before that cutover, reconcile package contents
-with the bundled sources and run the migration tests against the final archives.
+The lock activates all 12 former bundled plugins from published npm releases.
+Their source lives only in `ohmygame-plugins`; changes require a published version
+and a reviewed lock update. Preparation also reconstructs disposable sources at
+`.runtime/preinstalled-plugin-sources/` for host integration tests and panel
+regressions, including on cache hits. This directory is not packaged. Tests use
+the same verified releases that the desktop app installs offline.
 Keep the same plugin IDs and versions for the initial relocation; a new native
 version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
@@ -1334,8 +1335,8 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   version, newest first, with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. A plugin in
-  `plugins/` only switches off; uninstalling it is refused.
+  replaced or cleared), and uninstalls one version at a time. Preinstalled npm packages
+  can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
   folder that go with the last one, the projects that use the version, and
@@ -1761,11 +1762,12 @@ project, or only in the project types a connection is limited to.
   `/configuration`; `POST /connections/:id/test`, `/auth-start` and
   `/auth-complete`. `#/settings/connections` opens MCP Connections.
 
-## Bundled engine workflows
+## Preinstalled engine workflows
 
-Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
-their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+Preinstalled plugins are maintained in
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
+Blender and Godot are marked Beta while their platform workflows are being
+validated. Blender, like the other preinstalled plugins that only add Skills (Game Studio, Web Game Studio
 and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
@@ -1810,7 +1812,7 @@ Godot.
 
 ## TapTap Maker
 
-TapTap Maker (`plugins/taptap-maker/`, Beta) is a bundled plugin
+TapTap Maker (`@ohmygame/taptap-maker`, Beta) is a preinstalled npm plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
@@ -1855,15 +1857,15 @@ the project has no web preview and isn't published to Community.
   "Release on TapTap…" put the request in the composer with its Skill, for
   the person to send.
 
-See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
-and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
+See the [TapTap Maker](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-release/SKILL.md)
 Skills. Authenticated Maker creation, preview, `game_use` captures, build and
 publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 
 Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
-Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
+Aseprite, and Tiled are preinstalled Beta plugins and default to **disabled**.
 Open **Plugins** in the main sidebar and enable only the workflows needed for
 the current project.
 These packages reuse the existing runtime; they introduce no new project types,

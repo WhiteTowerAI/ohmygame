@@ -53,7 +53,7 @@ it("accepts bounded static instructions and tool hooks, refusing dynamic instruc
 });
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../.runtime/preinstalled-plugin-sources");
 
 const cleanup: string[] = [];
 afterEach(async () => {

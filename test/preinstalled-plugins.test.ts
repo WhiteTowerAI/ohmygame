@@ -431,7 +431,7 @@ describe("pinned npm preparation", () => {
   async function fixture(change: (pkg: Record<string, unknown>, manifest: Record<string, unknown>) => void = () => {}) {
     const directory = await temporary("npm-preparation-");
     const root = path.join(directory, "package");
-    await cp(path.resolve("plugins/godot"), root, { recursive: true });
+    await cp(path.resolve(".runtime/preinstalled-plugin-sources/godot"), root, { recursive: true });
     const ignore = path.join(root, "templates/godot-game/.gitignore");
     const content = await readFile(ignore, "utf8");
     await writeFile(path.join(root, "templates/godot-game/gitignore"), content);
@@ -640,4 +640,83 @@ it("restores bundled origin after a failed placement without discarding a commit
     expect(services.index.get(ID)?.root.startsWith(services.packagesDirectory)).toBe(true);
     expect(await sources.origin(ID, "1.0.0")).toMatchObject({ type: "npm", package: "@ohmygame/reference-tools" });
   } finally { spy.mockRestore(); await services.close(); }
+});
+
+
+describe("shipped npm preinstalls", () => {
+  const prepared = path.resolve(".runtime/preinstalled-plugins");
+  const sources = path.resolve(".runtime/preinstalled-plugin-sources");
+  const offline = {
+    fetch: async () => { throw new Error("Startup must not query a registry"); },
+    download: async () => { throw new Error("Startup must not download a plugin"); },
+  };
+  const catalog = async (app: ReturnType<typeof createApp>) =>
+    (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json<Array<{
+      id: string; version: string; bundled: boolean; preinstalled: boolean;
+      everyProject: boolean; grants: { enabled?: boolean; allowed?: string[] } | null;
+      origin: { type: string; package: string };
+    }>>();
+
+  it("loads all locked packages offline without granting native access on a fresh install", async () => {
+    const app = createApp({ dataDirectory: await temporary("shipped-npm-fresh-"), preinstalledPluginsDirectory: prepared, pluginSourceNetwork: offline });
+    apps.push(app);
+    await app.ready();
+    const entries = await catalog(app);
+    const lock = JSON.parse(await readFile("config/preinstalled-plugins.json", "utf8"));
+    expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { id: string }) => entry.id).sort());
+    expect(entries).toHaveLength(12);
+    for (const entry of entries) {
+      expect(entry).toMatchObject({ bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
+      expect(entry.grants?.allowed ?? [], entry.id).toEqual([]);
+      const icon = await app.inject({ method: "GET", url: `/plugins/${encodeURIComponent(entry.id)}/icon` });
+      expect(icon.statusCode, entry.id).toBe(200);
+      expect(icon.rawPayload.length, entry.id).toBeGreaterThan(0);
+    }
+    expect(entries.filter((entry) => entry.everyProject).map((entry) => entry.id).sort())
+      .toEqual(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]);
+  });
+
+  it("relocates an old profile, keeps settings, grants and project pins, and remembers removal", async () => {
+    const dataDirectory = await temporary("shipped-npm-upgrade-");
+    const old = createApp({ dataDirectory, bundledPluginsDirectory: sources, pluginSourceNetwork: offline });
+    apps.push(old);
+    await old.ready();
+    const configuration = "/plugin-store/ohmygame/godot/configuration";
+    expect((await old.inject({ method: "PUT", url: configuration, payload: { godotPath: "/keep/my-godot" } })).statusCode).toBe(200);
+    expect((await old.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/every-project", payload: { on: false } })).statusCode).toBe(204);
+    const project = (await old.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const pin = await old.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { on: true, version: "1.0.0" } });
+    expect(pin.statusCode, pin.body).toBe(204);
+    const projectFile = path.join(project.workspacePath, "ohmygame.json");
+    const projectBefore = await readFile(projectFile, "utf8");
+    const settings = (await old.inject({ url: configuration })).json();
+    const before = await catalog(old);
+    await old.close();
+    apps.splice(apps.indexOf(old), 1);
+
+    const upgraded = createApp({ dataDirectory, preinstalledPluginsDirectory: prepared, pluginSourceNetwork: offline });
+    apps.push(upgraded);
+    await upgraded.ready();
+    const after = await catalog(upgraded);
+    expect(after).toHaveLength(12);
+    for (const entry of after) {
+      const previous = before.find((item) => item.id === entry.id)!;
+      expect(entry).toMatchObject({ bundled: false, preinstalled: true, everyProject: previous.everyProject, grants: previous.grants });
+    }
+    expect((await upgraded.inject({ url: configuration })).json()).toEqual(settings);
+    expect(await readFile(projectFile, "utf8")).toBe(projectBefore);
+    expect((await upgraded.inject({ method: "DELETE", url: "/plugin-store/ohmygame/web-game-studio/0.1.0" })).statusCode).toBe(204);
+    await upgraded.close();
+    apps.splice(apps.indexOf(upgraded), 1);
+
+    const restarted = createApp({ dataDirectory, preinstalledPluginsDirectory: prepared, pluginSourceNetwork: offline });
+    apps.push(restarted);
+    await restarted.ready();
+    const final = await catalog(restarted);
+    expect(final).toHaveLength(11);
+    expect(final.some((entry) => entry.id === "ohmygame/web-game-studio")).toBe(false);
+    expect(final.find((entry) => entry.id === "ohmygame/game-studio")?.everyProject).toBe(false);
+    expect((await restarted.inject({ url: configuration })).json()).toEqual(settings);
+    expect(await readFile(projectFile, "utf8")).toBe(projectBefore);
+  });
 });

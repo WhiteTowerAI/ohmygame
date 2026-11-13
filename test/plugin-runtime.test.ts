@@ -10,7 +10,7 @@ describe("plugin runtime", () => {
   async function bundled() {
     const services = new PluginServices({
       directory: path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-runtime-")), "store"),
-      bundled: path.resolve("plugins"),
+      bundled: path.resolve(".runtime/preinstalled-plugin-sources"),
       bundledOff: BUNDLED_PLUGINS_OFF,
     });
     await services.ready();

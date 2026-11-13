@@ -94,7 +94,10 @@ choices. See [runtime.md](docs/runtime.md) for these boundaries.
 - The development commands prepare pinned plugins and examples under `.runtime/`.
   First startup needs network access to GitHub and package registries; prepared
   resources are reused on later starts.
-- Plugin preparation is required. If its download or checksum check fails,
+- Plugin preparation is required, including before running tests. It also extracts
+  the locked npm packages to `.runtime/preinstalled-plugin-sources/` for integration
+  tests; edit plugins in `ohmygame-plugins`, not in this generated directory.
+  If its download or checksum check fails,
   check the connection and run `bun run prepare:preinstalled-plugins` again.
 - Example preparation clones and builds a separate repository using npm. A
   failed preparation reports unavailable examples; retry with

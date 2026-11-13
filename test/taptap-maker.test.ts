@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import * as maker from "../plugins/taptap-maker/native/maker.mjs";
+import * as maker from "../.runtime/preinstalled-plugin-sources/taptap-maker/native/maker.mjs";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import { gameUse } from "../plugins/taptap-maker/native/game.mjs";
+import { gameUse } from "../.runtime/preinstalled-plugin-sources/taptap-maker/native/game.mjs";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import { Cancelled, lingering, withLock } from "../plugins/taptap-maker/native/runtime.mjs";
+import { Cancelled, lingering, withLock } from "../.runtime/preinstalled-plugin-sources/taptap-maker/native/runtime.mjs";
 
 let directory: string, workspace: string;
 let progress: { message: string; url?: string }[];
@@ -152,7 +152,7 @@ describe("TapTap Maker project setup", () => {
     // The app shows the message in the person's language, from the plugin's locale files.
     expect(await maker.ready(context())).toMatchObject({ ready: false, message: "%ready.connect%" });
     for (const locale of ["en", "zh-CN"]) {
-      const strings = JSON.parse(await readFile(path.join("plugins/taptap-maker/locales", `${locale}.json`), "utf8"));
+      const strings = JSON.parse(await readFile(path.join(".runtime/preinstalled-plugin-sources/taptap-maker/locales", `${locale}.json`), "utf8"));
       expect(strings["ready.connect"]).toEqual(expect.any(String));
       expect(strings["ready.prepare"]).toEqual(expect.any(String));
     }

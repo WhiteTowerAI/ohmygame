@@ -916,8 +916,8 @@ export function createApp(options: AppOptions = {}) {
     options.audioGenerator ?? providerAudio,
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
-  // The plugins that ship with the app.
-  const bundledPlugins = options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins");
+  // Explicit legacy bundles are retained for migration fixtures and custom hosts.
+  const bundledPlugins = options.bundledPluginsDirectory;
   // Plugins' `appliesTo` matches what a folder's project is in the app (a Web
   // game, an Asset Canvas), which its `ohmygame.json` doesn't tell apart.
   const projectFolderKeys = new Map<string, string>();
@@ -934,7 +934,7 @@ export function createApp(options: AppOptions = {}) {
   };
   let projectsSkipped = false;
   const preinstalledPlugins = new PreinstalledPluginManager(
-    options.preinstalledPluginsDirectory,
+    options.preinstalledPluginsDirectory ?? (bundledPlugins ? undefined : path.join(repositoryRoot, ".runtime", "preinstalled-plugins")),
     dataDirectory,
   );
   const pluginServices = new PluginServices({
@@ -1757,6 +1757,7 @@ export function createApp(options: AppOptions = {}) {
     reply.code(cause instanceof PluginReleaseError || cause instanceof PluginConfigurationError ? 400 : 409).send({ error: cause instanceof Error ? cause.message : String(cause) });
   // Bundled plugins are indexed where the app keeps them and come back when it starts, so they only turn off.
   const bundledPluginEntry = (root: string) => {
+    if (!bundledPlugins) return false;
     const inside = path.relative(bundledPlugins, root);
     return !!inside && !inside.startsWith("..") && !path.isAbsolute(inside);
   };

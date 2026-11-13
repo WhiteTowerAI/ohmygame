@@ -58,7 +58,7 @@ coding agent you already use: [first run](https://ohmygame.ai/docs/first-run/).
   the [Community](https://ohmygame.ai/community/). A multiplayer game's rooms,
   and its players' sign-in, saves, and leaderboards, come with it.
 - **Extend it with plugins.** A plugin can teach the agent new skills, give it
-  new tools, and add panels and project types to the app. Bundled plugins cover
+  new tools, and add panels and project types to the app. Preinstalled plugins cover
   Godot, Unity, Unreal Engine, Blender, Aseprite, Tiled, and platforms like
   WeChat and Douyin Mini Games. Or
   [make your own](https://ohmygame.ai/docs/plugins/make/).
