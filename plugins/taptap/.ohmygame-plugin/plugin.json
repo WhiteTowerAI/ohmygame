@@ -1,0 +1,269 @@
+{
+  "$schema": "https://www.ohmygame.ai/schema/plugin-2.json",
+  "id": "ohmygame/taptap",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.7.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": ["%example.1%", "%example.2%"],
+  "beta": true,
+  "icon": "./assets/icon.svg",
+  "links": {
+    "homepage": "https://developer.taptap.cn/"
+  },
+  "categories": ["publishing"],
+  "appliesTo": [
+    "web-game",
+    "general",
+    "godot-game",
+    "ohmygame/godot:godot-game"
+  ],
+  "contributes": {
+    "skills": "./skills/",
+    "commands": [
+      {
+        "id": "open",
+        "title": "%command.open%",
+        "run": {
+          "openPanel": "taptap"
+        },
+        "slots": [
+          {
+            "slot": "project.publish",
+            "when": "project.type == 'web-game' || project.type == 'general' || project.type == 'godot-game' || project.type == 'ohmygame/godot:godot-game'"
+          }
+        ]
+      },
+      {
+        "id": "settings",
+        "title": "%command.settings%",
+        "run": {
+          "openSettings": true
+        }
+      },
+      {
+        "id": "upload-h5",
+        "title": "%command.upload%",
+        "run": {
+          "prompt": "Upload this game's H5 web build to TapTap. Check the build, resolve the target TapTap game and orientation, prepare and preview the ZIP, then upload within my authorization. Verify the remote package and report its status. Do not bind a package or submit review as part of this upload-only request.",
+          "skill": "taptap-h5-publish",
+          "insert": true
+        }
+      },
+      {
+        "id": "release-h5",
+        "title": "%command.release%",
+        "run": {
+          "prompt": "Help me release this H5 game on TapTap: prepare or reuse its uploaded web build, verify and bind the intended H5 package, complete the store page and distribution settings, then precheck and submit it for review. Show me the concrete changes, release timing and precheck result before final submission, and report the verified publication state.",
+          "skill": "taptap-h5-publish",
+          "insert": true
+        }
+      },
+      {
+        "id": "status",
+        "title": "%command.status%",
+        "run": {
+          "native": "status",
+          "timeoutSeconds": 180,
+          "changesFiles": false
+        }
+      },
+      {
+        "id": "developers",
+        "title": "%command.developers%",
+        "run": {
+          "native": "developers",
+          "timeoutSeconds": 180,
+          "changesFiles": false
+        }
+      },
+      {
+        "id": "apps",
+        "title": "%command.apps%",
+        "run": {
+          "native": "apps",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/apps.json"
+        }
+      },
+      {
+        "id": "select",
+        "title": "%command.select%",
+        "run": {
+          "native": "select",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/select.json"
+        }
+      },
+      {
+        "id": "overview",
+        "title": "%command.overview%",
+        "run": {
+          "native": "overview",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/overview.json"
+        }
+      },
+      {
+        "id": "module",
+        "title": "%command.module%",
+        "run": {
+          "native": "module",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/module.json"
+        }
+      },
+      {
+        "id": "prepare",
+        "title": "%command.prepare%",
+        "run": {
+          "native": "prepare",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/prepare.json"
+        }
+      },
+      {
+        "id": "upload",
+        "title": "%command.upload%",
+        "run": {
+          "native": "upload",
+          "timeoutSeconds": 900,
+          "changesFiles": false,
+          "input": "./schemas/upload.json"
+        }
+      },
+      {
+        "id": "reconcile",
+        "title": "%command.reconcile%",
+        "run": {
+          "native": "reconcile",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/reconcile.json"
+        }
+      },
+      {
+        "id": "discover",
+        "title": "%command.discover%",
+        "run": {
+          "native": "discover",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/empty.json"
+        }
+      },
+      {
+        "id": "capabilities",
+        "title": "%command.capabilities%",
+        "run": {
+          "native": "capabilities",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/empty.json"
+        }
+      },
+      {
+        "id": "image",
+        "title": "%command.image%",
+        "run": {
+          "native": "image",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/image.json"
+        }
+      },
+      {
+        "id": "save-fields",
+        "title": "%command.save-fields%",
+        "run": {
+          "native": "saveFields",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/save-fields.json"
+        }
+      },
+      {
+        "id": "bind",
+        "title": "%command.bind%",
+        "run": {
+          "native": "bind",
+          "timeoutSeconds": 180,
+          "changesFiles": false,
+          "input": "./schemas/bind.json"
+        }
+      },
+      {
+        "id": "upload-image",
+        "title": "%command.upload-image%",
+        "run": {
+          "native": "uploadImage",
+          "timeoutSeconds": 900,
+          "changesFiles": false,
+          "input": "./schemas/upload-image.json"
+        }
+      }
+    ],
+    "panels": [
+      {
+        "id": "taptap",
+        "title": "TapTap",
+        "icon": "./assets/icon.svg",
+        "area": "center",
+        "entry": "./panel/index.html",
+        "when": "project.type == 'web-game' || project.type == 'general' || project.type == 'godot-game' || project.type == 'ohmygame/godot:godot-game'"
+      }
+    ],
+    "tools": [
+      {
+        "name": "taptap_status",
+        "description": "Read this project's connected TapTap app, CLI readiness, prepared H5 package and durable upload receipts. Does not upload or publish.",
+        "input": "./schemas/empty.json"
+      },
+      {
+        "name": "taptap_reconcile_upload",
+        "description": "Read the parsing state of an existing H5 upload, preserving its original intent. If an interrupted upload lost its receipt, pass the artifactId recovered from CLI task history; the server filename must match. Never reuploads, binds, or submits review.",
+        "input": "./schemas/reconcile.json",
+        "timeoutSeconds": 180
+      }
+    ]
+  },
+  "entrypoints": {
+    "native": "./native/index.mjs"
+  },
+  "ui": {
+    "major": 1,
+    "accent": {
+      "light": "#00857a",
+      "dark": "#00d8c4"
+    }
+  },
+  "capabilities": {
+    "native": true,
+    "project.files": "write",
+    "composer": true,
+    "processes": ["taptap-cli"],
+    "network": [
+      "developer.taptap.cn",
+      "open-api.taptap.cn",
+      "img.tapimg.com",
+      "img-tc.tapimg.com",
+      "api.tapapis.cn"
+    ]
+  },
+  "configuration": {
+    "cliPath": {
+      "type": "path",
+      "title": "%config.cliPath%",
+      "description": "%config.cliPath.description%",
+      "default": ""
+    }
+  }
+}

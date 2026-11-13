@@ -1,5 +1,4 @@
-// Controls: buttons, a button bound to one of the plugin's commands, and a
-// select.
+// Controls: buttons, command buttons, and collapsible content.
 import { connect } from "../../plugin-ui.js";
 import { OmgElement, css, define, text } from "./base.js";
 
@@ -93,6 +92,88 @@ class OmgButton extends OmgElement {
     // A busy button keeps its focus, so it stays enabled but inert.
     button.setAttribute("aria-disabled", String(this.#inactive()));
     this.part("spinner").hidden = !this.busy;
+  }
+}
+
+/**
+ * `<omg-disclosure heading open disabled>`: a plain title row with a leading
+ * arrow that shows or hides content. Closing keeps the content mounted and
+ * returns focus to the button when focus was inside. Enter and Space use the
+ * button's native activation.
+ *
+ * @attr {string} heading - The button's label.
+ * @attr {boolean} open - Shows the content; closed by default.
+ * @attr {boolean} disabled - Disables the button, without changing the content's state.
+ * @prop {boolean} open - The `open` attribute; setting it does not emit an event.
+ * @prop {boolean} disabled - The `disabled` attribute.
+ * @fires {{ open: boolean }} omg-toggle - The person opened or closed the content; bubbles across shadow roots.
+ * @slot - The content, retained while closed.
+ * @part button - The toggle button.
+ * @part heading - The button's label.
+ * @part icon - The expansion arrow.
+ * @part body - The content, hidden while closed.
+ */
+class OmgDisclosure extends OmgElement {
+  static observedAttributes = ["heading", "open", "disabled"];
+  static delegatesFocus = true;
+  static styles = [
+    css(`
+      :host { display: block; min-width: 0; }
+      button {
+        display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 30px;
+        padding: var(--space-1) 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text);
+        font: inherit; font-weight: var(--weight-medium); text-align: start; cursor: pointer;
+        transition: background var(--duration-fast);
+      }
+      button:not(:disabled):hover { background: color-mix(in srgb, var(--color-hover) 60%, transparent); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .heading { min-width: 0; overflow-wrap: anywhere; }
+      .icon { width: 14px; height: 14px; flex: none; color: var(--color-text-secondary); transform: rotate(-90deg); transition: transform var(--duration-fast); }
+      :host([open]) .icon { transform: rotate(0deg); }
+      .body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding-top: var(--space-2); padding-inline-start: calc(14px + var(--space-2)); }
+    `),
+  ];
+  static template = `
+    <button part="button" type="button" aria-expanded="false" aria-controls="body">
+      <svg class="icon" part="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      <span class="heading" part="heading"></span>
+    </button>
+    <div id="body" class="body" part="body" hidden><slot></slot></div>`;
+
+  constructor() {
+    super();
+    this.part("button").addEventListener("click", () => {
+      if (this.disabled) return;
+      this.open = !this.open;
+      this.dispatchEvent(new CustomEvent("omg-toggle", { bubbles: true, composed: true, detail: { open: this.open } }));
+    });
+  }
+
+  get open() {
+    return this.hasAttribute("open");
+  }
+
+  set open(value) {
+    this.toggleAttribute("open", Boolean(value));
+  }
+
+  get disabled() {
+    return this.hasAttribute("disabled");
+  }
+
+  set disabled(value) {
+    this.toggleAttribute("disabled", Boolean(value));
+  }
+
+  update() {
+    const button = this.part("button");
+    const body = this.part("body");
+    const active = this.getRootNode().activeElement;
+    if (!this.open && !body.hidden && active !== this && this.contains(active)) button.focus();
+    text(this.part("heading"), this.getAttribute("heading"));
+    button.disabled = this.disabled;
+    button.setAttribute("aria-expanded", String(this.open));
+    body.hidden = !this.open;
   }
 }
 
@@ -228,4 +309,5 @@ class OmgCommandButton extends OmgButton {
 }
 
 define("omg-button", OmgButton);
+define("omg-disclosure", OmgDisclosure);
 define("omg-command-button", OmgCommandButton);

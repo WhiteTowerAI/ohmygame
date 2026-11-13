@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "page": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { readPluginIconAsset } from "../src/daemon/plugin-icons.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
+import { matchesWhen } from "../src/shared/plugin-when.js";
 
 describe("bundled plugins", () => {
   async function bundled() {
@@ -18,6 +19,31 @@ describe("bundled plugins", () => {
   }
   const skillNames = (services: PluginServices, id: string) => services.index.get(id)!.skills.map((skill) => skill.name);
   const names = (services: PluginServices, id: string) => services.index.get(id)!.manifest.appliesTo;
+
+  it("offers TapTap management without replacing Maker or the project's engine", async () => {
+    const services = await bundled();
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-taptap-project-"));
+    try {
+      const entry = services.index.get("ohmygame/taptap")!;
+      expect(entry.skills.map((skill) => skill.name)).toEqual(["taptap-h5-publish"]);
+      expect(entry.manifest.contributes?.projectTypes).toBeUndefined();
+      expect(services.onInEveryProject(entry.id)).toBe(false);
+      expect(services.index.get("ohmygame/taptap-maker")?.manifest.contributes?.projectTypes?.[0]?.id).toBe("maker");
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general" }));
+      await services.setProjectPlugin(folder, entry.id, true);
+      const commands = await services.commands(folder, "zh-CN");
+      const open = commands.find((command) => command.id === "ohmygame/taptap:open")!;
+      expect(open.title).toBe("在 TapTap 管理…");
+      expect(open.run).toEqual({ openPanel: "taptap" });
+      const when = open.slots[0]!.when;
+      expect(matchesWhen(when, { values: { "project.type": "general" } })).toBe(true);
+      expect(matchesWhen(when, { values: { "project.type": "ohmygame/taptap-maker:maker" } })).toBe(false);
+      expect(commands.find((command) => command.id === "ohmygame/taptap:release-h5")?.run).toMatchObject({ skill: "taptap-h5-publish", insert: true });
+    } finally {
+      await services.close();
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
 
   it("loads beta plugins with their Skills and icons, starting those for one platform off", async () => {
     const services = await bundled();

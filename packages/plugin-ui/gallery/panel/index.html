@@ -34,6 +34,7 @@
             </omg-card>
           </omg-section>
 
+          <omg-section heading="omg-table"><omg-table id="versions-table" label="Versions"></omg-table><omg-table label="Empty versions" empty-label="No versions yet"></omg-table></omg-section>
           <omg-section heading="omg-list" description="Rows with a title, a value and buttons.">
             <omg-list>
               <omg-list-item heading="Account" description="Signed in with TapTap">Dogxi<omg-button slot="actions" variant="ghost">Sign out</omg-button></omg-list-item>
@@ -60,6 +61,17 @@
           </omg-section>
         </omg-tab>
         <omg-tab name="navigation" heading="Navigation">
+          <omg-section heading="Floating controls">
+            <omg-stack direction="row">
+              <omg-popover label="Build settings"><omg-stack><omg-input label="Output folder" value="dist"></omg-input><omg-checkbox label="Include source maps"></omg-checkbox></omg-stack></omg-popover>
+              <omg-menu id="action-menu" label="Actions"></omg-menu>
+              <omg-tooltip content="Fetch the latest remote status without changing your draft."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
+            </omg-stack>
+            <omg-status id="menu-result">No action selected</omg-status>
+          </omg-section>
+          <omg-section heading="omg-pagination">
+            <omg-pagination id="pagination" page="1" pages="4" label="Example pages"></omg-pagination>
+          </omg-section>
           <omg-section heading="omg-tabs" description="Views of one place, one at a time. Arrow keys move between them.">
             <omg-tabs id="demo-tabs" aria-label="Project views">
               <omg-tab name="overview" heading="Overview"><p>What the project is.</p></omg-tab>
@@ -68,6 +80,16 @@
               <omg-tab name="archive" heading="Archive" disabled></omg-tab>
             </omg-tabs>
             <omg-status id="demo-tab">Open tab: “overview”</omg-status>
+          </omg-section>
+
+          <omg-section heading="omg-disclosure" description="A title row with a leading arrow. Enter or Space expands it; closing keeps the content.">
+            <omg-disclosure heading="Account settings">
+              <omg-input label="Display name" value="Dogxi"></omg-input>
+            </omg-disclosure>
+            <omg-disclosure heading="Build options" open>
+              <omg-input label="Output folder" value="dist"></omg-input>
+            </omg-disclosure>
+            <omg-disclosure heading="Unavailable settings" disabled><p>Hidden content.</p></omg-disclosure>
           </omg-section>
 
           <omg-section heading="omg-steps" description="A flow; the current step shows its content.">
@@ -114,6 +136,21 @@
           </omg-section>
         </omg-tab>
         <omg-tab name="forms" heading="Forms">
+          <omg-section heading="Field widths" description="Set width on the component. Its label, control and feedback stay together; max-width keeps it inside a narrow panel.">
+            <omg-stack direction="row" wrap>
+              <omg-input label="Build number" type="number" value="12" style="width: 8rem"></omg-input>
+              <omg-select label="Channel" value="draft" style="width: 8rem"><option value="draft">Draft</option><option value="online">Online</option></omg-select>
+              <omg-combobox label="Destination" value="web" style="width: 12rem"><option value="web">Web</option><option value="desktop">Desktop</option></omg-combobox>
+            </omg-stack>
+            <omg-input label="Release title" value="Garden update" style="max-width: 28rem"></omg-input>
+          </omg-section>
+          <omg-section heading="omg-combobox">
+            <omg-combobox id="combobox" label="Project" value="garden" placeholder="Search projects">
+              <option value="garden">Pixel garden</option><option value="farm">Zombie farm</option><option value="miner" disabled>Space miner (archived)</option><option value="long">A project with a longer name that should wrap inside the panel</option>
+            </omg-combobox>
+            <omg-combobox label="Loading projects" loading loading-label="Loading projects…"></omg-combobox>
+            <omg-combobox label="Unavailable" disabled value="garden"><option value="garden">Pixel garden</option></omg-combobox>
+          </omg-section>
           <omg-section heading="omg-input" description="One line of text. A control carries its own label, hint and error.">
             <omg-input id="name" label="Game name" placeholder="Zombie farm" hint="Shown on the store page."></omg-input>
             <omg-input label="Access key" type="password" value="not-a-real-key"></omg-input>
@@ -124,6 +161,20 @@
 
           <omg-section heading="omg-textarea" description="Several lines of text.">
             <omg-textarea label="What changed" placeholder="Fixed the save button." rows="3"></omg-textarea>
+          </omg-section>
+
+          <omg-section heading="Game parameters">
+            <omg-slider label="Music volume" min="0" max="1" step="0.05" value="0.65" style="max-width: 28rem"></omg-slider>
+            <omg-slider label="Preview speed" min="0.5" max="2" step="0.1" value="1" disabled style="max-width: 28rem"></omg-slider>
+            <omg-input label="Frame rate" type="number" min="1" max="120" step="1" value="60" style="width: 8rem"></omg-input>
+            <omg-radio-group label="Texture quality" value="balanced">
+              <option value="fast" data-description="Lower resolution for a faster preview.">Draft</option>
+              <option value="balanced" data-description="Keep detail while limiting texture memory.">Balanced</option>
+              <option value="full" disabled data-description="Unavailable for this export target.">Full resolution</option>
+            </omg-radio-group>
+            <omg-radio-group label="Collision preview" value="selected" disabled>
+              <option value="selected">Selected objects</option><option value="all">All objects</option>
+            </omg-radio-group>
           </omg-section>
 
           <omg-section heading="omg-segmented" description="A few choices side by side, all in view.">

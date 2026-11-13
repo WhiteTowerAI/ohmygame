@@ -21,7 +21,7 @@ import { PluginIndex, type PluginIndexEntry } from "../src/daemon/plugin-index.j
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
 import { accentTokens, PAGE_TOKENS, PLUGIN_UI_HANDSHAKE, PLUGIN_UI_PROTOCOL_VERSION, pluginUiRefusal, readPluginUiRequest, type PluginAccent, type PluginUiCapabilities } from "../src/shared/plugin-ui-protocol.js";
 
-const DEFAULT_PLUGINS = ["packages/plugin-ui/gallery", "plugins/taptap-maker"];
+const DEFAULT_PLUGINS = ["packages/plugin-ui/gallery", "plugins/taptap-maker", "plugins/taptap"];
 const APPEARANCES = ["dark", "light"] as const;
 
 /** One panel in one appearance, as the browser found it. */

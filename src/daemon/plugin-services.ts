@@ -122,6 +122,7 @@ export interface ProjectPanel {
  * person may not use.
  */
 export const BUNDLED_PLUGINS_OFF: readonly string[] = [
+  "ohmygame/taptap",
   "ohmygame/taptap-maker",
   "ohmygame/aseprite",
   "ohmygame/cocos-creator",

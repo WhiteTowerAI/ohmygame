@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "developerId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "appId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": ["developerId", "appId"],
+  "additionalProperties": false
+}

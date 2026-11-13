@@ -84,3 +84,24 @@ tiles.addEventListener("click", (event) => {
   if (!tile || tile.disabled) return;
   for (const other of tiles.querySelectorAll("omg-tile")) other.selected = other === tile;
 });
+
+customElements.whenDefined("omg-menu").then(() => {
+  const menu = document.getElementById("action-menu");
+  menu.items = [
+    { value: "open", label: "Open project" },
+    { value: "copy", label: "Copy link", description: "Share the project with your team" },
+    { value: "pin", label: "Pinned", checked: true },
+    { value: "archive", label: "Archive", disabled: true },
+    { value: "remove", label: "Remove", danger: true },
+  ];
+  menu.addEventListener("omg-select", (event) => { document.getElementById("menu-result").textContent = `Selected: ${event.detail.value}`; });
+});
+document.getElementById("pagination").addEventListener("omg-page-change", (event) => event.currentTarget.setAttribute("page", String(event.detail.page)));
+customElements.whenDefined("omg-table").then(() => {
+  const table = document.getElementById("versions-table");
+  table.columns = [{ key: "version", heading: "Version" }, { key: "status", heading: "Status" }, { key: "size", heading: "Size", align: "right" }];
+  table.rows = [
+    { key: "v2", cells: { version: "Garden 0.2.0", status: "Draft", size: "2.4 MB" } },
+    { key: "v1", cells: { version: "Garden 0.1.0", status: "Online", size: "1.8 MB" } },
+  ];
+});

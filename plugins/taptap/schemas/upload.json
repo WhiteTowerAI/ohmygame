@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "preparedId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": ["preparedId"],
+  "additionalProperties": false
+}

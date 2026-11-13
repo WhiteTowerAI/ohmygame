@@ -191,9 +191,8 @@ and the format of an older major is then upgraded where it loads, as
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
-
-| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`). |
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
+| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, plus numeric input constraints. |
 
 ## Agent instructions
 
@@ -627,6 +626,7 @@ was opened.
 | Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
 | Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
+| TapTap | `plugins/taptap/` | `test/taptap-plugin.test.ts` |
 | TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
@@ -1574,16 +1574,92 @@ can go in the next major.
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
 | `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
+| `omg-popover` | Non-modal floating content (API 2.7.0). `label`, `open`, `disabled`, `placement`; optional `trigger` text/icon slot, default content slot. User changes fire `omg-toggle`. |
+| `omg-menu` | Action menu (API 2.7.0). Same trigger attributes; `items` property with unique `value`, `label`, optional `description`, `disabled`, `danger`, `checked`; fires `omg-select` with `detail.value`. |
+| `omg-tooltip` | Wrap one focusable control (API 2.7.0). Plain `content`, optional `placement`; delayed hover, immediate keyboard focus and Esc dismissal. Never hide essential instructions here. |
+| `omg-combobox` | Searchable `<option>` choice (API 2.7.0). Same field attributes as select, plus `placeholder`, `loading`, `loading-label`, `empty-label`, `manual-filter`. Read-only `query`; `omg-query` reports search text, `input`/`change` report committed choices. |
+| `omg-table` | Semantic data table (API 2.7.0). `label`, `loading`, `empty-label`; `columns` and `rows` properties, stable unique keys. Text cells are escaped; Node cells stay mounted through unchanged updates. |
+| `omg-pagination` | Controlled page navigation (API 2.7.0). `page`, `pages`, `disabled`, `label`, `previous-label`, `next-label`; `omg-page-change` requests `detail.page`, caller updates only after success. |
+| `omg-disclosure` | Collapsible content (API 2.7.0). `heading`, `open`, `disabled`; default content slot. A transparent title row with a leading arrow, native Enter/Space activation, and indented content. Closing hides content without removing it and returns focus from inside to the trigger. `omg-toggle` fires for user activation with `detail.open`; setting `open` in code is silent. Parts: `button`, `heading`, `icon`, `body`. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
 | `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
-| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. |
+| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. Numeric inputs accept `min`, `max`, `step` and expose `checkValidity()` (API 2.7.0). |
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-slider` | Native range and numeric readout (API 2.7.0). `min` (0), `max` (100), `step` (1), numeric `value`; `input` while adjusting, `change` when committed. |
+| `omg-radio-group` | Visible vertical choices (API 2.7.0), from `<option>` children with optional `data-description`. `value`; native arrow/Space navigation, option/group `disabled`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
+
+Set `width` or `max-width` on the **component element**, so its label, control,
+hint and error share the same width. The internal input fills that width, not
+the whole page. Block/grid layouts stretch fields by default; short choices and
+numbers can be compact. Fields keep `max-width: 100%` and allow shrinking in
+narrow containers; select has no fixed minimum width.
+
+```html
+<omg-input label="Build number" type="number" style="width: 8rem"></omg-input>
+<omg-select label="Channel" style="width: 10rem">
+  <option value="draft">Draft</option><option value="online">Online</option>
+</omg-select>
+<omg-combobox label="Project" style="width: 18rem; max-width: 100%"></omg-combobox>
+<omg-textarea label="Description" style="max-width: 36rem"></omg-textarea>
+```
+
+Mouse/touch focus does not add an outer ring to form controls. Selection controls
+retain keyboard focus feedback; text inputs and textareas use their caret as
+before. Do not add plugin-local `::part(...):focus-visible` outlines that
+reinstate pointer rings. Error borders and selected states are independent of focus.
+
+
+![Game parameter controls](assets/plugin-ui-game-parameters.png)
+
+For game parameters, use `omg-slider` for bounded continuous adjustments and
+`omg-input type="number"` for precise entry. Numeric input constraints use native
+browser validation: `checkValidity()` returns false for out-of-range or off-step
+values without overwriting the person's text. Set `error` when the flow needs to
+explain invalid input; these fields do not automatically participate in native
+form submission. Sliders normalize through the native range control. Setting a
+value in code is silent; `input` supports live preview and `change` commits it.
+
+Use `omg-radio-group` when choices benefit from remaining visible with a short
+explanation; keep `omg-segmented` for a few compact choices. Both read `<option>`
+children and preserve selection/focus when options refresh. Radio descriptions
+are plain text in `data-description`, not HTML.
+
+Floating components use the browser top layer within the plugin iframe. They
+share positioning, viewport edge avoidance and topmost Esc/outside-click dismissal.
+Popover content stays mounted. Its trigger accepts text or a decorative icon,
+not another button. Menus move through enabled actions with arrows, Home/End and
+typeahead. Tooltips preserve existing control descriptions across shadow roots.
+These components do not open host-level windows or grant additional permissions.
+
+Combobox search never commits arbitrary text: Escape or blur restores the chosen
+option. Disabled/loading options cannot be selected. For remote search, set
+`manual-filter`, handle `omg-query` (also sent when the list opens), and protect against stale responses in the
+caller; changing options does not clear the selected value. Local search includes
+option text, value and optional `data-keywords`. Supply localized status labels.
+
+```js
+const table = document.querySelector("omg-table");
+table.columns = [
+  { key: "version", heading: "Version" },
+  { key: "status", heading: "Status" },
+];
+table.rows = [{ key: "v1", cells: { version: "1.0", status: "Draft" } }];
+```
+
+Table columns accept `align` and `width`; rows map column keys to text or Nodes.
+Node cells are moved into slots, retaining their listeners and plugin styling.
+Reuse the same Node to preserve input state and focus across updates; do not
+share a Node between cells. The table owns mounted cell wrappers; caller owns
+sorting, data loading and action handlers. Narrow views scroll within the table.
+Pagination never fetches data or changes its own current page. While waiting,
+set `disabled`, retain the old page/data on failure, then re-enable it.
+
 
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.
@@ -1807,6 +1883,78 @@ checks real GLB output, packed textures, transparency, hierarchy, skin animation
 morph targets, export scope, source preservation, and overwrite behavior;
 it skips when Blender is not provided. Godot import/runtime still needs a local
 Godot.
+
+## TapTap H5 publishing
+
+TapTap (`plugins/taptap/`, Beta, off by default) publishes existing H5 web
+builds with the official `taptap-cli`. Enable it for a web game, general project
+with a web build, or Godot web export, then choose **Publish → Manage on
+TapTap…**. It leaves the engine, project type and preview unchanged. The
+separate TapTap Maker plugin keeps its development and Spark release workflow.
+
+![TapTap H5 builds and package library](assets/taptap-h5-panel.png)
+
+The panel reads the CLI's existing login state, lists developers and searchable,
+paged games, and remembers the selected H5 app per local workspace. A declared H5
+game with conflicting capabilities can be inspected, but cannot upload or bind;
+the panel shows the platform diagnosis instead of changing its package type.
+Install the CLI using its [official instructions](https://developer.taptap.cn/v3/cli/).
+The **CLI settings** path can select an executable when it is not on PATH;
+Windows requires the actual CLI `.exe`, not the npm `.cmd` shim. Login and
+installation can be handed to the agent from the panel. Credentials stay in
+the CLI's own store. The panel currently requires CLI contract 3; it was checked
+against `2026.11.12` and metadata `1.0.77`.
+
+- **Builds:** discovers project directories containing `index.html`, prioritizing
+  common build/export folders. Select a completed build and orientation, then
+  **Check and upload** packages it under `.ohmygame/local/taptap/`, runs the CLI
+  preflight and asks to confirm the exact target, size and warnings. It checks
+  the ZIP's SHA-256 before upload. Keep generated ZIPs until tasks are resolved.
+  Discovery skips hidden/dependency folders and symlinks, and is bounded to 4,000
+  entries and five directory levels; a manual project folder remains available.
+- **Package library:** shows current H5 candidates and the draft's main binding.
+  **Use in draft** verifies an editable draft, a ready candidate and the exact
+  current slot snapshot, then previews, binds and reads it back. Uploading and
+  binding are separate actions; neither submits review. If no editable draft
+  exists, use the developer console to create one first.
+- **Store page:** edit basic text, category, developer words and supported image
+  fields directly, with a store-content preview. Choose PNG/JPEG/WebP images
+  from the project grid; upload stores them in the material library, and **Save
+  draft** applies their complete metadata to the chosen field. Screenshot arrays
+  can append or remove images. Current image specifications appear beside each
+  field; unsupported/video/distribution settings remain in the developer console.
+  Image preview only fetches read-back URLs on `img.tapimg.com` and `img-tc.tapimg.com`, with no credentials,
+  no redirects and a 5 MB limit. Other image hosts show an unavailable preview.
+- **Draft edits:** local edits persist per developer/game and section through
+  refreshes, tab changes and panel reopening. Save uses each original field
+  snapshot, refuses remote drift, verifies fields independently and preserves
+  unresolved edits after a partial save. Discard affects local edits only.
+- **Versions:** paged history, draft state, reported blockers and warnings.
+  Review/release remain explicit agent workflows from the plugin commands and
+  developer console; the panel has no submit-review or publish button.
+
+The native host owns an upload independently of the panel's visibility; hiding
+it does not cancel the CLI. The versioned panel state in the plugin data folder
+retains upload intents, stable CLI receipt handles, image upload receipts and the
+latest draft mutation intent, without credentials or full CLI responses. On restart an interrupted upload becomes **unknown**;
+check its artifact/task before retrying. Unknown outcomes without a receipt need
+CLI task-history reconciliation by the agent; they block starting another upload.
+Read failures are shown separately, never rendered as an empty successful list.
+Agent/console changes are visible after **Refresh**.
+
+The standalone Node helper at
+`plugins/taptap/skills/taptap-h5-publish/scripts/package-h5.mjs` streams a ZIP32
+archive with exactly `game/index.html` and its sibling assets. It does not build
+or upload; it refuses missing entries, symlinks, source/credential metadata,
+outputs inside the build, paths outside the workspace, existing output files and
+ZIP64-sized inputs. It skips macOS metadata and reports other hidden entries.
+The CLI preflight remains authoritative for TapTap's current package contract.
+
+See the [H5 publishing Skill](../plugins/taptap/skills/taptap-h5-publish/SKILL.md)
+and [manual acceptance](plugin-beta-testing.zh-CN.md#taptap-h5-上传与发布).
+Local archive/preflight tests and fixture-driven panel checks do not verify
+live uploads, platform gameplay, review acceptance or publication; those require
+a developer account and an explicitly selected test app.
 
 ## TapTap Maker
 

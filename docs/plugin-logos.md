@@ -8,11 +8,11 @@ engine names to special logo components.
 
 ## Resources and provenance
 
-Blender, Godot, TapTap Maker, Cocos Creator, WeChat Mini Games, Douyin Mini Games,
+Blender, Godot, TapTap, TapTap Maker, Cocos Creator, WeChat Mini Games, Douyin Mini Games,
 Unity, Unreal Engine, Aseprite, and Tiled include local logos. Each package keeps
 the source, upstream terms, and any preparation in
 `assets/NOTICE.md`. These notices travel with exported and imported packages.
-TapTap Maker currently uses the official TapTap app mark to identify the service.
+TapTap and TapTap Maker use the official TapTap app mark to identify the service.
 
 Game Studio and Web Game Studio use user-selected Streamline Ultimate color
 (CC BY 4.0) artwork: **Module Puzzle** and **Card Game Heart**, respectively.

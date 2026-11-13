@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "moduleId": {
+      "type": "string",
+      "enum": [
+        "basic-info",
+        "assets-upload",
+        "developer-info",
+        "platform-status",
+        "release-settings",
+        "profile-promotion"
+      ]
+    }
+  },
+  "required": ["moduleId"],
+  "additionalProperties": false
+}

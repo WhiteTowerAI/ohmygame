@@ -18,6 +18,24 @@ export interface OmgButtonAttributes {
   variant?: "secondary" | "primary" | "ghost" | "danger";
 }
 
+/** `<omg-disclosure heading open disabled>`: a plain title row with a leading arrow that shows or hides content. Closing keeps the content mounted and returns focus to the button when focus was inside. Enter and Space use the button's native activation. */
+export interface OmgDisclosureElement extends HTMLElement {
+  /** The `disabled` attribute. */
+  disabled: boolean;
+  /** The `open` attribute; setting it does not emit an event. */
+  open: boolean;
+}
+
+/** The attributes of `<omg-disclosure>`, as a page writes them. */
+export interface OmgDisclosureAttributes {
+  /** Disables the button, without changing the content's state. */
+  disabled?: boolean;
+  /** The button's label. */
+  heading?: string;
+  /** Shows the content; closed by default. */
+  open?: boolean;
+}
+
 /** `<omg-command-button command input variant concurrent quiet>`: runs one of the plugin's commands, by its manifest id, when clicked. `input` is JSON, or set the `input` property. While it runs, the button is busy and shows the command's progress beside it, and other command buttons wait unless they are `concurrent`. A failure shows beside it unless it is `quiet`, and is its `error` attribute until the next run, so a page that draws the button again can pass it on. Events: `omg-command-start` (cancelable, before it runs), `omg-command-result` with `detail.result`, and `omg-command-error` with `detail.error`, cancelable to show the failure yourself. */
 export interface OmgCommandButtonElement extends OmgButtonElement {
   /** The command's input; it takes the place of the attribute. */
@@ -44,6 +62,43 @@ export interface OmgCommandButtonAttributes {
   quiet?: boolean;
   /** Secondary by default. */
   variant?: "secondary" | "primary" | "ghost" | "danger";
+}
+
+/** `<omg-table label>`: a semantic table with stable keyed rows and cells. Text is always inserted as text; a Node cell is slotted without cloning so its state, listeners and plugin styles survive updates. Callers own sorting, loading and actions. Wide tables scroll inside their labelled region. */
+export interface OmgTableElement extends HTMLElement {
+  /** Unique column keys, headings, optional width and alignment. */
+  columns: Array<{ key: string; heading: string; align?: "left" | "right"; width?: string }>;
+  /** Unique row keys and cells by column key; Node cells belong to this table while mounted. */
+  rows: Array<{ key: string; cells: Record<string, string | Node> }>;
+}
+
+/** The attributes of `<omg-table>`, as a page writes them. */
+export interface OmgTableAttributes {
+  /** Message with no rows; defaults to No data. */
+  "empty-label"?: string;
+  /** Table and scroll-region accessible name. */
+  label?: string;
+  /** Marks data busy; existing rows remain visible. */
+  loading?: boolean;
+}
+
+/** `<omg-pagination page pages>`: controlled pagination. It requests a page; the caller updates `page` after success. Pending requests preserve focus. */
+export interface OmgPaginationElement extends HTMLElement {}
+
+/** The attributes of `<omg-pagination>`, as a page writes them. */
+export interface OmgPaginationAttributes {
+  /** Ignores requests while retaining focus. */
+  disabled?: boolean;
+  /** Navigation accessible name; defaults to Pagination. */
+  label?: string;
+  /** Next button text; defaults to Next. */
+  "next-label"?: string;
+  /** Current page, one-based; defaults to 1. */
+  page?: number;
+  /** Number of pages; at least 1. */
+  pages?: number;
+  /** Previous button text; defaults to Previous. */
+  "previous-label"?: string;
 }
 
 /** `<omg-status tone="neutral|good|warning|bad|busy">`: a short state, such as "Running", after a coloured dot, or a spinner while busy. It is a live region, so a change is read out. */
@@ -124,8 +179,94 @@ export interface OmgProgressAttributes {
   value?: number;
 }
 
+/** `<omg-slider label min max step value>`: a native range with a numeric readout. The browser bounds and steps the value. Input fires while adjusting; change fires when committed. Programmatic changes are silent. */
+export interface OmgSliderElement extends HTMLElement {
+  /** Current bounded numeric value. */
+  value: number;
+}
+
+/** The attributes of `<omg-slider>`, as a page writes them. */
+export interface OmgSliderAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** Range end; defaults to 100. */
+  max?: number;
+  /** Range start; defaults to 0. */
+  min?: number;
+  /** Increment; defaults to 1. */
+  step?: number | "any";
+  /** Current value; defaults to the native range midpoint. */
+  value?: number;
+}
+
+/** `<omg-radio-group label value>` with `<option>` children: visible choices, optionally explained by each option's `data-description`. Native arrows and Space select; separate groups keep independent selections. */
+export interface OmgRadioGroupElement extends HTMLElement {
+  /** The chosen option's value. */
+  value: string;
+}
+
+/** The attributes of `<omg-radio-group>`, as a page writes them. */
+export interface OmgRadioGroupAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** The chosen option's value. */
+  value?: string;
+}
+
+/** `<omg-combobox label value>` with `<option>` children: a searchable choice. Query text never changes the committed value until an enabled option is picked. Closing discards the query. Options can be replaced asynchronously; set `manual-filter` when the caller filters them remotely. */
+export interface OmgComboboxElement extends HTMLElement {
+  /** Current uncommitted search text. */
+  readonly query: string;
+  /** The chosen option's value. */
+  value: string;
+}
+
+/** The attributes of `<omg-combobox>`, as a page writes them. */
+export interface OmgComboboxAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** Empty list message; defaults to No results. */
+  "empty-label"?: string;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** Shows loading-label; disables picking stale options. */
+  loading?: boolean;
+  /** Loading message; defaults to Loading…. */
+  "loading-label"?: string;
+  /** The caller filters options using omg-query. */
+  "manual-filter"?: boolean;
+  /** Text shown with no selection. */
+  placeholder?: string;
+  /** The chosen option's value. */
+  value?: string;
+}
+
 /** `<omg-input label value type placeholder hint error>`: one line of text. */
 export interface OmgInputElement extends HTMLElement {
+  /** Whether the native input satisfies its constraints. */
+  checkValidity(): boolean;
   /** Its text. */
   value: string;
 }
@@ -142,10 +283,16 @@ export interface OmgInputAttributes {
   hint?: string;
   /** Shown with it. */
   label?: string;
+  /** Maximum for type=number. */
+  max?: number;
+  /** Minimum for type=number; native validation does not clamp typed text. */
+  min?: number;
   /** Shown while it is empty. */
   placeholder?: string;
   /** Can be read and copied, not changed. */
   readonly?: boolean;
+  /** Numeric increment; native default is 1. */
+  step?: number | "any";
   /** What it holds; text by default. */
   type?: "text" | "search" | "password" | "number" | "email" | "url";
   /** Its text; setting it replaces what was typed. */
@@ -473,10 +620,62 @@ export interface OmgTabAttributes {
   name?: string;
 }
 
+/** `<omg-popover label>`: a non-modal panel with a labelled trigger. */
+export interface OmgPopoverElement extends HTMLElement {
+  /** Showing state; programmatic changes are silent. */
+  open: boolean;
+}
+
+/** The attributes of `<omg-popover>`, as a page writes them. */
+export interface OmgPopoverAttributes {
+  /** Disables the trigger and closes the panel. */
+  disabled?: boolean;
+  /** Trigger and panel accessible name. */
+  label?: string;
+  /** Shows the panel. */
+  open?: boolean;
+  /** Preferred placement, bottom-start by default. */
+  placement?: "bottom-start" | "bottom-end" | "top-start" | "top" | "bottom";
+}
+
+/** `<omg-menu label>`: an action menu. Arrow keys, Home/End and typeahead move through enabled actions. Enter/Space selects, Esc returns to the trigger. */
+export interface OmgMenuElement extends HTMLElement {
+  /** Actions; values must be unique. Setting items preserves the focused action by value when possible. */
+  items: Array<{ value: string; label: string; description?: string; disabled?: boolean; danger?: boolean; checked?: boolean }>;
+  /** Showing state; programmatic changes are silent. */
+  open: boolean;
+}
+
+/** The attributes of `<omg-menu>`, as a page writes them. */
+export interface OmgMenuAttributes {
+  /** Disables the trigger and closes the panel. */
+  disabled?: boolean;
+  /** Trigger and panel accessible name. */
+  label?: string;
+  /** Shows the panel. */
+  open?: boolean;
+  /** Preferred placement, bottom-start by default. */
+  placement?: "bottom-start" | "bottom-end" | "top-start" | "top" | "bottom";
+}
+
+/** `<omg-tooltip content>` around a focusable control: a brief non-interactive hint after 350ms hover, or immediately on focus. Esc dismisses it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description. */
+export interface OmgTooltipElement extends HTMLElement {}
+
+/** The attributes of `<omg-tooltip>`, as a page writes them. */
+export interface OmgTooltipAttributes {
+  /** Plain text hint; never essential instructions. */
+  content?: string;
+  /** Preferred placement; top by default. */
+  placement?: "top" | "bottom" | "top-start" | "bottom-start" | "bottom-end";
+}
+
 declare global {
   interface HTMLElementTagNameMap {
     "omg-button": OmgButtonElement;
+    "omg-disclosure": OmgDisclosureElement;
     "omg-command-button": OmgCommandButtonElement;
+    "omg-table": OmgTableElement;
+    "omg-pagination": OmgPaginationElement;
     "omg-status": OmgStatusElement;
     "omg-banner": OmgBannerElement;
     "omg-log": OmgLogElement;
@@ -484,6 +683,9 @@ declare global {
     "omg-step": OmgStepElement;
     "omg-badge": OmgBadgeElement;
     "omg-progress": OmgProgressElement;
+    "omg-slider": OmgSliderElement;
+    "omg-radio-group": OmgRadioGroupElement;
+    "omg-combobox": OmgComboboxElement;
     "omg-input": OmgInputElement;
     "omg-textarea": OmgTextareaElement;
     "omg-switch": OmgSwitchElement;
@@ -504,6 +706,9 @@ declare global {
     "omg-tile": OmgTileElement;
     "omg-tabs": OmgTabsElement;
     "omg-tab": OmgTabElement;
+    "omg-popover": OmgPopoverElement;
+    "omg-menu": OmgMenuElement;
+    "omg-tooltip": OmgTooltipElement;
   }
   interface HTMLElementEventMap {
     /** The command failed; cancel it to show the failure yourself. */
@@ -512,7 +717,15 @@ declare global {
     "omg-command-result": CustomEvent<{ command: string; result: unknown }>;
     /** Before it runs; cancel it to not run. */
     "omg-command-start": CustomEvent<{ command: string; input: unknown }>;
+    /** Requested page; no state changes until the caller updates page. */
+    "omg-page-change": CustomEvent<{ page: number }>;
+    /** Search text changed, or a manual-filter list opened; caller owns fetching and stale-result protection. */
+    "omg-query": CustomEvent<{ query: string }>;
+    /** Selected action, after closing the menu. */
+    "omg-select": CustomEvent<{ value: string }>;
     /** The person opened a tab. */
     "omg-tab-change": CustomEvent<{ value: string }>;
+    /** The person opened or closed the content; bubbles across shadow roots. */
+    "omg-toggle": CustomEvent<{ open: boolean }>;
   }
 }
