@@ -57,6 +57,7 @@ import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { AgentInstructionsError, AgentInstructionsStore, conversationInstructions } from "./agent-instructions.js";
+import { BrowserSettingsStore, BrowserStoreError, ProjectBrowserStore } from "./browser-store.js";
 import { USER_INSTRUCTIONS_MAX_CHARACTERS, type AgentInstructionsView, type ConversationInstructions } from "../shared/agent-instructions.js";
 import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
 import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
@@ -717,6 +718,8 @@ export function createApp(options: AppOptions = {}) {
   const checkpoints = new CheckpointStore();
   const projectWrites = new ProjectWrites();
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const browserSettings = new BrowserSettingsStore(dataDirectory);
+  const projectBrowsers = new ProjectBrowserStore();
   const agentInstructions = new AgentInstructionsStore(dataDirectory);
   const onboarding = new OnboardingStore(dataDirectory);
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
@@ -2289,6 +2292,11 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-browser-shortcuts", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginServices.browserShortcuts(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-canvas", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -2416,6 +2424,42 @@ export function createApp(options: AppOptions = {}) {
       })),
     };
   };
+  // The Browser panel's shared settings, and each project's tabs and visited sites.
+  const browserError = (reply: FastifyReply, cause: unknown) =>
+    reply.code(cause instanceof BrowserStoreError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  app.get("/settings/browser", () => browserSettings.get());
+  app.put<{ Body: unknown }>("/settings/browser", async (request, reply) => {
+    try {
+      return await browserSettings.set(request.body);
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/browser", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return projectBrowsers.get(projectStorage(project));
+  });
+  app.put<{ Params: { projectId: string }; Body: { tabs?: unknown; active?: unknown } }>("/projects/:projectId/browser/tabs", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return await projectBrowsers.setTabs(projectStorage(project), request.body ?? {});
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+  app.post<{ Params: { projectId: string }; Body: { url?: unknown; title?: unknown } }>("/projects/:projectId/browser/visits", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      await projectBrowsers.visit(projectStorage(project), request.body?.url, request.body?.title);
+      return reply.code(204).send();
+    } catch (cause) {
+      return browserError(reply, cause);
+    }
+  });
+
   app.get("/settings/agent-instructions", agentInstructionsView);
   app.put<{ Body: { custom: string } }>("/settings/agent-instructions", { schema: agentInstructionsSchema }, async (request, reply) => {
     try {

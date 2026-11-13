@@ -6,6 +6,7 @@ import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { GameRecordingState } from "../shared/game-recording.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
+import type { BrowserCommand, BrowserMenuLabels, BrowserState, ProjectBrowser } from "../shared/browser.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -135,6 +136,31 @@ if (process.isMainFrame) {
         const callback = (_event: Electron.IpcRendererEvent, state: WebGamePlayerState) => listener(state);
         ipcRenderer.on("ohmygame:web-game-player-state", callback);
         return () => ipcRenderer.removeListener("ohmygame:web-game-player-state", callback);
+      },
+    }),
+    browser: Object.freeze({
+      attach: (projectId: string, attachment: string, layout: WebGamePreviewLayout, saved: ProjectBrowser, labels: BrowserMenuLabels) =>
+        ipcRenderer.invoke("ohmygame:attach-browser", projectId, attachment, layout, saved, labels) as Promise<BrowserState>,
+      layout: (projectId: string, attachment: string, layout: WebGamePreviewLayout) =>
+        ipcRenderer.invoke("ohmygame:layout-browser", projectId, attachment, layout) as Promise<void>,
+      detach: (projectId: string, attachment: string) => ipcRenderer.invoke("ohmygame:detach-browser", projectId, attachment) as Promise<void>,
+      capture: (projectId: string) => ipcRenderer.invoke("ohmygame:capture-browser", projectId) as Promise<Uint8Array>,
+      open: (projectId: string, url?: string) => ipcRenderer.invoke("ohmygame:browser-open", projectId, url) as Promise<BrowserState>,
+      navigate: (projectId: string, tabId: string, url: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "navigate", url) as Promise<void>,
+      select: (projectId: string, tabId: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "select") as Promise<void>,
+      close: (projectId: string, tabId: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "close") as Promise<void>,
+      back: (projectId: string, tabId: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "back") as Promise<void>,
+      forward: (projectId: string, tabId: string) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "forward") as Promise<void>,
+      reload: (projectId: string, tabId: string, stop?: boolean) => ipcRenderer.invoke("ohmygame:browser-tab", projectId, tabId, "reload", stop === true) as Promise<void>,
+      onState: (listener: (state: BrowserState) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, state: BrowserState) => listener(state);
+        ipcRenderer.on("ohmygame:browser-state", callback);
+        return () => ipcRenderer.removeListener("ohmygame:browser-state", callback);
+      },
+      onCommand: (listener: (projectId: string, command: BrowserCommand) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, projectId: string, command: BrowserCommand) => listener(projectId, command);
+        ipcRenderer.on("ohmygame:browser-command", callback);
+        return () => ipcRenderer.removeListener("ohmygame:browser-command", callback);
       },
     }),
     openPlayableNode: (projectId: string, nodeId: string) =>

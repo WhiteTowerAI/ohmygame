@@ -190,7 +190,40 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.5.0 | `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+
+## Browser
+
+Plugin API 2.5.0 adds shortcuts to the desktop app's built-in
+[Browser panel](runtime.md#browser-panel):
+
+```json
+{
+  "contributes": {
+    "browserShortcuts": [
+      { "id": "docs", "title": "Documentation", "url": "https://example.com/docs" }
+    ]
+  }
+}
+```
+
+Each shortcut has a unique `id`, a `title` of at most 60 characters (or a
+`%key%` from the plugin's locales), and a valid HTTPS `url` of at most 500
+characters without credentials. Only plugins active in the project contribute
+shortcuts. They appear separately from the person's editable shortcuts.
+
+A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
+
+```js
+await host.request("browser.open", { url: "https://example.com/docs" });
+```
+
+The address must be at most 4,000 characters and contain no credentials.
+The request resolves to `null` once the app accepts it; loading errors appear
+in Browser. It fails outside desktop project panels, from hidden pages, or
+after five requests in ten seconds across a plugin's panels. No additional
+capability is needed: this only opens a page and grants no access to its DOM,
+cookies, history or scripts. The browser allows at most 20 tabs per project.
 
 ## Native code
 

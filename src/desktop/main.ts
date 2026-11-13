@@ -31,6 +31,8 @@ import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { GameRecorder, type GameRecordingFile } from "./game-recorder.js";
 import { GAME_RECORDING_MAX_SECONDS, gameRecordingFileName, type GameRecordingSaved, type GameRecordingState } from "../shared/game-recording.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
+import { BrowserViews } from "./browser-views.js";
+import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../shared/browser.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
@@ -106,6 +108,11 @@ const webGamePlayers = new WebGamePlayerWindows((state) => {
   else void startGameRecording(projectId).catch((cause: unknown) => {
     publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) });
   });
+});
+const browserViews = new BrowserViews({
+  onState: (state) => mainWindow?.webContents.send("ohmygame:browser-state", state),
+  onCommand: (projectId, command) => mainWindow?.webContents.send("ohmygame:browser-command", projectId, command),
+  openExternal: (url) => void shell.openExternal(url).catch(() => {}),
 });
 /** People's recordings, by project; an agent's belong to its playtest session. */
 const gameRecordings = new Map<string, GameRecordingState>();
@@ -194,6 +201,7 @@ async function stopServices(): Promise<void> {
   updateChecks?.stop();
   agentNotifications.stop();
   webGamePlayers.close();
+  browserViews.dispose();
   agentPlaytests.close();
   gameRecorder.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
@@ -501,6 +509,44 @@ handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.capture(projectId);
 });
+handle("ohmygame:attach-browser", (event, projectId: unknown, attachment: unknown, layout: unknown, saved: unknown, labels: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment) || !isBrowserMenuLabels(labels)) throw new Error("Invalid browser attachment");
+  return browserViews.attach(projectId, attachment, mainWindow!, requirePreviewLayout(layout), requireSavedBrowser(saved), labels);
+});
+handle("ohmygame:layout-browser", (event, projectId: unknown, attachment: unknown, layout: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment)) throw new Error("Invalid browser attachment");
+  browserViews.layout(projectId, attachment, requirePreviewLayout(layout));
+});
+handle("ohmygame:detach-browser", (event, projectId: unknown, attachment: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment)) throw new Error("Invalid browser attachment");
+  browserViews.detach(projectId, attachment);
+});
+handle("ohmygame:capture-browser", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  return browserViews.capture(projectId);
+});
+handle("ohmygame:browser-open", (event, projectId: unknown, url: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (url !== undefined && typeof url !== "string") throw new Error("Invalid browser address");
+  return browserViews.open(projectId, url);
+});
+handle("ohmygame:browser-tab", (event, projectId: unknown, tabId: unknown, action: unknown, value: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(tabId)) throw new Error("Invalid browser tab");
+  if (action === "navigate") {
+    if (typeof value !== "string") throw new Error("Invalid browser address");
+    return browserViews.navigate(projectId, tabId, value);
+  }
+  if (action === "select") return browserViews.select(projectId, tabId);
+  if (action === "close") return browserViews.close(projectId, tabId);
+  if (action === "back") return browserViews.back(projectId, tabId);
+  if (action === "forward") return browserViews.forward(projectId, tabId);
+  if (action === "reload") return browserViews.reload(projectId, tabId, value === true);
+  throw new Error("Invalid browser action");
+});
 handle("ohmygame:filter-web-game-player", (event, projectId: unknown, filter: unknown) => {
   requirePlayerSource(event.sender, projectId);
   if (filter !== null && !isPreviewColorFilter(filter)) throw new Error("Invalid game filter");
@@ -597,6 +643,15 @@ function requirePlayerSource(sender: Electron.WebContents, projectId: unknown): 
   if (!mainWindow || sender !== mainWindow.webContents || !validRouteId(projectId) || !daemon) {
     throw new Error("Invalid game player source");
   }
+}
+
+/** A project's saved tabs, from the panel; only their addresses and titles are used. */
+function requireSavedBrowser(value: unknown): ProjectBrowser {
+  const saved = value as Partial<ProjectBrowser> | null;
+  if (!saved || !Array.isArray(saved.tabs) || saved.tabs.length > 100) throw new Error("Invalid browser tabs");
+  const tabs = saved.tabs.flatMap((tab) => tab && validRouteId(tab.id) && typeof tab.url === "string" && typeof tab.title === "string" && (!tab.url || isBrowserUrl(tab.url))
+    ? [{ id: tab.id, url: tab.url, title: tab.title.slice(0, 500) }] : []);
+  return { tabs, ...(typeof saved.active === "string" ? { active: saved.active } : {}), visits: [] };
 }
 
 function requirePreviewLayout(value: unknown): WebGamePreviewLayout {
@@ -912,8 +967,13 @@ async function openMainWindow(): Promise<void> {
       window.webContents.on("console-message", (details) => {
         for (const line of rendererConsoleLines(details)) mainLog.line(line);
       });
+      window.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
+        if (mainFrame && !inPlace) browserViews.dispose();
+      });
+      window.webContents.on("render-process-gone", () => browserViews.dispose());
       window.on("show", () => {
         webGamePlayers.synchronize();
+        browserViews.synchronize();
         updateChecks?.onFocus();
       });
       if (process.platform === "win32") {
@@ -928,10 +988,10 @@ async function openMainWindow(): Promise<void> {
         if (process.platform !== "darwin") window.flashFrame(false);
         agentNotifications.focusChanged();
       });
-      window.on("hide", () => webGamePlayers.synchronize());
-      window.on("minimize", () => webGamePlayers.synchronize());
-      window.on("restore", () => webGamePlayers.synchronize());
-      window.on("resize", () => webGamePlayers.synchronize());
+      window.on("hide", () => { webGamePlayers.synchronize(); browserViews.synchronize(); });
+      window.on("minimize", () => { webGamePlayers.synchronize(); browserViews.synchronize(); });
+      window.on("restore", () => { webGamePlayers.synchronize(); browserViews.synchronize(); });
+      window.on("resize", () => { webGamePlayers.synchronize(); browserViews.synchronize(); });
       const close = new RendererCloseRequest(
         (id) => window.webContents.send("ohmygame:prepare-close", id),
         (id, error) => { if (!window.isDestroyed()) window.webContents.send("ohmygame:cancel-close", id, error); },
@@ -955,6 +1015,7 @@ async function openMainWindow(): Promise<void> {
           setKeepAwake(false);
         }
         webGamePlayers.close();
+        browserViews.dispose();
         for (const playtest of playtestWindows.values()) {
           void Promise.resolve(playtest).then((window) => window.close(), () => {});
         }

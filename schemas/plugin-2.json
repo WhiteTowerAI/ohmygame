@@ -2597,6 +2597,37 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "browserShortcuts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "url"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https://[^\\s]+$",
+                "maxLength": 500
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
         }
       },
       "additionalProperties": false

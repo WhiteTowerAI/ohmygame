@@ -200,6 +200,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
     ...(contributes.previewDevices ?? []).map((device) => device.title),
     ...(contributes.previewFilters ?? []).flatMap((filter) => [filter.title, filter.source]),
     ...(contributes.inputMaps ?? []).map((map) => map.title),
+    ...(contributes.browserShortcuts ?? []).map((shortcut) => shortcut.title),
   ];
   const keys = new Set<string>();
   for (const text of texts) {

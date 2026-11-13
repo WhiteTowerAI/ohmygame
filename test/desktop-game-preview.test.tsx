@@ -72,11 +72,19 @@ describe("native preview loading", () => {
     };
     const refresh = vi.fn(async () => {});
     const onReady = vi.fn();
-    const render = (reload = 0, url = "http://127.0.0.1:4000/") => act(async () => {
-      root.render(<DesktopGamePreview bridge={bridge} refresh={refresh} projectId="game" url={url} reload={reload} visible onReady={onReady} />);
+    const render = (reload = 0, url = "http://127.0.0.1:4000/", projectId = "game") => act(async () => {
+      root.render(<DesktopGamePreview bridge={bridge} refresh={refresh} projectId={projectId} url={url} reload={reload} visible onReady={onReady} />);
     });
     return { container, root, bridge, refresh, onReady, render };
   }
+
+  it("detaches the previous project's view when the same component switches projects", async () => {
+    const { bridge, render } = mount();
+    await render();
+    await render(0, "http://127.0.0.1:4001/", "next-game");
+    expect(bridge.detach).toHaveBeenCalledExactlyOnceWith("game", expect.any(String));
+    expect(bridge.attach).toHaveBeenLastCalledWith("next-game", expect.any(String), "http://127.0.0.1:4001/", expect.any(Object));
+  });
 
   it("cancels a pending refresh attachment when the component unmounts", async () => {
     const { root, bridge, refresh, onReady, render } = mount();

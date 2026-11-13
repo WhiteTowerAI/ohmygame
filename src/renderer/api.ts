@@ -1,4 +1,5 @@
 import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
+import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
@@ -200,6 +201,8 @@ declare global {
       finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
+      /** The Browser panel's pages; absent outside the desktop app. */
+      browser?: DesktopBrowserBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
@@ -749,6 +752,33 @@ export async function getAgentInstructions(): Promise<AgentInstructionsView> {
 
 export async function setAgentInstructions(custom: string): Promise<AgentInstructionsView> {
   return request("/settings/agent-instructions", { method: "PUT", body: JSON.stringify({ custom }) });
+}
+
+/** The browser settings every project shares, and why the saved ones can't be used if they can't. */
+export async function getBrowserSettings(): Promise<BrowserSettings & { problem?: string }> {
+  return request("/settings/browser");
+}
+
+export async function setBrowserSettings(settings: BrowserSettings): Promise<BrowserSettings> {
+  return request("/settings/browser", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+/** A project's saved tabs and the sites visited in it. */
+export async function getProjectBrowser(projectId: string): Promise<ProjectBrowser & { problem?: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/browser`);
+}
+
+export async function saveBrowserTabs(projectId: string, tabs: SavedBrowserTab[], active: string | undefined): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/tabs`, { method: "PUT", body: JSON.stringify({ tabs, active }) });
+}
+
+/** The sites a project's plugins put on the new-tab page. */
+export async function getPluginBrowserShortcuts(projectId: string): Promise<PluginBrowserShortcut[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
+}
+
+export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
 }
 
 /** What a conversation's agent is told, as its model last received it. */
