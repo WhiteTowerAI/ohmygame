@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronRight, RefreshCw } from "./icons.js";
+import { ChevronRight, FileText, RefreshCw } from "./icons.js";
+import { AGENT_INSTRUCTIONS, AgentInstructionsSettings } from "./agent-instructions-settings.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import { listAgentRuntimes, notifyAgentModelsChanged } from "./api.js";
 import { CodingAgentDetail, CodingAgentsGroup } from "./coding-agents-settings.js";
@@ -32,6 +33,8 @@ export function AgentsSettings({
   onOpenSection: (section: SettingsSection) => void;
   onOpenPlugins: () => void;
 }) {
+  if (agent === AGENT_INSTRUCTIONS)
+    return <AgentInstructionsSettings onBack={onBack} />;
   if (agent === OHMYGAME_AGENT)
     return <OhMyGameAgent onBack={onBack} onOpenSection={onOpenSection} onOpenPlugins={onOpenPlugins} />;
   if (agent && isAgentRuntimeId(agent))
@@ -103,6 +106,18 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
           </IconButton>
         }
       />
+      <SettingsGroup title={t("settings.agents.instructions.group")}>
+        <SettingsRow
+          icon={<FileText size={18} />}
+          title={t("settings.agents.instructions.title")}
+          description={t("settings.agents.instructions.rowHint")}
+          onClick={() => onOpen(AGENT_INSTRUCTIONS)}
+        >
+          <IconButton size="sm" label={t("settings.agents.instructions.title")} onClick={() => onOpen(AGENT_INSTRUCTIONS)}>
+            <ChevronRight size={16} />
+          </IconButton>
+        </SettingsRow>
+      </SettingsGroup>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
   );

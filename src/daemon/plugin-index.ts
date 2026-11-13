@@ -200,6 +200,7 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
     ...(contributes.previewDevices ?? []).map((device) => device.title),
     ...(contributes.previewFilters ?? []).flatMap((filter) => [filter.title, filter.source]),
     ...(contributes.inputMaps ?? []).map((map) => map.title),
+    ...(contributes.browserShortcuts ?? []).map((shortcut) => shortcut.title),
   ];
   const keys = new Set<string>();
   for (const text of texts) {
@@ -438,6 +439,7 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
     tools: contributes.tools?.length ?? 0,
     skills: entry.skills.length,
     ...(hooks.length ? { hooks: [...hooks] } : {}),
+    ...(contributes.instructions ? { instructions: contributes.instructions } : {}),
   };
 }
 
@@ -465,7 +467,7 @@ function localeText(table: Record<string, string> | undefined, key: string): str
 
 type ContributionKind = Exclude<
   keyof PluginContributions,
-  "skills" | "settings"
+  "skills" | "settings" | "instructions"
 >;
 type ContributionItem<K extends ContributionKind> = NonNullable<
   PluginContributions[K]

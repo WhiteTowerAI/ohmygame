@@ -263,6 +263,85 @@ const failure = async (promise: Promise<unknown>) => {
 };
 
 describe("extension hosts", () => {
+  it("does not automatically grant bundled plugins cross-project session access", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-sessions-"));
+    const bundled = path.join(data, "bundled");
+    const dir = path.join(bundled, "messenger");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, "index.mjs"), "export function activate() {}");
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "ohmygame/messenger", version: "1.0.0", displayName: "Messenger", description: "Session fixture",
+      engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" }, capabilities: { native: true, sessions: true },
+    }));
+    const services = new PluginServices({ directory: path.join(data, "store"), bundled });
+    try {
+      await services.ready();
+      expect(services.grants.plugin("ohmygame/messenger")?.allowed).toEqual(["native"]);
+      await services.setEveryProject("ohmygame/messenger", true);
+      expect(services.grants.plugin("ohmygame/messenger")?.allowed).toEqual(["native", "sessions"]);
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("keeps granted app session plugins alive, reconfigures, restarts and stops on revocation", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-sessions-host-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/messenger", version: "1.0.0", displayName: "Messenger", description: "Session fixture",
+      engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true },
+      configuration: { label: { type: "text", title: "Label", default: "first" } },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `
+      import { appendFile } from "node:fs/promises";
+      import path from "node:path";
+      export async function activate(context) {
+        if (context.project || !context.sessions) throw new Error("Wrong scope");
+        const file = path.join(context.dataFolder, "starts.jsonl");
+        const projects = await context.sessions.request({ operation: "projects" });
+        await appendFile(file, JSON.stringify({ pid: process.pid, label: context.configuration.label, projects }) + "\\n");
+        const waiting = context.sessions.request({ operation: "events", projectId: "p", waitMs: 25000 }).catch(() => "cancelled");
+        context.onDispose(async () => { await waiting; await appendFile(path.join(context.dataFolder, "disposed"), "yes\\n"); });
+      }
+    `);
+    const services = new PluginServices({ directory: path.join(data, "store"), hosts: { idleMs: 80, cancelGraceMs: 200 } });
+    const cancelled: string[] = [];
+    const handle = vi.fn(async (_plugin, request, signal, authorize) => {
+      await authorize();
+      if (request.operation === "events") return new Promise((_resolve, reject) => {
+        const abort = () => { cancelled.push("waiter"); reject(signal.reason); };
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      });
+      return { projects: [{ id: "p", name: "Game" }], truncated: false };
+    });
+    services.native.serveSessions({ handle });
+    try {
+      const installed = await services.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+      await services.native.startPersistent(() => services.everyProject());
+      expect(services.hosts.generation("app")).toBeUndefined();
+      await services.setEveryProject("acme/messenger", true);
+      const file = path.join(services.dataFolder("acme/messenger"), "starts.jsonl");
+      const starts = async () => (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(await starts()).toEqual([expect.objectContaining({ label: "first", projects: { projects: [{ id: "p", name: "Game" }], truncated: false } })]);
+      const generation = services.hosts.generation("app");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await services.native.closeProject(path.join(data, "project"));
+      expect(services.hosts.generation("app")).toBe(generation);
+      await services.configure("acme/messenger", { label: "second" });
+      expect((await starts()).at(-1)).toMatchObject({ label: "second" });
+      await services.hosts.stop("app");
+      await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
+      expect(services.hosts.generation("app")).not.toBe(generation);
+      await services.setEveryProject("acme/messenger", false);
+      expect(services.hosts.active("app")).toEqual({});
+      expect((await readFile(path.join(services.dataFolder("acme/messenger"), "disposed"), "utf8")).trim().split("\n")).toHaveLength(3);
+      expect(handle.mock.calls.filter(([, request]) => request.operation === "projects")).toHaveLength(3);
+      await vi.waitFor(() => expect(cancelled).toHaveLength(3));
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
   it("starts a host on the first call and activates each plugin once", async () => {
     const extensionHosts = hosts();
     expect(await extensionHosts.status()).toEqual([]);
@@ -1735,7 +1814,7 @@ async function hookPackage(name: string, hooks: string[], code: string) {
   return dir;
 }
 
-async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"]; toolMs?: number } = {}) {
   const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
   const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
   const index = new PluginIndex(path.join(data, "plugin-index.json"));
@@ -1761,6 +1840,7 @@ async function hookSetup(packages: string[], options: { onLog?: NonNullable<Cons
   const hooks = new PluginHooks({
     resolve,
     native: runtime,
+    timeouts: { toolMs: options.toolMs },
     onNotice: (_folder, notice) => notices.push(notice),
     onError: (plugin, event, error) => errors.push({ plugin, event, message: error instanceof Error ? error.message : String(error) }),
   });
@@ -1796,6 +1876,30 @@ const SECRET_CHECK = `
   });`;
 
 describe("plugin hooks", () => {
+  it("runs tool gates in the real extension host, isolates arguments and times out a hanging handler", async () => {
+    const setup = await hookSetup([await hookPackage("tool-guard", ["tool.beforeCall", "tool.afterCall"], `
+      context.registerHook("tool.beforeCall", (input) => {
+        if (input.tool === "hang") return new Promise(() => {});
+        if (input.tool === "invalid") return { decision: ["deny"], reason: "Stop" };
+        input.args.value = "changed";
+        return { decision: "ask", reason: "Control the desktop" };
+      });
+      context.registerHook("tool.afterCall", (input) => ({ notice: input.status + ": " + input.text }));
+    `)], { toolMs: 100 });
+    try {
+      const approve = vi.fn(async () => true);
+      const gates = setup.hooks.tools(setup.folder, approve);
+      const input = { callId: "one", tool: "echo", args: { value: "original" }, source: "agent" as const };
+      await gates.before(input);
+      expect(input.args.value).toBe("original");
+      expect(approve).toHaveBeenCalledWith("acme/tool-guard", input, "Control the desktop", undefined);
+      await gates.after({ ...input, status: "succeeded", text: "done" });
+      expect(setup.notices).toContainEqual({ plugin: "acme/tool-guard", message: "succeeded: done", tone: "default" });
+      await expect(gates.before({ ...input, tool: "invalid" })).rejects.toThrow(/must return/);
+      await expect(gates.before({ ...input, tool: "hang" })).rejects.toThrow(/timed out/);
+    } finally { await setup.cleanup(); }
+  });
+
   it("lets a style pack change an image's prompt and settings, and records it", async () => {
     const setup = await hookSetup([await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK)]);
     try {
@@ -1895,8 +1999,13 @@ describe("plugin hooks", () => {
       expect(watches.watching(folder)).toBe(true);
       await mkdir(path.join(folder, "node_modules"), { recursive: true });
       await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
-      await writeFile(path.join(folder, "notes.md"), "# Notes");
-      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      // OS notifications are advisory, especially during macOS watch startup.
+      // Retry the stimulus, not the assertions about delivered paths and ignored folders.
+      await vi.waitFor(async () => {
+        if (!changes.some((change) => change.paths.includes("notes.md")))
+          await writeFile(path.join(folder, "notes.md"), "# Notes");
+        expect(changes.flatMap((change) => change.paths)).toContain("notes.md");
+      }, { timeout: 5_000 });
       expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
       watches.set(folder, false);
       expect(watches.watching(folder)).toBe(false);

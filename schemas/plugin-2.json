@@ -263,6 +263,9 @@
         "game": {
           "type": "boolean"
         },
+        "sessions": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {
@@ -603,6 +606,12 @@
           "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",
           "minLength": 3,
           "maxLength": 500
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "pattern": "\\S"
         },
         "tools": {
           "type": "array",
@@ -1174,6 +1183,9 @@
                       "models"
                     ],
                     "properties": {
+                      "discoverModels": {
+                        "type": "boolean"
+                      },
                       "models": {
                         "type": "array",
                         "items": {
@@ -1193,6 +1205,17 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 200
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            },
+                            "data": {
+                              "type": "object",
+                              "patternProperties": {
+                                "^.*$": {}
+                              }
                             },
                             "resolutions": {
                               "type": "array",
@@ -1293,6 +1316,9 @@
                         "minimum": 1,
                         "maximum": 120
                       },
+                      "discoverModels": {
+                        "type": "boolean"
+                      },
                       "models": {
                         "type": "array",
                         "items": {
@@ -1313,6 +1339,17 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 200
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            },
+                            "data": {
+                              "type": "object",
+                              "patternProperties": {
+                                "^.*$": {}
+                              }
                             },
                             "durations": {
                               "type": "array",
@@ -1453,6 +1490,9 @@
                         "minimum": 1,
                         "maximum": 120
                       },
+                      "discoverModels": {
+                        "type": "boolean"
+                      },
                       "models": {
                         "type": "array",
                         "items": {
@@ -1471,6 +1511,17 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 200
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            },
+                            "data": {
+                              "type": "object",
+                              "patternProperties": {
+                                "^.*$": {}
+                              }
                             },
                             "kinds": {
                               "type": "array",
@@ -1583,6 +1634,9 @@
                         "minimum": 1,
                         "maximum": 120
                       },
+                      "discoverModels": {
+                        "type": "boolean"
+                      },
                       "models": {
                         "type": "array",
                         "items": {
@@ -1602,6 +1656,17 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 200
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            },
+                            "data": {
+                              "type": "object",
+                              "patternProperties": {
+                                "^.*$": {}
+                              }
                             },
                             "operations": {
                               "type": "array",
@@ -2219,6 +2284,14 @@
               {
                 "type": "string",
                 "const": "image.beforeGenerate"
+              },
+              {
+                "type": "string",
+                "const": "tool.beforeCall"
+              },
+              {
+                "type": "string",
+                "const": "tool.afterCall"
               }
             ]
           },
@@ -2535,6 +2608,37 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 3600
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "browserShortcuts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "url"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https://[^\\s]+$",
+                "maxLength": 500
               }
             },
             "additionalProperties": false

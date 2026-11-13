@@ -66,8 +66,8 @@ every provider, such as a first and last frame for video.
   canvas and the agent's tools work unchanged.
 - **Audio** models (`media.audio.models`) say the `kinds` they make
   (`speech`, `sound-effect`, `music`), whether they speak the prompt word for
-  word (`readsText`) and in which `voices`, the `formats` they make (`mp3`,
-  `wav`, `ogg_opus`; `mp3` when left out), and the limits they take:
+  word (`readsText`) and in which `voices`, the `formats` they can be asked
+  for (`mp3`, `wav`, `ogg_opus`; `mp3` when left out), and the limits they take:
   `maxTextCharacters`, `minDurationSeconds`, `maxDurationSeconds`,
   `instrumental` and `loop`.
 - **3D** models (`media["3d"].models`) say the `operations` they make from
@@ -77,6 +77,12 @@ every provider, such as a first and last frame for video.
   the model and make `pbr` materials.
 - `audio` and `3d` take `maxMinutes` as `video` does (10 and 15 minutes when
   left out).
+- Any model may have a `description` and `data`: the adapter's own JSON, at
+  most 4 KB, given back with each request as `input.modelData`, such as which
+  of the vendor's fields the model takes.
+- A kind with `"discoverModels": true` can list more of the vendor's models
+  (see [Listing the vendor's models](#listing-the-vendors-models)). The models
+  the manifest lists are then the ones that are on by default.
 - The kinds a provider declares are what the market lists it under (see
   [Market](#market)). Chat counts when `api` is set.
 
@@ -129,7 +135,8 @@ that takes minutes are written the same way:
   (10 minutes for an image) while the vendor holds a task.
 
 `input` is what OhMyGame asks for. It is fixed per kind and versioned with the
-plugin API. A JavaScript section is named as the kind, so 3D is
+plugin API. Every kind's input also has `modelData` when the model has
+`data`. A JavaScript section is named as the kind, so 3D is
 `export default { "3d": { start, check } }`.
 
 - **Image:** `model`, `prompt`, `resolution` and `aspectRatio` (one of the
@@ -157,8 +164,9 @@ plugin API. A JavaScript section is named as the kind, so 3D is
 so list the host the vendor's results are on (SiliconFlow's are on
 `sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
 host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
-a video MP4 of at most 500 MB, audio a playable file of the format asked for,
-and a 3D model a binary glTF (GLB) of at most 100 MB) and writes it to the
+a video MP4 of at most 500 MB, audio a playable file of the format the
+person picked, or when they picked none, any of MP3, WAV and Ogg Opus, since
+some vendors don't say which file a model makes, and a 3D model a binary glTF (GLB) of at most 100 MB) and writes it to the
 project, as a built-in provider's result is. A request takes the first output.
 
 `host` holds:
@@ -194,6 +202,31 @@ which the agent runtime already ships), inside the daemon:
 So a media provider plugin asks for no `native` permission and shows no
 warning that its code runs with the person's access. A third party's vendor
 plugin is as safe to add as an official one.
+
+### Listing the vendor's models
+
+A vendor with hundreds of models, each taking its own fields, can't list them
+all in the manifest. A kind with `discoverModels` has a fourth step:
+
+- **`models(host)`** returns `{ models }`, each in the same shape as the
+  manifest's models of that kind, or `{ error }`. It usually reads the
+  vendor's model list and each model's input schema, and turns them into the
+  fields OhMyGame knows (aspect ratios, durations, voices and so on), with
+  `data` saying how to build a request for that model. A model it can't
+  describe is better left out than listed wrong.
+
+The app calls it only when the person asks, with **Load models** on the
+provider's page in Settings, never in the background. The call may take 10
+seconds of its own running time and 5 minutes in all, for a vendor whose list
+spans many pages. Up to 2,000 models are kept per kind; one that fails the
+manifest's checks is left out, and Settings says how many were.
+
+Listed models stay off until the person turns one on; only models that are on
+appear in model menus, the canvas and the agent's tools, as with a chat
+provider's models. A model turned on is kept whole in
+`plugin-media-models.json` in the app's data, so it works after a restart
+without listing again, and a model the manifest lists can be turned off the
+same way. A file the app can't read is never written over.
 
 ## Tasks: polling and events
 
@@ -255,7 +288,8 @@ ended with them. Images, which rarely take a task, start again.
   Everything after the result (checking it, saving it, the Library, undo) is
   shared with built-in providers.
 - Settings → Providers shows what a provider makes from what it declares, and
-  on its page, its models of each kind.
+  on its page, its models of each kind, each with a switch, and **Load models**
+  for a kind that lists the vendor's (`src/renderer/plugin-media-models.tsx`).
 
 ## Market
 
@@ -276,7 +310,9 @@ can't promise what the plugin doesn't do.
    the tags on cards. *Done.*
 4. Audio (speech, sound effects, music) and 3D from a prompt or pictures.
    *Done.*
-5. Later: 3D retexture, remesh and animation, transcription, and voices
+5. Listing the vendor's models (`discoverModels`, `models`, a model's `data`),
+   with switches in Settings. *Done.*
+6. Later: 3D retexture, remesh and animation, transcription, and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.

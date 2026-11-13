@@ -1,19 +1,18 @@
 import { app } from "electron";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { init as initSentry } from "@sentry/electron/main";
+import { initializeCrashReporting } from "./usage-data.cjs";
 
-const sentryDsn = readSentryDsn();
-initSentry({
-  dsn: sentryDsn,
-  enabled: Boolean(sentryDsn),
-  sendDefaultPii: false,
-});
-
-void import("./main.js").catch((error) => {
-  console.error(error);
-  app.exit(1);
-});
+// Relaunching an app hidden in the tray must restore it, not start a second daemon.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  initializeCrashReporting(readSentryDsn());
+  void import("./main.js").catch((error) => {
+    console.error(error);
+    app.exit(1);
+  });
+}
 
 function readSentryDsn(): string | undefined {
   const configured = process.env.SENTRY_DSN?.trim();

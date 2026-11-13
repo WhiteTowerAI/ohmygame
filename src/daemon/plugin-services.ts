@@ -15,6 +15,7 @@ import { isNewerPluginVersion, PLUGIN_NPM_REGISTRIES, type McpServerDefinition, 
 import { compileInputMap } from "../shared/preview-input.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import type { LibrarySource } from "../shared/contracts.js";
+import type { PluginBrowserShortcut } from "../shared/browser.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import {
@@ -407,6 +408,16 @@ export class PluginServices {
   /**
    * The Skills of a project's active plugins, for agent sessions to load.
    */
+  /** Static manifest text, exactly as reviewed; never evaluated or localized. */
+  async instructions(folder: string): Promise<Array<{ plugin: string; text: string }>> {
+    const resolved = await this.resolve(folder);
+    if (!resolved.ok) throw new Error("Cannot read the project's plugin instructions");
+    return resolved.plugins.flatMap((plugin) => {
+      const text = plugin.status === "active" ? plugin.entry?.manifest.contributes?.instructions : undefined;
+      return text ? [{ plugin: plugin.id, text }] : [];
+    });
+  }
+
   async skills(folder: string): Promise<PluginSkillRegistration[]> {
     await this.ready();
     this.#watch(folder);
@@ -582,6 +593,25 @@ export class PluginServices {
         });
     }
     return preview;
+  }
+
+  /** The sites a project's active plugins put on the Browser panel's new-tab page, in `locale`. */
+  async browserShortcuts(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<PluginBrowserShortcut[]> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    if (!resolved?.ok) return [];
+    const shortcuts: PluginBrowserShortcut[] = [];
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const pluginTitle = localizePluginString(entry, entry.manifest.displayName, locale);
+      for (const shortcut of entry.manifest.contributes?.browserShortcuts ?? [])
+        shortcuts.push({ plugin: entry.id, pluginTitle, title: localizePluginString(entry, shortcut.title, locale), url: shortcut.url });
+    }
+    return shortcuts;
   }
 
   /** What a project's active plugins add to Asset Canvas, in `locale`. */
@@ -808,7 +838,8 @@ export class PluginServices {
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
       await this.grants.consent(
         result.entry.id,
-        capabilityGrants(result.entry.manifest),
+        // Cross-project session access always needs a person's explicit consent, even for bundled updates.
+        capabilityGrants(result.entry.manifest).filter((grant) => grant !== "sessions"),
       );
     }
     // A plugin the app no longer brings goes too, not only an older version of

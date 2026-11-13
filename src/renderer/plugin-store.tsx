@@ -338,7 +338,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {/* Every tab stays mounted, so unsaved settings survive switching tabs. */}
         <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.about")} hidden={tab !== "about"}>
           {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
-          {plugin.appOnly ? null : <p className="plugin-long">{t("pluginStore.scopeHint")}</p>}
+          {plugin.capabilities.includes("sessions") ? <p className="plugin-long">{t("pluginStore.sessionScopeHint")}</p> : plugin.appOnly ? null : <p className="plugin-long">{t("pluginStore.scopeHint")}</p>}
           {plugin.examples.length ? <section className="plugins-section" aria-label={t("plugins.tryIt")}>
             <h2>{t("plugins.tryIt")}</h2>
             <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}

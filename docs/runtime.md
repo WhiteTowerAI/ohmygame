@@ -225,6 +225,38 @@ token. Discovery and search share a 25-second timeout and the caller's
 cancellation signal. A failed discovery is reported rather than sending guessed
 arguments. The optional bearer token is used for both discovery and search.
 
+## Agent instructions
+
+OhMyGame adds its own instructions to the agent's in every conversation, by
+kind of project (`src/daemon/agent-prompts.ts`). **Settings → Agents → Agent
+instructions** shows them as a new project of each kind gets them, and keeps
+the person's own instructions, which come after OhMyGame's in every project,
+for OhMyGame's agent and the coding agents alike. They are told to give way
+to the current request. A project's `AGENTS.md` still adds its own.
+
+The person's instructions are in `agent-instructions.json` in the data
+directory, `{ "version": 1, "text": "…" }`, at most 8,000 characters after
+trimming; blank text clears them. A file this version can't read is left as
+it is: no instructions are used from it and saving new ones is refused until
+it is fixed or removed. Saving restarts idle sessions, so a conversation uses
+the new instructions from its next message.
+
+**This conversation's instructions**, in the conversation menu, shows the
+system prompt and tools OhMyGame's agent last sent the model, section by
+section, read from the conversation's transcript, and the workspace restore
+notice each request adds while there is one. A coding agent keeps its own
+instructions to itself, so for one only what OhMyGame adds is shown: the
+project's instructions and how to use OhMyGame's tools. Claude Code, Codex and
+OpenCode get these each time their process starts; a plugin's ACP agent gets
+them with a new session's first prompt and again, as a replacement, with the
+first prompt of a process that continues the session.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /settings/agent-instructions` | The person's instructions, why they can't be used if they can't, and OhMyGame's for each kind of project |
+| `PUT /settings/agent-instructions` | Save `{ custom }`; 400 over the limit, 409 while the saved file can't be read |
+| `GET /projects/:p/conversations/:c/instructions` | What the conversation's agent is told |
+
 ## Network proxy
 
 **Settings → Network** configures the application's network connection. Pi's
@@ -753,6 +785,69 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+## Browser panel
+
+In the desktop app, every project offers **Browser** in a panel area's **+**
+menu. It starts closed. The panel has its own tabs, back/forward and reload
+controls, an address/search box, and an action to open the current page in the
+system browser. Bare host names open over HTTPS; localhost opens over HTTP;
+other text searches with the selected engine (Bing initially).
+
+![Browser panel showing a web page](assets/browser-panel.png)
+
+New tabs show editable shared shortcuts, shortcuts from active plugins and
+this project's most visited pages. The search engine and up to 24 personal
+shortcuts are shared across projects. Each project keeps up to 20 tabs and the
+200 most recently visited addresses. Closing or moving the panel keeps tabs
+alive; leaving the project closes their views, and reopening restores their
+addresses and selected tab. Navigation back/forward stacks are not persisted.
+A page-driven address longer than 4,000 characters returns as a blank tab on
+reopen; other tabs and visits continue to save.
+
+![New tab with shortcuts and this project's visited pages](assets/browser-new-tab.png)
+
+`src/desktop/browser-views.ts` owns sandboxed `WebContentsView` instances.
+They share `persist:ohmygame-browser`, separate from the app and game preview,
+so website sign-ins persist across projects and restarts. Hidden tabs stay
+muted. Pages have no Node access or app preload; camera, microphone, location
+and other permissions outside clipboard writes, fullscreen and pointer lock
+are refused. HTTP(S) links open in tabs, with sized sign-in popups retaining
+their opener. The panel is unavailable in the web app.
+
+`src/daemon/browser-store.ts` keeps version-1 `browser-settings.json` in app
+data and version-1 `browser.json` beside each project's records, never inside
+the game workspace. Unreadable or newer files are left untouched and writes
+are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
+[shortcuts and opening requests](plugins.md#browser) use the same panel.
+
+### Agent browsing and page text
+
+`browser_use` operates the same Browser tabs as the person. It reveals the
+panel for the project currently open in the desktop app and waits for tab
+restoration before starting. `tabs` lists existing tabs; `open` creates a tab;
+`navigate`, `read`, `act`, `capture` and `close` take a `tabId`. Actions use the
+same CDP input and target helpers as game playtesting. Reads return up to 100
+interactive elements and 4,000 characters of visible text; captures use JPEG
+at the page's logical pixel size. Semantic targets address the main document;
+use screenshot coordinates for embedded content. The tool accepts no page
+scripts. Password values are excluded from element labels.
+
+Only one browser request runs per project at a time. Closing or switching the
+active tab stops a batch before its next action, and cancellation releases
+held keys. A conversation ending does not close the person's tabs. The tool's
+instructions hand login, payment and CAPTCHA steps to the person and treat
+page content as untrusted material. Browser use is unavailable in planning
+mode; `web_fetch` remains available for research.
+
+`web_fetch` reads HTTP(S) HTML or text without JavaScript or browser cookies.
+It returns the final URL, title, text and a truncation flag. HTML extraction
+prefers `main` or `article`, removes scripts and navigation, and resolves links.
+Requests have a 20-second deadline, at most five redirects and a 2 MiB download
+limit; returned text defaults to 20,000 characters and can be set to 1,000–50,000.
+Binary files are rejected. Both tools are also available to coding agents and
+the [external MCP server](external-agents.md); browser use still requires the
+selected project to be open in the desktop app.
+
 ## Workspace panels
 
 Below the top bar a project is a set of panels in four areas: left, middle,
@@ -846,6 +941,35 @@ keeps its open folders and scroll position, and the open file stays on screen,
 also when the refresh fails. Only choosing or opening a file, or coming back from
 Changes, which builds the tree anew, scrolls the tree.
 
+## Desktop background running
+
+**Settings → General → Keep running after closing the window** is off by
+default. With it on, closing the main window hides it without unmounting the
+workspace: agents, pending approvals, scheduled messages and plugin connections
+keep their existing owners. Reopening restores the same window, selections and
+view position. The option does not start the app at login or keep connections
+online through computer sleep.
+
+On Windows, a system tray icon offers **Open OhMyGame** and **Exit**; clicking
+its icon also restores the window. The tray must be created successfully before
+close-to-background is enabled. On macOS, the Dock restores the window and
+**Quit OhMyGame** exits. With the option off, Windows retains close-to-quit and
+macOS retains its existing close-window behavior (the app stays in the Dock).
+Launching the app again restores the existing instance for that user-data
+profile instead of starting another daemon.
+
+Quit, restart and update installation still wait for workspace saving before
+stopping services. A failed Quit shows the window again so its save error can
+be resolved. Hiding does not enter the renderer's closing state or cancel work.
+
+The main process owns `background-running.json` in the app's data directory
+(`version: 1`, boolean `enabled`). It loads before the first window; writes are
+serialized and atomic, preserve unknown fields, and refuse malformed or newer
+files. A failed setting change keeps the previous effective value and shows an
+error in Settings. Native handlers accept only the main window's main frame.
+See `src/desktop/background-running.ts` and `test/desktop-close.test.ts`.
+Bot-plugin enablement prompts belong to the later sessions/plugin stage.
+
 ## Agent notifications
 
 The desktop app shows a system notification when an agent needs the user or
@@ -871,8 +995,9 @@ has finished, in any project, including while the main window is closed.
   once on macOS or flashes the taskbar button on Windows. The Dock badge
   counts conversations waiting for the user. Windows has no count on taskbar
   buttons, so a red dot overlays the taskbar button instead.
-- On Windows, closing the main window quits the app, so notifications arrive
-  only while the window is open, minimized or in the background.
+- On Windows, closing the main window quits the app unless desktop background
+  running is enabled. With it enabled, notifications also arrive while hidden
+  in the system tray.
 - **Settings → Notifications** has one switch that turns notifications off.
   It preserves the earlier General → Notifications choice when upgrading.
   Desktop completion notices use this main-process path; browser notifications

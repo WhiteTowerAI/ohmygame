@@ -40,6 +40,10 @@ export interface MediaSandboxCall {
   fetch(request: MediaFetchRequest, signal: AbortSignal): Promise<MediaFetchResponse>;
   log?(message: string): void;
   signal?: AbortSignal;
+  /** The script's own running time, `MEDIA_SANDBOX_CPU_MS` when left out. */
+  cpuMs?: number;
+  /** The call as a whole, `MEDIA_SANDBOX_CALL_MS` when left out. */
+  callMs?: number;
 }
 
 export class MediaSandboxError extends Error {}
@@ -132,7 +136,9 @@ const RESULT_MAX_CHARACTERS = 48 * 1024 * 1024;
 /** Runs `default[kind][step](...args, host)` and resolves to what it returns, as JSON. */
 export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new MediaSandboxError(`${call.file} took longer than ${MEDIA_SANDBOX_CALL_MS / 1000} seconds`)), MEDIA_SANDBOX_CALL_MS);
+  const cpuMs = call.cpuMs ?? MEDIA_SANDBOX_CPU_MS;
+  const callMs = call.callMs ?? MEDIA_SANDBOX_CALL_MS;
+  const timeout = setTimeout(() => controller.abort(new MediaSandboxError(`${call.file} took longer than ${callMs / 1000} seconds`)), callMs);
   const stop = () => controller.abort(call.signal?.reason);
   call.signal?.addEventListener("abort", stop, { once: true });
   if (call.signal?.aborted) stop();
@@ -142,9 +148,9 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
   const vm = await QuickJS.create({
     wasm: await quickjsModule(),
     memoryLimit: MEDIA_SANDBOX_MEMORY_BYTES,
-    interruptHandler: () => since !== undefined && (used + performance.now() - since > MEDIA_SANDBOX_CPU_MS || controller.signal.aborted),
+    interruptHandler: () => since !== undefined && (used + performance.now() - since > cpuMs || controller.signal.aborted),
   });
-  const tooLong = () => new MediaSandboxError(`${call.file} ran for more than ${MEDIA_SANDBOX_CPU_MS / 1000} seconds`);
+  const tooLong = () => new MediaSandboxError(`${call.file} ran for more than ${cpuMs / 1000} seconds`);
   // Every entry into the VM counts towards the script's own time.
   const inside = <T>(run: () => T): T => {
     since = performance.now();
@@ -152,7 +158,7 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
       return run();
     } catch (cause) {
       if (cause instanceof JSException) cause.handle.dispose();
-      throw used + performance.now() - since > MEDIA_SANDBOX_CPU_MS ? tooLong() : cause;
+      throw used + performance.now() - since > cpuMs ? tooLong() : cause;
     } finally {
       used += performance.now() - since;
       since = undefined;
@@ -235,7 +241,7 @@ export async function runMediaAdapter(call: MediaSandboxCall): Promise<unknown> 
   } catch (cause) {
     if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new MediaSandboxError(`${call.file} was stopped`);
     if (cause instanceof MediaSandboxError) throw cause;
-    if (used > MEDIA_SANDBOX_CPU_MS) throw tooLong();
+    if (used > cpuMs) throw tooLong();
     throw new MediaSandboxError(`${call.file}: ${cause instanceof Error ? cause.message : String(cause)}`);
   } finally {
     closed = true;

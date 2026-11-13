@@ -1,3 +1,64 @@
+diff --git a/direct-tools.ts b/direct-tools.ts
+index 471eb0055f3217b5f941c64e52aae7eca5ceb611..5fa00359bed694a7406e677f341c32f76fb8ad49 100644
+--- a/direct-tools.ts
++++ b/direct-tools.ts
+@@ -18,7 +18,7 @@ import { authenticate, supportsOAuth } from "./mcp-auth-flow.ts";
+ import { formatAuthRequiredMessage, normalizeToolArguments, resolveServerUrl, truncateAtWord } from "./utils.ts";
+ import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
+ import { combineAbortSignals, isAbortError } from "./runtime-owner.ts";
+-import { ensureToolCallApproved } from "./tool-approval.ts";
++import { observeToolCall, ensureToolCallApproved } from "./tool-approval.ts";
+
+ type ClientCallToolResult = Awaited<ReturnType<Client["callTool"]>>;
+ type ClientReadResourceResult = Awaited<ReturnType<Client["readResource"]>>;
+@@ -441,9 +441,9 @@ export function createDirectToolExecutor(
+     }, normalizedParams, ownedSignal, spec.resourceUri ? "resource" : "direct");
+     if (approval.ok === false) {
+       const denied = approval.reason === "denied";
+-      const message = denied
++      const message = approval.message ?? (denied
+         ? `The user declined approval to run MCP tool "${spec.originalName}" on server "${spec.serverName}".`
+-        : `MCP tool "${spec.originalName}" on server "${spec.serverName}" is approval-gated and requires an interactive session.`;
++        : `MCP tool "${spec.originalName}" on server "${spec.serverName}" is approval-gated and requires an interactive session.`);
+       return {
+         content: [{ type: "text" as const, text: message }],
+         details: {
+@@ -487,7 +487,7 @@ export function createDirectToolExecutor(
+       state.manager.incrementInFlight(spec.serverName);
+
+       if (spec.resourceUri) {
+-        const result = await withSessionRecovery<ClientReadResourceResult>(
++        const result = await observeToolCall(state, { callId: approval.callId, serverName: spec.serverName, originalToolName: spec.originalName, args: normalizedParams }, () => withSessionRecovery<ClientReadResourceResult>(
+           {
+             manager: state.manager,
+             config: state.config,
+@@ -496,7 +496,7 @@ export function createDirectToolExecutor(
+           },
+           spec.serverName,
+           (conn) => conn.client.readResource({ uri: spec.resourceUri! }, requestOptions),
+-        );
++        ));
+         const content = transformMcpResourceContents(result.contents ?? [], state.owner?.signal);
+         const guarded = await guardMcpOutput(content.length > 0 ? content : [{ type: "text" as const, text: "(empty resource)" }], outputGuardOptions);
+         return {
+@@ -518,7 +518,7 @@ export function createDirectToolExecutor(
+           })
+         : null;
+
+-      const result = await withSessionRecovery<ClientCallToolResult>(
++      const result = await observeToolCall(state, { callId: approval.callId, serverName: spec.serverName, originalToolName: spec.originalName, args: normalizedParams }, () => withSessionRecovery<ClientCallToolResult>(
+         {
+           manager: state.manager,
+           config: state.config,
+@@ -531,7 +531,7 @@ export function createDirectToolExecutor(
+           arguments: normalizedParams,
+           _meta: uiSession?.requestMeta,
+         }, requestOptions), ownedSignal),
+-      );
++      ));
+       uiSession?.sendToolResult(result as unknown as import("@modelcontextprotocol/client").CallToolResult);
+
+       if (result.isError) {
 diff --git a/mcp-auth-flow.ts b/mcp-auth-flow.ts
 index 01ce95acb73a630c9c3a4be8e399604819fb1307..db326c31b99679325483616dffcfd0016b582425 100644
 --- a/mcp-auth-flow.ts
@@ -11,6 +72,67 @@ index 01ce95acb73a630c9c3a4be8e399604819fb1307..db326c31b99679325483616dffcfd001
    
    // Explicitly disabled via auth: false or oauth: false
    if (definition.auth === false) return false
+diff --git a/proxy-modes.ts b/proxy-modes.ts
+index 04c122502709739ef9356c191f6b22d5cbcc7d11..6bb20177df9efadba73fd4cf3b9707e48efeffa0 100644
+--- a/proxy-modes.ts
++++ b/proxy-modes.ts
+@@ -17,7 +17,7 @@ import { formatAuthRequiredMessage, formatMcpStatus, normalizeToolArguments, res
+ import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
+ import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
+ import { paginate, rankSuggestions, rankToolMatches, resolveSearchKeywords } from "./search-ranking.ts";
+-import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
++import { observeToolCall, ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
+
+ type ProxyToolResult = AgentToolResult<Record<string, unknown>>;
+ type ClientCallToolResult = Awaited<ReturnType<Client["callTool"]>>;
+@@ -1147,9 +1147,9 @@ export async function executeCall(
+   );
+   if (approval.ok === false) {
+     const denied = approval.reason === "denied";
+-    const message = denied
++    const message = approval.message ?? (denied
+       ? `The user declined approval to run MCP tool "${toolMeta.originalName}" on server "${serverName}".`
+-      : `MCP tool "${toolMeta.originalName}" on server "${serverName}" is approval-gated and requires an interactive session.`;
++      : `MCP tool "${toolMeta.originalName}" on server "${serverName}" is approval-gated and requires an interactive session.`);
+     return {
+       content: [{ type: "text" as const, text: message }],
+       details: {
+@@ -1196,7 +1196,7 @@ export async function executeCall(
+     state.manager.incrementInFlight(serverName);
+
+     if (toolMeta.resourceUri) {
+-      const result = await withSessionRecovery<ClientReadResourceResult>(
++      const result = await observeToolCall(state, { callId: approval.callId, serverName: serverName, originalToolName: toolMeta.originalName, args: normalizedArgs }, () => withSessionRecovery<ClientReadResourceResult>(
+         {
+           manager: state.manager,
+           config: state.config,
+@@ -1205,7 +1205,7 @@ export async function executeCall(
+         },
+         serverName,
+         (conn) => conn.client.readResource({ uri: toolMeta.resourceUri! }, requestOptions),
+-      );
++      ));
+       const content = transformMcpResourceContents(result.contents ?? [], state.owner?.signal);
+       const guarded = await guardMcpOutput(content.length > 0 ? content : [{ type: "text" as const, text: "(empty resource)" }], outputGuardOptions);
+       return {
+@@ -1226,7 +1226,7 @@ export async function executeCall(
+         })
+       : null;
+
+-    const result = await withSessionRecovery<ClientCallToolResult>(
++    const result = await observeToolCall(state, { callId: approval.callId, serverName: serverName, originalToolName: toolMeta.originalName, args: normalizedArgs }, () => withSessionRecovery<ClientCallToolResult>(
+       {
+         manager: state.manager,
+         config: state.config,
+@@ -1239,7 +1239,7 @@ export async function executeCall(
+         arguments: normalizedArgs,
+         _meta: uiSession?.requestMeta,
+       }, requestOptions), ownedSignal),
+-    );
++    ));
+
+     if (toolMeta.uiResourceUri) {
+       uiSession?.sendToolResult(result as unknown as import("@modelcontextprotocol/client").CallToolResult);
 diff --git a/restricted-origins.ts b/restricted-origins.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..79a6d8c1ed223f5d5f91f5dc950949a023809fb4
@@ -76,11 +198,11 @@ index 0835943f326962d355a600e3a4fdead00bc8209e..713099a54130c90c644c9ef83aa479af
  } from "./mcp-trace.ts";
  import { createRequestHeadersCommandFetch } from "./request-headers-command.ts";
 +import { createOriginGuardedFetch, restrictedOrigins, restrictionConflict } from "./restricted-origins.ts";
- 
+
  const MAX_CAPTURED_STDERR_BYTES = 8 * 1024;
  const MAX_CAPTURED_STDERR_LINES = 3;
 @@ -651,6 +652,8 @@ export class McpServerManager {
- 
+
    private async enrichHttpConnectionError(definition: ServerDefinition, error: unknown): Promise<Error> {
      const originalMessage = error instanceof Error ? error.message : String(error);
 +    // The probe would reach the network outside a restricted server's origins.
@@ -95,7 +217,7 @@ index 0835943f326962d355a600e3a4fdead00bc8209e..713099a54130c90c644c9ef83aa479af
 +    const origins = restrictedOrigins(definition);
 +    const conflict = origins ? restrictionConflict(definition) : undefined;
 +    if (conflict) throw new Error(`MCP server "${serverName}" is restricted to its origins and can't use ${conflict}`);
- 
+
      // Resolve secret commands only for this connection attempt, without
      // mutating the persisted configuration.
 -    const hasCommandHeader = Object.values(definition.headers ?? {})
@@ -109,7 +231,7 @@ index 0835943f326962d355a600e3a4fdead00bc8209e..713099a54130c90c644c9ef83aa479af
      ) ?? {};
 @@ -883,9 +890,11 @@ export class McpServerManager {
      }
- 
+
      const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
 -    const requestFetch = definition.requestHeadersCommand
 -      ? createRequestHeadersCommandFetch(definition.requestHeadersCommand)
@@ -122,6 +244,123 @@ index 0835943f326962d355a600e3a4fdead00bc8209e..713099a54130c90c644c9ef83aa479af
      const createAuthProvider = (): McpOAuthProvider => new McpOAuthProvider(
        serverName,
        serverUrl,
+diff --git a/tool-approval.ts b/tool-approval.ts
+index 8747e6af8248f295a0c70908e4b8aeae494d22ec..39ba6097069ef59d944b1a5b560fa625a69f1532 100644
+--- a/tool-approval.ts
++++ b/tool-approval.ts
+@@ -17,8 +17,8 @@ import {
+ import { sanitizeTerminalText } from "./utils.ts";
+
+ export type ToolCallApprovalResult =
+-  | { ok: true }
+-  | { ok: false; reason: "denied" | "approval_required_headless" };
++  | { ok: true; callId: string }
++  | { ok: false; reason: "denied" | "approval_required_headless"; message?: string };
+
+ function stableStringify(value: unknown): string {
+   if (value === null || value === undefined || typeof value !== "object") {
+@@ -105,14 +105,15 @@ async function requestBrokerApproval(
+   toolMeta: ToolMetadata,
+   args: Record<string, unknown> | undefined,
+   origin: McpToolApprovalOrigin,
+-  signal?: AbortSignal,
+-): Promise<McpToolApprovalDecision> {
+-  if (!state.approvalEvents) return "abstain";
++  signal: AbortSignal | undefined,
++  callId: string,
++): Promise<{ decision: McpToolApprovalDecision; message?: string }> {
++  if (!state.approvalEvents) return { decision: "abstain" };
+
+   let acceptingClaim = true;
+   let handler: McpToolApprovalHandler | undefined;
+   const request: McpToolApprovalRequest = {
+-    requestId: randomUUID(),
++    requestId: callId,
+     serverName,
+     originalToolName: toolMeta.originalName,
+     prefixedToolName: toolMeta.name,
+@@ -128,14 +129,14 @@ async function requestBrokerApproval(
+
+   state.approvalEvents.emit(MCP_TOOL_APPROVAL_REQUEST_EVENT, request);
+   acceptingClaim = false;
+-  if (!handler) return "abstain";
++  if (!handler) return { decision: "abstain" };
+
+   try {
+     const decision = await abortable(Promise.resolve().then(handler), signal);
+-    return isMcpToolApprovalDecision(decision) ? decision : "deny";
++    return { decision: isMcpToolApprovalDecision(decision) ? decision : "deny" };
+   } catch (error) {
+     if (signal?.aborted) throw error;
+-    return "deny";
++    return { decision: "deny", message: error instanceof Error ? error.message : String(error) };
+   }
+ }
+
+@@ -151,20 +152,20 @@ export async function ensureToolCallApproved(
+   const argsHash = createHash("sha256").update(stableStringify(args ?? {})).digest("hex");
+   const cacheKey = `${serverName}\u0000${toolMeta.originalName}\u0000${argsHash}`;
+   const approvedToolCalls = state.approvedToolCalls ??= new Map<string, true>();
+-  if (approvedToolCalls.has(cacheKey)) {
+-    return { ok: true };
+-  }
+-
+-  const brokerDecision = await requestBrokerApproval(state, serverName, toolMeta, args, origin, signal);
+-  if (brokerDecision === "allow_once") return { ok: true };
++  // The host's live gate runs even when the adapter remembers a previous approval.
++  const callId = randomUUID();
++  const broker = await requestBrokerApproval(state, serverName, toolMeta, args, origin, signal, callId);
++  const brokerDecision = broker.decision;
++  if (brokerDecision === "deny") return { ok: false, reason: "denied", message: broker.message };
++  if (approvedToolCalls.has(cacheKey)) return { ok: true, callId };
++  if (brokerDecision === "allow_once") return { ok: true, callId };
+   if (brokerDecision === "allow_for_session") {
+     approvedToolCalls.set(cacheKey, true);
+-    return { ok: true };
++    return { ok: true, callId };
+   }
+-  if (brokerDecision === "deny") return { ok: false, reason: "denied" };
+
+   if (!isToolCallApprovalRequired(state.config, serverName, toolMeta, approvalMetadata ?? state.toolMetadata)) {
+-    return { ok: true };
++    return { ok: true, callId };
+   }
+
+   if (!state.ui) {
+@@ -185,11 +186,31 @@ export async function ensureToolCallApproved(
+   );
+
+   if (decision === "Allow once") {
+-    return { ok: true };
++    return { ok: true, callId };
+   }
+   if (decision === "Allow for session") {
+     approvedToolCalls.set(cacheKey, true);
+-    return { ok: true };
++    return { ok: true, callId };
+   }
+   return { ok: false, reason: "denied" };
+ }
++
++/** Host-only result notification for an individual RPC, including calls inside scripts. */
++export async function observeToolCall<T>(
++  state: Pick<McpExtensionState, "approvalEvents"> | undefined,
++  call: { callId?: string; serverName: string; originalToolName: string; args: Record<string, unknown> },
++  operation: () => Promise<T>,
++): Promise<T> {
++  const emit = (result: unknown, isError: boolean) => {
++    // Observers cannot replace a result or turn a successful call into a failure.
++    try { state?.approvalEvents?.emit("pi-mcp-adapter:tool-result", { ...call, result, isError }); } catch {}
++  };
++  try {
++    const result = await operation();
++    emit(result, Boolean((result as { isError?: boolean } | null)?.isError));
++    return result;
++  } catch (cause) {
++    emit({ content: [{ type: "text", text: cause instanceof Error ? cause.message : String(cause) }] }, true);
++    throw cause;
++  }
++}
 diff --git a/types.ts b/types.ts
 index 1f95cf42e312286a4ca81fccc84ab1cc56a769f8..59483313e282f227d6803ed7d731b6aca4054d12 100644
 --- a/types.ts
@@ -139,6 +378,49 @@ index 1f95cf42e312286a4ca81fccc84ab1cc56a769f8..59483313e282f227d6803ed7d731b6ac
    /** 
     * Authentication type:
     * - 'oauth' - Use OAuth 2.1 (auto-discovers endpoints, supports dynamic client registration)
+diff --git a/ui-server.ts b/ui-server.ts
+index 23400070e4cbf91df0f532934c0a51a958f86f8b..079a3d6d535bf274532a578638426ad8778de5aa 100644
+--- a/ui-server.ts
++++ b/ui-server.ts
+@@ -16,7 +16,7 @@ import { logger } from "./logger.ts";
+ import type { McpServerManager } from "./server-manager.ts";
+ import type { McpExtensionState } from "./state.ts";
+ import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionRecoveryDeps } from "./session-recovery.ts";
+-import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
++import { observeToolCall, ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
+ import { extractUiToolVisibility, isUiToolCallableByApp, isUiToolVisibleToModel } from "./ui-tool-visibility.ts";
+ import { resourceNameToToolName } from "./resource-tools.ts";
+ import {
+@@ -486,9 +486,9 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
+             : { ok: true as const };
+         if (approval.ok === false) {
+           const denied = approval.reason === "denied";
+-          const message = denied
++          const message = ("message" in approval ? approval.message : undefined) ?? (denied
+             ? `The user declined approval to run MCP tool "${callParams.name}" on server "${options.serverName}".`
+-            : `MCP tool "${callParams.name}" on server "${options.serverName}" is approval-gated and requires an interactive session.`;
++            : `MCP tool "${callParams.name}" on server "${options.serverName}" is approval-gated and requires an interactive session.`);
+           sendJson(res, 200, {
+             ok: true,
+             result: {
+@@ -506,7 +506,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
+         try {
+           options.manager.touch(options.serverName);
+           options.manager.incrementInFlight(options.serverName);
+-          const result = options.config
++          const result = await observeToolCall(options.state, { callId: "callId" in approval ? approval.callId : undefined, serverName: options.serverName, originalToolName: callParams.name, args: callArgs.arguments ?? {} }, async () => options.config
+             ? await withSessionRecovery(
+                 {
+                   manager: options.manager,
+@@ -516,7 +516,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
+                 options.serverName,
+                 (conn) => conn.client.callTool(callArgs, options.manager.getRequestOptions?.(options.serverName)),
+               )
+-            : await connection.client.callTool(callArgs, options.manager.getRequestOptions?.(options.serverName));
++            : await connection.client.callTool(callArgs, options.manager.getRequestOptions?.(options.serverName)));
+           sendJson(res, 200, { ok: true, result });
+         } finally {
+           options.manager.decrementInFlight(options.serverName);
 diff --git a/utils.ts b/utils.ts
 index 59d2c79179e785711b3cd2131ee2373e88809070..38a88e4eab35cde350e7184a85abd3a357f10ef5 100644
 --- a/utils.ts
@@ -148,13 +430,13 @@ index 59d2c79179e785711b3cd2131ee2373e88809070..38a88e4eab35cde350e7184a85abd3a3
  import { extname, isAbsolute, join } from "node:path";
  import type { McpConfig, ServerEntry } from "./types.ts";
 +import { restrictedOrigins } from "./restricted-origins.ts";
- 
+
  async function execOpen(pi: ExtensionAPI, target: string, browser?: string, signal?: AbortSignal) {
    const os = platform();
 @@ -164,11 +165,17 @@ export function resolveCommandSecretsRecord(
    ]));
  }
- 
+
 -export function resolveServerUrl(definition: Pick<ServerEntry, "url">): string | undefined {
 +export function resolveServerUrl(definition: Pick<ServerEntry, "url" | "allowedOrigins">): string | undefined {
    if (definition.url == null) return undefined;
@@ -167,6 +449,6 @@ index 59d2c79179e785711b3cd2131ee2373e88809070..38a88e4eab35cde350e7184a85abd3a3
 +    if (!origins.includes(new URL(definition.url).origin)) throw new Error("MCP server URL is outside its allowed origins");
 +    return definition.url;
 +  }
- 
+
    const missing = getMissingEnvVars(definition.url);
    if (missing.length > 0) {

@@ -119,6 +119,7 @@ import {
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
+import { ConversationInstructionsDialog } from "./conversation-instructions-dialog.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
@@ -158,6 +159,7 @@ import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
+import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { language, t } from "./i18n.js";
 
@@ -215,6 +217,7 @@ const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
   story: Book,
   canvas: GalleryWide,
   plugin: Package,
+  browser: Globe2,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -259,6 +262,7 @@ export function ProjectShell({
   /** Says why a new project's first message is back in the input box, until a message is sent. */
   const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
@@ -291,6 +295,14 @@ export function ProjectShell({
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
   for (const id of pluginPanels.keys())
     if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
+  // The browser starts its tabs once the person first opens it in a project, and keeps them until the project closes.
+  const [browserOpenedIn, setBrowserOpenedIn] = useState<string>();
+  const [browserOpenRequests, setBrowserOpenRequests] = useState<Array<BrowserOpenRequest & { projectId: string }>>([]);
+  const browserPlaced = !!layout && !!areaOf(layout, "browser");
+  useEffect(() => { if (browserPlaced && state.project) setBrowserOpenedIn(state.project.id); }, [browserPlaced, state.project?.id]);
+  useEffect(() => window.ohMyGameDesktop?.browser?.onCommand((id, command) => {
+    if (command === "reveal" && id === state.project?.id) revealPanel("browser");
+  }), [state.project?.id]);
   const latestLayout = useRef({ current, offered, layout, homes });
   latestLayout.current = { current, offered, layout, homes };
   function changeLayout(next: Layout): void {
@@ -1341,6 +1353,10 @@ export function ProjectShell({
         pluginConfirmOpen.current = true;
         setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
       }),
+      ...(window.ohMyGameDesktop?.browser ? { openBrowser: (url: string) => {
+        setBrowserOpenRequests((requests) => [...requests, { projectId: current.id, url }]);
+        revealPanel("browser");
+      } } : {}),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1692,6 +1708,7 @@ export function ProjectShell({
                 restore: unarchive,
                 remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
               } : undefined}
+              onShowInstructions={() => setInstructionsOpen(true)}
             />
             <button
               className="icon-button pane-header-action"
@@ -1704,6 +1721,7 @@ export function ProjectShell({
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
     </div>, nodes.chat.toolbar)}
+    {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
       <div className="agent-body" ref={timeline} onScroll={(event) => {
         const element = event.currentTarget;
@@ -1814,6 +1832,9 @@ export function ProjectShell({
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
+      {project && browserOpenedIn === project.id && window.ohMyGameDesktop?.browser ? createPortal(<ErrorBoundary label={panelTitle("browser")} resetKey={project.id}>
+        <BrowserPanel key={project.id} bridge={window.ohMyGameDesktop.browser} projectId={project.id} visible={visible.includes("browser")} pluginsRevision={capabilitiesRevision} openRequests={browserOpenRequests.filter((request) => request.projectId === project.id)} onOpened={(opened) => setBrowserOpenRequests((requests) => requests.filter((request) => request !== opened))} />
+      </ErrorBoundary>, nodes.browser.body) : null}
       {project && workspace && workspaceTop ? workspace.render({
         busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, top: workspaceTop, panel: nodes.plugin,
       }) : null}

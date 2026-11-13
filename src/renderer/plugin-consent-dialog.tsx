@@ -10,7 +10,7 @@ export function NativeCodeWarning({ asks }: { asks: readonly string[] }) {
 interface CapabilityRow { key: string; Icon: IconComponent; label: string; grants: string[]; items?: string[] }
 
 /** Grants that are one line each, in the order they are listed. */
-type SingleGrantLabel = "native" | "filesWrite" | "filesRead" | "selection" | "composer" | "history" | "usage" | "agent" | "game" | "secrets";
+type SingleGrantLabel = "native" | "filesWrite" | "filesRead" | "selection" | "composer" | "history" | "usage" | "agent" | "game" | "secrets" | "sessions";
 const SINGLE_GRANTS: readonly [grant: string, Icon: IconComponent, label: SingleGrantLabel][] = [
   ["native", Cpu, "native"],
   ["project.files:write", FileText, "filesWrite"],
@@ -21,6 +21,7 @@ const SINGLE_GRANTS: readonly [grant: string, Icon: IconComponent, label: Single
   ["project.usage", History, "usage"],
   ["agent", Bot, "agent"],
   ["game", Gamepad2, "game"],
+  ["sessions", Bot, "sessions"],
   ["secrets", Key, "secrets"],
 ];
 
