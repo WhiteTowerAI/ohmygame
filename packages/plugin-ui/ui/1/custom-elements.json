@@ -946,6 +946,176 @@
       "declarations": [
         {
           "kind": "class",
+          "name": "OmgFilePicker",
+          "tagName": "omg-file-picker",
+          "customElement": true,
+          "description": "`<omg-file-picker label accept multiple>`: choose local files or drop them. Selection stays local; callers own validation, persistence and uploads. Accept checks filenames/MIME hints, never file contents. Invalid drops retain the prior selection. Cancelling the native chooser also retains it.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "accept",
+              "description": "Comma-separated extensions or MIME types, including image/*.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "choose-label",
+              "description": "Picker action; defaults to Choose files.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "clear-label",
+              "description": "Clear action; defaults to Clear.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "drop-label",
+              "description": "Drop hint; defaults to or drop files here.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "multiple",
+              "description": "Allows more than one file.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "rejected-label",
+              "description": "Rejection feedback; defaults to Check the file type and number of files.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "method",
+              "name": "clear",
+              "description": "Clears selection silently; user clearing emits change.",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              }
+            },
+            {
+              "kind": "field",
+              "name": "files",
+              "description": "A copy of the currently selected local files.",
+              "type": {
+                "text": "File[]"
+              },
+              "readonly": true
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "omg-reject",
+              "description": "Rejected selection; previous files remain available.",
+              "type": {
+                "text": "CustomEvent<{ files: File[], reason: \"accept\" | \"multiple\" }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "clear",
+              "description": "Clear button."
+            },
+            {
+              "name": "dropzone",
+              "description": "Clickable drop surface."
+            },
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "files",
+              "description": "Selected filenames."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "input",
+              "description": "Native file input."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
           "name": "OmgSlider",
           "tagName": "omg-slider",
           "customElement": true,
@@ -2078,6 +2248,14 @@
         }
       ],
       "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-file-picker",
+          "declaration": {
+            "name": "OmgFilePicker",
+            "module": "ui/1/forms.js"
+          }
+        },
         {
           "kind": "custom-element-definition",
           "name": "omg-slider",
@@ -3424,6 +3602,103 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgDialog",
+          "tagName": "omg-dialog",
+          "customElement": true,
+          "description": "`<omg-dialog heading open>`: custom modal content inside the plugin iframe. Native dialog owns focus trapping and Escape; content remains mounted. Programmatic open changes are silent. Simple host confirmations still use ui.confirm.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "close-label",
+              "description": "Close button name; defaults to Close.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "description",
+              "description": "Optional description below the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "Dialog title and accessible name.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows the modal.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Modal visibility.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-close",
+              "description": "Cancelable user close request; preventDefault keeps the dialog open.",
+              "type": {
+                "text": "CustomEvent<{ reason: \"escape\" | \"backdrop\" | \"button\" }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "Modal content, retained while closed."
+            },
+            {
+              "name": "footer",
+              "description": "Action buttons, aligned at the end."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "Scrollable content area."
+            },
+            {
+              "name": "close",
+              "description": "Close button."
+            },
+            {
+              "name": "description",
+              "description": "Optional description."
+            },
+            {
+              "name": "footer",
+              "description": "Action area, hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "Title."
+            },
+            {
+              "name": "panel",
+              "description": "Native modal; set max-width for custom sizing."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -3448,6 +3723,14 @@
           "name": "omg-tooltip",
           "declaration": {
             "name": "OmgTooltip",
+            "module": "ui/1/overlays.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-dialog",
+          "declaration": {
+            "name": "OmgDialog",
             "module": "ui/1/overlays.js"
           }
         }

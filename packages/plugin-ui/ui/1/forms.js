@@ -723,6 +723,137 @@ class OmgCombobox extends OmgChoice {
   }
 }
 
+/**
+ * `<omg-file-picker label accept multiple>`: choose local files or drop them.
+ * Selection stays local; callers own validation, persistence and uploads.
+ * Accept checks filenames/MIME hints, never file contents. Invalid drops retain
+ * the prior selection. Cancelling the native chooser also retains it.
+ *
+ * @attr {string} accept - Comma-separated extensions or MIME types, including image/*.
+ * @attr {boolean} multiple - Allows more than one file.
+ * @attr {string} choose-label - Picker action; defaults to Choose files.
+ * @attr {string} drop-label - Drop hint; defaults to or drop files here.
+ * @attr {string} clear-label - Clear action; defaults to Clear.
+ * @attr {string} rejected-label - Rejection feedback; defaults to Check the file type and number of files.
+ * @readonly {File[]} files - A copy of the currently selected local files.
+ * @method {void} clear - Clears selection silently; user clearing emits change.
+ * @fires {{ files: File[], reason: "accept" | "multiple" }} omg-reject - Rejected selection; previous files remain available.
+ * @part input - Native file input.
+ * @part dropzone - Clickable drop surface.
+ * @part files - Selected filenames.
+ * @part clear - Clear button.
+ */
+class OmgFilePicker extends OmgField {
+  static observedAttributes = [...OmgField.observedAttributes, "accept", "multiple", "choose-label", "drop-label", "clear-label", "rejected-label"];
+  static control = "input";
+  static nativeValueEvents = false;
+  static styles = [FIELD, css(`
+    .dropzone { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-4); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); cursor: pointer; text-align: center; }
+    .dropzone:hover, .dropzone.dragging { background: var(--color-hover); }
+    .dropzone:has(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+    .field.pointer-focus .dropzone:has(:focus-visible) { outline: none; }
+    input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .choose { font-weight: var(--weight-medium); }
+    .drop { color: var(--color-text-tertiary); font-size: var(--text-sm); }
+    :host([disabled]) .dropzone { opacity: 0.4; cursor: default; background: transparent; }
+    .selection { display: flex; align-items: flex-start; gap: var(--space-2); }
+    ul { flex: 1; min-width: 0; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); overflow-wrap: anywhere; }
+    button { border: 0; border-radius: var(--radius-md); padding: 3px var(--space-2); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+    button:hover { background: var(--color-hover); color: var(--color-text); }
+    button:disabled { opacity: 0.4; cursor: default; }
+  `)];
+  static template = `<div class="field" part="field"><span class="label" id="label" part="label"></span><label class="dropzone" part="dropzone"><input type="file" part="input"><span class="choose"></span><span class="drop"></span></label><div class="selection" hidden><ul part="files"></ul><button type="button" part="clear"></button></div></div>${AFTER_FIELD}`;
+  #files = [];
+  #rejected = false;
+  #dragDepth = 0;
+
+  constructor() {
+    super();
+    this.control.addEventListener("change", (event) => {
+      event.stopPropagation();
+      this.#choose([...this.control.files]);
+      this.control.value = ""; // Picking the same file again still reports a change.
+    });
+    this.control.addEventListener("input", (event) => event.stopPropagation());
+    this.part("clear").addEventListener("click", () => {
+      if (this.hasAttribute("disabled")) return;
+      this.clear();
+      this.control.focus();
+      this.#changed();
+    });
+    const zone = this.part("dropzone");
+    zone.addEventListener("dragenter", (event) => {
+      if (!event.dataTransfer?.types.includes("Files") || this.hasAttribute("disabled")) return;
+      event.preventDefault();
+      this.#dragDepth++;
+      zone.classList.add("dragging");
+    });
+    zone.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = this.hasAttribute("disabled") ? "none" : "copy";
+    });
+    zone.addEventListener("dragleave", () => {
+      this.#dragDepth = Math.max(0, this.#dragDepth - 1);
+      if (!this.#dragDepth) zone.classList.remove("dragging");
+    });
+    zone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      this.#dragDepth = 0;
+      zone.classList.remove("dragging");
+      if (event.dataTransfer) this.#choose([...event.dataTransfer.files]);
+    });
+  }
+
+  get files() { return [...this.#files]; }
+  clear() { this.#files = []; this.#rejected = false; this.control.value = ""; this.update(); }
+  #changed() {
+    this.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  }
+  #choose(files) {
+    if (!files.length || this.hasAttribute("disabled")) return;
+    const types = (this.getAttribute("accept") || "").toLowerCase().split(",").map((type) => type.trim()).filter(Boolean);
+    const accepts = (file) => !types.length || types.some((type) => type.startsWith(".") ? file.name.toLowerCase().endsWith(type) : type.endsWith("/*") ? file.type.toLowerCase().startsWith(type.slice(0, -1)) : file.type.toLowerCase() === type);
+    const reason = !this.hasAttribute("multiple") && files.length > 1 ? "multiple" : files.some((file) => !accepts(file)) ? "accept" : null;
+    this.#rejected = Boolean(reason);
+    if (reason) {
+      this.update();
+      this.dispatchEvent(new CustomEvent("omg-reject", { bubbles: true, composed: true, detail: { files, reason } }));
+      return;
+    }
+    this.#files = files;
+    this.update();
+    this.#changed();
+  }
+  disconnectedCallback() { this.#dragDepth = 0; this.part("dropzone").classList.remove("dragging"); }
+  update() {
+    super.update();
+    this.control.accept = this.getAttribute("accept") || "";
+    this.control.multiple = this.hasAttribute("multiple");
+    if (this.getAttribute("label")) this.control.setAttribute("aria-labelledby", "label");
+    else this.control.removeAttribute("aria-labelledby");
+    text(this.shadowRoot.querySelector(".choose"), this.getAttribute("choose-label") || "Choose files");
+    text(this.shadowRoot.querySelector(".drop"), this.getAttribute("drop-label") || "or drop files here");
+    text(this.part("clear"), this.getAttribute("clear-label") || "Clear");
+    this.part("clear").disabled = this.hasAttribute("disabled");
+    this.shadowRoot.querySelector(".selection").hidden = !this.#files.length;
+    this.part("files").replaceChildren(...this.#files.map((file) => {
+      const name = document.createElement("li");
+      name.textContent = file.name;
+      return name;
+    }));
+    if (this.#rejected && !this.getAttribute("error")) {
+      text(this.part("hint"), "");
+      text(this.part("error"), this.getAttribute("rejected-label") || "Check the file type and number of files.");
+      this.control.setAttribute("aria-invalid", "true");
+      this.control.setAttribute("aria-describedby", "error");
+    }
+    if (this.hasAttribute("disabled")) { this.#dragDepth = 0; this.part("dropzone").classList.remove("dragging"); }
+  }
+}
+
+define("omg-file-picker", OmgFilePicker);
 define("omg-slider", OmgSlider);
 define("omg-radio-group", OmgRadioGroup);
 define("omg-combobox", OmgCombobox);

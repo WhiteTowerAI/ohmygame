@@ -5,6 +5,7 @@ import {
   text,
   activeElement,
   containsFocus,
+  filled,
 } from "./base.js";
 import { Floating, FLOATING } from "./floating.js";
 
@@ -362,3 +363,119 @@ class OmgTooltip extends OmgElement {
 define("omg-popover", OmgPopover);
 define("omg-menu", OmgMenu);
 define("omg-tooltip", OmgTooltip);
+
+/**
+ * `<omg-dialog heading open>`: custom modal content inside the plugin iframe.
+ * Native dialog owns focus trapping and Escape; content remains mounted.
+ * Programmatic open changes are silent. Simple host confirmations still use ui.confirm.
+ *
+ * @attr {string} heading - Dialog title and accessible name.
+ * @attr {string} description - Optional description below the title.
+ * @attr {boolean} open - Shows the modal.
+ * @attr {string} close-label - Close button name; defaults to Close.
+ * @prop {boolean} open - Modal visibility.
+ * @fires {{ reason: "escape" | "backdrop" | "button" }} omg-close - Cancelable user close request; preventDefault keeps the dialog open.
+ * @slot - Modal content, retained while closed.
+ * @slot footer - Action buttons, aligned at the end.
+ * @part panel - Native modal; set max-width for custom sizing.
+ * @part heading - Title.
+ * @part description - Optional description.
+ * @part body - Scrollable content area.
+ * @part footer - Action area, hidden when empty.
+ * @part close - Close button.
+ */
+class OmgDialog extends OmgElement {
+  static observedAttributes = ["heading", "description", "open", "close-label"];
+  static styles = [
+    css(`
+    :host { display: contents; }
+    dialog { width: calc(100% - 32px); max-width: 520px; max-height: calc(100% - 32px); margin: auto; padding: 0; border: 0; border-radius: 14px; background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-float); font: inherit; overflow: hidden; }
+    dialog[open] { display: flex; flex-direction: column; }
+    dialog::backdrop { background: rgb(0 0 0 / 45%); }
+    header { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
+    h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+    p { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-md); line-height: 1.55; }
+    .body { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; padding: var(--space-2) var(--space-4) var(--space-4); overflow: auto; }
+    footer { display: flex; flex: none; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); }
+    button { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+    button:hover { background: var(--color-hover); color: var(--color-text); }
+    button svg { width: 16px; height: 16px; }
+  `),
+  ];
+  static template = `<dialog part="panel" aria-labelledby="heading"><header><div><h2 id="heading" part="heading"></h2><p id="description" part="description"></p></div><button type="button" part="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="body" part="body"><slot></slot></div><footer part="footer"><slot name="footer"></slot></footer></dialog>`;
+  #opener;
+
+  constructor() {
+    super();
+    const panel = this.part("panel");
+    this.part("close").addEventListener("click", () => this.#dismiss("button"));
+    panel.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      this.#dismiss("escape");
+    });
+    panel.addEventListener("pointerdown", (event) => {
+      if (event.target !== panel) return;
+      const bounds = panel.getBoundingClientRect();
+      if (
+        event.clientX < bounds.left ||
+        event.clientX > bounds.right ||
+        event.clientY < bounds.top ||
+        event.clientY > bounds.bottom
+      )
+        this.#dismiss("backdrop");
+    });
+    panel.addEventListener("close", () => {
+      if (this.isConnected && !panel.open) this.open = false;
+    });
+    this.shadowRoot.addEventListener("slotchange", () => this.update());
+  }
+  get open() {
+    return this.hasAttribute("open");
+  }
+  set open(value) {
+    this.toggleAttribute("open", Boolean(value));
+  }
+  #dismiss(reason) {
+    if (
+      this.dispatchEvent(
+        new CustomEvent("omg-close", {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+          detail: { reason },
+        }),
+      )
+    )
+      this.open = false;
+  }
+  disconnectedCallback() {
+    this.part("panel").close();
+    this.#opener = undefined;
+  }
+  update() {
+    const panel = this.part("panel");
+    text(this.part("heading"), this.getAttribute("heading"));
+    text(this.part("description"), this.getAttribute("description"));
+    if (this.getAttribute("description"))
+      panel.setAttribute("aria-describedby", "description");
+    else panel.removeAttribute("aria-describedby");
+    this.part("close").setAttribute(
+      "aria-label",
+      this.getAttribute("close-label") || "Close",
+    );
+    this.part("footer").hidden = !filled(
+      this.shadowRoot.querySelector('slot[name="footer"]'),
+    );
+    if (this.open && !panel.open) {
+      this.#opener = activeElement(this.ownerDocument);
+      panel.showModal();
+    } else if (!this.open && panel.open) {
+      panel.close();
+      if (this.#opener?.isConnected)
+        this.#opener.focus({ preventScroll: true });
+      this.#opener = undefined;
+    }
+  }
+}
+
+define("omg-dialog", OmgDialog);

@@ -105,3 +105,10 @@ customElements.whenDefined("omg-table").then(() => {
     { key: "v1", cells: { version: "Garden 0.1.0", status: "Online", size: "1.8 MB" } },
   ];
 });
+
+const importDialog = document.getElementById("import-dialog");
+document.getElementById("open-import-dialog").addEventListener("click", () => { importDialog.open = true; importDialog.querySelector("omg-input").focus(); });
+document.getElementById("close-import-dialog").addEventListener("click", () => { importDialog.open = false; });
+document.getElementById("asset-picker").addEventListener("change", (event) => {
+  document.getElementById("file-selection").textContent = event.currentTarget.files.map((file) => file.name).join(", ") || "No files selected.";
+});

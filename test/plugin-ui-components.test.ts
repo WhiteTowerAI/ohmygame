@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { Blob as NodeBlob } from "node:buffer";
+import { Blob as NodeBlob, File as NodeFile } from "node:buffer";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
@@ -65,7 +65,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe("page components", () => {
   it("distinguishes pointer focus from keyboard navigation across form controls", async () => {
-    const wrapper = html(`<div><omg-input label="Name"></omg-input><omg-textarea label="Description"></omg-textarea><omg-select label="Channel"><option>Draft</option></omg-select><omg-combobox label="Project"><option>Garden</option></omg-combobox><omg-slider label="Volume" value="50"></omg-slider><omg-radio-group label="Quality"><option>Draft</option></omg-radio-group><omg-checkbox label="Compress"></omg-checkbox><omg-switch label="Auto upload"></omg-switch><omg-segmented label="Target"><option value="web">Web</option><option value="pc">Desktop</option></omg-segmented><button>Outside</button></div>`);
+    const wrapper = html(`<div><omg-input label="Name"></omg-input><omg-textarea label="Description"></omg-textarea><omg-select label="Channel"><option>Draft</option></omg-select><omg-combobox label="Project"><option>Garden</option></omg-combobox><omg-file-picker label="File"></omg-file-picker><omg-slider label="Volume" value="50"></omg-slider><omg-radio-group label="Quality"><option>Draft</option></omg-radio-group><omg-checkbox label="Compress"></omg-checkbox><omg-switch label="Auto upload"></omg-switch><omg-segmented label="Target"><option value="web">Web</option><option value="pc">Desktop</option></omg-segmented><button>Outside</button></div>`);
     await settle();
     for (const field of [...wrapper.children].filter((node) => node.localName.startsWith("omg-"))) {
       const surface = shadow(field, "field");
@@ -82,6 +82,101 @@ describe("page components", () => {
       await settle();
       expect(surface.classList.contains("pointer-focus"), "pointer state clears when leaving the field").toBe(false);
     }
+  });
+
+  it("keeps local file selection across rejection, cancel, disable and reconnect", () => {
+    const picker = html(`<omg-file-picker label="Image" accept=".png,image/jpeg" rejected-label="Choose one image"></omg-file-picker>`) as HTMLElement & { files: File[]; clear(): void };
+    const input = shadow(picker, "input") as HTMLInputElement;
+    const zone = shadow(picker, "dropzone");
+    const png = new File(["pixels"], "game.png", { type: "image/png" });
+    const jpeg = new File(["pixels"], "game.jpg", { type: "image/jpeg" });
+    const text = new File(["text"], "note.txt", { type: "text/plain" });
+    const heard: string[][] = [];
+    const rejected: string[] = [];
+    const events: string[] = [];
+    picker.addEventListener("input", () => events.push("input"));
+    picker.addEventListener("change", () => { events.push("change"); heard.push(picker.files.map((file) => file.name)); });
+    picker.addEventListener("omg-reject", (event) => rejected.push((event as CustomEvent).detail.reason));
+    const drop = (files: File[]) => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { files } });
+      zone.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+    drop([png]);
+    expect(picker.files).toEqual([png]);
+    expect(heard).toEqual([["game.png"]]);
+    expect(events).toEqual(["input", "change"]);
+    picker.files.pop();
+    expect(picker.files).toEqual([png]); // callers cannot mutate selection through the getter
+    drop([text]);
+    drop([png, jpeg]);
+    expect(rejected).toEqual(["accept", "multiple"]);
+    expect(picker.files).toEqual([png]);
+    expect(shadow(picker, "error").textContent).toBe("Choose one image");
+    Object.defineProperty(input, "files", { configurable: true, value: [] });
+    input.dispatchEvent(new Event("change", { bubbles: true })); // chooser cancelled
+    expect(picker.files).toEqual([png]);
+    picker.setAttribute("disabled", "");
+    drop([jpeg]);
+    expect(input.disabled).toBe(true);
+    expect(picker.files).toEqual([png]);
+    picker.removeAttribute("disabled");
+    picker.setAttribute("multiple", "");
+    drop([png, jpeg]);
+    expect(picker.files).toEqual([png, jpeg]);
+    expect(shadow(picker, "error").hidden).toBe(true);
+    picker.remove();
+    document.body.append(picker);
+    expect(picker.files).toEqual([png, jpeg]);
+    shadow(picker, "clear").click();
+    expect(heard.at(-1)).toEqual([]);
+    expect(picker.files).toEqual([]);
+    Object.defineProperty(input, "files", { configurable: true, value: [png] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    const count = heard.length;
+    picker.clear();
+    expect(picker.files).toEqual([]);
+    expect(heard).toHaveLength(count); // programmatic clear is silent
+    input.blur();
+  });
+
+  it("keeps dialog edits mounted, allows cancelling dismissal and restores the opener", async () => {
+    const wrapper = html(`<div><button>Open</button><omg-dialog heading="Import" description="Review files"><omg-input label="Folder" value="assets"></omg-input><button slot="footer">Done</button></omg-dialog></div>`);
+    const dialog = wrapper.querySelector("omg-dialog")! as HTMLElement & { open: boolean };
+    const panel = shadow(dialog, "panel") as HTMLDialogElement;
+    const opener = wrapper.querySelector("button")!;
+    const input = shadow(dialog.querySelector("omg-input")!, "input") as HTMLInputElement;
+    opener.focus();
+    dialog.open = true;
+    expect(panel.open).toBe(true);
+    expect(panel.getAttribute("aria-describedby")).toBe("description");
+    input.value = "textures";
+    const reasons: string[] = [];
+    const prevent = (event: Event) => { reasons.push((event as CustomEvent).detail.reason); event.preventDefault(); };
+    dialog.addEventListener("omg-close", prevent);
+    panel.dispatchEvent(new Event("cancel", { cancelable: true }));
+    expect(dialog.open).toBe(true);
+    expect(reasons).toEqual(["escape"]);
+    dialog.removeEventListener("omg-close", prevent);
+    input.focus();
+    shadow(dialog, "close").click();
+    expect(dialog.open).toBe(false);
+    expect(panel.open).toBe(false);
+    expect(document.activeElement).toBe(opener);
+    dialog.open = true;
+    expect(input.value).toBe("textures");
+    dialog.open = false;
+    dialog.open = true;
+    panel.dispatchEvent(new Event("close")); // stale queued close after reopening
+    expect(dialog.open).toBe(true);
+    dialog.remove();
+    expect(panel.open).toBe(false);
+    wrapper.append(dialog);
+    expect(panel.open).toBe(true);
+    dialog.open = false;
+    opener.focus();
+    await settle();
   });
 
   it("dismisses only the topmost popover and preserves content, focus and listener lifetimes", () => {
@@ -1038,6 +1133,74 @@ describe("page components", () => {
     await settle();
     expect(clicks).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  it("imports a TapTap image only after confirmation and reuses it after a hidden-dialog upload failure", async () => {
+    const fixtures = JSON.parse(await readFile("scripts/plugin-ui-regression-scenarios.json", "utf8"))["ohmygame/taptap"].connected;
+    fixtures.module.fields.icon = { field_id: "icon", label: "Icon", input_type: "image", state: "required", current_value: null };
+    let confirmed = false;
+    let pendingUpload: number | undefined;
+    let attempts = 0;
+    answer = (id, method, params) => {
+      if (method === "ui.confirm") { app.postMessage({ id, result: confirmed }); return; }
+      if (method === "command.run") {
+        const command = String(params?.command);
+        if (command === "upload-image") {
+          attempts++;
+          if (attempts === 1) { pendingUpload = id; return; }
+          app.postMessage({ id, result: { image_id: 31, url: "https://img.tapimg.com/fixture.png", width: 512, height: 512 } });
+          return;
+        }
+        app.postMessage({ id, result: command === "image" ? { src: "data:image/png;base64," } : fixtures[command] });
+        return;
+      }
+      app.postMessage({ id, result: method === "files.write" ? params?.path : null });
+    };
+    const timers = vi.spyOn(globalThis, "setInterval").mockImplementation(() => 0 as never);
+    try {
+      html(`<omg-page id="taptap"></omg-page>`);
+      const source = (await readFile("plugins/taptap/panel/main.js", "utf8")).replace('"/_ohmygame/plugin-ui.js"', '"./_ohmygame/plugin-ui.js"');
+      const modulePath = path.join(served, "taptap-panel.js");
+      await writeFile(modulePath, source);
+      await import(/* @vite-ignore */ modulePath);
+      const dialog = document.querySelector("omg-dialog")! as HTMLElement & { open: boolean };
+      expect(dialog).not.toBeNull();
+      dialog.open = true;
+      const picker = dialog.querySelector("omg-file-picker")! as HTMLElement & { files: File[] };
+      const file = new NodeFile(["image bytes"], "icon.png", { type: "image/png" });
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", { value: { files: [file] } });
+      shadow(picker, "dropzone").dispatchEvent(drop);
+      expect(calls.filter((call) => call.method === "files.write")).toHaveLength(0);
+      const upload = dialog.querySelector("omg-button[variant=primary]")!;
+      shadow(upload, "button").click();
+      await vi.waitFor(() => expect(calls.some((call) => call.method === "ui.confirm")).toBe(true));
+      await vi.waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+      expect(calls.filter((call) => call.method === "files.write")).toHaveLength(0);
+      confirmed = true;
+      shadow(upload, "button").click();
+      await vi.waitFor(() => expect(pendingUpload).toBeTypeOf("number"));
+      const writes = calls.filter((call) => call.method === "files.write");
+      expect(writes).toHaveLength(1);
+      expect(writes[0]!.params!.path).toMatch(/^taptap-materials\/[a-f0-9-]+\.png$/);
+      expect((writes[0]!.params!.data as Blob).size).toBe(file.size);
+      dialog.open = false;
+      app.postMessage({ id: pendingUpload, error: "Fixture upload failed" });
+      await vi.waitFor(() => expect(document.querySelector("#taptap > .notice")!.textContent).toContain("Fixture upload failed"));
+      expect(picker.files).toHaveLength(1);
+      dialog.open = true;
+      await vi.waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+      shadow(upload, "button").click();
+      await vi.waitFor(() => expect(dialog.open).toBe(false));
+      expect(calls.filter((call) => call.method === "files.write")).toHaveLength(1);
+      expect(document.querySelector("#taptap > .notice")!.textContent).toBe("");
+      const uploads = calls.filter((call) => call.params?.command === "upload-image");
+      expect(uploads).toHaveLength(2);
+      expect(uploads[0]!.params!.input).toEqual(uploads[1]!.params!.input);
+      expect(calls.some((call) => call.params?.command === "save-fields")).toBe(false);
+    } finally {
+      timers.mockRestore();
+    }
   });
 
   it("keeps the gallery plugin valid and using only defined components", async () => {

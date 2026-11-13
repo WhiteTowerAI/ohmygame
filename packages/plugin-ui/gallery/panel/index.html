@@ -126,6 +126,16 @@
             <omg-status id="result">No command has finished yet.</omg-status>
           </omg-section>
 
+          <omg-section heading="omg-dialog">
+            <omg-button id="open-import-dialog">Import assets…</omg-button>
+            <omg-dialog id="import-dialog" heading="Import assets" description="Choose files to review before importing them into a project.">
+              <omg-input label="Destination folder" value="assets"></omg-input>
+              <omg-file-picker id="asset-picker" label="Images" accept=".png,.jpg,.jpeg,.webp,image/*" multiple></omg-file-picker>
+              <omg-status id="file-selection">No files selected.</omg-status>
+              <omg-button slot="footer" id="close-import-dialog">Done</omg-button>
+            </omg-dialog>
+          </omg-section>
+
           <omg-section heading="The app's toasts and dialogs" description="The app draws these, outside the page. “Run a slow command” is also in the panel's toolbar.">
             <omg-stack direction="row" wrap>
               <omg-button data-host="toast">Show a toast</omg-button>
@@ -157,6 +167,11 @@
             <omg-input label="Build number" type="number" value="" error="Use a whole number."></omg-input>
             <omg-input label="Disabled" value="Can't be changed" disabled></omg-input>
             <omg-status id="typed">Typed: nothing yet</omg-status>
+          </omg-section>
+
+          <omg-section heading="omg-file-picker">
+            <omg-file-picker label="Sound effect" accept=".wav,.mp3,audio/*" hint="Select or drop a local audio file."></omg-file-picker>
+            <omg-file-picker label="Import unavailable" disabled></omg-file-picker>
           </omg-section>
 
           <omg-section heading="omg-textarea" description="Several lines of text.">

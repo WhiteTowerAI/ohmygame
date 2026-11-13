@@ -192,7 +192,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
-| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, plus numeric input constraints. |
+| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
 
 ## Agent instructions
 
@@ -1585,6 +1585,8 @@ can go in the next major.
 | `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
 | `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. Numeric inputs accept `min`, `max`, `step` and expose `checkValidity()` (API 2.7.0). |
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-file-picker` | Local file chooser and drop zone (API 2.7.0). `accept`, `multiple`, shared field attributes and localized `choose-label`, `drop-label`, `clear-label`, `rejected-label`. Read-only `files`, silent `clear()`, user `input`/`change` and `omg-reject` events. |
+| `omg-dialog` | Custom modal content within the plugin iframe (API 2.7.0). `heading`, `description`, `open`, `close-label`; default and `footer` slots. Cancelable `omg-close` reports user dismissal; setting `open` is silent. |
 | `omg-slider` | Native range and numeric readout (API 2.7.0). `min` (0), `max` (100), `step` (1), numeric `value`; `input` while adjusting, `change` when committed. |
 | `omg-radio-group` | Visible vertical choices (API 2.7.0), from `<option>` children with optional `data-description`. `value`; native arrow/Space navigation, option/group `disabled`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
@@ -1616,6 +1618,27 @@ reinstate pointer rings. Error borders and selected states are independent of fo
 
 
 ![Game parameter controls](assets/plugin-ui-game-parameters.png)
+
+![File picking in a custom dialog](assets/plugin-ui-file-dialog.png)
+
+`omg-file-picker` uses the native file chooser and accepts file drops into the
+same surface. `files` returns a copy of the local selection. Rejected types or
+multiple files in single-file mode keep the previous selection and emit
+`omg-reject`; cancelling the chooser also preserves selection. `accept` compares
+filename extensions and MIME hints, not file contents. Callers validate file size
+and content, then explicitly persist or upload files. With `project.files: write`,
+a page can use `host.request("files.write", { path: "assets/image.png", data: file })`;
+normal project-file protections, size limits and undo still apply. No native
+absolute path or new filesystem permission is exposed by the picker.
+
+`omg-dialog` stays inside the iframe and uses native modal focus handling.
+Escape, the backdrop and the close button request dismissal; prevent the
+cancelable `omg-close` event when edits need to be resolved first. Programmatic
+`open` changes do not request confirmation. Content stays mounted while hidden,
+and closing returns focus to the opener. For a specific initial field, call its
+`focus()` after opening; automatic page autofocus is restricted in cross-origin
+plugin frames. The body scrolls independently; use `::part(panel)` to set a custom
+`max-width`. Simple confirmations still use host `ui.confirm`.
 
 For game parameters, use `omg-slider` for bounded continuous adjustments and
 `omg-input type="number"` for precise entry. Numeric input constraints use native
@@ -1919,8 +1942,11 @@ against `2026.11.12` and metadata `1.0.77`.
   exists, use the developer console to create one first.
 - **Store page:** edit basic text, category, developer words and supported image
   fields directly, with a store-content preview. Choose PNG/JPEG/WebP images
-  from the project grid; upload stores them in the material library, and **Save
-  draft** applies their complete metadata to the chosen field. Screenshot arrays
+  from the project grid or choose/drop a local image in the image dialog.
+  Local images up to 20 MB are imported into `taptap-materials/` through the
+  existing project-file bridge after upload confirmation; an imported copy is
+  retained for retries. Selection alone performs no write or upload. Upload
+  stores the image in the material library, and **Save draft** applies their complete metadata to the chosen field. Screenshot arrays
   can append or remove images. Current image specifications appear beside each
   field; unsupported/video/distribution settings remain in the developer console.
   Image preview only fetches read-back URLs on `img.tapimg.com` and `img-tc.tapimg.com`, with no credentials,

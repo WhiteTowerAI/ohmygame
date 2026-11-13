@@ -226,7 +226,15 @@ Object.assign(TEXT["en"], {
   missingFields: "to complete",
   noDraft: "No editable draft",
   allFilled: "Required fields filled",
-  chooseImage: "Choose project image",
+  chooseImage: "Choose image",
+  localImage: "From this computer",
+  chooseFile: "Choose image file",
+  dropImage: "or drop an image here",
+  clearFile: "Clear",
+  imageFileError: "Choose one PNG, JPEG or WebP image up to 20 MB.",
+  imageImportHint:
+    "Imported into taptap-materials/ in this project before upload.",
+  close: "Close",
   replaceImage: "Replace image",
   addImage: "Add image",
   removeImage: "Remove image",
@@ -314,7 +322,14 @@ Object.assign(TEXT["zh-CN"], {
   missingFields: "项待补充",
   noDraft: "没有可编辑草稿",
   allFilled: "必填资料已填写",
-  chooseImage: "从项目选择图片",
+  chooseImage: "选择图片",
+  localImage: "从本机导入",
+  chooseFile: "选择图片文件",
+  dropImage: "或将图片拖到这里",
+  clearFile: "清除",
+  imageFileError: "请选择一张不超过 20 MB 的 PNG、JPEG 或 WebP 图片。",
+  imageImportHint: "上传前会导入项目的 taptap-materials/ 目录。",
+  close: "关闭",
   replaceImage: "替换图片",
   addImage: "添加图片",
   removeImage: "移除图片",
@@ -408,19 +423,20 @@ const errorBox = h("div", { role: "alert", class: "notice" });
 const activity = h("omg-status", { tone: "busy", hidden: true });
 const feedback = h("div", { role: "status", "aria-live": "polite" });
 const controls =
-  "omg-button, omg-input, omg-textarea, omg-select, omg-combobox, omg-pagination, omg-segmented, omg-tile";
-async function act(action) {
+  "omg-button, omg-input, omg-textarea, omg-select, omg-combobox, omg-pagination, omg-segmented, omg-file-picker, omg-tile";
+async function act(action, errorTarget = () => errorBox) {
   if (state.busy) return;
   state.busy = true;
   activity.hidden = false;
   activity.textContent = t.working;
   errorBox.replaceChildren();
+  errorTarget().replaceChildren();
   feedback.replaceChildren();
   updateControls();
   try {
     await action();
   } catch (error) {
-    errorBox.replaceChildren(
+    errorTarget().replaceChildren(
       h("omg-banner", { tone: "bad" }, error.message || String(error)),
     );
   } finally {
@@ -962,60 +978,139 @@ function imageField(field, mutable) {
       ),
     ),
   );
-  const picker = h("omg-disclosure", {
-    class: "image-picker",
-    heading:
-      images.length && field.input_type !== "image_array"
-        ? t.replaceImage
-        : t.chooseImage,
-  });
+  if (!mutable) return stack(gallery, p(imageSpec(field), "muted spec"));
   const pickerGrid = h("div", { class: "project-image-grid" });
-  picker.append(pickerGrid);
-  picker.addEventListener("omg-toggle", () => {
-    if (!picker.open || pickerGrid.childElementCount) return;
-    pickerGrid.append(
-      ...(state.workspace?.images?.length
-        ? state.workspace.images.map((item) =>
-            h("omg-tile", {
-              heading: item.name,
-              file: item.path,
-              alt: item.name,
-              fit: "contain",
-              ratio: "4/3",
-              on: {
-                click: () =>
-                  void act(async () => {
-                    if (
-                      !(await host.request("ui.confirm", {
-                        title: t.imageConfirm,
-                        message: `${state.selected.title}\n${item.path}\n${field.label}: ${imageSpec(field)}`,
-                        confirmLabel: t.imageUpload,
-                      }))
-                    )
-                      return;
-                    const uploaded = await request("upload-image", {
-                      appId: state.selected.appId,
-                      file: item.path,
-                    });
-                    editField(
-                      field,
-                      field.input_type === "image_array"
-                        ? [...images, uploaded]
-                        : uploaded,
-                    );
-                    renderModule();
-                    feedback.replaceChildren(note(t.imagePending, "good"));
-                  }),
-              },
-            }),
-          )
-        : [p(t.noImages, "muted")]),
-    );
+  const pickerError = h("div", { role: "alert" });
+  const pickerStatus = h(
+    "omg-status",
+    { hidden: true, tone: "busy" },
+    t.working,
+  );
+  const localPicker = h("omg-file-picker", {
+    label: t.localImage,
+    accept: ".png,.jpg,.jpeg,.webp",
+    "choose-label": t.chooseFile,
+    "drop-label": t.dropImage,
+    "clear-label": t.clearFile,
+    "rejected-label": t.imageFileError,
+    hint: t.imageImportHint,
   });
+  const picker = h("omg-dialog", {
+    heading: field.label,
+    description: `${state.selected.title} · ${imageSpec(field)}`,
+    "close-label": t.close,
+  });
+  let imported;
+  const errorTarget = () => (picker.open ? pickerError : errorBox);
+  const uploadImage = async (item) => {
+    const file = item ? undefined : localPicker.files[0];
+    if (!item && !file) return;
+    if (
+      file &&
+      (file.size > 20 * 1024 * 1024 || !/\.(png|jpe?g|webp)$/i.test(file.name))
+    ) {
+      localPicker.setAttribute("error", t.imageFileError);
+      return;
+    }
+    if (
+      !(await host.request("ui.confirm", {
+        title: t.imageConfirm,
+        message: `${state.selected.title}\n${item?.path || file.name}\n${field.label}: ${imageSpec(field)}`,
+        confirmLabel: t.imageUpload,
+      }))
+    )
+      return;
+    pickerStatus.hidden = false;
+    try {
+      let path = item?.path;
+      if (file) {
+        if (!imported || imported.file !== file) {
+          const extension = file.name.match(/\.[^.]+$/)[0].toLowerCase();
+          const destination = `taptap-materials/${crypto.randomUUID()}${extension}`;
+          await host.request("files.write", { path: destination, data: file });
+          imported = { file, path: destination };
+        }
+        path = imported.path;
+      }
+      const uploaded = await request("upload-image", {
+        appId: state.selected.appId,
+        file: path,
+      });
+      editField(
+        field,
+        field.input_type === "image_array" ? [...images, uploaded] : uploaded,
+      );
+      picker.open = false;
+      renderModule();
+      feedback.replaceChildren(note(t.imagePending, "good"));
+    } finally {
+      pickerStatus.hidden = true;
+    }
+  };
+  const uploadLocal = h(
+    "omg-button",
+    {
+      variant: "primary",
+      disabled: true,
+      "data-fixed-disabled": "true",
+      on: { click: () => void act(() => uploadImage(), errorTarget) },
+    },
+    t.imageUpload,
+  );
+  localPicker.addEventListener("change", () => {
+    if (imported?.file !== localPicker.files[0]) imported = undefined;
+    localPicker.removeAttribute("error");
+    uploadLocal.dataset.fixedDisabled = String(!localPicker.files.length);
+    updateControls();
+  });
+  picker.append(
+    stack(
+      pickerError,
+      pickerStatus,
+      localPicker,
+      row(uploadLocal),
+      h("h3", {}, t.projectImages),
+      pickerGrid,
+    ),
+  );
+  const openPicker = h(
+    "omg-button",
+    {
+      variant: "ghost",
+      on: {
+        click: () => {
+          if (!pickerGrid.childElementCount)
+            pickerGrid.append(
+              ...(state.workspace?.images?.length
+                ? state.workspace.images.map((item) =>
+                    h("omg-tile", {
+                      heading: item.name,
+                      file: item.path,
+                      alt: item.name,
+                      fit: "contain",
+                      ratio: "4/3",
+                      on: {
+                        click: () =>
+                          void act(() => uploadImage(item), errorTarget),
+                      },
+                    }),
+                  )
+                : [p(t.noImages, "muted")]),
+            );
+          picker.open = true;
+        },
+      },
+    },
+    images.length && field.input_type !== "image_array"
+      ? t.replaceImage
+      : t.chooseImage,
+  );
+
   return stack(
     gallery,
     p(imageSpec(field), "muted spec"),
-    mutable ? picker : undefined,
+    row(openPicker),
+    picker,
   );
 }
 function renderModule() {

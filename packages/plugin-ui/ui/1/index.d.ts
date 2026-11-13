@@ -179,6 +179,40 @@ export interface OmgProgressAttributes {
   value?: number;
 }
 
+/** `<omg-file-picker label accept multiple>`: choose local files or drop them. Selection stays local; callers own validation, persistence and uploads. Accept checks filenames/MIME hints, never file contents. Invalid drops retain the prior selection. Cancelling the native chooser also retains it. */
+export interface OmgFilePickerElement extends HTMLElement {
+  /** Clears selection silently; user clearing emits change. */
+  clear(): void;
+  /** A copy of the currently selected local files. */
+  readonly files: File[];
+}
+
+/** The attributes of `<omg-file-picker>`, as a page writes them. */
+export interface OmgFilePickerAttributes {
+  /** Comma-separated extensions or MIME types, including image/*. */
+  accept?: string;
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Picker action; defaults to Choose files. */
+  "choose-label"?: string;
+  /** Clear action; defaults to Clear. */
+  "clear-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** Drop hint; defaults to or drop files here. */
+  "drop-label"?: string;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** Allows more than one file. */
+  multiple?: boolean;
+  /** Rejection feedback; defaults to Check the file type and number of files. */
+  "rejected-label"?: string;
+}
+
 /** `<omg-slider label min max step value>`: a native range with a numeric readout. The browser bounds and steps the value. Input fires while adjusting; change fires when committed. Programmatic changes are silent. */
 export interface OmgSliderElement extends HTMLElement {
   /** Current bounded numeric value. */
@@ -669,6 +703,24 @@ export interface OmgTooltipAttributes {
   placement?: "top" | "bottom" | "top-start" | "bottom-start" | "bottom-end";
 }
 
+/** `<omg-dialog heading open>`: custom modal content inside the plugin iframe. Native dialog owns focus trapping and Escape; content remains mounted. Programmatic open changes are silent. Simple host confirmations still use ui.confirm. */
+export interface OmgDialogElement extends HTMLElement {
+  /** Modal visibility. */
+  open: boolean;
+}
+
+/** The attributes of `<omg-dialog>`, as a page writes them. */
+export interface OmgDialogAttributes {
+  /** Close button name; defaults to Close. */
+  "close-label"?: string;
+  /** Optional description below the title. */
+  description?: string;
+  /** Dialog title and accessible name. */
+  heading?: string;
+  /** Shows the modal. */
+  open?: boolean;
+}
+
 declare global {
   interface HTMLElementTagNameMap {
     "omg-button": OmgButtonElement;
@@ -683,6 +735,7 @@ declare global {
     "omg-step": OmgStepElement;
     "omg-badge": OmgBadgeElement;
     "omg-progress": OmgProgressElement;
+    "omg-file-picker": OmgFilePickerElement;
     "omg-slider": OmgSliderElement;
     "omg-radio-group": OmgRadioGroupElement;
     "omg-combobox": OmgComboboxElement;
@@ -709,8 +762,11 @@ declare global {
     "omg-popover": OmgPopoverElement;
     "omg-menu": OmgMenuElement;
     "omg-tooltip": OmgTooltipElement;
+    "omg-dialog": OmgDialogElement;
   }
   interface HTMLElementEventMap {
+    /** Cancelable user close request; preventDefault keeps the dialog open. */
+    "omg-close": CustomEvent<{ reason: "escape" | "backdrop" | "button" }>;
     /** The command failed; cancel it to show the failure yourself. */
     "omg-command-error": CustomEvent<{ command: string; error: string }>;
     /** The command's result. */
@@ -721,6 +777,8 @@ declare global {
     "omg-page-change": CustomEvent<{ page: number }>;
     /** Search text changed, or a manual-filter list opened; caller owns fetching and stale-result protection. */
     "omg-query": CustomEvent<{ query: string }>;
+    /** Rejected selection; previous files remain available. */
+    "omg-reject": CustomEvent<{ files: File[], reason: "accept" | "multiple" }>;
     /** Selected action, after closing the menu. */
     "omg-select": CustomEvent<{ value: string }>;
     /** The person opened a tab. */
