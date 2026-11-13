@@ -7,7 +7,7 @@ in every project it suits, and a project can still turn it off or on for
 itself; see [Plugins for every project](#plugins-for-every-project). A plugin
 runs only once the person has allowed what it asks for.
 
-Plugins come bundled with the app, prepared with it from another repository, from
+Plugins come preinstalled with the app from pinned npm releases, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
 from the [plugin market](#the-plugin-market).
 
@@ -159,11 +159,11 @@ the project it starts in and mentions it.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Bundled:** `plugins/` ships with the app and is indexed in place by
-  `PluginServices.ready()`, which every service method and route waits for;
-  `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
-  on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
-  the person turns it on.
+- **Preinstalled:** `config/preinstalled-plugins.json` pins npm releases owned by
+  [ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins).
+  Preparation supplies verified archives; startup installs managed copies that
+  can be updated and removed normally. Existing settings and switches survive
+  relocation. `packages/plugin-ui/` remains the host's `@ohmygame/plugin-ui`.
 
 ## API versions
 
@@ -625,9 +625,8 @@ was opened.
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Hooks and file watching | `src/shared/plugin-hooks.ts`, `src/daemon/plugin-hooks.ts`, `src/daemon/project-file-watch.ts` | `test/extension-hosts.test.ts`, `test/tools.test.ts`, `test/agent.test.ts` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
-| TapTap | `plugins/taptap/` | `test/taptap-plugin.test.ts` |
-| TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
+| Godot | `@ohmygame/godot` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts`, `test/godot-plugin.test.ts` |
+| TapTap Maker | `@ohmygame/taptap-maker` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
@@ -794,7 +793,7 @@ was opened.
 The person's choice for every project is `grants.json`'s `everyProject`. Until
 they make one, a plugin that only adds Skills, with no native entry, settings
 or capabilities (`isAppWidePlugin`, judged on its newest version), is on in
-every project, unless it is a bundled one in `BUNDLED_PLUGINS_OFF`
+every project, unless its ID is in `BUNDLED_PLUGINS_OFF`
 (`src/daemon/plugin-services.ts`); any other plugin is off (`onInEveryProject`).
 The choice is live: changing it changes every project that hasn't set the
 plugin itself in `ohmygame.json`.
@@ -803,7 +802,7 @@ plugin itself in `ohmygame.json`.
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Adding a
 plugin or turning it on, in every project or in one, allows what it asks for;
-a bundled plugin is allowed when the app installs it. A plugin on in every
+preinstallation grants no native capabilities. A plugin on in every
 project needs no approval per folder. One that only a project's file turns on
 needs **Allow** once for that folder, unless it only adds Skills, since
 the file may come from someone else. `PluginServices.everyProject`
@@ -811,7 +810,7 @@ and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
 `{name, marketplaceId}`, with the publisher as `marketplaceId`, so
-`plugin://web-game-studio@ohmygame` names a bundled one.
+`plugin://web-game-studio@ohmygame` names a preinstalled one.
 
 A project that names an older version keeps running it, in place of the newest.
 
@@ -854,14 +853,15 @@ replaced with empty state. A late seed receipt cannot undo removal.
 
 Legacy GitHub seeds retain their existing release-replacement behavior. A seed
 the app stops bringing is listed in `RETIRED`: its seeded version is removed once,
-while independently installed versions remain. Bundled plugins outside the npm
-lock continue loading from `plugins/` and can only be turned off.
+while independently installed versions remain. Explicit legacy bundled folders
+remain supported for migration tests and custom hosts; the app ships none.
 
-The npm loader is ready for the 12-package migration, but the checked-in lock
-remains empty until the packages in `ohmygame-plugins` are published. Activation
-must pin their real npm integrity values and remove the corresponding bundled
-folders in the same app change. Before that cutover, reconcile package contents
-with the bundled sources and run the migration tests against the final archives.
+The lock activates all 12 former bundled plugins from published npm releases.
+Their source lives only in `ohmygame-plugins`; changes require a published version
+and a reviewed lock update. Preparation also reconstructs disposable sources at
+`.runtime/preinstalled-plugin-sources/` for host integration tests and panel
+regressions, including on cache hits. This directory is not packaged. Tests use
+the same verified releases that the desktop app installs offline.
 Keep the same plugin IDs and versions for the initial relocation; a new native
 version requires its normal review. Validate clean install, existing settings
 and project pins, restart, uninstall, and independently updated versions in an
@@ -1334,8 +1334,8 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   version, newest first, with the plugin's settings fields and what it
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
-  replaced or cleared), and uninstalls one version at a time. A plugin in
-  `plugins/` only switches off; uninstalling it is refused.
+  replaced or cleared), and uninstalls one version at a time. Preinstalled npm packages
+  can be removed; their receipt prevents reinstalling them at startup.
 - **Uninstalling** first reads `GET /plugin-store/:publisher/:name/:version/uninstall`:
   whether it is the last version, the saved settings and size of the data
   folder that go with the last one, the projects that use the version, and
@@ -1594,6 +1594,10 @@ can go in the next major.
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
+Plugin banners use the same neutral raised surface as the host's canvas notices;
+the small status mark carries the tone color, while headings and messages keep
+normal text colors. This also applies to warnings without a heading.
+
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 
 Set `width` or `max-width` on the **component element**, so its label, control,
@@ -1731,6 +1735,10 @@ fail there, so each panel shows how it takes that;
 for other states. CI runs it on macOS and Windows, with the pictures as an
 artifact. Before a component changes, it can run on other plugins' folders too.
 
+For a plugin maintained outside this repository, `plugin-ui:regression` accepts
+`--scenarios <file>` before its plugin-folder arguments. The JSON uses the same
+plugin-ID → scenario-name → command-results structure as the built-in fixtures.
+
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
 fail, a toolbar command, toasts and a question. It isn't
@@ -1860,11 +1868,12 @@ project, or only in the project types a connection is limited to.
   `/configuration`; `POST /connections/:id/test`, `/auth-start` and
   `/auth-complete`. `#/settings/connections` opens MCP Connections.
 
-## Bundled engine workflows
+## Preinstalled engine workflows
 
-Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
-their platform workflows are being validated, and default to enabled. Blender,
-like the other bundled plugins that only add Skills (Game Studio, Web Game Studio
+Preinstalled plugins are maintained in
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
+Blender and Godot are marked Beta while their platform workflows are being
+validated. Blender, like the other preinstalled plugins that only add Skills (Game Studio, Web Game Studio
 and the Beta workflows below), applies to every project it suits;
 see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
 Engine (below) start off, and are turned on in a project or for every
@@ -1907,84 +1916,9 @@ morph targets, export scope, source preservation, and overwrite behavior;
 it skips when Blender is not provided. Godot import/runtime still needs a local
 Godot.
 
-## TapTap H5 publishing
-
-TapTap (`plugins/taptap/`, Beta, off by default) publishes existing H5 web
-builds with the official `taptap-cli`. Enable it for a web game, general project
-with a web build, or Godot web export, then choose **Publish → Manage on
-TapTap…**. It leaves the engine, project type and preview unchanged. The
-separate TapTap Maker plugin keeps its development and Spark release workflow.
-
-![TapTap H5 builds and package library](assets/taptap-h5-panel.png)
-
-The panel reads the CLI's existing login state, lists developers and searchable,
-paged games, and remembers the selected H5 app per local workspace. A declared H5
-game with conflicting capabilities can be inspected, but cannot upload or bind;
-the panel shows the platform diagnosis instead of changing its package type.
-Install the CLI using its [official instructions](https://developer.taptap.cn/v3/cli/).
-The **CLI settings** path can select an executable when it is not on PATH;
-Windows requires the actual CLI `.exe`, not the npm `.cmd` shim. Login and
-installation can be handed to the agent from the panel. Credentials stay in
-the CLI's own store. The panel currently requires CLI contract 3; it was checked
-against `2026.11.12` and metadata `1.0.77`.
-
-- **Builds:** discovers project directories containing `index.html`, prioritizing
-  common build/export folders. Select a completed build and orientation, then
-  **Check and upload** packages it under `.ohmygame/local/taptap/`, runs the CLI
-  preflight and asks to confirm the exact target, size and warnings. It checks
-  the ZIP's SHA-256 before upload. Keep generated ZIPs until tasks are resolved.
-  Discovery skips hidden/dependency folders and symlinks, and is bounded to 4,000
-  entries and five directory levels; a manual project folder remains available.
-- **Package library:** shows current H5 candidates and the draft's main binding.
-  **Use in draft** verifies an editable draft, a ready candidate and the exact
-  current slot snapshot, then previews, binds and reads it back. Uploading and
-  binding are separate actions; neither submits review. If no editable draft
-  exists, use the developer console to create one first.
-- **Store page:** edit basic text, category, developer words and supported image
-  fields directly, with a store-content preview. Choose PNG/JPEG/WebP images
-  from the project grid or choose/drop a local image in the image dialog.
-  Local images up to 20 MB are imported into `taptap-materials/` through the
-  existing project-file bridge after upload confirmation; an imported copy is
-  retained for retries. Selection alone performs no write or upload. Upload
-  stores the image in the material library, and **Save draft** applies their complete metadata to the chosen field. Screenshot arrays
-  can append or remove images. Current image specifications appear beside each
-  field; unsupported/video/distribution settings remain in the developer console.
-  Image preview only fetches read-back URLs on `img.tapimg.com` and `img-tc.tapimg.com`, with no credentials,
-  no redirects and a 5 MB limit. Other image hosts show an unavailable preview.
-- **Draft edits:** local edits persist per developer/game and section through
-  refreshes, tab changes and panel reopening. Save uses each original field
-  snapshot, refuses remote drift, verifies fields independently and preserves
-  unresolved edits after a partial save. Discard affects local edits only.
-- **Versions:** paged history, draft state, reported blockers and warnings.
-  Review/release remain explicit agent workflows from the plugin commands and
-  developer console; the panel has no submit-review or publish button.
-
-The native host owns an upload independently of the panel's visibility; hiding
-it does not cancel the CLI. The versioned panel state in the plugin data folder
-retains upload intents, stable CLI receipt handles, image upload receipts and the
-latest draft mutation intent, without credentials or full CLI responses. On restart an interrupted upload becomes **unknown**;
-check its artifact/task before retrying. Unknown outcomes without a receipt need
-CLI task-history reconciliation by the agent; they block starting another upload.
-Read failures are shown separately, never rendered as an empty successful list.
-Agent/console changes are visible after **Refresh**.
-
-The standalone Node helper at
-`plugins/taptap/skills/taptap-h5-publish/scripts/package-h5.mjs` streams a ZIP32
-archive with exactly `game/index.html` and its sibling assets. It does not build
-or upload; it refuses missing entries, symlinks, source/credential metadata,
-outputs inside the build, paths outside the workspace, existing output files and
-ZIP64-sized inputs. It skips macOS metadata and reports other hidden entries.
-The CLI preflight remains authoritative for TapTap's current package contract.
-
-See the [H5 publishing Skill](../plugins/taptap/skills/taptap-h5-publish/SKILL.md)
-and [manual acceptance](plugin-beta-testing.zh-CN.md#taptap-h5-上传与发布).
-Local archive/preflight tests and fixture-driven panel checks do not verify
-live uploads, platform gameplay, review acceptance or publication; those require
-a developer account and an explicitly selected test app.
-
 ## TapTap Maker
 
-TapTap Maker (`plugins/taptap-maker/`, Beta) is a bundled plugin
+TapTap Maker (`@ohmygame/taptap-maker`, Beta) is a preinstalled npm plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
@@ -2029,15 +1963,15 @@ the project has no web preview and isn't published to Community.
   "Release on TapTap…" put the request in the composer with its Skill, for
   the person to send.
 
-See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
-and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
+See the [TapTap Maker](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/taptap-maker/skills/taptap-release/SKILL.md)
 Skills. Authenticated Maker creation, preview, `game_use` captures, build and
 publication still need a Maker account to check by hand.
 
 ## Additional Beta workflows
 
 Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
-Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
+Aseprite, and Tiled are preinstalled Beta plugins and default to **disabled**.
 Open **Plugins** in the main sidebar and enable only the workflows needed for
 the current project.
 These packages reuse the existing runtime; they introduce no new project types,

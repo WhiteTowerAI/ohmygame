@@ -66,7 +66,6 @@ export default async function checkPackagedDesktop(context) {
       allowedOrigins: [],
       environment,
       runtimeBin: path.join(resources, "runtime", "node", ...(electronPlatformName === "win32" ? [] : ["bin"])),
-      bundledPluginsDirectory: path.join(resources, "plugins"),
       preinstalledPluginsDirectory: path.join(resources, "preinstalled-plugins"),
       examplesDirectory: path.join(resources, "examples"),
       healthTimeoutMs: 30_000,

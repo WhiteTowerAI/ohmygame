@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversion.js";
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import { isLockedNpmPlugin, prepareNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
+import { isLockedNpmPlugin, prepareNpmPlugin, unpackPinnedNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedSkillsPlugin {
@@ -47,6 +47,24 @@ if (await isCurrentOutput(output, lockSha256)) {
   console.log(`Reusing ${lock.plugins.length} prepared preinstalled Plugin${lock.plugins.length === 1 ? "" : "s"}`);
 } else {
   await preparePlugins(output, lockSha256);
+}
+
+// Disposable test and panel-regression inputs, never shipped as a second copy.
+// Re-extract even on cache hits so local edits cannot alter the test baseline.
+const sources = await mkdtemp(path.join(path.dirname(output), "preinstalled-sources-"));
+try {
+  const packages = path.join(sources, "packages");
+  await mkdir(packages);
+  for (const entry of lock.plugins) {
+    if (entry.type !== "npm") continue;
+    if (!isLockedNpmPlugin(entry)) throw new Error("Invalid pinned npm plugin");
+    const directory = await mkdtemp(path.join(sources, "extract-"));
+    const root = await unpackPinnedNpmPlugin(entry, path.join(output, `${entry.releaseId}.tgz`), directory);
+    await rename(root, path.join(packages, entry.package.split("/")[1]!));
+  }
+  await replaceDirectory(packages, path.join(repositoryRoot, ".runtime", "preinstalled-plugin-sources"));
+} finally {
+  await rm(sources, { recursive: true, force: true });
 }
 
 async function preparePlugins(destination: string, expectedLockSha256: string): Promise<void> {

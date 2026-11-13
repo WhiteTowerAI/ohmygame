@@ -43,7 +43,6 @@ const explicitTestGroups = {
   "desktop-installer-process.test.ts": "desktop",
   "desktop-update-ranges.test.ts": "desktop",
   "taptap-maker.test.ts": "daemon",
-  "taptap-plugin.test.ts": "daemon",
   "godot-plugin.test.ts": "daemon",
   // The game service and the browser SDK live in packages/; the daemon runs and installs both.
   "built-in-rules.test.ts": "daemon",

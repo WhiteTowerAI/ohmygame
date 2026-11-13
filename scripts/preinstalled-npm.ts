@@ -53,6 +53,18 @@ export async function prepareNpmPlugin(
     PLUGIN_ARCHIVE_MAX_BYTES,
     AbortSignal.timeout(300_000),
   );
+  await unpackPinnedNpmPlugin(entry, file, directory);
+  // Keep the exact npm bytes: the older ZIP packer filters dotfiles and dependencies.
+  return readFile(file);
+}
+
+/** Also materializes verified package sources for host integration tests. */
+export async function unpackPinnedNpmPlugin(
+  entry: LockedNpmPlugin,
+  file: string,
+  directory: string,
+): Promise<string> {
+  if (!isLockedNpmPlugin(entry)) throw new Error("Invalid pinned npm plugin");
   const bytes = await readFile(file);
   if (
     bytes.length > PLUGIN_ARCHIVE_MAX_BYTES ||
@@ -84,6 +96,5 @@ export async function prepareNpmPlugin(
     );
   if (checked.entry.id !== entry.id || checked.entry.version !== entry.version)
     throw new Error("Plugin identity does not match the lock");
-  // Keep the exact npm bytes: the older ZIP packer filters dotfiles and dependencies.
-  return bytes;
+  return root;
 }

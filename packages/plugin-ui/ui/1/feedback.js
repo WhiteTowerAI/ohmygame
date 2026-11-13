@@ -60,6 +60,7 @@ class OmgStatus extends OmgElement {
  * @attr {string} heading - A title above the message.
  * @slot - The message.
  * @slot actions - Buttons after the message.
+ * @part indicator - The small status mark.
  * @part heading - The title.
  * @part message - The message.
  * @part actions - The buttons' row; hidden when empty.
@@ -71,16 +72,15 @@ class OmgBanner extends OmgElement {
     css(`
       :host { --tone: var(--color-text-tertiary); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
         padding: var(--space-3); border-radius: var(--radius-md);
-        background: color-mix(in srgb, var(--tone) 12%, transparent); }
-      .content { flex: 1 1 240px; min-width: 0; display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
-      .heading { margin: 0; font-weight: var(--weight-semibold); color: var(--tone); }
-      :host(:not([tone])) .heading { color: var(--color-text); }
+        background: var(--color-surface-raised); box-shadow: var(--shadow-hairline); color: var(--color-text-secondary); }
+      .indicator { width: 5px; height: 5px; flex: none; margin-top: 7px; align-self: flex-start; border-radius: 50%; background: var(--tone); }
+      .content { flex: 1 1 200px; min-width: 0; display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
+      .heading { margin: 0; font-weight: var(--weight-semibold); color: var(--color-text); }
       .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-      /* A see-through button turns muddy on the banner's colour. */
-      ::slotted(omg-button:not([variant])), ::slotted(omg-command-button:not([variant])) { --_button-background: var(--color-surface); }
     `),
   ];
   static template = `
+    <span class="indicator" part="indicator" aria-hidden="true"></span>
     <div class="content"><p class="heading" part="heading"></p><div class="message" part="message"><slot></slot></div></div>
     <div class="actions" part="actions"><slot name="actions"></slot></div>`;
 

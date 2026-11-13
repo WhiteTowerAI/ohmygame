@@ -21,7 +21,7 @@ import { PluginIndex, type PluginIndexEntry } from "../src/daemon/plugin-index.j
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
 import { accentTokens, PAGE_TOKENS, PLUGIN_UI_HANDSHAKE, PLUGIN_UI_PROTOCOL_VERSION, pluginUiRefusal, readPluginUiRequest, type PluginAccent, type PluginUiCapabilities } from "../src/shared/plugin-ui-protocol.js";
 
-const DEFAULT_PLUGINS = ["packages/plugin-ui/gallery", "plugins/taptap-maker", "plugins/taptap"];
+const DEFAULT_PLUGINS = ["packages/plugin-ui/gallery", ".runtime/preinstalled-plugin-sources/taptap-maker"];
 const APPEARANCES = ["dark", "light"] as const;
 
 /** One panel in one appearance, as the browser found it. */
@@ -158,6 +158,7 @@ async function main(): Promise<void> {
     return at === -1 ? undefined : args.splice(at, 2)[1];
   };
   const base = option("--base");
+  const scenariosFile = option("--scenarios") ?? path.join(import.meta.dirname, "plugin-ui-regression-scenarios.json");
   const out = path.resolve(option("--out") ?? path.join(".runtime", "plugin-ui-regression"));
   const folders = args.length ? args : DEFAULT_PLUGINS;
   await rm(out, { recursive: true, force: true });
@@ -172,7 +173,7 @@ async function main(): Promise<void> {
     entries.push(added.entry);
   }
 
-  const scenarios = JSON.parse(await readFile(path.join(import.meta.dirname, "plugin-ui-regression-scenarios.json"), "utf8")) as Record<string, Record<string, Record<string, unknown>>>;
+  const scenarios = JSON.parse(await readFile(scenariosFile, "utf8")) as Record<string, Record<string, Record<string, unknown>>>;
   const tokensCss = await readFile("src/renderer/ui/tokens.css");
   const host = createServer((request, response) => {
     if (request.url?.startsWith("/harness.html")) return void response.writeHead(200, { "content-type": "text/html" }).end(harness);

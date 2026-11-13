@@ -2,30 +2,28 @@
 
 Product integrations use recognizable brand artwork in their own `assets/`
 directory. Each manifest points to that file with `icon`.
-Bundled workflow plugins can use their own artwork through the same contract.
+Preinstalled workflow plugins can use their own artwork through the same contract.
 The renderer does not map
 engine names to special logo components.
 
 ## Resources and provenance
 
-Blender, Godot, TapTap, TapTap Maker, Cocos Creator, WeChat Mini Games, Douyin Mini Games,
+Blender, Godot, TapTap Maker, Cocos Creator, WeChat Mini Games, Douyin Mini Games,
 Unity, Unreal Engine, Aseprite, and Tiled include local logos. Each package keeps
 the source, upstream terms, and any preparation in
 `assets/NOTICE.md`. These notices travel with exported and imported packages.
-TapTap and TapTap Maker use the official TapTap app mark to identify the service.
+TapTap Maker currently uses the official TapTap app mark to identify the service.
 
 Game Studio and Web Game Studio use user-selected Streamline Ultimate color
 (CC BY 4.0) artwork: **Module Puzzle** and **Card Game Heart**, respectively.
 Original geometry, colors, and attribution are retained.
 
-A preinstalled third-party package, locked in `config/preinstalled-plugins.json`
-(none at the moment), can name a build-only `assets` directory under
-`config/plugin-assets/`. It is copied into the package's `assets/` before
-`bun run prepare:preinstalled-plugins` makes it a plugin package
-(`packageSkills`). These files participate in the preparation fingerprint and final archive checksum.
-Change the prepared release ID and checksum when shipping updated assets so existing
-installations receive them through the normal preinstalled-package update path.
-The icon and notice then travel with the package, just like bundled plugin assets.
+Preinstalled npm packages own their artwork and notices in
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins/tree/main/plugins).
+The app locks the published tarball in `config/preinstalled-plugins.json` and
+preserves its files unchanged. Publish a new plugin version for asset changes;
+normal npm updates deliver it to existing installations. The app lock selects
+what new installations receive.
 
 Prefer an official resource. When using a curated collection such as Simple
 Icons, record that collection and its terms as the source. Keep original colors
