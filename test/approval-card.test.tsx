@@ -231,3 +231,18 @@ it("shows the plugin, exact tool arguments and one-call choices for a plugin gat
   await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
   expect(decide).toHaveBeenCalledWith("allow");
 });
+
+it("makes saved plugin consent explicit and keeps allow-once separate", async () => {
+  const decide = vi.fn(async () => true);
+  const scoped = { ...request, request: { kind: "tool" as const, tool: "desktop/click", reason: "Read and operate the app", input: '{"app":"com.apple.TextEdit"}', pluginAccess: { plugin: "ohmygame/computer-use", label: "com.apple.TextEdit" }, always: { scope: "saved" as const, rules: ["com.apple.TextEdit"] } } };
+  await act(async () => root.render(<ApprovalCard request={scoped} waiting={0} onDecide={decide} />));
+  expect(container.textContent).toContain("Allow access to com.apple.TextEdit?");
+  expect(container.textContent).toContain("Revoke it in Plugins");
+  const buttons = [...container.querySelectorAll("button")];
+  expect(buttons.map((button) => button.textContent)).toEqual(["Allow and remember", "Allow once", "Deny"]);
+  await act(async () => buttons[0]!.click());
+  expect(decide).toHaveBeenLastCalledWith("allow-always");
+  await act(async () => root.render(<ApprovalCard request={{ ...scoped, requestId: "another" }} waiting={0} onDecide={decide} />));
+  await act(async () => buttons[1]!.click());
+  expect(decide).toHaveBeenLastCalledWith("allow");
+});

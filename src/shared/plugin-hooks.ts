@@ -69,10 +69,22 @@ export interface ToolHookInput {
   server?: string;
 }
 
-/** No argument changes or persistent grants are accepted. */
+/** A plugin-defined target, enforced by the plugin. The host owns remembered consent. */
+export interface ToolApprovalScope {
+  key: string;
+  label: string;
+}
+
+export interface SavedToolApproval extends ToolApprovalScope {
+  plugin: string;
+  digest: string;
+}
+
+/** Argument changes are never accepted. Remembering requires explicit human consent. */
 export type ToolHookDecision =
   | { decision: "allow" }
-  | { decision: "deny" | "ask"; reason: string };
+  | { decision: "deny"; reason: string }
+  | { decision: "ask"; reason: string; remember?: ToolApprovalScope };
 
 /** Read-only outcome; text is bounded and binary content is never included. */
 export interface ToolHookResult extends ToolHookInput {

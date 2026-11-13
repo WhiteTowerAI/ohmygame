@@ -135,6 +135,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
+import { PluginToolApprovals } from "./plugin-tool-approvals.js";
 import { pluginToolApprovalRequest } from "./tool-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
@@ -1144,8 +1145,11 @@ export function createApp(options: AppOptions = {}) {
   };
   const conversationToolHooks = (project: ProjectState, conversation: StoredConversation) => pluginHooks.tools(
     project.workspacePath,
-    async (plugin, call, reason, signal) => (await agents.askApproval(project.id, conversation.summary.id,
-      `plugin:${plugin}:${call.callId}`, pluginToolApprovalRequest(plugin, call, reason), signal)) === "allow",
+    async (plugin, call, reason, signal, remember) => {
+      const decision = await agents.askApproval(project.id, conversation.summary.id,
+        `plugin:${plugin}:${call.callId}`, pluginToolApprovalRequest(plugin, call, reason, remember), signal);
+      return decision === "allow-always" ? "allow-always" : decision === "allow";
+    },
   );
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
@@ -1344,7 +1348,9 @@ export function createApp(options: AppOptions = {}) {
   }));
   // Plugins' hooks: notifications, tool gates and image changes.
   const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
+  const pluginToolApprovals = new PluginToolApprovals(dataDirectory);
   const pluginHooks = new PluginHooks({
+    approvals: pluginToolApprovals,
     resolve: (folder) => pluginServices.resolve(folder),
     native: pluginServices.native,
     onNotice: (folder, notice) => {
@@ -2133,6 +2139,7 @@ export function createApp(options: AppOptions = {}) {
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
     if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     const id = `${request.params.publisher}/${request.params.name}`;
+    if (entry && pluginServices.index.versions(id).length === 1 && request.query.keepData !== "true") await pluginToolApprovals.forget(id);
     await pluginServices.uninstall(id, request.params.version, { keepData: request.query.keepData === "true" });
     if (!pluginServices.index.versions(id).length) await preinstalledPlugins.markRemoved(id);
     return reply.code(204).send();
@@ -2562,6 +2569,19 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
+  });
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/tool-access", async (request, reply) => {
+    try { return await pluginToolApprovals.list(`${request.params.publisher}/${request.params.name}`); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete<{ Params: { publisher: string; name: string }; Body: { key: string } }>("/plugin-store/:publisher/:name/tool-access", {
+    schema: { body: { type: "object", required: ["key"], additionalProperties: false, properties: { key: { type: "string", minLength: 1, maxLength: 200 } } } },
+  }, async (request, reply) => {
+    const id = `${request.params.publisher}/${request.params.name}`;
+    try {
+      await pluginToolApprovals.revoke(id, request.body.key);
+      return await pluginToolApprovals.list(id);
+    } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
     await pluginServices.ready();

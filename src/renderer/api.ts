@@ -2104,3 +2104,10 @@ export async function undoProjectPluginChange(projectId: string, changeId: strin
 export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }
+
+export function readPluginToolAccess(id: string, signal?: AbortSignal): Promise<import("../shared/plugin-hooks.js").SavedToolApproval[]> {
+  return request(`/plugin-store/${pluginPath(id)}/tool-access`, { signal });
+}
+export function revokePluginToolAccess(id: string, key: string): Promise<import("../shared/plugin-hooks.js").SavedToolApproval[]> {
+  return request(`/plugin-store/${pluginPath(id)}/tool-access`, { method: "DELETE", body: JSON.stringify({ key }) });
+}

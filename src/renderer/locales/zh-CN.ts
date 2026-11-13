@@ -1,6 +1,18 @@
 import type en from "./en.js";
 
 const zhCN: typeof en = {
+  pluginAccess: {
+    title: "已记住的访问授权",
+    detail: "适用于此插件已启用的项目。撤销会阻止后续调用，不会撤回已执行的操作。",
+    empty: "暂无已记住的授权。",
+    revoke: "撤销",
+    revokeLabel: "撤销对 {{label}} 的访问授权",
+    approveTitle: "允许访问 {{label}}？",
+    approveDetail: "为 {{plugin}} 记住授权，在其他会话和重启后仍有效。可在插件的设置中撤销。",
+    allowRemember: "允许并记住",
+    allowOnce: "仅允许这次",
+  },
+
   audioStudio: {
     speechOptions: "语音选项",
     standardVoice: "标准",

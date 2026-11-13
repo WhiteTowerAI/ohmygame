@@ -1,5 +1,17 @@
 // English is the source language. Add every UI string here first.
 const en = {
+  pluginAccess: {
+    title: "Remembered access",
+    detail: "Applies wherever this plugin is enabled. Revoking stops future calls; it does not undo an action already dispatched.",
+    empty: "No remembered access.",
+    revoke: "Revoke",
+    revokeLabel: "Revoke access to {{label}}",
+    approveTitle: "Allow access to {{label}}?",
+    approveDetail: "Remember access for {{plugin}} across conversations and restarts. Revoke it in Plugins → Settings.",
+    allowRemember: "Allow and remember",
+    allowOnce: "Allow once",
+  },
+
   audioStudio: {
     speechOptions: "Speech options",
     standardVoice: "Standard",

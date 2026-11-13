@@ -518,3 +518,21 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/later/every-project", payload: { on: true } })).statusCode).toBe(409);
   });
 });
+
+it("protects remembered access routes and persists revocation without allowing API grants", async () => {
+  const dataDirectory = await mkdtemp(path.join(tmpdir(), "plugin-access-api-"));
+  const file = path.join(dataDirectory, "plugin-tool-approvals.json");
+  const grant = { plugin: "acme/desktop", digest: "digest", key: "app:editor", label: "Editor" };
+  await writeFile(file, JSON.stringify({ version: 1, grants: [grant] }));
+  const app = createApp({ dataDirectory, accessToken: "test-access" });
+  apps.push(app);
+  const url = "/plugin-store/acme/desktop/tool-access";
+  const headers = { authorization: "Bearer test-access" };
+  expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+  expect((await app.inject({ method: "DELETE", url, payload: { key: grant.key } })).statusCode).toBe(401);
+  expect((await app.inject({ method: "GET", url, headers })).json()).toEqual([grant]);
+  expect((await app.inject({ method: "POST", url, headers, payload: grant })).statusCode).toBe(404);
+  expect((await app.inject({ method: "DELETE", url, headers, payload: {} })).statusCode).toBe(400);
+  expect((await app.inject({ method: "DELETE", url, headers, payload: { key: grant.key } })).json()).toEqual([]);
+  expect(JSON.parse(await readFile(file, "utf8")).grants).toEqual([]);
+});
