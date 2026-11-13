@@ -46,6 +46,36 @@ export function groupStorePlugins(rows: readonly StorePlugin[]): StorePluginGrou
 
 /** Not held off by safe mode, the only thing that stops a plugin everywhere. */
 export const storePluginEnabled = (plugin: StorePlugin) => plugin.grants?.enabled !== false;
+
+/** A connection can outlive its window only when the person opts in to the desktop preference. */
+export function SessionBackgroundPrompt() {
+  const bridge = window.ohMyGameDesktop?.backgroundRunning;
+  const [enabled, setEnabled] = useState<boolean>();
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    const read = () => { void bridge?.get().then(value => { if (active) setEnabled(value); }, (cause: unknown) => { if (active) setError(message(cause)); }); };
+    read();
+    window.addEventListener("focus", read);
+    return () => { active = false; window.removeEventListener("focus", read); };
+  }, [bridge]);
+  if (!bridge || enabled || dismissed || (enabled === undefined && !error)) return null;
+  async function enable() {
+    setBusy(true); setError(undefined);
+    try { setEnabled(await bridge!.set(true)); }
+    catch (cause) { setError(message(cause)); }
+    finally { setBusy(false); }
+  }
+  return <Alert title={t("pluginStore.backgroundTitle")} action={<>
+    <Button size="sm" disabled={busy} onClick={() => { void enable(); }}>{t("pluginStore.backgroundEnable")}</Button>
+    <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDismissed(true)}>{t("pluginStore.backgroundLater")}</Button>
+  </>}>
+    {t("pluginStore.backgroundHint")}
+    {error ? <p role="alert">{error}</p> : null}
+  </Alert>;
+}
 /**
  * OhMyGame's own: bundled with the app, or from its npm scope. A folder in
  * development may use the publisher too, so it isn't.

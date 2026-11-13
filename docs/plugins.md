@@ -284,6 +284,9 @@ Quit stop it. Register connection cleanup with `context.onDispose`, and return
 from `activate` after starting the connection; do not await its entire lifetime.
 Closing a project does not end an app connection. Desktop close-to-background
 remains the person's separate opt-in setting.
+The Plugins page offers to enable it when an app-wide session plugin is enabled
+and granted access. Dismissing the prompt leaves the setting unchanged; it is
+also available in Settings. Quit and computer sleep still interrupt connections.
 
 `context.project` is absent in the app host. `context.configuration` contains the
 activation's settings (including secrets only when granted); per-call

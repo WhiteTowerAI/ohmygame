@@ -40,7 +40,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, storePluginContributions, StorePluginDetail } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, storePluginContributions, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
@@ -85,6 +85,38 @@ const type = (input: HTMLInputElement, value: string) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
+
+it("offers background running without changing it until the person enables it, and retains errors for retry", async () => {
+  const bridge = { get: vi.fn(async () => false), set: vi.fn(async (_value: boolean) => true) };
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: bridge } as NonNullable<typeof previous>;
+  try {
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(bridge.set).not.toHaveBeenCalled();
+    bridge.set.mockRejectedValueOnce(new Error("Cannot save setting"));
+    await act(async () => button("Enable background running").click());
+    expect(host.textContent).toContain("Cannot save setting");
+    await act(async () => button("Enable background running").click());
+    expect(bridge.set).toHaveBeenLastCalledWith(true);
+    expect(host.textContent).toBe("");
+    await act(async () => root.render(<SessionBackgroundPrompt key="dismiss" />));
+    await act(async () => button("Not now").click());
+    expect(bridge.set).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("does not prompt when background running is enabled or unavailable", async () => {
+  const previous = window.ohMyGameDesktop;
+  try {
+    window.ohMyGameDesktop = undefined;
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(host.textContent).toBe("");
+    window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => true, set: vi.fn() } } as NonNullable<typeof previous>;
+    await act(async () => root.render(<SessionBackgroundPrompt key="enabled" />));
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
 
 it("groups the store's rows by plugin, newest version first", () => {
   const groups = groupStorePlugins([row("2.0.0"), row("1.0.0"), row("1.0.0", { id: "acme/tiles" })]);
