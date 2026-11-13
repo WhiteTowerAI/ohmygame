@@ -1588,7 +1588,7 @@ describe("daemon", () => {
     });
     expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
-    expect(detail.json().cursor).toBe(0);
+    expect(detail.json().cursor).toBeGreaterThan(0); // Model settings are broadcast to other clients.
     expect(defaultDetail.json().settings).toEqual({
       model: { provider: second.provider, id: second.id },
       reasoningLevel: "high",

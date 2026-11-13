@@ -192,6 +192,8 @@ and the format of an older major is then upgraded where it loads, as
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
+| 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
+
 ## Agent instructions
 
 `contributes.instructions` (API 2.5.0) is a static string of 1–8,000 characters
@@ -312,8 +314,20 @@ Types live in `src/shared/plugin-sessions.ts`. `sessions.request(request,
 | `create` | `projectId` | New conversation `id`; empty conversations are not saved across app restarts |
 | `read` | `projectId, conversationId` | `messages, truncated, status, needsApproval, cursor` |
 | `send` | `projectId, conversationId, text` | Accepted `turnId`, before execution completes |
-| `stop` | `projectId, conversationId` | `stopped`, whether an active turn was asked to stop |
+| `stop` | `projectId, conversationId, turnId?` | `stopped`; API 2.6 optionally requires the exact active turn, so a stale button cannot stop a later one |
+| `settings` (2.6) | `projectId, conversationId` | `models: [{ provider, id, name, providerName, levels }], model?, level?, busy, loading, truncated` |
+| `model` (2.6) | `projectId, conversationId, model: { provider, id }` | `changed: true` after applying a configured, visible model |
+| `reasoning` (2.6) | `projectId, conversationId, model: { provider, id }, level` | `changed: true`; the model must still be selected and support the level |
 | `events` | `projectId, after?, waitMs?` | `cursor, reset, events` with types, conversation/turn IDs and timestamps |
+
+API 2.6 model settings use the conversation's account profiles, not new-chat
+account defaults. The catalog excludes disabled/hidden models, returns at most
+500, and reports loading/truncation. Changes share desktop transitions and
+persistence, refuse busy projects, recheck the grant before mutation, and emit
+`conversation.settings.changed` so an open desktop conversation updates. They
+change only that conversation, never global defaults. A lost mutation reply
+must not be retried automatically; re-read `settings` first. Reasoning requests
+include the model shown by the control to reject stale choices.
 
 Text messages are 1–32,000 characters. Lists return at most 500 entries; reads
 return the latest 200 user/assistant messages, at most 32,000 characters per

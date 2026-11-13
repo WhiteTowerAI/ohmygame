@@ -24,6 +24,23 @@ export class PluginSessions {
       conversations: ConversationManager;
       agents: AgentManager;
       events: RuntimeEventBus;
+      settings?(
+        project: ProjectState,
+        conversation: StoredConversation,
+      ): Promise<PluginSessionResults["settings"]>;
+      changeModel?(
+        project: ProjectState,
+        conversation: StoredConversation,
+        model: { provider: string; id: string },
+        authorize: () => Promise<void>,
+      ): Promise<unknown>;
+      changeReasoning?(
+        project: ProjectState,
+        conversation: StoredConversation,
+        level: string,
+        authorize: () => Promise<void>,
+        model: { provider: string; id: string },
+      ): Promise<unknown>;
       prepare(
         project: ProjectState,
         conversation: StoredConversation,
@@ -77,6 +94,51 @@ export class PluginSessions {
       request.conversationId,
     );
     if (!conversation) throw new Error("Conversation not found or archived");
+    const check = async () => {
+      signal.throwIfAborted();
+      await authorize();
+      signal.throwIfAborted();
+      if (projects.get(project.id) !== project)
+        throw new Error("Project changed");
+    };
+    if (request.operation === "settings") {
+      if (!this.options.settings)
+        throw new Error("Session settings unavailable");
+      return this.options.settings(project, conversation);
+    }
+    if (request.operation === "model" || request.operation === "reasoning") {
+      if (
+        !this.options.settings ||
+        !this.options.changeModel ||
+        !this.options.changeReasoning
+      )
+        throw new Error("Session settings unavailable");
+      const settings = await this.options.settings(project, conversation);
+      if (settings.busy) throw new Error("Project is busy");
+      if (
+        !settings.models.some(
+          (m) =>
+            m.provider === request.model.provider && m.id === request.model.id,
+        )
+      )
+        throw new Error("Model is not available");
+      if (request.operation === "model")
+        await this.options.changeModel(
+          project,
+          conversation,
+          request.model,
+          check,
+        );
+      else
+        await this.options.changeReasoning(
+          project,
+          conversation,
+          request.level,
+          check,
+          request.model,
+        );
+      return { changed: true };
+    }
     if (request.operation === "read") {
       // Capture before asynchronous reads: replay may repeat a change but cannot skip it.
       const cursor = this.#cursor();
@@ -148,6 +210,8 @@ export class PluginSessions {
     if (request.operation === "stop") {
       await authorize();
       const turnId = agents.activeTurnId(project.id, conversation.summary.id);
+      if (request.turnId !== undefined && request.turnId !== turnId)
+        return { stopped: false };
       if (turnId)
         await agents.cancel(project.id, conversation.summary.id, turnId);
       return { stopped: Boolean(turnId) };
@@ -251,7 +315,10 @@ function validateRequest(input: unknown): PluginSessionRequest {
     create: ["projectId"],
     read: ["projectId", "conversationId"],
     send: ["projectId", "conversationId", "text"],
-    stop: ["projectId", "conversationId"],
+    stop: ["projectId", "conversationId", "turnId"],
+    settings: ["projectId", "conversationId"],
+    model: ["projectId", "conversationId", "model"],
+    reasoning: ["projectId", "conversationId", "model", "level"],
     events: ["projectId", "after", "waitMs"],
   };
   if (
@@ -275,6 +342,32 @@ function validateRequest(input: unknown): PluginSessionRequest {
     )
       throw new Error(`Invalid ${key}`);
   }
+  if (value.operation === "model" || value.operation === "reasoning") {
+    const model = value.model as Record<string, unknown> | undefined;
+    if (
+      !model ||
+      typeof model !== "object" ||
+      Array.isArray(model) ||
+      Object.keys(model).some((key) => key !== "provider" && key !== "id") ||
+      [model.provider, model.id].some(
+        (v) => typeof v !== "string" || !v.trim() || v.length > 500,
+      )
+    )
+      throw new Error("Invalid model");
+    if (
+      value.operation === "reasoning" &&
+      (typeof value.level !== "string" ||
+        !value.level ||
+        value.level.length > 100)
+    )
+      throw new Error("Invalid reasoning level");
+  }
+  if (
+    value.turnId !== undefined &&
+    (typeof value.turnId !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(value.turnId))
+  )
+    throw new Error("Invalid turn ID");
   if (
     value.operation === "send" &&
     (typeof value.text !== "string" ||

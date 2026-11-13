@@ -1447,6 +1447,7 @@ export type ToolArtifact =
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
+  "conversation.settings.changed": { settings: ConversationAgentSettings };
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
@@ -1492,6 +1493,7 @@ export type RuntimeEventType = keyof RuntimeEventData;
 export const RUNTIME_EVENT_TYPES = [
   "conversation.renamed",
   "conversation.model.changed",
+  "conversation.settings.changed",
   "project.renamed",
   "project.updated",
   "project.plugins.changed",

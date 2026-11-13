@@ -1506,8 +1506,204 @@ export function createApp(options: AppOptions = {}) {
     void pluginDevelopment.sync({ refresh: true }).catch((err: unknown) => app.log.warn({ err }, "Could not watch the plugins in development"));
   });
 
+  async function applyConversationModel(
+    project: ProjectState,
+    conversation: StoredConversation,
+    selection: SetConversationModelRequest,
+    authorize: () => Promise<void> = async () => {},
+  ) {
+    const accountProfiles = await conversations.accountProfiles(
+      project,
+      conversation,
+    );
+    const agentModel = isAgentRuntimeId(selection.provider)
+      ? await agentRuntimes.model(
+          selection.provider,
+          selection.id,
+          isAccountRuntimeId(selection.provider)
+            ? (accountProfiles[selection.provider] ?? "system")
+            : undefined,
+        )
+      : undefined;
+    const model = agentModel
+      ? undefined
+      : await availableModel(selection.provider, selection.id);
+    if (!model && !agentModel)
+      throw Object.assign(new Error("Model is not available"), {
+        statusCode: 400,
+      });
+    await authorize();
+    const persist = () =>
+      conversations.setModel(project, conversation, selection);
+    // A session runs one agent: moving to or from a coding agent starts the next message in a new session.
+    const current = agents.sessionRuntime(project.id, conversation.summary.id);
+    if (agentModel || current)
+      await agents.replaceSession(project.id, conversation.summary.id, persist);
+    else
+      await agents.setModel(project.id, conversation.summary.id, model!, persist);
+    if (conversation.summary.messageCount > 0) {
+      const itemId = randomUUID();
+      events.publish(
+        project.id,
+        "conversation.model.changed",
+        {
+          item: {
+            id: itemId,
+            turnId: itemId,
+            type: "modelChange",
+            model: selection,
+            name: agentModel?.name ?? model!.name,
+          },
+        },
+        { conversationId: conversation.summary.id, turnId: itemId },
+      );
+    }
+    if (agentModel) {
+      const effort = nativeEffort(
+        agentModel,
+        await conversations.nativeReasoningLevel(
+          project,
+          conversation,
+          agentModel,
+        ),
+      );
+      return {
+        ...(Object.values(accountProfiles).some((id) => id !== "system")
+          ? { accountProfiles }
+          : {}),
+        model: selection,
+        ...(effort ? { nativeReasoningLevel: effort } : {}),
+      } satisfies ConversationAgentSettings;
+    }
+    const levels = supportedReasoningLevels(model!);
+    const stored = await conversations.reasoningLevel(project, conversation);
+    const fallback = defaultReasoningLevel(
+      project.workspacePath,
+      piAgentDirectory,
+    );
+    return {
+      ...(Object.values(accountProfiles).some((id) => id !== "system")
+        ? { accountProfiles }
+        : {}),
+      model: selection,
+      ...(levels.length
+        ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) }
+        : {}),
+    } satisfies ConversationAgentSettings;
+  }
+
+  async function applyConversationReasoning(
+    project: ProjectState,
+    conversation: StoredConversation,
+    levelInput: string,
+    authorize: () => Promise<void> = async () => {},
+    expected?: AgentModelRef,
+  ) {
+    const modelRef = await conversations.model(project, conversation);
+    if (!modelRef)
+      throw Object.assign(new Error("Select a model before changing reasoning"), {
+        statusCode: 409,
+      });
+    if (
+      expected &&
+      (expected.provider !== modelRef.provider || expected.id !== modelRef.id)
+    )
+      throw new Error("Model changed; refresh the settings");
+    if (isAgentRuntimeId(modelRef.provider)) {
+      const model = await agentRuntimes.model(
+        modelRef.provider,
+        modelRef.id,
+        isAccountRuntimeId(modelRef.provider)
+          ? await conversations.accountProfileId(
+              project,
+              conversation,
+              modelRef.provider,
+            )
+          : undefined,
+      );
+      if (!model?.nativeReasoningLevels?.includes(levelInput))
+        throw Object.assign(
+          new Error("Reasoning level is not available for this model"),
+          { statusCode: 400 },
+        );
+      await authorize();
+      await agents.replaceSession(project.id, conversation.summary.id, () =>
+        conversations.setNativeReasoningLevel(
+          project,
+          conversation,
+          model,
+          levelInput,
+        ),
+      );
+      return { level: levelInput };
+    }
+    const model = await availableModel(modelRef.provider, modelRef.id);
+    const level = parseReasoningLevel(levelInput);
+    if (!model || !level || !supportedReasoningLevels(model).includes(level))
+      throw Object.assign(
+        new Error("Reasoning level is not available for this model"),
+        { statusCode: 400 },
+      );
+    await authorize();
+    const active = await agents.setReasoningLevel(
+      project.id,
+      conversation.summary.id,
+      level,
+      () => {
+        conversations.setReasoningLevel(project, conversation, level);
+      },
+    );
+    return { level: active ?? level };
+  }
+
+  const conversationSettingChanges = new Set<string>();
+  async function withConversationSettings<T>(project: ProjectState, conversation: StoredConversation, work: () => Promise<T>): Promise<T> {
+    const key = `${project.id}:${conversation.summary.id}`;
+    if (conversationSettingChanges.has(key)) throw new Error("Conversation settings are changing; try again");
+    conversationSettingChanges.add(key);
+    try { return await work(); } finally { conversationSettingChanges.delete(key); }
+  }
+  function changeConversationModel(project: ProjectState, conversation: StoredConversation, selection: SetConversationModelRequest, authorize?: () => Promise<void>) {
+    return withConversationSettings(project, conversation, async () => {
+      const settings = await applyConversationModel(project, conversation, selection, authorize);
+      events.publish(project.id, "conversation.settings.changed", { settings }, { conversationId: conversation.summary.id });
+      return settings;
+    });
+  }
+  function changeConversationReasoning(project: ProjectState, conversation: StoredConversation, level: string, authorize?: () => Promise<void>, expected?: AgentModelRef) {
+    return withConversationSettings(project, conversation, async () => {
+      const result = await applyConversationReasoning(project, conversation, level, authorize, expected);
+      const model = (await conversations.model(project, conversation))!;
+      const accountProfiles = await conversations.accountProfiles(project, conversation);
+      const settings: ConversationAgentSettings = { model, accountProfiles, ...(isAgentRuntimeId(model.provider) ? { nativeReasoningLevel: result.level } : { reasoningLevel: parseReasoningLevel(result.level)! }) };
+      events.publish(project.id, "conversation.settings.changed", { settings }, { conversationId: conversation.summary.id });
+      return result;
+    });
+  }
+  async function conversationPluginSettings(project: ProjectState, conversation: StoredConversation) {
+    const profiles = await conversations.accountProfiles(project, conversation);
+    // An unset conversation account means system, not the account default for new conversations.
+    for (const id of ACCOUNT_RUNTIME_IDS) profiles[id] ??= "system";
+    const runtime = await getModelRuntime();
+    const loading = catalogRefresh.schedule(runtime);
+    const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider))).filter((model) => providerModelSettings.isVisible(model));
+    const native = await agentRuntimes.models(profiles);
+    const models = [
+      ...available.map((model) => ({ provider: model.provider, id: model.id, name: model.name, providerName: runtime.getProvider(model.provider)?.name ?? model.provider, levels: supportedReasoningLevels(model) as string[] })),
+      ...native.models.map((model) => ({ provider: model.provider, id: model.id, name: model.name, providerName: model.providerName, levels: model.nativeReasoningLevels ?? [] })),
+    ];
+    const selected = await conversations.model(project, conversation);
+    const nativeModel = selected && native.models.find((m) => m.provider === selected.provider && m.id === selected.id);
+    const model = selected && available.find((m) => m.provider === selected.provider && m.id === selected.id);
+    const level = nativeModel ? nativeEffort(nativeModel, await conversations.nativeReasoningLevel(project, conversation, nativeModel)) : model ? effectiveReasoningLevel(model, await conversations.reasoningLevel(project, conversation), defaultReasoningLevel(project.workspacePath, piAgentDirectory)) : undefined;
+    return { models: models.slice(0, 500), ...(selected ? { model: selected } : {}), ...(level ? { level } : {}), busy: agents.isProjectBusy(project.id), loading: Boolean(loading.length || native.loading.length), truncated: models.length > 500 };
+  }
+
   pluginServices.native.serveSessions(new PluginSessions({
     projects, conversations, agents, events,
+    settings: conversationPluginSettings,
+    changeModel: changeConversationModel,
+    changeReasoning: changeConversationReasoning,
     prepare: async (project, conversation) => {
       const selected = await conversations.model(project, conversation);
       if (selected && !modelProviderEnabled(selected.provider)) throw new Error("The selected provider is disabled. Enable it in Settings to continue.");
@@ -4151,43 +4347,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const accountProfiles = await conversations.accountProfiles(project, conversation);
-      const agentModel = isAgentRuntimeId(request.body.provider) ? await agentRuntimes.model(request.body.provider, request.body.id, isAccountRuntimeId(request.body.provider) ? accountProfiles[request.body.provider] ?? "system" : undefined) : undefined;
-      const model = agentModel ? undefined : await availableModel(request.body.provider, request.body.id);
-      if (!model && !agentModel) return reply.code(400).send({ error: "Model is not available" });
-      try {
-        const persist = () => conversations.setModel(project, conversation, request.body);
-        // A session runs one agent: moving to or from a coding agent starts the next message in a new session.
-        const current = agents.sessionRuntime(project.id, conversation.summary.id);
-        if (agentModel || current) await agents.replaceSession(project.id, conversation.summary.id, persist);
-        else await agents.setModel(project.id, conversation.summary.id, model!, persist);
-        if (conversation.summary.messageCount > 0) {
-          const itemId = randomUUID();
-          events.publish(project.id, "conversation.model.changed", {
-            item: {
-              id: itemId,
-              turnId: itemId,
-              type: "modelChange",
-              model: request.body,
-              name: agentModel?.name ?? model!.name,
-            },
-          }, { conversationId: conversation.summary.id, turnId: itemId });
-        }
-        if (agentModel) {
-          const effort = nativeEffort(agentModel, await conversations.nativeReasoningLevel(project, conversation, agentModel));
-          return { ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}), model: request.body, ...(effort ? { nativeReasoningLevel: effort } : {}) } satisfies ConversationAgentSettings;
-        }
-        const levels = supportedReasoningLevels(model!);
-        const stored = await conversations.reasoningLevel(project, conversation);
-        const fallback = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
-        return {
-          ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}),
-          model: request.body,
-          ...(levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
-        } satisfies ConversationAgentSettings;
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
+      return changeConversationModel(project, conversation, request.body).catch((cause: unknown) => reply.code((cause as { statusCode?: number }).statusCode ?? 409).send({ error: cause instanceof Error ? cause.message : String(cause) }));
     },
   );
 
@@ -4199,27 +4359,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const modelRef = await conversations.model(project, conversation);
-      if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
-      if (isAgentRuntimeId(modelRef.provider)) {
-        const model = await agentRuntimes.model(modelRef.provider, modelRef.id, isAccountRuntimeId(modelRef.provider) ? await conversations.accountProfileId(project, conversation, modelRef.provider) : undefined);
-        if (!model?.nativeReasoningLevels?.includes(request.body.level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
-        try {
-          await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, model, request.body.level));
-          return { level: request.body.level };
-        } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-      }
-      const model = await availableModel(modelRef.provider, modelRef.id);
-      const level = parseReasoningLevel(request.body.level);
-      if (!model || !level || !supportedReasoningLevels(model).includes(level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
-      try {
-        const active = await agents.setReasoningLevel(project.id, conversation.summary.id, level, () => {
-          conversations.setReasoningLevel(project, conversation, level);
-        });
-        return { level: active ?? level };
-      } catch (cause) {
-        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
+      return changeConversationReasoning(project, conversation, request.body.level).catch((cause: unknown) => reply.code((cause as { statusCode?: number }).statusCode ?? 409).send({ error: cause instanceof Error ? cause.message : String(cause) }));
     },
   );
 
