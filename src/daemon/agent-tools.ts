@@ -225,7 +225,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
-    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. This tool is for clarifying choices, never for permission to perform an action.",
+    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. The UI always offers a custom text answer; do not add an Other option. This tool is for clarifying choices, never for permission to perform an action.",
     parameters: Type.Object({
       questions: Type.Array(Type.Object({
         id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
@@ -237,12 +237,14 @@ export function createAgentTools(
           recommended: Type.Optional(Type.Boolean({ description: "Whether this is the recommended option" })),
         }), { minItems: 0, maxItems: 4 }),
         multiSelect: Type.Optional(Type.Boolean({ description: "Allow several choices; defaults to false" })),
-        allowOther: Type.Optional(Type.Boolean({ description: "Allow a custom answer; defaults to true" })),
       }), { minItems: 1, maxItems: 3 }),
     }),
     execute: async (toolCallId, input, signal) => {
       if (!askQuestionnaire) throw new Error("Questionnaire is not available");
-      const result = await askQuestionnaire(toolCallId, input, signal);
+      // Custom answers are a host capability, not a choice the model can disable.
+      const result = await askQuestionnaire(toolCallId, {
+        questions: input.questions.map((question) => ({ ...question, allowOther: true })),
+      }, signal);
       if (result.cancelled) {
         return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
       }

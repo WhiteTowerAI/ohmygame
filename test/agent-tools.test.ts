@@ -10,6 +10,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
@@ -20,6 +21,28 @@ import sharp from "sharp";
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("agent tools", () => {
+  it.each(["pi", "bridge"] as const)("always offers custom questionnaire answers through %s, even with an obsolete false flag", async (runtime) => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-question-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const answer = { questionId: "platform", value: "Mobile", label: "Mobile", custom: true };
+    const ask = vi.fn(async () => ({ cancelled: false, answers: [answer] }));
+    const tool = createAgentTools(project, runner, projects, ask).find(({ name }) => name === "questionnaire")!;
+    expect(JSON.stringify(tool.parameters)).not.toContain('"allowOther"');
+    const question = { id: "platform", prompt: "Which platform?", options: [{ value: "web", label: "Web" }], allowOther: false };
+    const signal = new AbortController().signal;
+    const input = { questions: [question] };
+    const output = runtime === "pi"
+      ? await tool.execute("question", input, signal, undefined, {} as never)
+      : (await new ToolBridge([tool]).call("questionnaire", input, "question", signal)).result;
+    expect(ask).toHaveBeenCalledWith("question", { questions: [{ ...question, allowOther: true }] }, signal);
+    expect(output.details).toEqual({ cancelled: false, answers: [answer] });
+    expect(output.content).toEqual([{ type: "text", text: "platform: Mobile" }]);
+  });
+
   it("maps enabled product tools to Pi tool names", () => {
     expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
     expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "questionnaire", "update_plan", "install_plugin"]);
