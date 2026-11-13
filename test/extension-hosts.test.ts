@@ -1735,7 +1735,7 @@ async function hookPackage(name: string, hooks: string[], code: string) {
   return dir;
 }
 
-async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"] } = {}) {
+async function hookSetup(packages: string[], options: { onLog?: NonNullable<ConstructorParameters<typeof ExtensionHosts>[0]>["onLog"]; toolMs?: number } = {}) {
   const data = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-data-"));
   const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-hooks-project-"));
   const index = new PluginIndex(path.join(data, "plugin-index.json"));
@@ -1761,6 +1761,7 @@ async function hookSetup(packages: string[], options: { onLog?: NonNullable<Cons
   const hooks = new PluginHooks({
     resolve,
     native: runtime,
+    timeouts: { toolMs: options.toolMs },
     onNotice: (_folder, notice) => notices.push(notice),
     onError: (plugin, event, error) => errors.push({ plugin, event, message: error instanceof Error ? error.message : String(error) }),
   });
@@ -1796,6 +1797,30 @@ const SECRET_CHECK = `
   });`;
 
 describe("plugin hooks", () => {
+  it("runs tool gates in the real extension host, isolates arguments and times out a hanging handler", async () => {
+    const setup = await hookSetup([await hookPackage("tool-guard", ["tool.beforeCall", "tool.afterCall"], `
+      context.registerHook("tool.beforeCall", (input) => {
+        if (input.tool === "hang") return new Promise(() => {});
+        if (input.tool === "invalid") return { decision: ["deny"], reason: "Stop" };
+        input.args.value = "changed";
+        return { decision: "ask", reason: "Control the desktop" };
+      });
+      context.registerHook("tool.afterCall", (input) => ({ notice: input.status + ": " + input.text }));
+    `)], { toolMs: 100 });
+    try {
+      const approve = vi.fn(async () => true);
+      const gates = setup.hooks.tools(setup.folder, approve);
+      const input = { callId: "one", tool: "echo", args: { value: "original" }, source: "agent" as const };
+      await gates.before(input);
+      expect(input.args.value).toBe("original");
+      expect(approve).toHaveBeenCalledWith("acme/tool-guard", input, "Control the desktop", undefined);
+      await gates.after({ ...input, status: "succeeded", text: "done" });
+      expect(setup.notices).toContainEqual({ plugin: "acme/tool-guard", message: "succeeded: done", tone: "default" });
+      await expect(gates.before({ ...input, tool: "invalid" })).rejects.toThrow(/must return/);
+      await expect(gates.before({ ...input, tool: "hang" })).rejects.toThrow(/timed out/);
+    } finally { await setup.cleanup(); }
+  });
+
   it("lets a style pack change an image's prompt and settings, and records it", async () => {
     const setup = await hookSetup([await hookPackage("style", ["image.beforeGenerate"], STYLE_PACK)]);
     try {
@@ -1895,8 +1920,13 @@ describe("plugin hooks", () => {
       expect(watches.watching(folder)).toBe(true);
       await mkdir(path.join(folder, "node_modules"), { recursive: true });
       await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
-      await writeFile(path.join(folder, "notes.md"), "# Notes");
-      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      // OS notifications are advisory, especially during macOS watch startup.
+      // Retry the stimulus, not the assertions about delivered paths and ignored folders.
+      await vi.waitFor(async () => {
+        if (!changes.some((change) => change.paths.includes("notes.md")))
+          await writeFile(path.join(folder, "notes.md"), "# Notes");
+        expect(changes.flatMap((change) => change.paths)).toContain("notes.md");
+      }, { timeout: 5_000 });
       expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
       watches.set(folder, false);
       expect(watches.watching(folder)).toBe(false);

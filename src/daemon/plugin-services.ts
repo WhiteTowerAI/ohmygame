@@ -408,6 +408,16 @@ export class PluginServices {
   /**
    * The Skills of a project's active plugins, for agent sessions to load.
    */
+  /** Static manifest text, exactly as reviewed; never evaluated or localized. */
+  async instructions(folder: string): Promise<Array<{ plugin: string; text: string }>> {
+    const resolved = await this.resolve(folder);
+    if (!resolved.ok) throw new Error("Cannot read the project's plugin instructions");
+    return resolved.plugins.flatMap((plugin) => {
+      const text = plugin.status === "active" ? plugin.entry?.manifest.contributes?.instructions : undefined;
+      return text ? [{ plugin: plugin.id, text }] : [];
+    });
+  }
+
   async skills(folder: string): Promise<PluginSkillRegistration[]> {
     await this.ready();
     this.#watch(folder);

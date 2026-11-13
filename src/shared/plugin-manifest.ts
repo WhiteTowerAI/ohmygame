@@ -9,7 +9,7 @@ import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./p
 import { GAMEPAD_BUTTONS, GAMEPAD_STICKS, KEY_CODE_PATTERN, STICK_DIRECTIONS } from "./preview-input.js";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
-import { PLUGIN_HOOKS } from "./plugin-hooks.js";
+import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
@@ -1042,6 +1042,7 @@ export const PluginManifestV2Schema = Type.Object(
         {
           projectTypes: list(ProjectType),
           skills: Type.Optional(RelativePath("/?")),
+          instructions: Type.Optional(Type.String({ minLength: 1, maxLength: PLUGIN_INSTRUCTIONS_MAX_CHARS, pattern: "\\S" })),
           tools: list(Tool),
           commands: list(Command),
           settings: Type.Optional(Settings),

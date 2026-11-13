@@ -58,7 +58,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
   ],
   examples: [],
   skills: [{ id: "skills/maker/SKILL.md", name: "maker", description: "Build with Maker." }],
-  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], modelProviders: [], agents: [], tools: 2, skills: 1 },
+  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], modelProviders: [], agents: [], tools: 2, skills: 1, instructions: "Read the project first.\nKeep café and 中文 names." },
   ...overrides,
 });
 
@@ -104,6 +104,7 @@ it("lists what it asks for, turns it on with its one switch and nothing to confi
   // Turning it on is allowing it, so nothing asks first; nor is there a second switch to stop it everywhere.
   await act(async () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!.click());
   expect(document.querySelector("[role=dialog]")).toBeNull();
+  expect(document.querySelector(".plugin-instructions")?.textContent).toBe(row("2.0.0").adds.instructions);
   expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
   expect(onChanged).toHaveBeenCalledTimes(1);
   expect(document.body.textContent).not.toContain("Disable everywhere");

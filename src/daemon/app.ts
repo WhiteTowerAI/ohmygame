@@ -134,6 +134,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { PluginHooks } from "./plugin-hooks.js";
+import { pluginToolApprovalRequest } from "./tool-hooks.js";
 import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
@@ -1089,6 +1090,7 @@ export function createApp(options: AppOptions = {}) {
   /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */
   const externalMcp = new ExternalMcpService({
     dataDirectory,
+    toolHooks: (project) => pluginHooks.tools(project.workspacePath),
     projects: () => projects.list(),
     tools: async (project, sessionId) => createAgentTools(
       project, tools, projects, undefined, undefined,
@@ -1138,6 +1140,11 @@ export function createApp(options: AppOptions = {}) {
       ? "The project's plugins changed during this turn, so their MCP tools are unavailable until the next message."
       : undefined;
   };
+  const conversationToolHooks = (project: ProjectState, conversation: StoredConversation) => pluginHooks.tools(
+    project.workspacePath,
+    async (plugin, call, reason, signal) => (await agents.askApproval(project.id, conversation.summary.id,
+      `plugin:${plugin}:${call.callId}`, pluginToolApprovalRequest(plugin, call, reason), signal)) === "allow",
+  );
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => projectPluginSkills(project);
@@ -1159,11 +1166,12 @@ export function createApp(options: AppOptions = {}) {
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
+      toolHooks: conversationToolHooks(project, conversation),
       tools: [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginMcpHost, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
-      instructions: appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n"),
+      instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
@@ -1239,17 +1247,20 @@ export function createApp(options: AppOptions = {}) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
       }
       const effectiveMcp = await projectMcp(project);
+      const toolHooks = conversationToolHooks(project, conversation);
+      const mcpTools = new Set<string>();
       return createPiSession(
-        { ...project, userInstructions: await agentInstructions.get() },
+        { ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() },
         conversations.open(project, conversation),
         [...await projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
         model,
         piAgentDirectory,
         () => projectPluginSkills(project),
-        Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginMcpHost.extension(effectiveMcp, { guard: projectMcpGuard(project, effectiveMcp) }), host: pluginMcpHost } : undefined,
+        Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginMcpHost.extension(effectiveMcp, { guard: projectMcpGuard(project, effectiveMcp), toolHooks, toolNames: mcpTools }), host: pluginMcpHost } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
+        { hooks: toolHooks, mcpTools },
       );
     }),
     activeToolNames: (project, mode, session) => {
@@ -1329,8 +1340,7 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list())
       if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
   }));
-  // Plugins' hooks: what they hear about in a project, and the one change one
-  // can make, to an image's request before it is generated.
+  // Plugins' hooks: notifications, tool gates and image changes.
   const projectAt = (folder: string) => projects.list().find((project) => project.workspacePath === folder);
   const pluginHooks = new PluginHooks({
     resolve: (folder) => pluginServices.resolve(folder),
@@ -4493,7 +4503,7 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const provider = (await conversations.model(project, conversation))?.provider;
       if (isAgentRuntimeId(provider)) {
-        const text = nativeAgentInstructions(appendSystemPromptForProject({ ...project, userInstructions: await agentInstructions.get() }).join("\n\n"));
+        const text = nativeAgentInstructions(appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"));
         return { kind: "coding-agent", runtime: provider, text };
       }
       const instructions = conversationInstructions((await conversations.view(project, conversation)).buildSessionContext().messages);

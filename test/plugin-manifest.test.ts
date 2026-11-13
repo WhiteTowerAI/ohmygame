@@ -43,6 +43,15 @@ import {
   pluginSchemaJson,
 } from "../scripts/plugin-schema.js";
 
+it("accepts bounded static instructions and tool hooks, refusing dynamic instructions", () => {
+  const manifest = { id: "acme/maker", version: "1.0.0", displayName: "Maker", description: "Makes games", engines: { "ohmygame-api": "^2.5.0" }, contributes: { instructions: "Keep names." } };
+  expect(validatePluginManifest(manifest).ok).toBe(true);
+  for (const instructions of [" ", "x".repeat(8001), { file: "instructions.md" }])
+    expect(validatePluginManifest({ ...manifest, contributes: { instructions } }).ok).toBe(false);
+  expect(validatePluginManifest({ ...manifest, contributes: { instructions: "x".repeat(8000) } }).ok).toBe(true);
+  expect(validatePluginManifest({ ...manifest, entrypoints: { native: "./index.mjs" }, capabilities: { native: true }, contributes: { hooks: ["tool.beforeCall", "tool.afterCall"] } }).ok).toBe(true);
+});
+
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
 const BUNDLED = path.join(import.meta.dirname, "../plugins");
 

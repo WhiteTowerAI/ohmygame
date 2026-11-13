@@ -1,3 +1,4 @@
+import { notifyToolResult, toolHookResult, type HostedToolHooks } from "./tool-hooks.js";
 import { createRequire } from "node:module";
 import { shutDownExtensions } from "./session-shutdown.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -67,7 +68,7 @@ export class PluginMcpHost {
   #closed = false;
   async extension(
     config: EffectiveMcpConfig,
-    { publishStatus = true, guard }: { publishStatus?: boolean; guard?: McpGuard } = {},
+    { publishStatus = true, guard, toolHooks, toolNames }: { publishStatus?: boolean; guard?: McpGuard; toolHooks?: HostedToolHooks; toolNames?: Set<string> } = {},
   ): Promise<ExtensionFactory> {
     const factory = (await adapter()).createMcpAdapter({
       config: {
@@ -96,30 +97,50 @@ export class PluginMcpHost {
       });
       // Every tool the adapter registers, its `mcp` proxy and direct tools, asks the guard first,
       // so nothing starts a server once its plugin changed.
-      const tools = new Set<string>();
+      const tools = toolNames ?? new Set<string>();
       if (guard) {
         pi.on("tool_call", async (event) => {
           if (!tools.has(event.toolName)) return;
-          const reason = await guard();
-          return reason ? { block: true, reason } : undefined;
+          try {
+            const reason = await guard();
+            return reason ? { block: true, reason } : undefined;
+          } catch (cause) {
+            return { block: true, reason: cause instanceof Error ? cause.message : String(cause) };
+          }
         });
-        // Each call the adapter makes asks too, including those a script makes
-        // within one tool call; abstaining leaves the decision to the adapter.
-        subscriptions.push(pi.events.on(MCP_TOOL_APPROVAL_REQUEST_EVENT, (request: unknown) => {
-          (request as { claim(handler: () => Promise<string>): boolean }).claim(async () => (await guard()) ? "deny" : "abstain");
+      }
+      if (guard || toolHooks) {
+        subscriptions.push(pi.events.on(MCP_TOOL_APPROVAL_REQUEST_EVENT, (value: unknown) => {
+          const request = value as {
+            requestId: string; serverName: string; originalToolName: string;
+            args: Record<string, unknown>; signal?: AbortSignal;
+            claim(handler: () => Promise<string>): boolean;
+          };
+          request.claim(async () => {
+            const reason = await guard?.();
+            if (reason) throw new Error(reason);
+            await toolHooks?.before({ callId: request.requestId, tool: request.originalToolName,
+              server: request.serverName, args: structuredClone(request.args), source: "mcp" }, request.signal);
+            request.signal?.throwIfAborted();
+            const changed = await guard?.();
+            if (changed) throw new Error(changed);
+            // Preserve the adapter's own approval policy as an additional gate.
+            return "abstain";
+          });
         }));
       }
-      const scoped = guard
-        ? new Proxy(pi, {
-            get: (target, key, receiver) =>
-              key === "registerTool"
-                ? (tool: ToolDefinition) => {
-                    tools.add(tool.name);
-                    target.registerTool(tool);
-                  }
-                : Reflect.get(target, key, receiver),
-          })
-        : pi;
+      if (toolHooks) subscriptions.push(pi.events.on("pi-mcp-adapter:tool-result", (value: unknown) => {
+        const event = value as { callId: string; serverName: string; originalToolName: string;
+          args: Record<string, unknown>; result?: { content?: unknown; contents?: Array<{ text?: string }> }; isError: boolean };
+        const content = event.result?.content ?? event.result?.contents?.map((item) => ({ type: "text", text: item.text }));
+        notifyToolResult(toolHooks, toolHookResult({ callId: event.callId, tool: event.originalToolName,
+          server: event.serverName, args: structuredClone(event.args), source: "mcp" }, event.isError, content));
+      }));
+      const scoped = new Proxy(pi, {
+        get: (target, key, receiver) => key === "registerTool"
+          ? (tool: ToolDefinition) => { tools.add(tool.name); target.registerTool(tool); }
+          : Reflect.get(target, key, receiver),
+      });
       try {
         await factory(scoped);
       } catch (cause) {
@@ -165,6 +186,7 @@ export class PluginMcpHost {
     config: EffectiveMcpConfig,
     agentDir: string,
     guard?: McpGuard,
+    toolHooks?: HostedToolHooks,
   ): Promise<{ tool: ToolDefinition; close: () => Promise<void> }> {
     if (this.#closed) throw new Error("MCP host is closed");
     const settingsManager = SettingsManager.inMemory({ packages: [] });
@@ -177,7 +199,7 @@ export class PluginMcpHost {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      extensionFactories: [{ name: "plugin-mcp", factory: await this.extension(config, { guard }) }],
+      extensionFactories: [{ name: "plugin-mcp", factory: await this.extension(config, { guard, toolHooks }) }],
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({

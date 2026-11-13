@@ -604,6 +604,12 @@
           "minLength": 3,
           "maxLength": 500
         },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "pattern": "\\S"
+        },
         "tools": {
           "type": "array",
           "items": {
@@ -2275,6 +2281,14 @@
               {
                 "type": "string",
                 "const": "image.beforeGenerate"
+              },
+              {
+                "type": "string",
+                "const": "tool.beforeCall"
+              },
+              {
+                "type": "string",
+                "const": "tool.afterCall"
               }
             ]
           },

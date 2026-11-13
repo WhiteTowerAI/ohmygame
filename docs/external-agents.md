@@ -61,10 +61,12 @@ Not in scope, and why:
    configuration. The `ohmygame-mcp` launcher speaks stdio to the client and
    HTTP to the daemon.
 
-4. **Off by default, no extra approvals.** Turning the feature on and
-   adding the server to a client is the person's consent. Each client already asks before
-   running MCP tools under its own permission settings, and OhMyGame's own
-   agent runs these tools without a prompt, so OhMyGame adds no approval step.
+4. **Off by default.** Turning the feature on and adding the server to a
+   client is the person's consent. Each client applies its own tool permissions.
+   Active project plugins may additionally gate tools with `tool.beforeCall`.
+   A denial or hook failure blocks the call; `ask` is refused because an
+   external call has no active OhMyGame conversation for approval. The agent
+   receives an explanation. Completed calls emit read-only `tool.afterCall`.
 
 5. **Clients are configured with their own commands.** Settings shows
    `claude mcp add` and `codex mcp add` rather than a configuration file

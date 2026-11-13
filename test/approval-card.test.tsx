@@ -220,3 +220,14 @@ it("labels answered requests, including conversation grants stored before", () =
     "Allowed for this conversation: git push origin main",
   );
 });
+
+it("shows the plugin, exact tool arguments and one-call choices for a plugin gate", async () => {
+  const decide = vi.fn(async () => true);
+  const input = '{"action":"click","x":120,"y":80,"text":"<literal>"}';
+  await act(async () => root.render(<ApprovalCard request={{ ...request, request: { kind: "tool", tool: "desktop/click", title: "acme/guard: desktop/click", reason: "Control the desktop", input } }} agentName="OhMyGame" waiting={0} onDecide={decide} />));
+  expect(container.textContent).toContain("acme/guard: desktop/click");
+  expect(container.querySelector("pre")?.textContent).toBe(input);
+  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Allow", "Deny"]);
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  expect(decide).toHaveBeenCalledWith("allow");
+});
