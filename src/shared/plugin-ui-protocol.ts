@@ -5,6 +5,7 @@
 // on that port, so only that frame can make them, and each is checked against
 // the plugin's capabilities before it runs.
 import { THEME_TOKENS } from "./plugin-manifest.js";
+import { isBrowserUrl } from "./browser.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
 
@@ -77,6 +78,7 @@ export const PLUGIN_UI_METHODS = [
   "history.list",
   "usage.get",
   "net.fetch",
+  "browser.open",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -281,6 +283,9 @@ export function readPluginUiRequest(
         || !Object.entries(p.headers).every(([name, value]) => /^[A-Za-z0-9-]{1,100}$/.test(name) && typeof value === "string" && value.length <= 4000 && !/[\r\n]/.test(value))))
         return fail("net.fetch's headers are at most 30 names with text values");
       if (p.body !== undefined && typeof p.body !== "string") return fail("net.fetch's body is text");
+      break;
+    case "browser.open":
+      if (typeof p.url !== "string" || !isBrowserUrl(p.url)) return fail("browser.open needs an http: or https: address of at most 4,000 characters, without a user name");
       break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };

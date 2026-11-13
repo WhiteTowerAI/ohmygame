@@ -785,6 +785,37 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+## Browser panel
+
+In the desktop app, every project offers **Browser** in a panel area's **+**
+menu. It starts closed. The panel has its own tabs, back/forward and reload
+controls, an address/search box, and an action to open the current page in the
+system browser. Bare host names open over HTTPS; localhost opens over HTTP;
+other text searches with the selected engine (Bing initially).
+
+New tabs show editable shared shortcuts, shortcuts from active plugins and
+this project's most visited pages. The search engine and up to 24 personal
+shortcuts are shared across projects. Each project keeps up to 20 tabs and the
+200 most recently visited addresses. Closing or moving the panel keeps tabs
+alive; leaving the project closes their views, and reopening restores their
+addresses and selected tab. Navigation back/forward stacks are not persisted.
+A page-driven address longer than 4,000 characters returns as a blank tab on
+reopen; other tabs and visits continue to save.
+
+`src/desktop/browser-views.ts` owns sandboxed `WebContentsView` instances.
+They share `persist:ohmygame-browser`, separate from the app and game preview,
+so website sign-ins persist across projects and restarts. Hidden tabs stay
+muted. Pages have no Node access or app preload; camera, microphone, location
+and other permissions outside clipboard writes, fullscreen and pointer lock
+are refused. HTTP(S) links open in tabs, with sized sign-in popups retaining
+their opener. The panel is unavailable in the web app.
+
+`src/daemon/browser-store.ts` keeps version-1 `browser-settings.json` in app
+data and version-1 `browser.json` beside each project's records, never inside
+the game workspace. Unreadable or newer files are left untouched and writes
+are refused. The renderer is `src/renderer/browser-panel.tsx`; plugin
+[shortcuts and opening requests](plugins.md#browser) use the same panel.
+
 ## Workspace panels
 
 Below the top bar a project is a set of panels in four areas: left, middle,

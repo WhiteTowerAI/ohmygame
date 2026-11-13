@@ -1,3 +1,4 @@
+import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS } from "./audio.js";
@@ -418,6 +419,16 @@ const AssetSource = Type.Object(
     search: CamelId,
     fetch: CamelId,
     timeoutSeconds: Type.Optional(TimeoutSeconds),
+  },
+  { additionalProperties: false },
+);
+
+/** A site on the Browser panel's new-tab page, under the plugin's name (API 2.5.0). */
+const BrowserShortcut = Type.Object(
+  {
+    id: Slug,
+    title: Text(60),
+    url: HttpsUrl,
   },
   { additionalProperties: false },
 );
@@ -1049,6 +1060,7 @@ export const PluginManifestV2Schema = Type.Object(
           canvasNodes: list(CanvasNode),
           canvasPresets: list(CanvasPreset),
           assetSources: list(AssetSource),
+          browserShortcuts: list(BrowserShortcut),
         },
         { additionalProperties: false },
       ),
@@ -1235,6 +1247,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "canvasNodes",
     "canvasPresets",
     "assetSources",
+    "browserShortcuts",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -1243,6 +1256,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       seen.add(item.id);
     });
   }
+  contributes.browserShortcuts?.forEach((shortcut, index) => {
+    if (!isBrowserUrl(shortcut.url)) issue(`/contributes/browserShortcuts/${index}/url`, "must be a web address without credentials");
+  });
   const toolNames = new Set<string>();
   contributes.tools?.forEach((tool, index) => {
     if (toolNames.has(tool.name))

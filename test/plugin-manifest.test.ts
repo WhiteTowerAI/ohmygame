@@ -384,6 +384,15 @@ describe("plugin manifest", () => {
     })).toContainEqual(expect.stringContaining("native entrypoint"));
   });
 
+  it("accepts browser shortcuts with unique ids and valid HTTPS addresses", () => {
+    const check = (browserShortcuts: object[]) => messages({ ...minimal, contributes: { browserShortcuts } });
+    const shortcut = { id: "docs", title: "%docs%", url: "https://docs.example.com/" };
+    expect(check([shortcut])).toEqual([]);
+    expect(check([shortcut, shortcut])).toEqual(["/contributes/browserShortcuts/1/id duplicate id docs"]);
+    for (const url of ["http://example.com", "https://user:secret@example.com", "https://[", "javascript:void(0)"])
+      expect(check([{ ...shortcut, url }])).not.toEqual([]);
+  });
+
   it("adds preview devices by size alone, within game_use's limits", () => {
     const devices = (previewDevices: object[]) => messages({ ...minimal, contributes: { previewDevices } });
     expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);

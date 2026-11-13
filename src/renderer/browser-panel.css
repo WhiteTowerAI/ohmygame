@@ -1,0 +1,331 @@
+/* The Browser panel: tabs, the address row, and the page or new-tab page under them. */
+.browser-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-stage);
+  container-type: inline-size;
+}
+
+.browser-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.browser-tab {
+  display: flex;
+  flex: 0 1 180px;
+  align-items: center;
+  min-width: 72px;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+}
+
+.browser-tab:hover {
+  background: var(--color-hover);
+}
+
+.browser-tab.is-active {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.browser-tab-select {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: default;
+}
+
+.browser-tab-select > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-select > img,
+.browser-tab-select > svg {
+  flex: none;
+}
+
+.browser-tab-close {
+  display: grid;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: 3px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: inherit;
+  opacity: 0;
+}
+
+.browser-tab:hover .browser-tab-close,
+.browser-tab.is-active .browser-tab-close,
+.browser-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.browser-tab-close:hover {
+  background: var(--color-border-strong);
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+}
+
+.browser-address {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  outline: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.browser-address:focus {
+  border-color: var(--color-border-strong);
+  background: var(--color-app);
+}
+
+.browser-note {
+  margin: 0 var(--space-2) var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+.browser-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.browser-view {
+  position: absolute;
+  inset: 0;
+}
+
+.browser-new-tab,
+.browser-error,
+.browser-loading {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--color-stage);
+}
+
+.browser-loading {
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+}
+
+.browser-new-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-6) max(var(--space-4), calc((100% - 720px) / 2));
+}
+
+.browser-new-tab-section > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  margin-bottom: var(--space-2);
+}
+
+.browser-new-tab-section h2 {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.browser-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser-shortcuts > li {
+  position: relative;
+}
+
+.browser-shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+
+.browser-shortcut:hover {
+  background: var(--color-hover);
+}
+
+.browser-shortcut-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.browser-shortcut.is-add .browser-shortcut-mark {
+  background: none;
+}
+
+.browser-shortcut-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-shortcut-remove {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.browser-shortcut-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto auto;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.browser-frequent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser-frequent button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.browser-frequent button:hover {
+  background: var(--color-hover);
+}
+
+.browser-frequent span,
+.browser-frequent small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-frequent small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.browser-new-tab-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.browser-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.browser-error strong {
+  color: var(--color-text);
+}
+
+.browser-error p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.browser-error code {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 420px) {
+  .browser-shortcut-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .browser-shortcut-form input {
+    grid-column: 1 / -1;
+  }
+}

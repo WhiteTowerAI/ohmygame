@@ -13,7 +13,7 @@ const STORAGE_KEY = "ohmygame-workspace-layout";
 const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
-export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas" | "plugin";
+export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas" | "plugin" | "browser";
 /** What a built-in panel is called, on its tab and wherever it says something about itself. */
 export function panelTitle(panel: WorkspacePanel): string {
   return panel === "code" || panel === "assets" ? t(`workspace.tab.${panel}`) : t(`panels.${panel}`);
@@ -44,8 +44,17 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
  * have one (`gamePanelAddable`).
  */
 export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0], withGame = false): WorkspacePanel[] {
-  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project) || (withGame && gamePanelAddable(project)));
+  const panels = TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project) || (withGame && gamePanelAddable(project)));
+  return browserAvailable() ? [...panels, "browser"] : panels;
 }
+
+/** The Browser panel shows pages in native views, which only the desktop app has. */
+function browserAvailable(): boolean {
+  return typeof window !== "undefined" && !!window.ohMyGameDesktop?.browser;
+}
+
+/** Panels every project offers but none opens until the person does, from a + menu or the agent. */
+const OPENED_ON_REQUEST: ReadonlySet<PanelId> = new Set<PanelId>(["browser"]);
 
 /**
  * Whether the person can add the Game panel to a project that doesn't offer
@@ -73,7 +82,8 @@ const area = (panels: PanelId[], size: number): AreaState => ({ panels, active: 
  * code. Art and Code bring the canvas or the code forward. Plugin panels
  * open in the areas their plugins name.
  */
-export function presetLayout(preset: Preset, offered: readonly PanelId[], homes?: PanelHomes): Layout {
+export function presetLayout(preset: Preset, allOffered: readonly PanelId[], homes?: PanelHomes): Layout {
+  const offered = allOffered.filter((panel) => !OPENED_ON_REQUEST.has(panel));
   let middle = offered.filter((panel) => homeOf(panel, homes) === "center");
   // A project with nothing to play opens on its code, unless it is a canvas.
   const playable = middle.some((panel) => panel === "game" || panel === "story");
@@ -161,7 +171,7 @@ export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallb
   // New panels follow the default's order.
   const order = new Set([...AREAS.flatMap((id) => fallback[id].panels as PanelId[]), ...offered]);
   for (const panel of order) {
-    if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel)) continue;
+    if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel) || OPENED_ON_REQUEST.has(panel)) continue;
     const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? homeOf(panel);
     next[home] = { ...next[home], panels: [...next[home].panels, panel] };
   }
