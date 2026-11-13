@@ -793,6 +793,8 @@ controls, an address/search box, and an action to open the current page in the
 system browser. Bare host names open over HTTPS; localhost opens over HTTP;
 other text searches with the selected engine (Bing initially).
 
+![Browser panel showing a web page](assets/browser-panel.png)
+
 New tabs show editable shared shortcuts, shortcuts from active plugins and
 this project's most visited pages. The search engine and up to 24 personal
 shortcuts are shared across projects. Each project keeps up to 20 tabs and the
@@ -801,6 +803,8 @@ alive; leaving the project closes their views, and reopening restores their
 addresses and selected tab. Navigation back/forward stacks are not persisted.
 A page-driven address longer than 4,000 characters returns as a blank tab on
 reopen; other tabs and visits continue to save.
+
+![New tab with shortcuts and this project's visited pages](assets/browser-new-tab.png)
 
 `src/desktop/browser-views.ts` owns sandboxed `WebContentsView` instances.
 They share `persist:ohmygame-browser`, separate from the app and game preview,
