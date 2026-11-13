@@ -502,6 +502,9 @@ describe("pane and preview boundaries", () => {
     const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     updateRuntimeConnection(ready(1));
     const open = vi.spyOn(window, "open").mockReturnValue(null);
+    // The desktop app's openExternal takes only sign-in pages; the game goes through a new window.
+    const openExternal = vi.fn(async () => { throw new Error("Invalid OAuth authorization URL"); });
+    Object.assign(window.ohMyGameDesktop!, { openExternal });
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
     const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
     await act(async () => root.render(createElement(CodingWorkspace, props)));
@@ -526,6 +529,7 @@ describe("pane and preview boundaries", () => {
     expect(page.searchParams.get("__ohmygame_view")).toBe("external");
     expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
     expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
+    expect(openExternal).not.toHaveBeenCalled();
     await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);
@@ -548,6 +552,13 @@ describe("pane and preview boundaries", () => {
     document.body.append(panel);
     const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {} };
     await act(async () => root.render(createElement(CodingWorkspace, { ...props, panels: { nodes, visible: new Set(["preview", "code"] as const), onShow: () => {} } })));
+    await act(async () => (document.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Preview logs"))!.click());
+    // The desktop game steps aside for the logs, and the same menu item closes them.
+    expect(document.querySelector(".preview-logs")?.hasAttribute("data-native-preview-overlay")).toBe(true);
+    await act(async () => (document.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Close preview logs"))!.click());
+    expect(document.querySelector(".preview-logs")).toBeNull();
     await act(async () => (document.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Preview logs"))!.click());
     // Only the Code panel is on screen now.

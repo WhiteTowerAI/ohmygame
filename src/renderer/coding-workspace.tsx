@@ -434,7 +434,8 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
-          onLogs={() => setLogsOpen(true)}
+          logsOpen={logsOpen}
+          onLogs={() => setLogsOpen((open) => !open)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
           onRestart={() => onRestart()}
@@ -573,6 +574,7 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
+  logsOpen,
   onLogs,
   onNavigate,
   onRefresh,
@@ -602,6 +604,7 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
+  logsOpen: boolean;
   onLogs: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
@@ -630,7 +633,7 @@ function PreviewControls({
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
         // The project's plugins' entries for the game, after the app's.
         ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
@@ -641,12 +644,11 @@ function PreviewControls({
 /**
  * The page in the person's browser, as a client of its own: sharing the
  * editor's id would take over the editor's reload stream and element picking.
+ * The desktop app sends a new window's web page to the browser; its
+ * openExternal is for sign-in pages and refuses the game's local address.
  */
 function openPreviewInBrowser(url: string): void {
-  const page = isolatedPreviewUrl(url, "external");
-  const external = window.ohMyGameDesktop?.openExternal;
-  if (external) void external(page).catch(() => undefined);
-  else window.open(page, "_blank", "noopener,noreferrer");
+  window.open(isolatedPreviewUrl(url, "external"), "_blank", "noopener,noreferrer");
 }
 
 function PreviewLocation({
@@ -1026,8 +1028,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           ref={(element) => { frame.current = element; }}
           key={`${url}:${reload}`} className="preview-frame" src={url}
           title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
-          sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-          allow="gamepad"
+          sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+          allow="gamepad; clipboard-write"
           style={filter ? { filter: `url(#${filterId})` } : undefined}
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}
@@ -1964,7 +1966,8 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
 
 function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: () => void }) {
   const preview = project?.preview;
-  return <aside className="preview-logs" aria-label={t("workspace.logs")}>
+  // The desktop game is a native view above the page, so it steps aside for the logs.
+  return <aside className="preview-logs" aria-label={t("workspace.logs")} data-native-preview-overlay="">
     <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size={14} /></button></header>
     <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}
