@@ -1,3 +1,5 @@
+import { Window as DOMWindow, type HTMLInputElement as TestInput } from "happy-dom";
+import { FOCUS_TARGET_SCRIPT } from "../src/desktop/page-input.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaytestSnapshot } from "../src/shared/playtest.js";
 
@@ -459,4 +461,18 @@ describe("playtest validation", () => {
       likelyBlank: true,
     });
   });
+});
+
+
+it.each(["disabled", "readonly"])("refuses typing into a %s input instead of typing into the previous field", (attribute) => {
+  const window = new DOMWindow();
+  try {
+    window.document.body.innerHTML = `<input id="previous"><input id="target" ${attribute}>`;
+    const target = window.document.querySelector<TestInput>("#target")!;
+    target.getBoundingClientRect = () => new window.DOMRect(0, 0, 100, 20);
+    window.document.querySelector<TestInput>("#previous")!.focus();
+    const result = window.eval(`(${FOCUS_TARGET_SCRIPT})({selector: "#target"})`);
+    expect(result).toBe(false);
+    expect(window.document.activeElement?.id).toBe("previous");
+  } finally { window.happyDOM.abort(); }
 });

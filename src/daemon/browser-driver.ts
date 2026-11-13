@@ -106,6 +106,8 @@ export class ProcessBrowserDriver implements BrowserDriver {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    for (const id of this.#pending.keys())
+      this.#send({ channel: "ohmygame:browser-use-cancel", id });
     this.ipc.off("message", this.#onMessage);
     this.ipc.off("disconnect", this.#onDisconnect);
     this.#rejectAll(new Error("Browser use driver closed"));

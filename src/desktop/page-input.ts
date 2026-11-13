@@ -119,7 +119,9 @@ export const TARGET_POINT_SCRIPT = `(target) => { ${TARGET_HELPERS}
 export const FOCUS_TARGET_SCRIPT = `(target) => { ${TARGET_HELPERS}
   const element = findTarget(target);
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement || element?.isContentEditable)) return false;
+  if (element.matches(":disabled") || element.readOnly || !isVisible(element)) return false;
   element.focus();
+  if (element.getRootNode().activeElement !== element) return false;
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) element.select();
   return true;
 }`;

@@ -93,3 +93,13 @@ it("correlates browser IPC independently and cancels the matching request", asyn
   driver.close();
   expect(ipc.listenerCount("message")).toBe(0);
 });
+
+it("cancels its pending desktop browser operations when the client closes", async () => {
+  const sent: Array<{ channel: string; id: string }> = [];
+  const ipc = Object.assign(new EventEmitter(), { connected: true, send(message: { channel: string; id: string }) { sent.push(message); return true; } });
+  const driver = new ProcessBrowserDriver(ipc);
+  const pending = driver.request({ projectId: "p1", operation: "act", tabId: "a", actions: [{ type: "wait", milliseconds: 5_000 }] });
+  driver.close();
+  await expect(pending).rejects.toThrow("closed");
+  expect(sent.at(-1)).toEqual({ channel: "ohmygame:browser-use-cancel", id: sent[0]!.id });
+});

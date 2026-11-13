@@ -513,3 +513,21 @@ it("releases a held key when the agent cancels", async () => {
   expect(send).toHaveBeenCalledWith("Input.dispatchKeyEvent", expect.objectContaining({ type: "keyUp" }));
   driver.close();
 });
+
+it("stops a batch after switching away and back during a wait", async () => {
+  const { views, editor } = create();
+  views.attach("p1", "panel", editor, layout, saved, labels);
+  views.ready("p1", "panel");
+  const driver = new ElectronBrowserDriver(views, () => {});
+  const pending = driver.request({ projectId: "p1", operation: "act", tabId: "a", actions: [
+    { type: "wait", milliseconds: 100 },
+    { type: "scroll", x: 100, y: 100, deltaY: 200 },
+  ] });
+  const assertion = expect(pending).rejects.toThrow("switched");
+  await vi.waitFor(() => expect(electron.views[0]!.webContents.debugger.attach).toHaveBeenCalled());
+  views.select("p1", "b");
+  views.select("p1", "a");
+  await assertion;
+  expect(electron.views[0]!.webContents.debugger.sendCommand).not.toHaveBeenCalled();
+  driver.close();
+});

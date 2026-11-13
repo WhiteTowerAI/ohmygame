@@ -75,6 +75,7 @@ export class ElectronBrowserDriver implements BrowserDriver {
       if (input.operation === "navigate")
         this.views.navigate(input.projectId, tabId, input.url!);
       const contents = this.views.page(input.projectId, tabId);
+      const selectionRevision = this.views.selectionRevision(input.projectId);
       await this.#wait(
         () => this.views.pageVisible(input.projectId, tabId!),
         cancellation,
@@ -91,6 +92,7 @@ export class ElectronBrowserDriver implements BrowserDriver {
         cancellation.throwIfAborted();
         if (
           contents.isDestroyed() ||
+          this.views.selectionRevision(input.projectId) !== selectionRevision ||
           !this.views.pageVisible(input.projectId, tabId!)
         )
           throw new Error(
