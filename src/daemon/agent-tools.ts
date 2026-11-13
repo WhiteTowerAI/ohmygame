@@ -749,7 +749,7 @@ export function createAgentTools(
     label: "Check Project",
     description: [
       "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
-      "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
+      "Run after graph, Node, shared runtime or referenced-asset changes. Fix introduced issues; report unrelated ones. Before publishing, use mode \"publish\" and resolve blockers: every non-navigation Signal must connect and every source must exist.",
     ].join("\n"),
     parameters: Type.Object({
       mode: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("publish")], { description: "Validation strictness; defaults to draft" })),
@@ -770,7 +770,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "canvas_check",
     label: "Check Canvas",
-    description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after editing canvas files and fix every reported issue. This tool only reads files.",
+    description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after canvas edits; fix introduced issues and report unrelated ones. This tool only reads files.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();

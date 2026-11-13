@@ -11,7 +11,7 @@ Use this skill when the project wants direct control over a Three.js scene, came
 
 - Keep rules, AI, progression, quests, timers, and save state outside Three.js objects.
 - Treat the scene graph as a rendering adapter over game state.
-- Isolate renderer setup, resize, camera behavior, loading, object lifecycle, materials, physics, UI, and diagnostics.
+- Separate systems where ownership or lifecycle requires it; do not create a module for every scene concern.
 - Make the camera mode explicit: orbit, follow, chase, rail, first-person, or authored cuts.
 - Use GLB or glTF 2.0 for shipped 3D assets.
 - Use a proven physics library such as Rapier when meaningful collision response is required.
@@ -33,4 +33,4 @@ Use this skill when the project wants direct control over a Three.js scene, came
 
 ## Verification
 
-Confirm the canvas renders nonblank pixels, the camera frames the intended play space, the affected interactions work, and resize does not break framing or UI. Use `../web-3d-asset-pipeline/SKILL.md` for asset shipping and `../game-playtest/SKILL.md` for browser QA.
+Check affected rendering, framing or interactions; test resize when sizing changes. Use `../web-3d-asset-pipeline/SKILL.md` for asset shipping and `../game-playtest/SKILL.md` to select browser checks.

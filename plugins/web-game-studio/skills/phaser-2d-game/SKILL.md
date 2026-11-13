@@ -9,8 +9,7 @@ Use Phaser for new 2D games that benefit from sprites, tilemaps, cameras, timing
 
 ## Architecture
 
-- Keep game rules, progression, inventory, combat, objectives, and saveable state outside Phaser scenes.
-- Let scenes adapt simulation state into sprites, animations, cameras, particles, audio, and input events.
+- Keep persistent rules and state independent of scene teardown; extract shared transitions when multiple entry points need them. Small scene-local behavior can stay in the scene.
 - Use a small scene set: boot or preload, menu when needed, gameplay, and optional overlay or debug scenes.
 - Treat sprites, tweens, emitters, and camera rigs as disposable view state.
 - Use stable asset keys and centralize loading.
@@ -31,4 +30,4 @@ Use Phaser for new 2D games that benefit from sprites, tilemaps, cameras, timing
 
 ## Verification
 
-Build the project, boot the first actionable scene, exercise the affected player actions, and check scene transitions or restart paths. Use `../game-playtest/SKILL.md` for broader browser or visual verification.
+Exercise changed actions; check transitions or restart when their state or lifecycle is affected. Use `../game-playtest/SKILL.md` to select build, browser or visual checks.

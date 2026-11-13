@@ -11,7 +11,7 @@ Read `project.godot` first. Keep the project's Godot version, renderer, input ma
 
 Start with `godot_status`: it says which Godot executable the project uses, its version, and whether the web export templates are installed. If Godot is missing, ask the user to install Godot 4.3 or later, or to set its executable in the Godot plugin's settings.
 
-After editing scripts or scenes, call `run_headless` and fix every error it reports. Pass `scene` to run one scene, and `frames` for longer checks.
+After script or scene edits, use `run_headless` on the affected `scene`; fix introduced errors and report unrelated ones. Increase `frames` only for a timing or lifecycle check.
 
 The Godot MCP server uses the same Godot and takes the project's absolute path. Use it to create scenes and nodes, load sprites, and run the game with `run_project`, `get_debug_output`, and `stop_project`; stop what you started. It cannot capture the viewport or send gameplay input, so name the visual checks the user still needs.
 

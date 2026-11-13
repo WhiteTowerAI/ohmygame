@@ -17,4 +17,4 @@ For older Editors, use the project's existing batch-mode build and test scripts 
 
 ## Change and verify
 
-Change scenes, prefabs, and imported assets through Editor commands and save them. Edit C# with file tools and read compile diagnostics. Use the test, play, log, capture, and build commands listed by `--help`. Play Mode can pause when the Editor loses focus, so confirm that frames advance rather than trusting `isPlaying`. Open captured screenshots when capture is available.
+Change scenes, prefabs, and imported assets through Editor commands and save them. Edit C# with file tools and read compile diagnostics. Select relevant test, play, log, capture or build commands from `--help`. Play Mode can pause when the Editor loses focus, so confirm that frames advance rather than trusting `isPlaying`. Open captured screenshots when capture is available.

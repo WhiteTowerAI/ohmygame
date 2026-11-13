@@ -13,15 +13,13 @@ Start with the target platform, distribution, camera, primary actions, asset nee
 
 ## Stable Boundaries
 
-- Route equivalent player actions through shared domain transitions. Keep entity identity, quantities, timers and progression independent of UI wording, camera changes and view lifetimes. Define pause, resume, restart and reconnect behavior.
-- Simulation owns rules, entities, progression, timers, and saveable state.
-- Presentation adapts that state into scenes, cameras, animation, audio, particles, and UI.
+- Keep rules, entity identity, timers, progression and saves independent of UI wording, cameras and view lifetimes. Share transitions across input paths; define relevant pause, resume, restart and reconnect behavior. Presentation adapts this state into the game's scenes, audio and UI.
 - Map supported input devices to named game actions in one place. Gate gameplay input while menus and dialogs are active.
 - Use stable asset keys and a deliberate loading/import pipeline instead of scattering file paths through gameplay logic.
 - Preserve existing saves. Store versioned, serializable state; migrate on load and refuse destructive writes when data cannot be read. Verify recovery with the actual identity and storage location. Isolate test progress from the user's session.
 - Keep diagnostics easy to disable, and clean up replaced resources, listeners, and subscriptions through the engine's lifecycle.
 
-Use these boundaries in proportion to the project. Follow framework-specific ownership rules, such as Playable Nodes state and navigation, when the project already has them.
+Use the engine's existing boundaries; add layers only when ownership or lifecycle requires them. Validate external input, saves, permissions and shared writes; trust established internal types and contracts. Add guards, retries, fallbacks or compatibility only for concrete failure modes, with explicit recovery; never hide errors with defaults.
 
 ## Progression And Economy
 

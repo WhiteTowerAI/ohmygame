@@ -17,7 +17,7 @@ Keep `game.json`, `project.config.json`, subpackages, and resource paths consist
 
 Use **WeChat DevTools**, not the WeChat chat app. Its CLI is `<install>/Contents/MacOS/cli` on macOS and `<install>/cli.bat` on Windows. On Windows the install can be on any drive: also check Start menu shortcuts and their targets (`%ProgramData%` and `%APPDATA%` under `Microsoft/Windows/Start Menu/Programs`). If none is found, ask the user for the executable's path instead of reporting it as not installed. The CLI requires the service port enabled in Settings → Security. Use `cli open --project <DIR>` and `cli preview --project <DIR>`. Mini-program automation tools cannot inspect a game canvas.
 
-Read compile and runtime logs in the simulator, then check touch, storage after relaunch, and any changed audio or networking on a device preview.
+Read simulator diagnostics; use a device preview for affected platform behavior such as touch, storage recovery, audio or networking.
 
 ## Upload
 

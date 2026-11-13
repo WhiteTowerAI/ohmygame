@@ -15,7 +15,7 @@ Check `project.config.json`, `game.json`, entry points, subpackages, and resourc
 
 ## Developer tools
 
-Import the generated directory into Douyin's game developer tool. Verify the change in its simulator and in a device preview. The mini-game CLI is `tt-minigame-ide-cli` (command `tmg`), not the mini-app CLI; read `npx -y --package=tt-minigame-ide-cli@2.1.1 tmg --help` before choosing commands.
+Import the generated directory into Douyin's game developer tool. Check changed behavior in its simulator; use a device preview for platform-specific behavior. The mini-game CLI is `tt-minigame-ide-cli` (command `tmg`), not the mini-app CLI; read `npx -y --package=tt-minigame-ide-cli@2.1.1 tmg --help` before choosing commands.
 
 ## Upload
 
