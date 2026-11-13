@@ -1,3 +1,4 @@
+import { nativeQuestions } from "./user-input.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -69,6 +70,7 @@ interface CodexTurn {
  * the person's answer.
  */
 export class CodexDriver implements NativeDriver {
+  #inputRequests = new Map<string | number, AbortController>();
   #disposed = false;
   readonly #privateKey = `private-${randomUUID()}`;
   /** The Codex permission profile the person chose for work; planning uses its read-only one. */
@@ -137,6 +139,10 @@ export class CodexDriver implements NativeDriver {
             ? { effort: this.context.reasoningLevel }
             : {}),
           model: this.context.model,
+          collaborationMode: {
+            mode: input.readOnly ? "plan" : "default",
+            settings: { model: this.context.model, reasoning_effort: this.context.reasoningLevel ?? null, developer_instructions: null },
+          },
           permissions: input.readOnly ? READ_PROFILE : this.#writeProfile,
         })
         .then(
@@ -214,6 +220,7 @@ export class CodexDriver implements NativeDriver {
    * the server stops with its last conversation.
    */
   async dispose(): Promise<void> {
+    this.#cancelInputs();
     this.#disposed = true;
     this.#turn?.identified?.();
     await this.interrupt();
@@ -245,8 +252,9 @@ export class CodexDriver implements NativeDriver {
           {
             notification: (method, params) =>
               this.#notification(method, params),
-            request: (method, params) => this.#request(method, params),
+            request: (method, params, requestId) => this.#request(method, params, requestId),
             exit: (failure) => {
+              this.#cancelInputs();
               this.#lease = undefined;
               const turn = this.#turn;
               this.#turn = undefined;
@@ -292,10 +300,17 @@ export class CodexDriver implements NativeDriver {
       // pool would drop for an unbound thread.
       this.#lease?.bind(this.#threadId);
       try {
-        const resumed = await server.request<{
+        let resumed = await server.request<{
           thread?: { id?: string };
           activePermissionProfile?: { id?: string };
         }>("thread/resume", { threadId: this.#threadId, ...settings });
+        // A live thread can return its last turn's read-only profile from resume,
+        // ignoring resume overrides. Apply the transition explicitly, then verify
+        // before delivering another prompt. Never weaken the profile check.
+        if (resumed.activePermissionProfile?.id === READ_PROFILE) {
+          await server.request("thread/settings/update", { threadId: this.#threadId, permissions: this.#writeProfile });
+          resumed = await server.request("thread/resume", { threadId: this.#threadId, ...settings });
+        }
         requireCodexPermissionProfile(resumed, this.#writeProfile);
         const id = resumed.thread?.id ?? this.#threadId;
         this.#threadId = id;
@@ -339,6 +354,10 @@ export class CodexDriver implements NativeDriver {
     const turn = this.#turn;
     if (turn?.pending) {
       turn.pending.push({ method, params });
+      return;
+    }
+    if (method === "serverRequest/resolved") {
+      this.#inputRequests.get(params.requestId as string | number)?.abort();
       return;
     }
     const nestedTurnId = record(params.turn)?.id;
@@ -420,10 +439,16 @@ export class CodexDriver implements NativeDriver {
     }
   }
 
+  #cancelInputs(): void {
+    for (const controller of this.#inputRequests.values()) controller.abort();
+    this.#inputRequests.clear();
+  }
+
   async #completeTurn(
     turn: CodexTurn,
     completed: Record<string, unknown>,
   ): Promise<void> {
+    this.#cancelInputs();
     // Image imports must reach the shared transcript before checkpoints and turn-end are recorded.
     await Promise.all(turn.images.values());
     if (this.#turn !== turn) return;
@@ -671,6 +696,7 @@ export class CodexDriver implements NativeDriver {
   async #request(
     method: string,
     params: Record<string, unknown>,
+    requestId: string | number,
   ): Promise<unknown> {
     const turn = this.#turn;
     await turn?.ready;
@@ -714,7 +740,23 @@ export class CodexDriver implements NativeDriver {
       if (turn.signal.aborted || turn.finishing || this.#turn !== turn) return refusal(method);
       return codexAnswer(method, params, decision);
     }
-    if (method === "item/tool/requestUserInput") return { answers: {} };
+    if (method === "item/tool/requestUserInput") {
+      const input = nativeQuestions(params.questions, "codex");
+      input.blocking = params.isBlocking !== false;
+      const controller = new AbortController();
+      this.#inputRequests.set(requestId, controller);
+      try {
+        const result = await turn.sink.requestUserInput(input, {
+          callId: `codex:${requestId}`, signal: AbortSignal.any([turn.signal, controller.signal]),
+          // App action confirmations use this same protocol without a trusted discriminator.
+          allowAutomatic: false,
+        });
+        if (result.cancelled || controller.signal.aborted || turn.signal.aborted || this.#turn !== turn || turn.finishing) return { answers: {} };
+        return { answers: Object.fromEntries(result.answers.map((answer) => [answer.questionId, { answers: answer.values ?? [answer.value] }])) };
+      } finally {
+        if (this.#inputRequests.get(requestId) === controller) this.#inputRequests.delete(requestId);
+      }
+    }
     if (method === "mcpServer/elicitation/request")
       return { action: "decline" };
     throw new Error(`Unsupported request ${method}`);
@@ -962,6 +1004,8 @@ function refusal(
       return { permissions: {}, scope: "turn" };
     case "item/tool/requestUserInput":
       return { answers: {} };
+    case "mcpServer/elicitation/request":
+      return { action: "decline", content: null };
     case "execCommandApproval":
     case "applyPatchApproval":
       return { decision: { denied: { rejection: reason } } };

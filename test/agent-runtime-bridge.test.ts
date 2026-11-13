@@ -220,7 +220,7 @@ console.log("opencode v2.1.0");
     tools: [echo],
     skillDirectories: [],
     instructions: "Fixture",
-    requestApproval: async (details) => {
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async (details) => {
       asked.push(details);
       return "deny";
     },

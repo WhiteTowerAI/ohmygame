@@ -7,6 +7,8 @@ import type {
 import type {
   AgentContextUsage,
   AgentUsageLimit,
+  QuestionnaireInput,
+  QuestionnaireResult,
 } from "../../shared/contracts.js";
 import type {
   AgentRuntimeId,
@@ -134,6 +136,10 @@ export interface NativeTurnSink {
   ): void;
   nativeSession(sessionId: string): void;
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
+  requestUserInput(
+    input: QuestionnaireInput,
+    options: { callId: string; signal: AbortSignal; allowAutomatic: boolean },
+  ): Promise<QuestionnaireResult>;
   requestApproval(
     details: ApprovalRequestDetails,
     options?: { callId?: string; signal?: AbortSignal },
@@ -172,6 +178,7 @@ export interface NativeSessionOptions {
   snapshotBeforeMessage?: () => Promise<string>;
   /** Text that the next message must carry, such as a notice that files were restored. */
   turnNotice?: () => Promise<string | undefined>;
+  requestUserInput: NativeTurnSink["requestUserInput"];
   requestApproval(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -515,6 +522,10 @@ export class NativeCodingSession implements CodingSession {
     } satisfies StoredNativeSession);
   }
 
+  askUserInput(input: QuestionnaireInput, options: Parameters<NativeTurnSink["requestUserInput"]>[1]): Promise<QuestionnaireResult> {
+    return this.options.requestUserInput(input, options);
+  }
+
   async approve(
     details: ApprovalRequestDetails,
     toolCallId: string,
@@ -841,6 +852,7 @@ class TurnRecorder {
         }
       },
       nativeSession: (sessionId) => this.session.recordNativeSession(sessionId),
+      requestUserInput: (input, options) => this.session.askUserInput(input, options),
       requestApproval: (details, options) =>
         this.session.approve(
           details,

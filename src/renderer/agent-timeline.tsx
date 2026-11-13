@@ -641,6 +641,10 @@ function ThinkingActivity() {
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
   const workspaceLinks = useContext(WorkspaceLinkContext);
   if (item.type === "reasoning") return null;
+  if (item.type === "userInputRequest") return <details className="questionnaire-outcome">
+    <summary>{t(item.autoAnswered ? "questionnaire.answeredAutomatically" : item.status === "completed" ? "questionnaire.answered" : "questionnaire.notAnswered")}</summary>
+    {item.questions.map((question) => <div key={question.id}><strong>{question.prompt}</strong><p>{item.answers?.find((answer) => answer.questionId === question.id)?.label ?? t("questionnaire.notAnswered")}</p></div>)}
+  </details>;
   if (item.type === "modelChange") {
     return (
       <div className="model-change-event" role="status">

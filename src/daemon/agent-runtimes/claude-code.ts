@@ -1,3 +1,4 @@
+import { nativeQuestions } from "./user-input.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -69,6 +70,7 @@ interface PendingTurn {
  * question and returns the person's answer.
  */
 export class ClaudeCodeDriver implements NativeDriver {
+  #inputRequests = new Map<string, AbortController>();
   #process?: AgentProcess;
   #starting?: Promise<AgentProcess>;
   #turn?: PendingTurn;
@@ -188,6 +190,7 @@ export class ClaudeCodeDriver implements NativeDriver {
   }
 
   async dispose(): Promise<void> {
+    this.#cancelInputs();
     this.#disposed = true;
     for (const control of this.#controls.values())
       control.reject(new Error("The agent session was closed"));
@@ -259,14 +262,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     if (this.#mode(false) === "bypassPermissions")
       args.push("--allow-dangerously-skip-permissions");
     // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
-    // AskUserQuestion would reach OhMyGame as an approval with no way to
-    // answer it. Claude asks with questionnaire while planning, and in its
-    // reply otherwise, as OhMyGame's own agent does.
-    args.push(
-      "--disallowedTools",
-      `mcp__${EXTERNAL_MCP_SERVER_NAME}`,
-      "AskUserQuestion",
-    );
+    args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
     if (context.skillDirectories.length) {
       // Skills reach Claude Code as a plugin of this session's own.
       const skills = stagedSkillsRoot(
@@ -379,6 +375,9 @@ export class ClaudeCodeDriver implements NativeDriver {
         else pending.resolve(record(response?.response) ?? {});
         return;
       }
+      case "control_cancel_request":
+        this.#inputRequests.get(String(message.request_id))?.abort();
+        return;
       case "control_request":
         void this.#answerControl(
           String(message.request_id),
@@ -531,9 +530,15 @@ export class ClaudeCodeDriver implements NativeDriver {
     }
   }
 
+  #cancelInputs(): void {
+    for (const controller of this.#inputRequests.values()) controller.abort();
+    this.#inputRequests.clear();
+  }
+
   #result(message: Record<string, unknown>): void {
     const turn = this.#turn;
     if (!turn) return;
+    this.#cancelInputs();
     this.#turn = undefined;
     const usage = turn.requestUsage ?? record(message.usage);
     if (usage) {
@@ -600,12 +605,13 @@ export class ClaudeCodeDriver implements NativeDriver {
     requestId: string,
     request: Record<string, unknown>,
   ): Promise<void> {
+    const child = this.#process;
     let response: Record<string, unknown>;
     try {
-      response = await this.#control_response(request);
+      response = await this.#control_response(request, requestId);
     } catch (cause) {
-      if (this.#process?.running)
-        this.#process.write({
+      if (child?.running && this.#process === child)
+        child.write({
           type: "control_response",
           response: {
             subtype: "error",
@@ -615,8 +621,8 @@ export class ClaudeCodeDriver implements NativeDriver {
         });
       return;
     }
-    if (this.#process?.running)
-      this.#process.write({
+    if (child?.running && this.#process === child)
+      child.write({
         type: "control_response",
         response: { subtype: "success", request_id: requestId, response },
       });
@@ -624,6 +630,7 @@ export class ClaudeCodeDriver implements NativeDriver {
 
   async #control_response(
     request: Record<string, unknown>,
+    requestId: string,
   ): Promise<Record<string, unknown>> {
     if (request.subtype === "hook_callback") {
       if (request.callback_id !== PRE_TOOL_HOOK)
@@ -648,6 +655,9 @@ export class ClaudeCodeDriver implements NativeDriver {
           },
         };
       if (turn && callId) this.#started(turn, callId);
+      if (tool === "AskUserQuestion") return {
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: "The user must answer this question." },
+      };
       // No decision: Claude Code's own permission rules apply.
       return {};
     }
@@ -675,6 +685,23 @@ export class ClaudeCodeDriver implements NativeDriver {
       const toolName = String(request.tool_name ?? "tool");
       const refusal = refusedTool(toolName, turn.readOnly);
       if (refusal) return { behavior: "deny", message: refusal };
+      if (toolName === "AskUserQuestion") {
+        const questions = nativeQuestions(input.questions, "claude");
+        const controller = new AbortController();
+        this.#inputRequests.set(requestId, controller);
+        try {
+          const result = await turn.sink.requestUserInput(questions, {
+            callId: `claude:${requestId}`, signal: AbortSignal.any([turn.signal, controller.signal]), allowAutomatic: true,
+          });
+          if (result.cancelled || controller.signal.aborted || turn.signal.aborted || this.#turn !== turn)
+            return { behavior: "deny", message: "The user skipped these questions or the request ended. No answer or permission was given." };
+          return { behavior: "allow", updatedInput: { ...input, answers: Object.fromEntries(result.answers.map((answer) => [
+            questions.questions.find((question) => question.id === answer.questionId)!.prompt, answer.values ?? answer.value,
+          ])) } };
+        } finally {
+          if (this.#inputRequests.get(requestId) === controller) this.#inputRequests.delete(requestId);
+        }
+      }
       // Planning never stops to ask: what Claude Code would ask about is not reading.
       if (turn.readOnly) return { behavior: "deny", message: PLANNING_DENIAL };
       const toolId =
@@ -719,7 +746,10 @@ export class ClaudeCodeDriver implements NativeDriver {
     signal: NodeJS.Signals | null,
     stderr: string,
   ): void {
-    if (this.#process === child) this.#process = undefined;
+    if (this.#process === child) {
+      this.#cancelInputs();
+      this.#process = undefined;
+    }
     for (const control of this.#controls.values())
       control.reject(
         cliProbeError(

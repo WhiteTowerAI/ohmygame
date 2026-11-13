@@ -43,7 +43,7 @@ import {
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
-import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -57,6 +57,7 @@ import {
   approvePlan,
   answerApproval,
   answerQuestionnaire,
+  holdQuestionnaire,
   cancelPrompt,
   cancelPlan,
   compactConversation,
@@ -954,7 +955,7 @@ export function ProjectShell({
     }
   }
 
-  async function respondToQuestionnaire(answers: Array<{ questionId: string; value: string }>, cancelled = false): Promise<boolean> {
+  async function respondToQuestionnaire(answers: QuestionnaireResponse[], cancelled = false): Promise<boolean> {
     if (!project || !conversation || !questionnaire) return false;
     try {
       await answerQuestionnaire(project.id, conversation.id, {
@@ -1503,6 +1504,11 @@ export function ProjectShell({
     {questionnaire ? (
       <QuestionnaireCard
         request={questionnaire}
+        onInteract={async () => {
+          if (!project || !conversation) return false;
+          try { await holdQuestionnaire(project.id, conversation.id, questionnaire.requestId); return true; }
+          catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); return false; }
+        }}
         onSubmit={(answers) => respondToQuestionnaire(answers)}
         onSkip={() => respondToQuestionnaire([], true)}
       />
@@ -1525,7 +1531,7 @@ export function ProjectShell({
       workspaceRevision={workspaceRevision}
       onClose={() => setUnfinishedRestore(false)}
     /> : null}
-    {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
+    {(!questionnaire || questionnaire.blocking === false) && state.plan.mode !== "awaiting_approval" ? <Composer
       key={conversation?.id}
       projectId={project?.id}
       conversationId={conversation?.id}
@@ -1672,7 +1678,7 @@ export function ProjectShell({
               projectId={projectId}
               workspacePath={project.workspacePath}
               onOpenWorkspaceFile={openWorkspaceFile}
-              waitingForInput={Boolean(questionnaire || approval)}
+              waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
               plugins={capabilities.plugins}
@@ -1737,7 +1743,7 @@ export function ProjectShell({
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
-                waitingForInput={Boolean(questionnaire || approval)}
+                waitingForInput={Boolean((questionnaire && questionnaire.blocking !== false) || approval)}
                 onRevise={revisePrompt}
                 changeControls={turnChanges}
                 workspaceRevision={workspaceRevision}

@@ -1,122 +1,136 @@
-import { ArrowLeft, ArrowRight, Check, X } from "./icons.js";
-import { useEffect, useState } from "react";
-import type { ThreadItem } from "../shared/contracts.js";
-import { InlineAnswer } from "./inline-answer.js";
+import { ArrowLeft, ArrowRight, Check } from "./icons.js";
+import { useEffect, useRef, useState } from "react";
+import type { QuestionnaireResponse, ThreadItem } from "../shared/contracts.js";
+import { Button, Input } from "./ui/index.js";
 import { t } from "./i18n.js";
 
+type Request = Extract<ThreadItem, { type: "userInputRequest" }>;
 interface QuestionnaireCardProps {
-  request: Extract<ThreadItem, { type: "userInputRequest" }>;
-  onSubmit: (answers: Array<{ questionId: string; value: string }>) => Promise<boolean>;
+  request: Request;
+  onSubmit: (answers: QuestionnaireResponse[]) => Promise<boolean>;
   onSkip: () => Promise<boolean>;
+  onInteract: () => Promise<boolean>;
+}
+interface Draft {
+  index: number;
+  choices: Record<string, string[]>;
+  text: Record<string, string>;
+  custom: Record<string, boolean>;
+}
+// Drafts belong to requests, not the visible chat. Bounded and memory-only; never credentials.
+const drafts = new Map<string, Draft>();
+const emptyDraft = (): Draft => ({ index: 0, choices: {}, text: {}, custom: {} });
+
+export function QuestionnaireCard(props: QuestionnaireCardProps) {
+  return <Questions key={props.request.id} {...props} />;
 }
 
-export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCardProps) {
-  const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [custom, setCustom] = useState(false);
+function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardProps) {
+  const [draft, setDraft] = useState(() => drafts.get(request.id) ?? emptyDraft());
   const [submitting, setSubmitting] = useState(false);
-  const question = request.questions[index];
-
+  const busy = useRef(false);
+  const hold = useRef<Promise<boolean> | undefined>(undefined);
+  const [held, setHeld] = useState(false);
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    setIndex(0);
-    setAnswers({});
-    setCustom(false);
-  }, [request.requestId]);
-
+    if (!request.autoAnswerAt || held) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [request.autoAnswerAt, held]);
+  const question = request.questions[draft.index];
   if (!question) return null;
-  const answer = answers[question.id] ?? "";
-  const selectedOption = question.options.some((option) => option.value === answer);
-  async function choose(value: string) {
-    const nextAnswers = { ...answers, [question.id]: value };
-    setAnswers(nextAnswers);
-    setCustom(false);
-    const unanswered = request.questions.findIndex((item, itemIndex) => itemIndex > index && !nextAnswers[item.id]?.trim());
-    const remaining = unanswered >= 0 ? unanswered : request.questions.findIndex((item) => !nextAnswers[item.id]?.trim());
-    if (remaining >= 0) {
-      setIndex(remaining);
-      return;
+
+  function interact(): Promise<boolean> {
+    if (request.autoAnswerAt === undefined) return Promise.resolve(true);
+    if (!hold.current) {
+      hold.current = onInteract().then((ok) => {
+        if (ok) setHeld(true);
+        else hold.current = undefined;
+        return ok;
+      });
     }
-    await submit(nextAnswers);
+    return hold.current;
   }
-
-  function move(next: number) {
-    setIndex(Math.max(0, Math.min(request.questions.length - 1, next)));
-    setCustom(false);
+  function update(next: Draft) {
+    void interact();
+    drafts.delete(request.id);
+    drafts.set(request.id, next);
+    if (drafts.size > 100) drafts.delete(drafts.keys().next().value!);
+    setDraft(next);
   }
-
-  async function submit(nextAnswers: Record<string, string>) {
-    if (submitting || !request.questions.every((item) => Boolean(nextAnswers[item.id]?.trim()))) return;
+  function values(id: string): string[] {
+    const q = request.questions.find((item) => item.id === id)!;
+    const custom = draft.custom[id] || !q.options.length;
+    const text = draft.text[id]?.trim();
+    return custom ? [...(q.multiSelect ? draft.choices[id] ?? [] : []), ...(text ? [text] : [])] : draft.choices[id] ?? [];
+  }
+  async function submit(skip = false) {
+    if (busy.current || (!skip && request.questions.some((item) => !values(item.id).length))) return;
+    busy.current = true;
     setSubmitting(true);
     try {
-      await onSubmit(request.questions.map((item) => ({ questionId: item.id, value: nextAnswers[item.id] })));
+      if (!await interact()) return;
+      const ok = skip ? await onSkip() : await onSubmit(request.questions.map((item) => ({
+        questionId: item.id, value: values(item.id).join(", "),
+        ...(item.multiSelect ? { values: values(item.id) } : {}),
+      })));
+      if (ok) drafts.delete(request.id);
     } finally {
+      busy.current = false;
       setSubmitting(false);
     }
   }
-
-  async function skip() {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      await onSkip();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
+  const selected = draft.choices[question.id] ?? [];
+  const custom = draft.custom[question.id] || !question.options.length;
+  const last = draft.index === request.questions.length - 1;
   return (
-    <section className="questionnaire-card" aria-label={t("questionnaire.label")}>
+    <section className="questionnaire-card" aria-label={t("questionnaire.label")}
+      onPointerDownCapture={() => void interact()} onKeyDownCapture={() => void interact()}>
       <header>
         <div className="questionnaire-title">
           <span className="chat-card-kind">{t("questionnaire.kind")}</span>
           <strong>{question.prompt}</strong>
         </div>
         <div className="questionnaire-navigation">
-          <button type="button" onClick={() => move(index - 1)} disabled={submitting || index === 0} aria-label={t("questionnaire.previous")}><ArrowLeft size={14} /></button>
-          <span>{t("questionnaire.position", { current: index + 1, total: request.questions.length })}</span>
-          <button type="button" onClick={() => move(index + 1)} disabled={submitting || index === request.questions.length - 1} aria-label={t("questionnaire.next")}><ArrowRight size={14} /></button>
-          <button type="button" onClick={() => void skip()} disabled={submitting} aria-label={t("questionnaire.skipAll")}><X size={15} /></button>
+          <button type="button" disabled={submitting || draft.index === 0} aria-label={t("questionnaire.previous")} onClick={() => update({ ...draft, index: draft.index - 1 })}><ArrowLeft size={14} /></button>
+          <span>{t("questionnaire.position", { current: draft.index + 1, total: request.questions.length })}</span>
+          <button type="button" disabled={submitting || last} aria-label={t("questionnaire.next")} onClick={() => update({ ...draft, index: draft.index + 1 })}><ArrowRight size={14} /></button>
         </div>
       </header>
-
+      {question.multiSelect ? <span className="questionnaire-hint">{t("questionnaire.multiple")}</span> : null}
       <div className="questionnaire-options">
-        {question.options.map((option, optionIndex) => (
-          <button
-            type="button"
-            className={answer === option.value ? "questionnaire-option-selected" : undefined}
-            disabled={submitting}
-            key={option.value}
-            onClick={() => { void choose(option.value); }}
-          >
-            <span className="questionnaire-option-number">{answer === option.value ? <Check size={13} /> : optionIndex + 1}</span>
+        {question.options.map((option) => {
+          const checked = (!custom || question.multiSelect) && selected.includes(option.value);
+          return <button type="button" key={option.value} aria-pressed={checked} disabled={submitting}
+            className={checked ? "questionnaire-option-selected" : undefined}
+            onClick={() => update({ ...draft, custom: { ...draft.custom, [question.id]: question.multiSelect ? !!draft.custom[question.id] : false }, choices: {
+              ...draft.choices, [question.id]: question.multiSelect
+                ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])
+                : [option.value],
+            } })}>
+            <span className="questionnaire-option-number">{checked ? <Check size={13} /> : null}</span>
             <span className="questionnaire-option-copy">
               <strong>{option.label}{option.recommended ? <small>{t("providers.recommended")}</small> : null}</strong>
               {option.description ? <span>{option.description}</span> : null}
             </span>
-          </button>
-        ))}
+          </button>;
+        })}
       </div>
-
-      <footer className="questionnaire-footer-row">
-        {question.allowOther ? custom ? (
-          <InlineAnswer
-            editing
-            value={selectedOption ? "" : answer}
-            disabled={submitting}
-            label={t("questionnaire.other")}
-            onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
-            onSubmit={() => void choose(answer.trim())}
-            onCancel={() => setCustom(false)}
-          />
-        ) : (
-          <InlineAnswer
-            editing={false}
-            disabled={submitting}
-            label={t("questionnaire.other")}
-            onEdit={() => { setAnswers((current) => ({ ...current, [question.id]: "" })); setCustom(true); }}
-          />
-        ) : <span />}
-        <button className="questionnaire-skip" type="button" onClick={() => void skip()} disabled={submitting}>{t("common.skip")}</button>
+      {question.allowOther ? custom ? <Input className="questionnaire-text" size="sm" aria-label={question.options.length ? t("questionnaire.other") : question.prompt}
+        placeholder={t("questionnaire.typeAnswer")} disabled={submitting} maxLength={2000}
+        value={draft.text[question.id] ?? ""}
+        onChange={(event) => update({ ...draft, text: { ...draft.text, [question.id]: event.target.value } })} />
+        : <Button variant="ghost" size="sm" className="questionnaire-other" disabled={submitting} onClick={() => update({ ...draft, custom: { ...draft.custom, [question.id]: true } })}>{t("questionnaire.other")}</Button> : null}
+      {request.autoAnswerAt && !held ? <div className="questionnaire-auto">
+        <span role="timer">{t("questionnaire.countdown", { seconds: Math.max(0, Math.ceil((request.autoAnswerAt - now) / 1000)) })}</span>
+        <Button variant="ghost" size="sm" onClick={() => void interact()}>{t("questionnaire.answerManually")}</Button>
+      </div> : null}
+      <footer>
+        <button type="button" className="questionnaire-skip" disabled={submitting} onClick={() => void submit(true)}>{t("common.skip")}</button>
+        <Button size="sm" disabled={submitting || (last ? request.questions.some((item) => !values(item.id).length) : !values(question.id).length)}
+          onClick={() => last ? void submit() : update({ ...draft, index: draft.index + 1 })}>
+          {last ? t("questionnaire.submitAll") : t("questionnaire.next")}
+        </Button>
       </footer>
     </section>
   );

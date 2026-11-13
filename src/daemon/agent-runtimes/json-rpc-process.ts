@@ -7,7 +7,7 @@ const REQUEST_TIMEOUT_MS = 60_000;
 export interface JsonRpcHandlers {
   processDirectory?: string;
   notification?: (method: string, params: Record<string, unknown>) => void;
-  request?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+  request?: (method: string, params: Record<string, unknown>, requestId: string | number) => Promise<unknown>;
   exit?: (failure: string) => void;
 }
 
@@ -118,7 +118,7 @@ export class JsonRpcProcess {
         return;
       }
       void (
-        this.handlers.request?.(message.method, params) ??
+        this.handlers.request?.(message.method, params, id as string | number) ??
         Promise.reject(
           Object.assign(new Error(`Unsupported request ${message.method}`), {
             rpcCode: -32601,

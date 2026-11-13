@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight, FileText, RefreshCw } from "./icons.js";
 import { AGENT_INSTRUCTIONS, AgentInstructionsSettings } from "./agent-instructions-settings.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
-import { listAgentRuntimes, notifyAgentModelsChanged } from "./api.js";
+import { getQuestionSettings, setQuestionSettings, listAgentRuntimes, notifyAgentModelsChanged } from "./api.js";
 import { CodingAgentDetail, CodingAgentsGroup } from "./coding-agents-settings.js";
 import { useAgentModels } from "./model-selector.js";
 import type { SettingsSection } from "./routes.js";
-import { Badge, Button, IconButton } from "./ui/index.js";
+import { Badge, Button, IconButton, Select } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { t } from "./i18n.js";
 import { BrandLogo } from "./brand-logo.js";
@@ -106,6 +106,7 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
           </IconButton>
         }
       />
+      <QuestionSettings />
       <SettingsGroup title={t("settings.agents.instructions.group")}>
         <SettingsRow
           icon={<FileText size={18} />}
@@ -164,4 +165,31 @@ function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
       </SettingsGroup>
     </>
   );
+}
+
+function QuestionSettings() {
+  const [seconds, setSeconds] = useState<number>();
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    void getQuestionSettings().then((value) => {
+      if (!disposed) { setSeconds(value.delaySeconds); setError(value.problem); }
+    }).catch((cause) => { if (!disposed) setError(String(cause)); });
+    return () => { disposed = true; };
+  }, []);
+  async function save(value: number) {
+    setSaving(true);
+    try { setSeconds((await setQuestionSettings(value)).delaySeconds); setError(undefined); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setSaving(false); }
+  }
+  return <SettingsGroup>
+    <SettingsRow title={t("questionnaire.autoTitle")} description={t("questionnaire.autoHint")}>
+      <Select label={t("questionnaire.autoTitle")} value={String(seconds ?? 0)} disabled={seconds === undefined || saving}
+        onChange={(value) => void save(Number(value))}
+        options={[{ value: "0", label: t("questionnaire.manual") }, ...[60, 180, 300].map((value) => ({ value: String(value), label: t("questionnaire.afterMinutes", { count: value / 60 }) }))]} />
+    </SettingsRow>
+    {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+  </SettingsGroup>;
 }

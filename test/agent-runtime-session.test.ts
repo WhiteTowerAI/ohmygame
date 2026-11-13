@@ -110,7 +110,7 @@ function setup(
       ...(options.accountLimits
         ? { accountLimits: options.accountLimits }
         : {}),
-      requestApproval: (details, toolCallId, signal) =>
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: (details, toolCallId, signal) =>
         manager.askApproval(
           project.id,
           conversation.summary.id,
@@ -222,7 +222,7 @@ describe("coding agent sessions", () => {
       model: "sonnet",
       sessionManager,
       toolNames: [],
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
       createDriver: (resume) => {
         const driver = new ScriptedDriver(scripts, resume);
         drivers.push(driver);
@@ -1073,7 +1073,7 @@ describe("coding agent sessions", () => {
         drivers.push(driver);
         return driver;
       },
-      requestApproval: async () => "deny",
+      requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
       toolNames: [],
     });
     expect(drivers.at(-1)!.resume).toBeUndefined();
@@ -1128,7 +1128,7 @@ it("hands the agent the Skills a message names, leaving the message as written",
     model: "model",
     sessionManager: SessionManager.inMemory("/tmp/native-skills"),
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }],
     createDriver: () => driver,
   });
@@ -1147,7 +1147,7 @@ it("does not duplicate delayed native text completions after a tool flushes the 
     model: "model",
     sessionManager: store,
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     createDriver: () =>
       new ScriptedDriver(
         [
@@ -1184,7 +1184,7 @@ it("keeps only the unseen suffix when a native text block continues across a too
     model: "model",
     sessionManager: SessionManager.inMemory("/tmp/native-suffix"),
     toolNames: [],
-    requestApproval: async () => "deny",
+    requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
     createDriver: () =>
       new ScriptedDriver(
         [

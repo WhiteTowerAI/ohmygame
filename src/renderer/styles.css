@@ -10345,7 +10345,6 @@ summary.work-summary:hover {
   color: var(--color-text);
 }
 
-.questionnaire-footer-row .inline-answer,
 .plan-approval-card > .inline-answer {
   min-width: 0;
   flex: 1;
@@ -10362,6 +10361,18 @@ summary.work-summary:hover {
   cursor: default;
   opacity: 0.45;
 }
+
+.questionnaire-text { width: 100%; min-width: 0; }
+.questionnaire-other, .questionnaire-auto button { text-align: left; color: var(--color-text-secondary); }
+.questionnaire-auto { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.questionnaire-auto, .questionnaire-hint { font-size: 12px; color: var(--color-text-secondary); }
+.questionnaire-outcome { font-size: 12px; padding: 6px 0; }
+.questionnaire-outcome summary { cursor: pointer; }
+.questionnaire-outcome p { margin: 4px 0 10px; white-space: pre-wrap; }
+
+.questionnaire-title > strong, .questionnaire-option-copy { overflow-wrap: anywhere; }
+
+.questionnaire-card:not(.approval-card) { max-height: min(70vh, 620px); overflow-y: auto; overscroll-behavior: contain; }
 
 .plan-review {
   display: grid;

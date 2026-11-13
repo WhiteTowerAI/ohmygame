@@ -231,3 +231,52 @@ it("shows the plugin, exact tool arguments and one-call choices for a plugin gat
   await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
   expect(decide).toHaveBeenCalledWith("allow");
 });
+
+it("keeps question selections across chat switches and submits distinct multi-select values", async () => {
+  const { QuestionnaireCard } = await import("../src/renderer/questionnaire-card.js");
+  const submit = vi.fn(async () => true);
+  const interact = vi.fn(async () => true);
+  const question: Extract<ThreadItem, { type: "userInputRequest" }> = {
+    id: "draft-multi", turnId: "turn", requestId: "request", type: "userInputRequest", status: "inProgress",
+    questions: [{ id: "q", prompt: "Which sections?", multiSelect: true, allowOther: true, options: [{ value: "a,b", label: "A and B" }, { value: "c", label: "C" }] }],
+  };
+  const render = () => <QuestionnaireCard request={question} onSubmit={submit} onSkip={async () => true} onInteract={interact} />;
+  await act(async () => root.render(render()));
+  const choose = (label: string) => [...container.querySelectorAll("button")].find((button) => button.textContent === label)!;
+  await act(async () => choose("A and B").click());
+  expect(submit).not.toHaveBeenCalled();
+  await act(async () => root.render(null));
+  await act(async () => root.render(render()));
+  expect(choose("A and B").getAttribute("aria-pressed")).toBe("true");
+  await act(async () => choose("C").click());
+  await act(async () => choose("Submit answers").click());
+  expect(submit).toHaveBeenCalledWith([{ questionId: "q", value: "a,b, c", values: ["a,b", "c"] }]);
+  expect(interact).not.toHaveBeenCalled();
+});
+
+it("keeps a failed answer editable, supports text-only questions, and explicitly stops the countdown", async () => {
+  const { QuestionnaireCard } = await import("../src/renderer/questionnaire-card.js");
+  const submit = vi.fn(async () => false);
+  const interact = vi.fn(async () => true);
+  const question: Extract<ThreadItem, { type: "userInputRequest" }> = {
+    id: "text-only", turnId: "turn", requestId: "request", type: "userInputRequest", status: "inProgress",
+    autoAnswerAt: Date.now() + 60_000,
+    questions: [{ id: "q", prompt: "What name?", allowOther: true, options: [] }],
+  };
+  await act(async () => root.render(<QuestionnaireCard request={question} onSubmit={submit} onSkip={async () => true} onInteract={interact} />));
+  expect(container.textContent).toContain("recommended answers in");
+  const input = container.querySelector("input")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Custom name");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(interact).toHaveBeenCalled();
+  const submitButton = [...container.querySelectorAll("button")].find((item) => item.textContent === "Submit answers")!;
+  await act(async () => submitButton.click());
+  expect(submit).toHaveBeenCalledWith([{ questionId: "q", value: "Custom name" }]);
+  expect(input.value).toBe("Custom name");
+  expect(submitButton.disabled).toBe(false);
+  expect(interact).toHaveBeenCalled();
+  expect(container.querySelector('[role="timer"]')).toBeNull();
+  expect(input.getAttribute("aria-label")).toBe("What name?");
+});

@@ -6,7 +6,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type QuestionnaireInput, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -49,7 +49,7 @@ const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "web_fetch", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
@@ -69,14 +69,7 @@ export function projectPiToolNames(
 
 export type AskQuestionnaire = (
   toolCallId: string,
-  input: {
-    questions: Array<{
-      id: string;
-      prompt: string;
-      options: Array<{ value: string; label: string; description?: string; recommended?: boolean }>;
-      allowOther?: boolean;
-    }>;
-  },
+  input: QuestionnaireInput,
   signal?: AbortSignal,
 ) => Promise<QuestionnaireResult>;
 
@@ -232,7 +225,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
-    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",
+    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to continue correctly. Do not ask for information you can discover from the project. Mark at most one option recommended when you have a clear recommendation. This tool is for clarifying choices, never for permission to perform an action.",
     parameters: Type.Object({
       questions: Type.Array(Type.Object({
         id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
@@ -242,7 +235,8 @@ export function createAgentTools(
           label: Type.String({ minLength: 1, maxLength: 120, description: "Short option label" }),
           description: Type.Optional(Type.String({ maxLength: 300, description: "Optional explanation" })),
           recommended: Type.Optional(Type.Boolean({ description: "Whether this is the recommended option" })),
-        }), { minItems: 2, maxItems: 4 }),
+        }), { minItems: 0, maxItems: 4 }),
+        multiSelect: Type.Optional(Type.Boolean({ description: "Allow several choices; defaults to false" })),
         allowOther: Type.Optional(Type.Boolean({ description: "Allow a custom answer; defaults to true" })),
       }), { minItems: 1, maxItems: 3 }),
     }),
@@ -253,7 +247,7 @@ export function createAgentTools(
         return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
       }
       return {
-        content: [{ type: "text", text: result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
+        content: [{ type: "text", text: (result.autoAnswered ? "The configured timeout selected the recommended answers automatically.\n" : "") + result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
         details: result,
       };
     },

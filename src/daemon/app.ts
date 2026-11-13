@@ -1,3 +1,4 @@
+import { QuestionnaireSettingsStore } from "./questionnaire-settings.js";
 import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
@@ -517,14 +518,15 @@ const answerQuestionnaireSchema = {
       cancelled: { type: "boolean" },
       answers: {
         type: "array",
-        maxItems: 3,
+        maxItems: 4,
         items: {
           type: "object",
           additionalProperties: false,
           required: ["questionId", "value"],
           properties: {
             questionId: { type: "string", minLength: 1, maxLength: 80 },
-            value: { type: "string", minLength: 1, maxLength: 2_000 },
+            values: { type: "array", minItems: 1, maxItems: 21, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 2_000 } },
+            value: { type: "string", minLength: 1, maxLength: 42_100 },
           },
         },
       },
@@ -724,6 +726,7 @@ export function createApp(options: AppOptions = {}) {
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const browserSettings = new BrowserSettingsStore(dataDirectory);
   const projectBrowsers = new ProjectBrowserStore();
+  const questionnaireSettings = new QuestionnaireSettingsStore(dataDirectory);
   const agentInstructions = new AgentInstructionsStore(dataDirectory);
   const onboarding = new OnboardingStore(dataDirectory);
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
@@ -1175,6 +1178,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject({ ...project, pluginInstructions: await pluginServices.instructions(project.workspacePath), userInstructions: await agentInstructions.get() }).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
+      requestUserInput: (input, { callId, signal, allowAutomatic }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, allowAutomatic }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
       skills: () => catalog,
     });
@@ -1221,6 +1225,7 @@ export function createApp(options: AppOptions = {}) {
     };
   }, (projectId, conversationId, messages) => events.publish(projectId, "scheduled.changed", { messages }, { conversationId }));
   agents = new AgentManager(events, {
+    questionTimeoutSeconds: () => questionnaireSettings.seconds,
     onActivityChange: notifyProjectActivity,
     onMcpToolFailed: (server, tool, message) => {
       const plugin = pluginServices.mcpServerPlugin(server);
@@ -1474,6 +1479,7 @@ export function createApp(options: AppOptions = {}) {
   // Damaged or newer image settings fall back to the default connection instead of blocking startup.
   const loadOpenAIImages = () => openAIImages.load().catch((err) => app.log.warn({ err }, "Could not load OpenAI image settings"));
   app.addHook("onReady", async () => {
+    await questionnaireSettings.get();
     await networkSettings.load();
     // Runs before any model lookup so saved Azure sign-ins resolve under Pi's current provider ID.
     await migrateAzureProviderId(piAgentDirectory, dataDirectory).catch((err) => app.log.warn({ err }, "Could not migrate Azure provider settings"));
@@ -2429,6 +2435,19 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
+
+  app.get("/settings/questions", () => questionnaireSettings.get());
+  app.put<{ Body: { delaySeconds: number } }>("/settings/questions", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["delaySeconds"], properties: { delaySeconds: { type: "integer", enum: [0, 60, 180, 300] } } } },
+  }, async (request, reply) => {
+    try {
+      const result = await questionnaireSettings.set(request.body.delaySeconds);
+      if (!result.delaySeconds) agents.holdQuestionnaires();
+      return result;
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.get("/settings/external-agents", externalAgentSettings);
   app.put<{ Body: UpdateExternalAgentSettings }>("/settings/external-agents", { schema: externalAgentSettingsSchema }, async (request) => {
@@ -4610,6 +4629,18 @@ export function createApp(options: AppOptions = {}) {
       agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         await agents.refinePlan(project, conversation);
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string; requestId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/questionnaire/:requestId/hold",
+    async (request, reply) => {
+      try {
+        agents.holdQuestionnaire(request.params.projectId, request.params.conversationId, request.params.requestId);
         return reply.code(204).send();
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
