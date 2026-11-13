@@ -263,6 +263,9 @@
         "game": {
           "type": "boolean"
         },
+        "sessions": {
+          "type": "boolean"
+        },
         "network": {
           "type": "array",
           "items": {

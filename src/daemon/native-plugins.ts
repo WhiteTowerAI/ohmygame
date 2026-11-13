@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
 import { mkdir } from "node:fs/promises";
 import type { PluginGameBridge } from "./plugin-game-bridge.js";
 import type {
@@ -101,6 +103,13 @@ export class NativePlugins {
   readonly #configuration:
     | ((entry: PluginIndexEntry) => PluginConfigurationValues)
     | undefined;
+
+  #persistentList: (() => Promise<PluginIndexEntry[]>) | undefined;
+  #persistentTimer: ReturnType<typeof setTimeout> | undefined;
+  #reconciling: Promise<void> = Promise.resolve();
+  #disposed = false;
+  readonly #persistent = new Map<string, { fingerprint: string; generation: number | undefined; release: () => void }>();
+  readonly #retries = new Map<string, { count: number; after: number }>();
 
   readonly #dataFolder: (id: string) => string;
 
@@ -284,6 +293,7 @@ export class NativePlugins {
         .scopes()
         .map((scope) => scope === APP_SCOPE ? this.#refreshApp() : this.refreshProject(scope)),
     );
+    await this.#reconcile();
   }
 
   /** Unloads app plugins turned off, no longer allowed, or moved to another version. */
@@ -371,17 +381,99 @@ export class NativePlugins {
     return this.#hosts.status();
   }
 
-  dispose(): Promise<void> {
-    return this.#hosts.dispose();
+  async stopPersistent(): Promise<void> {
+    this.#disposed = true;
+    clearTimeout(this.#persistentTimer);
+    await this.#reconciling;
+    for (const item of this.#persistent.values()) item.release();
+    this.#persistent.clear();
+    await this.#hosts.stop(APP_SCOPE);
+  }
+
+  async dispose(): Promise<void> {
+    await this.stopPersistent();
+    await this.#hosts.dispose();
+  }
+
+  /** Start after application stores and session handlers are ready. */
+  async startPersistent(list: () => Promise<PluginIndexEntry[]>): Promise<void> {
+    if (this.#disposed || this.#persistentList) return;
+    this.#persistentList = list;
+    // A damaged plugin store must not prevent the app from opening; retry later.
+    await this.#reconcile().catch(() => {});
+    const poll = () => {
+      if (this.#disposed) return;
+      this.#persistentTimer = setTimeout(() => {
+        void this.#reconcile().catch(() => {}).finally(poll);
+      }, 2_000);
+      this.#persistentTimer.unref();
+    };
+    poll();
+  }
+
+  #reconcile(): Promise<void> {
+    const run = this.#reconciling.catch(() => {}).then(async () => {
+      if (!this.#persistentList || this.#disposed) return;
+      const desired = (await this.#persistentList()).filter((entry) => entry.manifest.capabilities?.sessions);
+      for (const [id, item] of this.#persistent) {
+        const entry = desired.find((entry) => entry.id === id);
+        if (entry && item.fingerprint === this.#fingerprint(entry) && item.generation === this.#hosts.generation(APP_SCOPE)) continue;
+        item.release();
+        this.#persistent.delete(id);
+        await this.#hosts.deactivate(APP_SCOPE, id);
+      }
+      for (const entry of desired) {
+        if (this.#disposed || this.#persistent.has(entry.id) || this.#hosts.quarantined(entry.id)) continue;
+        const retry = this.#retries.get(entry.id);
+        if (retry && retry.after > Date.now()) continue;
+        try {
+          const { key, entry: ready } = await this.#ready(APP_SCOPE, entry.id);
+          const fingerprint = this.#fingerprint(ready);
+          const call = await this.#call(key, ready, { folder: APP_SCOPE });
+          const release = await this.#hosts.activate(call);
+          if (this.#disposed) { release(); break; }
+          this.#persistent.set(entry.id, { fingerprint, generation: this.#hosts.generation(APP_SCOPE), release });
+          this.#retries.delete(entry.id);
+        } catch {
+          const count = (retry?.count ?? 0) + 1;
+          this.#retries.set(entry.id, { count, after: Date.now() + Math.min(30_000, 2_000 * 2 ** Math.min(count, 4)) });
+        }
+      }
+      for (const id of this.#retries.keys()) if (!desired.some((entry) => entry.id === id)) this.#retries.delete(id);
+    });
+    this.#reconciling = run;
+    return run;
+  }
+
+  #fingerprint(entry: PluginIndexEntry): string {
+    return createHash("sha256").update(JSON.stringify([entry.version, entry.root, entry.digest, this.#configuration?.(entry) ?? {}])).digest("hex");
+  }
+
+  serveSessions(service: { handle(plugin: string, request: PluginSessionRequest, signal: AbortSignal, authorize: () => Promise<void>): Promise<unknown> }): void {
+    this.#hosts.serveSessions({ handle: async (caller, request, signal) => {
+      const authorize = async () => {
+        signal.throwIfAborted();
+        if (this.#disposed) throw unavailable("App plugins are stopping");
+        if (caller.scope !== APP_SCOPE || caller.project || caller.generation !== this.#hosts.generation(APP_SCOPE)) throw unavailable("Session access requires the app host");
+        const entry = await this.#active(APP_SCOPE, caller.plugin);
+        signal.throwIfAborted();
+        if (!entry.manifest.capabilities?.sessions) throw unavailable("Session access is not granted");
+      };
+      await authorize();
+      const result = await service.handle(caller.plugin, request, signal, authorize);
+      await authorize();
+      return result;
+    } });
   }
 
   async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions) {
+    const fingerprint = this.#fingerprint(entry);
     const dataFolder = this.#dataFolder(entry.id);
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     return {
       scope: key,
       ...(key === APP_SCOPE ? {} : { project: key }),
-      plugin: hostPlugin(entry, dataFolder),
+      plugin: { ...hostPlugin(entry, dataFolder), sessions: key === APP_SCOPE && entry.manifest.capabilities?.sessions === true, configuration: this.#configuration?.(entry) ?? {} },
       input: options.input,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
@@ -393,7 +485,7 @@ export class NativePlugins {
       // or the project moved on meanwhile.
       check: async () => {
         const now = await this.#active(key, entry.id);
-        if (now.version !== entry.version || now.root !== entry.root)
+        if (now.version !== entry.version || now.root !== entry.root || (key === APP_SCOPE && this.#fingerprint(now) !== fingerprint))
           throw unavailable(`${entry.id} changed while the call waited`);
       },
     };

@@ -246,6 +246,7 @@ function promptTurn(
     images?: PendingPrompt["images"];
     attachments?: PendingPrompt["attachments"];
     contexts?: PromptContextLabel[];
+    source?: { plugin: string };
   },
   status: TurnStatus,
   timestamp?: number,
@@ -265,6 +266,7 @@ function promptTurn(
       turnId,
       type: "userMessage",
       text: prompt.prompt,
+      ...("source" in prompt && prompt.source ? { source: prompt.source } : {}),
       ...(mentions.length ? { mentions } : {}),
       ...(images.length ? { images } : {}),
       ...(attachments.length ? { attachments } : {}),

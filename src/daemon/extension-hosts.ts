@@ -1,9 +1,11 @@
+import type { PluginSessionRequest } from "../shared/plugin-sessions.js";
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   EXTENSION_HOST_PROTOCOL_VERSION,
   HOST_MESSAGE_MAX_CHARS,
+  HOST_RESULT_MAX_BYTES,
   isHostMessage,
   type ExtensionHostPlugin,
   type HostMessage,
@@ -117,6 +119,10 @@ export interface HostGameService {
   release(released: { scope: string; generation: number; plugin?: string }): void;
 }
 
+export interface HostSessionService {
+  handle(caller: HostGameCaller, request: PluginSessionRequest, signal: AbortSignal): Promise<unknown>;
+}
+
 export interface ActivePlugin {
   version: string;
   tools: string[];
@@ -152,6 +158,7 @@ const REPLIES: Record<HostRequest["type"], HostMessage["type"] | undefined> = {
   cancel: undefined,
   shutdown: undefined,
   "game-reply": undefined,
+  "sessions-reply": undefined,
 };
 
 interface Pending {
@@ -210,7 +217,7 @@ class ExtensionHost {
   /** Plugins whose code this process imported, turned off since or not: it keeps their modules. */
   readonly #imported = new Set<string>();
   /** Per plugin, what the host process has loaded. */
-  readonly #loaded = new Map<string, ActivePlugin & { root: string }>();
+  readonly #loaded = new Map<string, ActivePlugin & { root: string; sessions?: boolean }>();
   /** Per plugin, its activations and deactivations, one at a time. */
   readonly #queues = new Map<string, Promise<unknown>>();
   /** Calls in flight per plugin, so a new version waits for the old one's. */
@@ -231,6 +238,7 @@ class ExtensionHost {
   /** Holds that keep the host from stopping while idle, such as an open game session. */
   #holds = 0;
   /** The host's `game` requests the daemon is answering, by the host's id. */
+  readonly #sessionCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #gameCalls = new Map<number, { plugin: string; controller: AbortController }>();
   /** The plugin whose `activate` is running, which may already play the game. */
   #activating: string | undefined;
@@ -245,7 +253,8 @@ class ExtensionHost {
     entry: string,
     private readonly options: typeof DEFAULTS,
     private readonly onExit: (host: ExtensionHost, plugins: string[], reason: string) => void,
-    private readonly game: () => HostGameService | undefined = () => undefined,
+    private readonly game: () => HostGameService | undefined,
+    private readonly sessions: () => HostSessionService | undefined,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -381,6 +390,7 @@ class ExtensionHost {
         );
         if (message.type === "activated") {
           this.#loaded.set(plugin.id, {
+            sessions: plugin.sessions,
             version: plugin.version,
             root: plugin.root,
             tools: message.tools,
@@ -545,6 +555,11 @@ class ExtensionHost {
    * still running are given up first, so none opens a session after.
    */
   #release(plugin?: string) {
+    for (const [id, call] of this.#sessionCalls)
+      if (!plugin || call.plugin === plugin) {
+        this.#sessionCalls.delete(id);
+        call.controller.abort(new Error(`${call.plugin} stopped`));
+      }
     for (const [id, call] of this.#gameCalls)
       if (!plugin || call.plugin === plugin) {
         this.#gameCalls.delete(id);
@@ -581,6 +596,30 @@ class ExtensionHost {
       );
   }
 
+  #serveSessions(id: number, plugin: string, request: PluginSessionRequest) {
+    const service = this.sessions();
+    const reply = (answer: { value?: unknown; error?: string }) => {
+      this.#sessionCalls.delete(id);
+      if (this.alive) this.#send({ type: "sessions-reply", id, ...answer });
+    };
+    if (!service || this.scope !== "app" || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+      reply({ error: "Session access is unavailable here" });
+      return;
+    }
+    if (this.#sessionCalls.has(id) || this.#sessionCalls.size >= 64) {
+      // Duplicate IDs cannot replace another request's owner.
+      if (!this.#sessionCalls.has(id)) reply({ error: "Too many session requests" });
+      return;
+    }
+    const controller = new AbortController();
+    this.#sessionCalls.set(id, { plugin, controller });
+    void Promise.resolve().then(() => service.handle({ scope: this.scope, project: this.project, generation: this.generation, plugin }, request, controller.signal))
+      .then((value) => {
+        if (Buffer.byteLength(JSON.stringify(value ?? null)) > HOST_RESULT_MAX_BYTES) throw new Error("Session response is too large");
+        reply({ value: value ?? null });
+      }).catch((error: unknown) => reply({ error: (error instanceof Error ? error.message : String(error)).slice(0, HOST_MESSAGE_MAX_CHARS) }));
+  }
+
   async #drained(plugin: string): Promise<void> {
     await Promise.allSettled([...(this.#inflight.get(plugin) ?? [])]);
   }
@@ -593,7 +632,7 @@ class ExtensionHost {
     this.#settleReady?.(
       new ExtensionHostError("crashed", `Extension host exited (${reason})`),
     );
-    const plugins = new Set<string>();
+    const plugins = new Set<string>([...this.#loaded].filter(([, plugin]) => plugin.sessions).map(([id]) => id));
     for (const pending of this.#pending.values())
       if (pending.plugin) plugins.add(pending.plugin);
     const error = new ExtensionHostError(
@@ -745,6 +784,14 @@ class ExtensionHost {
       this.#serveGame(message.id, message.plugin, message.request);
       return;
     }
+    if (message.type === "sessions") {
+      this.#serveSessions(message.id, message.plugin, message.request);
+      return;
+    }
+    if (message.type === "sessions-cancel") {
+      this.#sessionCalls.get(message.id)?.controller.abort(new Error("Session request cancelled"));
+      return;
+    }
     if (message.type === "game-cancel") {
       this.#gameCalls.get(message.id)?.controller.abort(new Error("The plugin gave up on its game request"));
       return;
@@ -800,6 +847,7 @@ export class ExtensionHosts {
   readonly #quarantined = new Set<string>();
   #generation = 0;
   #game: HostGameService | undefined;
+  #sessions: HostSessionService | undefined;
   readonly #options: typeof DEFAULTS;
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
@@ -811,6 +859,26 @@ export class ExtensionHosts {
     this.#entry = hostEntry ?? defaultHostEntry();
     this.#onLog = onLog;
   }
+
+  /** Activate and hold an app plugin without inventing a tool invocation. */
+  async activate(options: { scope: string; plugin: ExtensionHostPlugin; check: () => Promise<void> }): Promise<() => void> {
+    if (this.quarantined(options.plugin.id)) throw new ExtensionHostError("quarantined", `${options.plugin.id} is quarantined`);
+    const host = this.#host(options.scope, undefined);
+    const release = host.hold();
+    try {
+      await host.activate(options.plugin);
+      await options.check();
+      if (!host.alive) throw new Error("Extension host stopped during activation");
+      return release;
+    } catch (error) {
+      release();
+      await host.deactivate(options.plugin.id).catch(() => {});
+      this.#onLog?.(options.plugin.id, { level: "error", source: "host", text: `App activation failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, HOST_MESSAGE_MAX_CHARS) });
+      throw error;
+    }
+  }
+
+  serveSessions(service: HostSessionService): void { this.#sessions = service; }
 
   /** Calls one of a plugin's tools or commands in the host for `scope`, starting it if needed. */
   async invoke(options: InvokeOptions): Promise<unknown> {
@@ -963,6 +1031,7 @@ export class ExtensionHosts {
         }
       },
       () => this.#game,
+      () => this.#sessions,
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

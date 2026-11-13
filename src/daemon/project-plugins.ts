@@ -152,6 +152,7 @@ export function capabilityGrants(
   if (capabilities["project.usage"]) grants.add("project.usage");
   if (capabilities.agent) grants.add("agent");
   if (capabilities.game) grants.add("game");
+  if (capabilities.sessions) grants.add("sessions");
   if (capabilities.secrets) grants.add("secrets");
   for (const host of capabilities.network ?? []) grants.add(`network:${host}`);
   for (const command of capabilities.processes ?? [])
@@ -263,7 +264,7 @@ export class PluginGrants {
       }
       for (const [id, asks] of installed) {
         const current = data.plugins[id] ?? { enabled: true, allowed: [] };
-        data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks])].sort() };
+        data.plugins[id] = { ...current, allowed: [...new Set([...current.allowed, ...asks.filter((ask) => ask !== "sessions")])].sort() };
       }
       data.schema = GRANTS_SCHEMA;
     });
