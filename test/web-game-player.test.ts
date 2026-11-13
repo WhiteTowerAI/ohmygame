@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { previewPagePath, previewPageUrl } from "../src/shared/preview-page.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { webGamePlayerUrl } from "../src/shared/web-game-player.js";
@@ -317,7 +318,7 @@ describe("shared desktop game", () => {
     electron.showSaveDialogSync.mockReturnValueOnce("/Pictures/meme.png");
     const saved = download();
     electron.session.emit("will-download", {}, saved, contents);
-    expect(electron.showSaveDialogSync).toHaveBeenLastCalledWith(window, { defaultPath: "/Downloads/meme.png" });
+    expect(electron.showSaveDialogSync).toHaveBeenLastCalledWith(window, { defaultPath: join("/Downloads", "meme.png") });
     expect(saved.setSavePath).toHaveBeenCalledWith("/Pictures/meme.png");
     // Cancelling the dialog cancels the download; another page's download is left to its own.
     electron.showSaveDialogSync.mockReturnValueOnce("");
