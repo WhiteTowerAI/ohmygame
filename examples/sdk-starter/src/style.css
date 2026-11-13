@@ -1,0 +1,51 @@
+:root {
+  color: #f6f7fb;
+  background: #14182b;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  display: grid;
+  min-height: 100vh;
+  margin: 0;
+  place-items: center;
+}
+
+section {
+  width: min(32rem, calc(100vw - 3rem));
+  padding: 2.5rem;
+  border: 1px solid #3d4670;
+  border-radius: 1.25rem;
+  background: #202641;
+  box-shadow: 0 1.5rem 4rem #090b15;
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+}
+
+.eyebrow,
+.status {
+  color: #aeb8df;
+}
+
+.count {
+  margin: 2rem 0 1rem;
+  font-size: 4rem;
+  font-weight: 700;
+}
+
+button {
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: #101426;
+  background: #a8c7ff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.error {
+  color: #ffb4ab;
+}

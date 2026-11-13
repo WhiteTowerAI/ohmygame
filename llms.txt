@@ -1,0 +1,17 @@
+# OhMyGame
+
+> An open-source local-first game creation app and its browser game SDK.
+
+## SDK authors
+
+- [SDK README](packages/sdk/README.md): Install and use `@ohmygame/sdk`.
+- [SDK AI guide](packages/sdk/llms.txt): SDK-oriented navigation and non-negotiable boundaries.
+- [SDK agent guide](packages/sdk/AGENT_GUIDE.md): Detailed rules for agents writing a game.
+- [SDK starter example](examples/sdk-starter/README.md): Minimal browser project using the published SDK.
+
+## Platform and contributors
+
+- [Documentation index](docs/README.md): Map from product areas to code and guides.
+- [Multiplayer integration](docs/multiplayer.md): Local rooms, rules, and hosted deployment.
+- [External agents](docs/external-agents.md): The desktop app's MCP server, separate from the SDK.
+- [Contributing](CONTRIBUTING.md): Setup, checks, and contribution workflow.

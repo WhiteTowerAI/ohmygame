@@ -31,7 +31,8 @@ const game = await init();
 await game.storage.set("progress", { level: 3 });
 
 // Leaderboards need the game service.
-if (game.leaderboard.available) await game.leaderboard.submit("high-score", 1200);
+if (game.leaderboard.available)
+  await game.leaderboard.submit("high-score", 1200);
 
 // Sign-in is available in games published to OhMyGame.
 if (game.auth.available && !game.auth.player) await game.auth.signIn();
@@ -59,6 +60,14 @@ Pass `allowLocalhost: true` to `init()` only for local playtests, never in a
 published game. Every SDK error is an `OhMyGameError` whose `code` stays stable
 while messages may change.
 
+## Starter example
+
+[`examples/sdk-starter`](https://github.com/WhiteTowerAI/ohmygame/tree/main/examples/sdk-starter) is a complete Vite browser
+project that installs the published SDK, includes its required `manifest.json`,
+and demonstrates local browser storage. It is deliberately local-only: use
+OhMyGame setup and publishing flows to generate account, cloud, or multiplayer
+configuration rather than writing those manifest settings yourself.
+
 ## Entries
 
 | Import                           | Contents                                               |
@@ -77,6 +86,7 @@ See the repository's [multiplayer](https://github.com/WhiteTowerAI/ohmygame/blob
 and [game sign-in](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/game-sign-in.md)
 guides for details. Coding agents should read [AGENT_GUIDE.md](AGENT_GUIDE.md):
 the rules, modes, limits and checklist for writing a game with this SDK.
+For an AI-oriented documentation index, see [llms.txt](llms.txt).
 
 ## License
 
