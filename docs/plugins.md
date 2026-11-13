@@ -326,26 +326,29 @@ like the app's own nodes.
 
 ### PixelLab
 
-PixelLab is a bundled Asset Canvas plugin. Enable it in **Plugins**, open its
-**Settings** tab, and save a PixelLab API key there. Its key is private plugin
-configuration; it is not a model-provider setting and is sent only to
-`api.pixellab.ai`.
+PixelLab is a bundled media-provider plugin. Enable it in **Plugins**, open
+its **Settings** tab, and save a PixelLab API key there. Its key is private
+plugin configuration and is sent only to `api.pixellab.ai`.
 
-The plugin adds three image nodes under **Plugins → PixelLab**:
+Its models appear in the ordinary **Image** node's model picker under
+**PixelLab**, alongside the app's other image providers:
 
-- **Pixen pixel art** creates one pixel-art image from a description.
-- **Create character** optionally takes a south-facing reference image and
-  returns PixelLab's own character GIF in four or eight directions.
-- **Skeleton animation** takes a south-facing reference image, creates a
-  PixelLab character, requests `/characters/animations` with
-  `mode: "skeleton-v3"`, and returns PixelLab's exported GIF for the chosen
-  direction. Its Action field is passed to PixelLab as `action_description`;
-  OhMyGame does not infer poses or manufacture animation frames locally.
+- **Pixen pixel art** creates one pixel-art image from the prompt.
+- **Create character** creates a transparent eight-direction character and
+  displays PixelLab's official GIF export. It can use one reference image.
+- **Skeleton animation** requires one reference image; the prompt is sent as
+  the action description to `/characters/animations` with `mode:
+  "skeleton-v3"`, then displays PixelLab's official GIF export. It currently
+  exports the south-facing direction.
 
-PixelLab's reference-image constraints, including its size and orientation
-requirements, are enforced by PixelLab and its response is shown to the
-person. The plugin neither creates a local sprite sheet nor changes the frames
-returned by the service.
+PixelLab also supplies the **pixellab-assets** Agent Skill. It guides an agent
+to select the correct Image-node model and describe the reference-image
+requirements.
+
+The adapter does not compose sprite sheets, infer poses, or manufacture frames
+locally. Reference images over PixelLab's 256px character limit are reduced
+with nearest-neighbour sampling before the request; PixelLab's response is
+otherwise shown to the person.
 
 `contributes.canvasPresets` offers ready-made groups of nodes under
 **Presets** in the same menu: `{ id, title, description?, board }`, where

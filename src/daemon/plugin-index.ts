@@ -428,12 +428,18 @@ function checkPackage(
 export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">, text: (value: string) => string): StorePlugin["adds"] {
   const contributes = entry.manifest.contributes ?? {};
   const hooks = manifestHooks(entry.manifest);
+  const imageModels = (contributes.providers ?? []).flatMap((provider) => (provider.media?.image?.models ?? []).map((model) => ({
+    title: text(model.title ?? model.id),
+    minReferenceImages: model.minReferenceImages ?? 0,
+    maxReferenceImages: model.maxReferenceImages ?? 0,
+  })));
   return {
     projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
     panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
     commands: (contributes.commands ?? []).map((command) => text(command.title)),
     mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
     modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
+    ...(imageModels.length ? { imageModels } : {}),
     agents: (contributes.agents ?? []).map((agent) => text(agent.title)),
     tools: contributes.tools?.length ?? 0,
     skills: entry.skills.length,
@@ -441,10 +447,10 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   };
 }
 
-/** Whether a plugin adds only what joins the app itself, model providers and agents, so projects' switches don't reach it. */
+/** Whether a plugin adds only what joins the app itself, model providers, agents, and their settings, so projects' switches don't reach it. */
 export function pluginAppOnly(manifest: Pick<PluginManifestV2, "contributes">): boolean {
   const kinds = Object.keys(manifest.contributes ?? {});
-  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents");
+  return kinds.length > 0 && kinds.every((kind) => kind === "providers" || kind === "agents" || kind === "settings");
 }
 
 /** Resolves a manifest string for display: `%key%` in the locale, then `en`. */

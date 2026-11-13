@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import type { ImageModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
@@ -112,6 +113,8 @@ export class PluginMediaProviders {
           generationOptions: model.resolutions.flatMap((resolution) => model.aspectRatios.map((aspectRatio) => ({ resolution, aspectRatio }))),
           supportsReferenceImage: (model.maxReferenceImages ?? 0) > 0,
           maxReferenceImages: model.maxReferenceImages ?? 0,
+          minReferenceImages: model.minReferenceImages ?? 0,
+          ...(model.maxReferenceImageDimension !== undefined ? { maxReferenceImageDimension: model.maxReferenceImageDimension } : {}),
           maxOutputs: 1,
         })),
       };
@@ -148,17 +151,23 @@ export class PluginMediaProviders {
   async generateImage(model: ImageModel, input: Omit<ImageGenerationInput, "imageModel">, signal?: AbortSignal): Promise<GeneratedImage> {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     if (!item?.media.image) throw new ImageGenerationError("The selected image provider is unavailable. Check its plugin and key.", 503);
+    if ((input.images?.length ?? 0) < (model.minReferenceImages ?? 0)) {
+      throw new ImageGenerationError(`The selected image model requires at least ${model.minReferenceImages} reference image${model.minReferenceImages === 1 ? "" : "s"}`, 400);
+    }
     return this.#produce(item, "image", {
       model: model.id,
       prompt: input.prompt,
       ...(input.resolution ? { resolution: input.resolution } : {}),
       ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
       ...(input.transparentBackground ? { transparentBackground: true } : {}),
-      references: (input.images ?? []).map((image: PromptImage) => ({ mediaType: image.mediaType, base64: image.data })),
+      references: await prepareImageReferences(input.images ?? [], model.maxReferenceImageDimension),
     }, { limitMs: IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, RESPONSE_MAX_BYTES, REQUEST_TIMEOUT_MS, ImageGenerationError, stopped);
-      const mediaType = sniffImageType(bytes);
-      if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG or WebP picture`);
+      // GIF is deliberately accepted only at the plugin-media boundary. It is
+      // an output format (for example an official animation export), not a
+      // format every built-in provider or image input must begin accepting.
+      const mediaType = sniffImageType(bytes) ?? sniffGifType(bytes);
+      if (!mediaType) throw new ImageGenerationError(`${this.#name(item)} returned a file that isn't a PNG, JPEG, WebP or GIF picture`);
       return { bytes, mediaType };
     });
   }
@@ -430,6 +439,26 @@ export class PluginMediaProviders {
   #name(item: PluginMediaProvider): string {
     return localizePluginString(item.entry, item.provider.title, "en");
   }
+}
+
+async function prepareImageReferences(images: readonly PromptImage[], maximum?: number): Promise<Array<{ mediaType: PromptImage["mediaType"]; base64: string }>> {
+  if (maximum === undefined) return images.map((image) => ({ mediaType: image.mediaType, base64: image.data }));
+  return Promise.all(images.map(async (image) => {
+    const bytes = Buffer.from(image.data, "base64");
+    const info = await sharp(bytes, { animated: false, limitInputPixels: false }).metadata().catch(() => undefined);
+    if (!info?.width || !info.height || Math.max(info.width, info.height) <= maximum) return { mediaType: image.mediaType, base64: image.data };
+    const resized = await sharp(bytes, { animated: false, limitInputPixels: false })
+      .resize({ width: maximum, height: maximum, fit: "inside", kernel: sharp.kernel.nearest })
+      .png()
+      .toBuffer();
+    return { mediaType: "image/png" as const, base64: resized.toString("base64") };
+  }));
+}
+
+function sniffGifType(bytes: Buffer): "image/gif" | undefined {
+  return bytes.length >= 6 && (bytes.subarray(0, 6).toString("ascii") === "GIF87a" || bytes.subarray(0, 6).toString("ascii") === "GIF89a")
+    ? "image/gif"
+    : undefined;
 }
 
 /** Reads what a step returned; anything else is the adapter's mistake. */

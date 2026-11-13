@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
+import { migrateLegacyPixelLabNodes } from "../shared/pixellab-legacy.js";
 import { watch, type FSWatcher } from "node:fs";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
@@ -587,7 +588,7 @@ export class PluginServices {
     const value: unknown = JSON.parse(bytes.toString("utf8"));
     const problem = canvasPresetIssue(value);
     if (problem) throw new Error(`${preset.board} ${problem}`);
-    const board = migrateLegacyAudioNodes(value).value as Partial<CanvasPresetBoard>;
+    const board = migrateLegacyPixelLabNodes(migrateLegacyAudioNodes(value).value).value as Partial<CanvasPresetBoard>;
     return { nodes: board.nodes!, edges: board.edges ?? [] };
   }
 

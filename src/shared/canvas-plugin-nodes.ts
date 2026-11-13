@@ -3,6 +3,7 @@ import type { AssetCanvasEdge, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument, validateAssetCanvasDocument } from "./asset-canvas.js";
 import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { migrateLegacyAudioNodes } from "./audio-legacy.js";
+import { migrateLegacyPixelLabNodes } from "./pixellab-legacy.js";
 
 // The rules a plugin's canvas node holds its settings and inputs to, shared
 // by the node's form and the daemon that runs it.
@@ -81,7 +82,7 @@ const PRESET_NODE_TYPES: ReadonlySet<string> = new Set(["text", "image", "video"
 
 /** Why a preset file can't be added to a board, or nothing when it can. */
 export function canvasPresetIssue(value: unknown): string | undefined {
-  value = migrateLegacyAudioNodes(value).value;
+  value = migrateLegacyPixelLabNodes(migrateLegacyAudioNodes(value).value).value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return "must be an object with nodes and edges";
   const { nodes, edges = [], ...rest } = value as { nodes?: unknown; edges?: unknown };
   if (Object.keys(rest).length) return `has fields other than nodes and edges: ${Object.keys(rest).join(", ")}`;

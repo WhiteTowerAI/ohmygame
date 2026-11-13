@@ -1,6 +1,6 @@
 # Media provider plugins
 
-Plugin API 2.5.0. Built: the sandbox, `host.fetch`, images and videos
+Plugin API 2.7.0. Built: the sandbox, `host.fetch`, images and videos
 (`src/daemon/plugin-media-sandbox.ts`, `src/daemon/plugin-media-providers.ts`,
 wired into `ProviderImages` and `ProviderVideos`), video tasks a retry resumes
 after a restart (`src/daemon/media-task-journal.ts`), and the market's kinds.
@@ -62,8 +62,12 @@ behind them (#649) move onto it.
   `auth: true`. It can be a header with an optional scheme (`Bearer`), or a
   query parameter. Signing a request with the key, as Volcengine's API does,
   is left for later; such vendors stay built in until then.
-- Each kind lists its models and what they take. These are the fields the app
-  already uses for custom image and video models, so pickers, the canvas and
+- Each kind lists its models and what they take. An image model may also set
+  `minReferenceImages` when a reference is required, rather than merely
+  accepted; the ordinary Image node then keeps Generate unavailable until that
+  many images are connected. `maxReferenceImageDimension` makes the host
+  downscale a larger reference with nearest-neighbour sampling before the
+  adapter receives it. These are shared fields, so pickers, the canvas and
   the agent's tools work unchanged.
 - The kinds a provider declares are what the market lists it under (see
   [Market](#market)). Chat counts when `api` is set.
@@ -133,7 +137,7 @@ plugin API:
 `{ base64, mediaType }`. A `url` must be on a `capabilities.network` host too,
 so list the host the vendor's results are on (SiliconFlow's are on
 `sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
-host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
+host's name. The app checks what it got (an image must be PNG, JPEG, WebP or GIF,
 a video MP4, at most 500 MB) and writes it to the project, as a built-in
 provider's result is. A request takes the first output.
 

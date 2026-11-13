@@ -1272,6 +1272,16 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 16
+                            },
+                            "minReferenceImages": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16
+                            },
+                            "maxReferenceImageDimension": {
+                              "type": "integer",
+                              "minimum": 16,
+                              "maximum": 4096
                             }
                           },
                           "additionalProperties": false

@@ -6066,6 +6066,13 @@ button {
   gap: 6px;
 }
 
+.asset-canvas-reference-requirement {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .story-media-controls.is-3d {
   flex-wrap: wrap;
 }

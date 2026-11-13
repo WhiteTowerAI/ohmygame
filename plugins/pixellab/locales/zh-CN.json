@@ -1,6 +1,9 @@
 {
   "displayName": "PixelLab",
   "description": "使用 PixelLab 创建像素角色和动画。",
+  "longDescription": "直接在图片节点生成像素画、可用于游戏的八方向角色，以及 PixelLab 官方骨骼动画。模型支持或要求参考图时，将图片连接到节点即可使用。",
+  "example.1": "创建一名 32 位奇幻游侠的像素画角色，透明背景。",
+  "example.2": "使用已连接的角色参考图，生成奔跑动画。",
   "config.apiKey": "PixelLab API 密钥",
   "config.apiKey.description": "密钥由 PixelLab 插件保存，仅发送到 api.pixellab.ai。",
   "nodes.reference": "正面参考图",

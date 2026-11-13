@@ -18,7 +18,7 @@ import { PLUGIN_HOOKS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.5.0";
+export const PLUGIN_HOST_API_VERSION = "2.7.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -488,6 +488,10 @@ const MediaImageModel = Type.Object(
     aspectRatios: Type.Array(Literals(IMAGE_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
     /** How many pictures a request may pass along, 0 for none. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+  /** How many pictures the model needs before it can run (API 2.6.0). */
+  minReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+  /** Resize larger reference images before the adapter receives them (API 2.7.0). */
+  maxReferenceImageDimension: Type.Optional(Type.Integer({ minimum: 16, maximum: 4096 })),
   },
   { additionalProperties: false },
 );
@@ -1243,6 +1247,10 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         issue(`${path}/media`, "list what it makes: image, video or both");
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");
+      provider.media.image?.models.forEach((model, modelIndex) => {
+        if ((model.minReferenceImages ?? 0) > (model.maxReferenceImages ?? 0))
+          issue(`${path}/media/image/models/${modelIndex}/minReferenceImages`, "can't be greater than maxReferenceImages");
+      });
     }
   });
 

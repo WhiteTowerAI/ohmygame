@@ -2,6 +2,7 @@
 import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProviderSummary } from "../src/shared/contracts.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
@@ -31,6 +32,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...api,
 }));
 const { groupStorePlugins, storePluginContributions, StorePluginDetail } = await import("../src/renderer/plugin-store.js");
+const { pluginAddRows } = await import("../src/renderer/plugin-summary.js");
 
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
@@ -81,6 +83,21 @@ it("groups the store's rows by plugin, newest version first", () => {
   expect(groups.map((group) => [group.plugin.id, group.plugin.version, group.versions.map((item) => item.version)])).toEqual([
     ["acme/maker", "2.0.0", ["2.0.0", "1.0.0"]],
     ["acme/tiles", "1.0.0", ["1.0.0"]],
+  ]);
+});
+
+it("lists media-provider image models with their reference-image requirements", () => {
+  const rows = pluginAddRows({
+    projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0,
+    imageModels: [
+      { title: "Pixer Pixel Art", minReferenceImages: 0, maxReferenceImages: 0 },
+      { title: "Skeleton Animation", minReferenceImages: 1, maxReferenceImages: 1 },
+    ],
+  });
+  expect(rows.map((item) => item.kind)).toEqual(["Image model", "Image model"]);
+  expect(rows.map((item) => renderToStaticMarkup(<>{item.title}</>))).toEqual([
+    "Pixer Pixel Art<small>No reference images</small>",
+    "Skeleton Animation<small>Requires 1 reference image</small>",
   ]);
 });
 

@@ -110,7 +110,8 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
     .filter((option) => option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const referencesEnough = (data.images?.length ?? 0) >= (selectedModel?.minReferenceImages ?? 0);
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && referencesEnough && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -160,6 +161,7 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      {selectedModel && !referencesEnough ? <p className="asset-canvas-reference-requirement" role="status">{t("assetCanvas.requiredImageReferences", { count: selectedModel.minReferenceImages ?? 0 })}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}

@@ -152,6 +152,7 @@ export class ProviderImages implements ImageGenerator {
       : "Image generation is not configured", 503);
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
+    if ((input.images?.length ?? 0) < (definition.minReferenceImages ?? 0)) throw new ImageGenerationError(`The selected image model requires at least ${definition.minReferenceImages} reference image${definition.minReferenceImages === 1 ? "" : "s"}`, 400);
     const { imageModel: _, ...generationInput } = input;
     if (definition.protocol === "codex-cli") {
       if (!this.options.codexImages) throw new ImageGenerationError("Codex image generation is unavailable", 503);

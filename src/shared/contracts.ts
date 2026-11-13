@@ -401,6 +401,10 @@ export interface ImageModel extends ImageModelRef {
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
+  /** A provider may need a reference image instead of merely accepting one. */
+  minReferenceImages?: number;
+  /** The longest edge a provider accepts for each reference image. */
+  maxReferenceImageDimension?: number;
   maxOutputs: ImageOutputCount;
   /** `plugin`: a plugin's media adapter makes it. */
   protocol: ImageProtocol | "codex-cli" | "plugin";

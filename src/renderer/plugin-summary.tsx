@@ -34,11 +34,19 @@ export function pluginAddRows(adds: StorePlugin["adds"]): PluginAddRow[] {
     ...adds.mcpServers.map((title) => ({ kind: t("pluginStore.addsMcpServer"), title })),
     ...(adds.hooks ?? []).map((hook) => ({ kind: t("pluginStore.addsHook"), title: hookLabel(hook) })),
     ...adds.modelProviders.map((title) => ({ kind: t("pluginStore.addsModelProvider"), title })),
+    ...(adds.imageModels ?? []).map((model) => ({
+      kind: t("pluginStore.addsImageModel"),
+      title: <>{model.title}<small>{model.minReferenceImages > 0
+        ? t("pluginStore.requiredReferences", { count: model.minReferenceImages })
+        : model.maxReferenceImages > 0
+          ? t("pluginStore.optionalReferences", { count: model.maxReferenceImages })
+          : t("pluginStore.noReferences")}</small></>,
+    })),
     ...adds.agents.map((title) => ({ kind: t("pluginStore.addsAgent"), title })),
     ...adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: adds.skills }) }] : [],
     ...adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: adds.tools }) }] : [],
   ];
-  return rows.map((row) => ({ ...row, id: `${row.kind}:${row.title}` }));
+  return rows.map((row, index) => ({ ...row, id: `${row.kind}:${typeof row.title === "string" ? row.title : index}` }));
 }
 
 export function PluginAddsList({ rows }: { rows: readonly PluginAddRow[] }) {

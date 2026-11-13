@@ -377,7 +377,12 @@ export interface StorePlugin {
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */
   appOnly?: true;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
+  adds: {
+    projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number;
+    /** Image models a media-provider plugin contributes, for its standard detail page. */
+    imageModels?: Array<{ title: string; minReferenceImages: number; maxReferenceImages: number }>;
+    hooks?: string[];
+  };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */

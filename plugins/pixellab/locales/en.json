@@ -1,6 +1,9 @@
 {
   "displayName": "PixelLab",
   "description": "Create pixel characters and their animations with PixelLab.",
+  "longDescription": "Generate pixel art, production-ready eight-direction characters, and official PixelLab skeleton animations directly from the Image node. Connect a reference image whenever a model supports or requires one.",
+  "example.1": "Create a 32-bit fantasy ranger pixel-art character with a transparent background.",
+  "example.2": "Use the attached character reference to create a running animation.",
   "config.apiKey": "PixelLab API key",
   "config.apiKey.description": "Stored by the PixelLab plugin and sent only to api.pixellab.ai.",
   "nodes.reference": "South-facing reference",

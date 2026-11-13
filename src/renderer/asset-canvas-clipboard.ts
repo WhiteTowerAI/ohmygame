@@ -2,6 +2,7 @@ import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { AssetCanvasEdge, AssetCanvasNode, AssetCanvasReference } from "../shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
+import { migrateLegacyPixelLabNodes } from "../shared/pixellab-legacy.js";
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { canvasNodeLayout, withoutContentNodeSize } from "../shared/canvas-node-layout.js";
 import { canvasDownstream } from "../shared/canvas-chains.js";
@@ -64,7 +65,7 @@ export function parseCanvasClipboard(text: string): CanvasClipboard | undefined 
     const parsed = JSON.parse(text) as CanvasClipboard;
     if (parsed?.format !== "ohmygame/canvas-nodes" || parsed.version !== 1 || typeof parsed.projectId !== "string" || !Array.isArray(parsed.nodes) || !parsed.nodes.length || !Array.isArray(parsed.edges)) return;
     // Nodes copied from a board saved before sizes were validated may still carry them.
-    const current = migrateLegacyAudioNodes(parsed).value;
+    const current = migrateLegacyPixelLabNodes(migrateLegacyAudioNodes(parsed).value).value;
     const value = { ...current, nodes: current.nodes.map(withoutContentNodeSize) };
     if (value.nodes.some((node) => !Number.isFinite(node?.position?.x) || !Number.isFinite(node?.position?.y))) return;
     const canvas = createAssetCanvasDocument();

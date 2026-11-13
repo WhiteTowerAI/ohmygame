@@ -13,6 +13,7 @@ import type { AssetCanvasNode, ProjectState, PromptImage, RunToolRequest, ToolJo
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
 import { migrateLegacyAudioJob, migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
+import { migrateLegacyPixelLabNodes } from "../shared/pixellab-legacy.js";
 import { combineAssetCanvasPrompt, createAssetCanvasDocument, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../shared/canvas-image-presets.js";
 import { resolveContinuousActionPrompt } from "../shared/canvas-character-tools.js";
@@ -181,16 +182,19 @@ export async function readCanvasBoard(workspace: string, id: string): Promise<Ca
 export async function inspectCanvasBoard(workspace: string, id: string): Promise<{ detail: CanvasBoardDetail; issues: string[]; boardIssues: string[] } | undefined> {
   const name = `boards/${validId(id)}.json`, text = await readCanvasFile(workspace, name);
   if (text === undefined) return undefined;
-  let legacyAudio: string[] = [];
+  let legacyAudio: string[] = [], legacyPixelLab: string[] = [];
   const raw = parseCanvasJson<Omit<CanvasBoard, "editorLayout">>(text, name, CANVAS_BOARD_SCHEMA, boardFileValidator, (value) => {
-    const migrated = migrateLegacyAudioNodes(value);
-    legacyAudio = migrated.migrated;
-    return migrated.value;
+    const audio = migrateLegacyAudioNodes(value);
+    const pixellab = migrateLegacyPixelLabNodes(audio.value);
+    legacyAudio = audio.migrated;
+    legacyPixelLab = pixellab.migrated;
+    return pixellab.value;
   });
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
   const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio shape. It opens as type "audio" with its text in prompt, without audioReferences, audioReferenceSerial or subtitles, and with a Seed Audio model under provider "volcengine-tts". Save it that way.`);
+  boardIssues.push(...legacyPixelLab.map((nodeId) => `Node ${nodeId}: PixelLab's retired canvas generation node now opens as its matching Image model. Save it in the new shape.`));
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;
     if (isResizableCanvasNodeType(node.type) || (width === undefined && height === undefined)) continue;
