@@ -1594,9 +1594,11 @@ can go in the next major.
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
-Plugin banners use the same neutral raised surface as the host's canvas notices;
-the small status mark carries the tone color, while headings and messages keep
-normal text colors. This also applies to warnings without a heading.
+Warning feedback components share [Radix Amber](https://github.com/radix-ui/colors):
+step 11 for banner headings, badge text and status dots in each host color scheme;
+step 9 for tinted surfaces. Banners retain 12% background opacity and badges 16%,
+matching the other tones. Banner messages keep the normal text color.
+Other tones keep the host colors.
 
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 

@@ -637,10 +637,6 @@
               "description": "The title."
             },
             {
-              "name": "indicator",
-              "description": "The small status mark."
-            },
-            {
               "name": "message",
               "description": "The message."
             }
