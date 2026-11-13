@@ -107,12 +107,28 @@ export class PluginSessions {
         }
         const text = item.text.slice(0, Math.min(32_000, remaining));
         remaining -= text.length;
-        truncated ||= text.length < item.text.length;
+        truncated ||=
+          text.length < item.text.length ||
+          (item.type === "agentMessage" &&
+            (item.error?.message.length ?? 0) > 2_000);
         messages.push({
           id: item.id,
           turnId: item.turnId,
           role: item.type === "userMessage" ? "user" : "assistant",
           text,
+          ...(item.type === "agentMessage"
+            ? {
+                status: item.status,
+                ...(item.error
+                  ? {
+                      error: {
+                        message: item.error.message.slice(0, 2_000),
+                        ...(item.error.code ? { code: item.error.code } : {}),
+                      },
+                    }
+                  : {}),
+              }
+            : {}),
           ...(item.type === "userMessage" && item.source
             ? { source: item.source }
             : {}),

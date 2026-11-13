@@ -119,6 +119,46 @@ describe("native session service", () => {
     expect(abort).toHaveBeenCalledOnce();
   });
 
+  it.each(["error", "aborted"] as const)(
+    "recovers the %s outcome from history after events are gone",
+    async (stopReason) => {
+      const { id } = await call({ operation: "create", projectId: project.id });
+      vi.spyOn(conversations, "view").mockResolvedValue({
+        getBranch: () => [
+          {
+            type: "message",
+            id: "response",
+            parentId: null,
+            timestamp: new Date(0).toISOString(),
+            message: {
+              role: "assistant",
+              content: [],
+              stopReason,
+              ...(stopReason === "error" ? { errorMessage: "No API key" } : {}),
+            },
+          },
+        ],
+      } as never);
+      const result = await call({
+        operation: "read",
+        projectId: project.id,
+        conversationId: id,
+      });
+      expect(result.messages).toEqual([
+        expect.objectContaining({
+          role: "assistant",
+          text: "",
+          status: stopReason === "error" ? "failed" : "cancelled",
+        }),
+      ]);
+      if (stopReason === "error")
+        expect(result.messages[0]?.error).toEqual({
+          code: "model_not_configured",
+          message: "No API key",
+        });
+    },
+  );
+
   it("rechecks consent after asynchronous preparation and rejects plans", async () => {
     const { id } = await call({ operation: "create", projectId: project.id });
     const target = { projectId: project.id, conversationId: id };

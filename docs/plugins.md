@@ -315,7 +315,10 @@ Types live in `src/shared/plugin-sessions.ts`. `sessions.request(request,
 Text messages are 1–32,000 characters. Lists return at most 500 entries; reads
 return the latest 200 user/assistant messages, at most 32,000 characters per
 message and 256,000 total, with explicit truncation. They exclude binary
-attachments, reasoning and raw tool payloads. Messages carry structured
+attachments, reasoning and raw tool payloads. Assistant messages include their
+status and, on failure, an error message (at most 2,000 characters) and optional
+code, including empty cancelled/failed responses after event history expires.
+Messages carry structured
 `source: { plugin }` when supplied by a plugin; this attribution also appears in
 the app and survives history reload. The agent receives an external-source
 notice. Editing a plugin message in the app creates human input without that

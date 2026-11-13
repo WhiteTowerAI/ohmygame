@@ -17,6 +17,9 @@ export interface PluginSessionMessage {
   role: "user" | "assistant";
   text: string;
   source?: { plugin: string };
+  /** Assistant outcome is retained even when its text is empty. */
+  status?: "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
+  error?: { message: string; code?: string };
 }
 
 export interface PluginSessionResults {
