@@ -17,23 +17,26 @@ Use this skill for architecture decisions or cross-cutting changes. For focused 
 
 ## Stable Boundaries
 
-- Simulation owns rules, entities, progression, timers, collisions, and saveable state.
-- Rendering owns scene composition, animation playback, cameras, particles, and presentation state.
+- Keep rules, entity identity, timers, progression and saves independent of UI wording, cameras and view lifetimes. Share transitions across input paths; define relevant pause, resume, restart and reconnect behavior. Presentation adapts this state into the game's scenes, audio and UI.
 - Map keyboard, pointer, touch, and gamepad inputs to named game actions in one place.
 - Keep text-heavy HUD and menus in DOM unless the visual design requires canvas or WebGL UI.
 - Address assets through stable manifest keys rather than scattering file paths through gameplay code.
-- Save serializable game state, not renderer objects.
+- Preserve existing saves. Store versioned, serializable state; migrate on load and refuse destructive writes when data cannot be read. Verify recovery with the actual identity and storage location. Isolate test progress from the user's session.
 - Keep debug and performance probes removable or easy to disable.
 
-Use these boundaries in proportion to the project. A small game does not need an enterprise framework, but its rules should not become inseparable from rendering callbacks.
+Use the engine's existing boundaries; add layers only when ownership or lifecycle requires them. Validate external input, saves, permissions and shared writes; trust established internal types and contracts. Add guards, retries, fallbacks or compatibility only for concrete failure modes, with explicit recovery; never hide errors with defaults.
 
 ## Multiplayer
 
-For OhMyGame online play, use Colyseus rooms and WebSocket with server-authoritative rules. Call `multiplayer_setup` when available for local tests; it starts a daemon-owned loopback backend and writes `src/ohmygame/client.js`, an integration guide, `multiplayer.json`, and `public/manifest.json`. Read that guide before implementing the game. No cloud deployment is needed for local validation.
+Use OhMyGame's Colyseus integration unless the user explicitly requests another stack. Read `multiplayer_setup`'s current schema and generated SDK guide rather than assuming a fixed adapter list. The service keeps rooms; the mode determines who executes rules. Built-in rules run on the service; custom rules run on a browser host or in deterministic lockstep; owner rooms let each page run its own player. Do not claim server-authoritative results for browser-owned rules. Follow the guide's leaderboard restrictions and owner-only scope of SDK p2p.
 
-Choose the actual server rules adapter: `gomoku`, `stones`, or `arena`. Other rules require a registered server adapter; an SDK connection does not turn arbitrary local game rules into multiplayer. If the service, adapter, or tool is unavailable, report the missing setup. Do not silently use PeerJS, WebRTC, public signaling/STUN/TURN servers, or client-authoritative boards as substitutes. Honor an explicitly requested alternative stack and explain that the platform's Colyseus publishing checks do not support it.
+Keep connection, room membership, game phase and local presentation distinct. Handle invalid commands, join failures, disconnect, refresh, reconnect and host changes where applicable. Test independent player identities and the requested room size, checking what each player can see and do. Keep the SDK's default localStorage identity: two tabs share a player; use a private window or another browser, not per-tab storage, for another player.
 
-Load the runtime manifest, send player intent through the SDK, and render authoritative snapshots. Handle room creation, joining, waiting for another player, rejected commands, disconnect, refresh, and connection timeout. Test two independent guests, including an invalid action and reconnect. Keep the SDK's default localStorage identity: one browser is one player, so test the second player in a private window or another browser, never with per-tab storage. Local rooms end when the daemon stops; rerun setup after restarting it. Public publishing requires a separately hosted HTTPS backend and an immutable deployment whose rules and configuration match the game.
+Local rooms do not survive the daemon stopping. Verify recovery with the same identity and actual saved state. Public deployment is separate from local setup and must match the rules and build. Report missing services or unsupported requirements explicitly rather than silently substituting a backend. An explicitly requested alternative may have separate hosting requirements.
+
+## Progression And Economy
+
+When changing progression or an economy, check reachability before estimating completion time. Trace sources, sinks, capacities, unlocks, permanent bonuses and positive feedback together. Compare early, middle and late milestones under representative player choices, stating assumptions about claiming rewards, spending and randomness. Keep comparable baselines; inspect ranges and failure cases, not just averages. A tuning slider exposes parameters; it does not establish balance.
 
 ## Before Implementation
 

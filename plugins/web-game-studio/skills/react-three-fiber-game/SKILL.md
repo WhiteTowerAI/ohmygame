@@ -11,7 +11,7 @@ Use this skill when an existing React application hosts the game or when React-b
 
 - Keep gameplay simulation outside render components.
 - Use React state for app and UI coordination, not for high-frequency per-frame mutation across the whole tree.
-- Isolate the `Canvas`, camera rigs, controls, loaders, physics bridge, and post-processing.
+- Separate `Canvas`, controls and other systems where ownership or lifecycle requires it.
 - Use refs or focused stores for imperative frame work while keeping state ownership clear.
 - Keep HUD, menus, settings, and accessibility-sensitive controls in the normal DOM tree.
 - Gate camera and gameplay input while pointer-driven overlays are active.
@@ -27,4 +27,4 @@ Use pmndrs libraries when they simplify a real requirement: Drei for common scen
 
 ## Verification
 
-Check React and scene state remain synchronized, overlays do not steal or leak input, the canvas renders after resize, and unmounting cleans up listeners and resources. Use `../game-playtest/SKILL.md` for end-to-end browser checks.
+Check affected state synchronization, overlay input or lifecycle; test resize and unmount when changed. Use `../game-playtest/SKILL.md` to select browser checks.

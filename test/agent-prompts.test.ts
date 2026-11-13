@@ -66,10 +66,13 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("use its tools to preview and build");
     expect(text).not.toContain("Web preview switch in Project settings");
     expect(text).not.toContain("Web publishing is independent");
+    expect(text).not.toContain("game_sdk_setup");
+    expect(text).not.toContain("multiplayer_setup");
   });
   it("keeps disabled General previews under user control without requiring a Node stack", () => {
     const text = prompt({ type: "general" });
     expect(text).toContain("Web preview is disabled");
+    expect(text).toContain("game_sdk_setup");
     expect(text).toContain("Do not start a persistent dev server or enable the capability yourself");
     expect(text).toContain("Web publishing is independent of the preview switch");
     expect(text).not.toContain("The game is a Node project");

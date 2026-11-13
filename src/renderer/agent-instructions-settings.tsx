@@ -14,11 +14,7 @@ function typeLabel(type: ProjectType): string {
   return type === "plugin" ? t("settings.agents.instructions.pluginBuilder") : t(`projectType.${type}`);
 }
 
-/**
- * What the agent is told: the person's own instructions, which go to every
- * agent in every project, and OhMyGame's, shown as they are for each kind of
- * project so nothing the agent hears from OhMyGame is hidden.
- */
+/** Built-in defaults by project type and the person's shared custom instructions. */
 export function AgentInstructionsSettings({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<AgentInstructionsView>();
   const [draft, setDraft] = useState("");

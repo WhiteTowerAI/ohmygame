@@ -39,6 +39,6 @@ Make mockups depict real gameplay information and actions. Carry the world's sha
 
 - For a feature, connect UI state to the actual game-state owner rather than duplicating it locally.
 - For a visual bug, reproduce the affected viewport and state before changing layout rules.
-- For polish, favor a few meaningful transitions tied to danger, reward, state change, or onboarding.
+- For polish, give feedback a priority and lifetime. Keep critical events discoverable without frequent flashes, sounds or reward popups overwhelming play. Preserve the intended style and meaningful participation; visual restraint must not remove expressive art, useful labels or desired controls.
 
-Verify representative gameplay states on desktop and mobile viewports, including overlay open and closed states. Use `../game-playtest/SKILL.md` for structured visual QA.
+Inspect affected gameplay and overlay states on supported viewports. Use `../game-playtest/SKILL.md` to select relevant visual checks.
