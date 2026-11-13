@@ -329,6 +329,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     }
   }
 
+  const [configurationRevision, setConfigurationRevision] = useState(0);
   const restart = () => void act("restart", () => restartStorePlugin(plugin.id));
   const remove = (version: StorePlugin, keepData: boolean) => {
     setRemoving(undefined);
@@ -394,8 +395,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         </div> : null}
         {tabs.some((item) => item.value === "settings") ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
           {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
-          {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} /> : null}
-          {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} enabled={!safeMode && enabled && plugin.everyProject && !!plugin.grants?.allowed.includes("sessions")} /> : null}
+          {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} onConfigurationChanged={() => setConfigurationRevision((value) => value + 1)} enabled={!safeMode && enabled && plugin.everyProject && !!plugin.grants?.allowed.includes("sessions")} /> : null}
+          {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} revision={configurationRevision} /> : null}
         </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
@@ -553,7 +554,7 @@ function UninstallDialog({ plugin, version, onCancel, onUninstall }: {
 }
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */
-export function StorePluginSettings({ plugin, fields = plugin.settings }: { plugin: StorePlugin; fields?: StorePlugin["settings"] }): ReactNode {
+export function StorePluginSettings({ plugin, fields = plugin.settings, revision = 0 }: { plugin: StorePlugin; fields?: StorePlugin["settings"]; revision?: number }): ReactNode {
   const fieldPrefix = useId();
   const [config, setConfig] = useState<StorePluginConfiguration>();
   const [values, setValues] = useState<Record<string, string | boolean | null>>({});
@@ -568,7 +569,7 @@ export function StorePluginSettings({ plugin, fields = plugin.settings }: { plug
       (cause: unknown) => { if (active) setError(message(cause)); },
     );
     return () => { active = false; };
-  }, [plugin.id]);
+  }, [plugin.id, revision]);
   if (!plugin.settings.length) return null;
 
   async function save(): Promise<void> {

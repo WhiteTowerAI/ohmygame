@@ -12,7 +12,7 @@ let configuration: StorePluginConfiguration;
 let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
-  readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal) => ({ message: "Connected", actions: ["pair"] })),
+  readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
   runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
@@ -518,4 +518,43 @@ it("shows only declared connection fields while retaining legacy saved settings"
   const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
   await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
+});
+
+it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const link = { title: "Continue in Feishu", url: "https://open.feishu.cn/registration", expiresAt: Date.now() + 60000 };
+  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  const changed = vi.fn();
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting", link, actions: ["begin"] });
+  try {
+    await act(async () => root.render(<PluginSettingsActions plugin={plugin} active enabled onConfigurationChanged={changed} />));
+    expect(opened).not.toHaveBeenCalled();
+    await act(async () => button("Continue in Feishu").click());
+    expect(opened).toHaveBeenCalledTimes(1);
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Waiting", link: { ...link, url: `${link.url}?new` }, actions: ["finish"] });
+    await act(async () => button("Create robot").click());
+    expect(opened).toHaveBeenLastCalledWith(`${link.url}?new`, "_blank", "noopener,noreferrer");
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Connecting", actions: [], configurationChanged: true });
+    await act(async () => button("Connect robot").click());
+    expect(changed).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("Connecting");
+  } finally { opened.mockRestore(); }
+});
+
+it("refreshes settings saved by connection while retaining an unsaved manual draft", async () => {
+  const { StorePluginSettings } = await import("../src/renderer/plugin-store.js");
+  const plugin = row("1.0.0");
+  const render = (revision: number) => root.render(<StorePluginSettings plugin={plugin} revision={revision} />);
+  await act(async () => render(0));
+  const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "/my/manual/draft");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  configuration = { path: { type: "path", value: "/saved/by/connection" }, token: { type: "secret", configured: true } };
+  await act(async () => render(1));
+  expect(api.readStorePluginConfiguration).toHaveBeenCalledTimes(2);
+  expect(input.value).toBe("/my/manual/draft");
+  expect(host.textContent).not.toContain("fixture-secret");
 });

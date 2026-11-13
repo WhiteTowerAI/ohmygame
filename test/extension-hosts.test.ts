@@ -366,6 +366,48 @@ describe("extension hosts", () => {
     } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
   });
 
+  it("saves explicit connection credentials privately and rejects status writes and stale configuration", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-connect-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    const commands = ["settings-status", "connect", "hidden", "unsafe"];
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/connect", version: "1.0.0", displayName: "Connect", description: "Connection fixture",
+      engines: { "ohmygame-api": "^2.6.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true, secrets: true },
+      configuration: { appId: { type: "text", title: "App" }, token: { type: "secret", title: "Token" }, legacy: { type: "text", title: "Legacy" } },
+      contributes: { commands: commands.map(id => ({ id, title: id, run: { native: id === "settings-status" ? "status" : id, changesFiles: false } })),
+        settings: { groups: [{ rows: [{ field: "appId" }, { field: "token" }, { widget: "status" }, ...commands.slice(1).map(id => ({ title: id, action: { command: id } }))] }] } },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `export function activate(context) {
+      context.registerCommand("status", () => ({ message: "Idle", actions: [], configuration: { token: "status-secret" } }));
+      context.registerCommand("connect", () => ({ message: "Connected", actions: [], configuration: { appId: "app", token: "created-secret" } }));
+      context.registerCommand("hidden", () => ({ message: "Hidden", actions: [], configuration: { legacy: "changed" } }));
+      context.registerCommand("unsafe", () => ({ message: "Unsafe", actions: [], link: { title: "Open", url: "javascript:alert(1)", expiresAt: 1800000000000 } }));
+    }`);
+    const services = new PluginServices({ directory: path.join(data, "store") });
+    try {
+      expect((await services.install(dir)).ok).toBe(true);
+      await services.native.startPersistent(() => services.everyProject());
+      await services.setEveryProject("acme/connect", true);
+      const run = (id: string) => services.native.runSettingsCommand("acme/connect", id, "en");
+      await expect(run("settings-status")).rejects.toThrow("explicit settings action");
+      await expect(run("hidden")).rejects.toThrow("Invalid settings configuration");
+      await expect(run("unsafe")).rejects.toThrow("invalid settings status");
+      expect(await run("connect")).toEqual({ message: "Connected", actions: [], configurationChanged: true });
+      const entry = services.index.get("acme/connect")!;
+      expect(services.values.forNative(entry)).toEqual({ appId: "app", token: "created-secret" });
+      expect(services.values.view(entry)).toEqual({ appId: { type: "text", value: "app" }, token: { type: "secret", configured: true }, legacy: { type: "text", value: null } });
+      // Both writes are admitted before either reaches disk; CAS must run inside the write queue.
+      const expected = services.values.forNative(entry);
+      const manual = services.values.update(entry, { appId: "manual" });
+      const stale = services.values.update(entry, { appId: "overwritten", token: "wrong" }, expected);
+      await manual;
+      await expect(stale).rejects.toThrow("settings changed");
+      expect(services.values.forNative(entry)).toEqual({ appId: "manual", token: "created-secret" });
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
   it("starts a host on the first call and activates each plugin once", async () => {
     const extensionHosts = hosts();
     expect(await extensionHosts.status()).toEqual([]);

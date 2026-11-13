@@ -11,10 +11,12 @@ export function PluginSettingsActions({
   plugin,
   active,
   enabled,
+  onConfigurationChanged,
 }: {
   plugin: StorePlugin;
   active: boolean;
   enabled: boolean;
+  onConfigurationChanged?: () => void;
 }) {
   const [status, setStatus] = useState<PluginSettingsStatus>();
   const [error, setError] = useState<string>();
@@ -80,7 +82,13 @@ export function PluginSettingsActions({
     setError(undefined);
     try {
       const value = await runPluginSettingsAction(plugin.id, command);
-      if (alive.current && version === generation.current) setStatus(value);
+      if (alive.current && value.configurationChanged)
+        onConfigurationChanged?.();
+      if (alive.current && version === generation.current) {
+        setStatus(value);
+        if (value.link && value.link.url !== status?.link?.url)
+          await open(value.link.url);
+      }
     } catch (cause) {
       if (alive.current && version === generation.current)
         setError(message(cause));
@@ -88,6 +96,10 @@ export function PluginSettingsActions({
       acting.current = false;
       if (alive.current) setBusy(false);
     }
+  }
+  async function open(url: string) {
+    if (window.ohMyGameDesktop) await window.ohMyGameDesktop.openExternal(url);
+    else window.open(url, "_blank", "noopener,noreferrer");
   }
   async function copy(text: string) {
     try {
@@ -113,6 +125,28 @@ export function PluginSettingsActions({
           </p>
           {status?.detail ? (
             <p className="plugins-note">{status.detail}</p>
+          ) : null}
+          {status?.link ? (
+            <div className="plugin-pairing-code">
+              <Button
+                size="sm"
+                onClick={() => {
+                  void open(status.link!.url).catch((cause: unknown) =>
+                    setError(message(cause)),
+                  );
+                }}
+              >
+                {status.link.title}
+              </Button>
+              <small>
+                {t("pluginControls.codeExpires", {
+                  time: new Date(status.link.expiresAt).toLocaleTimeString(
+                    language,
+                    { hour: "2-digit", minute: "2-digit" },
+                  ),
+                })}
+              </small>
+            </div>
           ) : null}
           {status?.code ? (
             <div className="plugin-pairing-code">

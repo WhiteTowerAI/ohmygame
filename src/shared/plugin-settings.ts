@@ -10,6 +10,10 @@ export interface PluginSettingsView {
 export interface PluginSettingsStatus {
   message: string;
   detail?: string;
+  /** API 2.6: an HTTPS authorization page, opened only by a settings action or explicit click. */
+  link?: { title: string; url: string; expiresAt: number };
+  /** Set by the host after an explicit action saves configuration; never includes credentials. */
+  configurationChanged?: boolean;
   /** A short-lived message to copy to the external service. Reading never renews it. */
   code?: { text: string; expiresAt: number };
   /** Only these declared actions are currently available. */
@@ -63,10 +67,28 @@ export function readPluginSettingsStatus(
     !!v && typeof v === "object" && !Array.isArray(v);
   const text = (v: unknown, max: number): v is string =>
     typeof v === "string" && v.length > 0 && v.length <= max;
+  const validLink = (link: unknown) => {
+    if (
+      !object(link) ||
+      !text(link.title, 100) ||
+      !text(link.url, 8192) ||
+      !Number.isSafeInteger(link.expiresAt) ||
+      (link.expiresAt as number) <= 0 ||
+      (link.expiresAt as number) > 8_640_000_000_000_000
+    )
+      return false;
+    try {
+      const url = new URL(link.url);
+      return url.protocol === "https:" && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  };
   if (
     !object(value) ||
     !text(value.message, 500) ||
     (value.detail !== undefined && !text(value.detail, 2000)) ||
+    (value.link !== undefined && !validLink(value.link)) ||
     !Array.isArray(value.actions) ||
     value.actions.length > 10 ||
     !value.actions.every(
@@ -84,6 +106,15 @@ export function readPluginSettingsStatus(
     throw new Error("The plugin returned invalid settings status");
   return {
     message: value.message,
+    ...(value.link === undefined
+      ? {}
+      : {
+          link: {
+            title: (value.link as PluginSettingsStatus["link"])!.title,
+            url: (value.link as PluginSettingsStatus["link"])!.url,
+            expiresAt: (value.link as PluginSettingsStatus["link"])!.expiresAt,
+          },
+        }),
     ...(value.detail === undefined ? {} : { detail: value.detail as string }),
     ...(value.code === undefined
       ? {}

@@ -127,6 +127,7 @@ export class PluginValues {
   update(
     entry: PluginIndexEntry,
     changes: Record<string, string | boolean | null>,
+    expected?: PluginConfigurationValues,
   ): Promise<void> {
     if (this.#unreadable) throw new PluginConfigurationError(`Plugin settings in ${this.file} were saved by a newer OhMyGame or are damaged. Update OhMyGame, or fix or remove the file.`);
     const fields = entry.manifest.configuration ?? {};
@@ -149,6 +150,11 @@ export class PluginValues {
       if (problem) throw new PluginConfigurationError(`${url} ${problem}`);
     }
     return this.#write((values) => {
+      if (expected) {
+        const actual = this.forNative(entry);
+        const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+        if ([...keys].some((key) => actual[key] !== expected[key])) throw new PluginConfigurationError("Plugin settings changed; start the connection again");
+      }
       const next = { ...values[entry.id] };
       for (const [name, value] of Object.entries(changes))
         if (value === null) delete next[name];

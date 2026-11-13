@@ -355,11 +355,28 @@ the app's settings routes in the existing app activation, with `{ locale }`
 Every call rechecks global enablement and grants. This UI is available in builds
 including PR #820; earlier API 2.5 builds do not render it.
 
-Status and action handlers return `{ message, detail?, code?, actions }`.
+Status and action handlers return `{ message, detail?, code?, link?, actions }`.
 `message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at
 most ten declared action IDs currently available. Optional `code` is
 `{ text, expiresAt }`: 1–200 characters to copy and a positive epoch millisecond
-deadline. Unknown fields are discarded and invalid responses fail visibly.
+deadline. API 2.6 also accepts `link: { title, url, expiresAt }`: a 1–100 character
+title, HTTPS URL up to 8,192 characters without embedded credentials, and a positive
+epoch millisecond deadline. Only a new link returned by an explicit action opens
+a browser automatically; status polling never opens one. The page also provides
+a button to reopen it. Unknown fields are discarded and invalid responses fail visibly.
+
+An explicit settings action may additionally return private
+`configuration: { [field]: string | boolean | null }`. The host validates at most
+100 declared, visible settings fields (strings up to 4,096 characters); secret
+fields require the plugin's `secrets` capability. It rechecks grants and the
+activation/configuration fingerprint, then compares the starting configuration
+inside the serialized save to reject concurrent changes. Saving uses the normal
+configuration/restart pipeline. The renderer receives only the sanitized status
+and host-generated `configurationChanged: true`, never this patch or secret
+values. `settings-status` cannot write configuration. Plugins own temporary
+authorization credentials until this explicit save and must dispose them on
+cancellation, expiration or activation shutdown.
+
 The visible tab reads status every two seconds; hiding it cancels that read,
 not plugin-owned pairing. Reads must not create or renew challenges. Plugins
 own account persistence, code expiry, cancellation and rebinding; action replies

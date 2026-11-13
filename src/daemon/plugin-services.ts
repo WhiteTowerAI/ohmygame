@@ -1,3 +1,4 @@
+import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
 import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
@@ -243,6 +244,7 @@ export class PluginServices {
       appPlugin: (id) => this.appPlugin(id),
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
+      configure: (id, changes, expected) => this.configure(id, changes, expected),
       dataFolder: (id) => this.dataFolder(id),
     });
   }
@@ -770,11 +772,12 @@ export class PluginServices {
   async configure(
     id: string,
     changes: Record<string, string | boolean | null>,
+    expected?: PluginConfigurationValues,
   ): Promise<void> {
     await this.ready();
     const entry = this.index.get(id);
     if (!entry) throw new Error(`${id} is not installed`);
-    await this.values.update(entry, changes);
+    await this.values.update(entry, changes, expected);
     await this.changed();
   }
 
