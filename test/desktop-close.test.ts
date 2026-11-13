@@ -6,7 +6,8 @@ const host = vi.hoisted(() => ({
   ipcEvents: new Map<string, (...args: any[]) => void>(),
   handlers: new Map<string, (...args: any[]) => any>(),
   windowEvents: new Map<string, (...args: any[]) => void>(),
-  sender: { id: 1, send: vi.fn(), on: vi.fn() },
+  sender: { id: 1, mainFrame: {}, send: vi.fn(), on: vi.fn() },
+  updateUsageData: vi.fn((enabled: boolean) => enabled),
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
   stopped: vi.fn(async () => {}),
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
@@ -41,6 +42,9 @@ vi.mock("electron", () => ({
 vi.mock("undici/index.js", () => ({ setGlobalDispatcher: vi.fn() }));
 vi.doMock(path.resolve("src/daemon/environment.ts"), () => ({ loadEnvironmentFiles: vi.fn() }));
 vi.doMock(path.resolve("src/daemon/proxy.ts"), () => ({ createNetworkDispatcher: vi.fn() }));
+vi.doMock(path.resolve("src/desktop/usage-data.cts"), () => ({
+  readUsageData: () => false, updateUsageData: host.updateUsageData,
+}));
 vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
   prepareDesktopNetwork: async () => ({ active: {}, environment: {} }), electronProxyConfig: () => ({}), proxyCredentials: vi.fn(),
 }));
@@ -120,6 +124,14 @@ function acknowledge(error?: string, sender: { id: number; send: unknown } = hos
 function quit() { const event = { preventDefault: vi.fn() }; host.appEvents.get("before-quit")!(event); expect(event.preventDefault).toHaveBeenCalledOnce(); }
 
 const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.role === "fileMenu")!.label;
+
+it("accepts usage data changes only from the main window's main frame", () => {
+  const update = host.handlers.get("ohmygame:update-usage-data")!;
+  expect(() => update({ sender: { id: 2 }, senderFrame: {} }, true, false)).toThrow("Invalid usage data request");
+  expect(() => update({ sender: host.sender, senderFrame: {} }, true, false)).toThrow("Invalid usage data request");
+  expect(update({ sender: host.sender, senderFrame: host.sender.mainFrame }, false, true)).toBe(false);
+  expect(host.updateUsageData).toHaveBeenCalledExactlyOnceWith(false, true);
+});
 
 it("lets the built renderer frame plugin pages, which CSP knows as file: and CORS as null", () => {
   expect(host.daemonOptions).toMatchObject({ allowedOrigins: ["null"], pluginFrameAncestors: ["file:"] });

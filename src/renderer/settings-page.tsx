@@ -556,14 +556,30 @@ function DiagnosticsSettings() {
 
 function UsageDataSettings() {
   const [enabled, setEnabled] = useState(readUsageDataEnabled);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const desktop = Boolean(window.ohMyGameDesktop?.updateUsageData);
+  const label = t(desktop ? "settings.usageData.desktopToggle" : "settings.usageData.toggle");
+
+  async function change(value: boolean): Promise<void> {
+    setSaving(true);
+    setFailed(false);
+    try {
+      await setUsageDataEnabled(value);
+      setEnabled(readUsageDataEnabled());
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <SettingsGroup title={t("settings.usageData.title")}>
-      <SettingsRow title={t("settings.usageData.toggle")} description={t("settings.usageData.description")}>
-        <Switch label={t("settings.usageData.toggle")} checked={enabled} onChange={(value) => {
-          setEnabled(value);
-          setUsageDataEnabled(value);
-        }} />
+      <SettingsRow title={label} description={t("settings.usageData.description")}>
+        <Switch label={label} checked={enabled} disabled={saving} onChange={(value) => void change(value)} />
       </SettingsRow>
+      {failed ? <div className="settings-pad"><SettingsNote tone="danger">{t("settings.usageData.saveFailed")}</SettingsNote></div> : null}
     </SettingsGroup>
   );
 }

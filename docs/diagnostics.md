@@ -3,6 +3,13 @@
 The desktop app keeps logs on disk so a failure can be traced after the app
 closes, and exports them with system information for bug reports.
 
+## Usage data and crash reports
+
+In desktop release builds, **Settings → About → Send usage data and crash
+reports** controls PostHog usage data and Sentry crash uploads. The change
+applies immediately and persists across restarts. Local logs and manual
+diagnostics exports are available with the switch off.
+
 ## Log files
 
 The Electron main process writes two files to the platform logs folder
