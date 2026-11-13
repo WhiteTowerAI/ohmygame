@@ -38,6 +38,10 @@ Test the game as a player experiences it. Match the depth of verification to the
 
 Treat screenshot blank-frame analysis as a warning signal, not a complete visual assertion. A uniformly colored loading screen can look blank to the heuristic, while a broken but noisy frame can pass it.
 
+Protect the user's running session and saves before resets or destructive setup. Use the real input path and relevant clock; report test-only state setup that skips part of the journey. Check independent invariants and actions that should fail, not only the game's own success score. When earlier state affects later play, verify continuous transitions: isolated checkpoints do not prove a complete run.
+
+Recheck affected behavior after the final change, including built assets when packaging changes. Distinguish compilation, simulation, runtime interaction, screenshots, listening, device checks and player feedback. Do not infer enjoyment, sound quality, balance or retention from unrelated automated metrics.
+
 ## Review Focus
 
 - first actionable screen and control discoverability

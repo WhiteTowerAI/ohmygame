@@ -21,9 +21,13 @@ Read the project's existing scripts, test setup, and engine conventions. Prefer 
 
 For a configured OhMyGame Web preview, prefer `game_use`. Reuse its session, send real input, inspect runtime errors and failed asset loads, capture representative rendered states, and close the session in the same turn even after failure. OhMyGame owns the preview server; do not leave another development server running.
 
-For native engines, use available runtime tools, an engine Connection that actually supports launch or interaction, or project-owned automation. An editor MCP connection alone is not gameplay verification. Do not wrap a native game in a Web project merely to obtain screenshots. Do not install a new browser or automation framework solely for routine verification.
+For native engines, first inspect the current `game_use` operations when available. A `captureFrame`-only adapter supports frame inspection, not `act`, `inspect` or a continuous input playtest. Follow its session ownership and cleanup contract. Otherwise use available runtime tools, an engine Connection that actually supports launch or interaction, or project-owned automation. An editor MCP connection alone is not gameplay verification. Do not wrap a native game in a Web project merely to obtain screenshots. Do not install a new browser or automation framework solely for routine verification.
 
 Use an existing deterministic reset, seed, state snapshot, or step operation when it helps reach the affected state. Still verify real input and what the player sees. Add a minimal test-only bridge only when normal input cannot reliably reach or identify a necessary state; normal gameplay must not depend on it.
+
+Protect the user's running session and saves before resets or destructive setup. Use the real input path and relevant clock; report test-only state setup that skips part of the journey. Check independent invariants and actions that should fail, not only the game's own success score. When earlier state affects later play, verify continuous transitions: isolated checkpoints do not prove a complete run.
+
+Recheck affected behavior after the final change, including built assets when packaging changes. Distinguish compilation, simulation, runtime interaction, screenshots, listening, device checks and player feedback. Do not infer enjoyment, sound quality, balance or retention from unrelated automated metrics.
 
 ## Player-Facing Checks
 

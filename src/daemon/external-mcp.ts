@@ -33,6 +33,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "animate_3d_asset",
   "generate_audio",
   "canvas_check",
+  "project_guide",
   "canvas_initialize",
   "generate_canvas_media",
   "game_use",

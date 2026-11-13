@@ -1,5 +1,7 @@
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { createBrowserUseTool } from "./browser-tools.js";
+import { PROJECT_GUIDES } from "./project-guides.js";
+import { supportsBrowserGameServices } from "./agent-prompts.js";
 import { createWebFetchTool } from "./web-fetch.js";
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
@@ -63,7 +65,7 @@ export function projectPiToolNames(
   webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? [...planningPiToolNames(webSearchEnabled), ...(registeredToolNames.includes("canvas_check") ? ["canvas_check"] : [])]
+    ? [...planningPiToolNames(webSearchEnabled), ...["canvas_check", "project_guide"].filter((name) => registeredToolNames.includes(name))]
     : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
@@ -182,10 +184,16 @@ export function createAgentTools(
       return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
     });
   };
-  return [createWebFetchTool(), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+  return [createWebFetchTool(), defineTool({
+    name: "project_guide",
+    label: "Read project guide",
+    description: "Read the current OhMyGame authoring contract before creating or changing a project panel (panels), or trimming a Playable Nodes Scene background video (scene-media). Read-only; does not create or change files.",
+    parameters: Type.Object({ topic: Type.Union([Type.Literal("panels"), Type.Literal("scene-media")]) }),
+    execute: async (_toolCallId, input) => ({ content: [{ type: "text" as const, text: PROJECT_GUIDES[input.topic] }], details: { topic: input.topic } }),
+  }), ...(browser ? [createBrowserUseTool(project.id, browser)] : []), ...(configureMultiplayer && supportsBrowserGameServices(project) ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
-    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run on the room host's browser while the service keeps the room; never fall back to PeerJS or your own WebRTC. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this browser or WebView game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts, which run in browsers: host mode for turn-based rules or realtime rules with playerView, deterministic lockstep for realtime rules without playerView. The service keeps the room. Follow the guide's authority, timing and leaderboard limits. Preserve the platform integration unless the user explicitly requests another stack. Owner rooms can turn on the SDK's built-in p2p option in the page's createMultiplayerClient call; this tool has no option for it. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
     parameters: Type.Object({
       adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom"), Type.Literal("owner")], {
         description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load. owner: realtime casual and co-op games where each page runs its own player, such as a platformer for two, snake or a party game: no rules file; every player's state reaches the others, and shared things such as food or doors go through the service, first come first served. Prefer it for realtime games with physics or players touching each other, unless results must be the same on every screen.",
@@ -210,14 +218,14 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config, await localGameServices?.());
       return {
-        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game according to the selected mode's rules execution and trust model, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
       };
     },
-  })] : []), ...(project.type === "web-game" || project.type === "general" ? [defineTool({
+  })] : []), ...(supportsBrowserGameServices(project) ? [defineTool({
     name: "game_sdk_setup",
     label: "Set up the OhMyGame SDK",
-    description: "Write the OhMyGame browser SDK and its guide into this Web Game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a single-player game should keep progress or rank scores, instead of writing localStorage code or a scoreboard service yourself. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
+    description: "Write the OhMyGame browser SDK and its guide into this browser or WebView game, for saves that follow the player (game.storage), leaderboards (game.leaderboard) and OhMyGame sign-in (game.auth). Use it when a browser game needs OhMyGame player services; preserve existing saves and migrate deliberately. It is not a native-engine or mini-game API. multiplayer_setup already includes the SDK. Locally it points the game at OhMyGame's local service, which signs in test players by name and keeps saves and leaderboards in memory; publishing to OhMyGame switches to the real services with no code change.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();

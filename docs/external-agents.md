@@ -211,6 +211,7 @@ bound project does not have returns an error that says why.
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |
 | `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
+| `project_guide` | Read-only authoring contracts: `topic: "panels"` or `"scene-media"`; available in every project |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 `game_use` lists every operation and input any runtime takes. A project's own

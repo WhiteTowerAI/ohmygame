@@ -1442,6 +1442,9 @@ valid and using only documented components.
 
 ## Project panels
 
+The agent can read this authoring contract on demand with
+`project_guide({ topic: "panels" })`.
+
 A project can hold panels of its own, without a plugin: each is a folder in
 `.ohmygame/panels/<name>/`, with a lowercase, hyphenated name, holding
 `panel.json` and its page (`src/shared/project-panels.ts`,
