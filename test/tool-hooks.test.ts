@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PluginToolApprovals } from "../src/daemon/plugin-tool-approvals.js";
@@ -321,6 +321,42 @@ describe("remembered plugin target consent", () => {
     await expect(hooks.tools("project", async () => {
       await store.revoke(entries[0]!.id, scope.key); return true;
     }).before(call)).rejects.toThrow("access changed");
+  }));
+  it("recovers after an aborted or stale save without restoring revoked consent", async () => fixture(async (_directory, store) => {
+    const { hooks, entries } = scoped(store);
+    const plugin = entries[0]!;
+    await store.grant("other", "other-digest", scope, 0);
+    const stopped = new AbortController();
+    stopped.abort();
+    await expect(store.grant(plugin.id, plugin.digest, scope, 0, stopped.signal)).rejects.toThrow();
+    expect(await store.has("other", "other-digest", scope)).toBe(true);
+    const approve = vi.fn(async () => "allow-always" as const);
+    await hooks.tools("project", approve).before(call);
+    expect(approve).toHaveBeenCalledOnce();
+    await store.revoke(plugin.id, scope.key);
+    await expect(store.grant(plugin.id, plugin.digest, scope, 0)).rejects.toThrow("access changed");
+    expect(await store.has(plugin.id, plugin.digest, scope)).toBe(false);
+    await expect(hooks.tools("project", async () => false).before(call)).rejects.toThrow("did not approve");
+    expect(await store.has("other", "other-digest", scope)).toBe(true);
+  }));
+  it("keeps failed revocations blocked while unrelated saved access remains usable", async () => fixture(async (_directory, store) => {
+    await store.grant("revoked", "digest", scope, 0);
+    await store.grant("forgotten", "digest", scope, 0);
+    await store.grant("other", "digest", scope, 0);
+    const temporary = `${store.file}.${process.pid}.tmp`;
+    await mkdir(temporary);
+    await expect(store.revoke("revoked", scope.key)).rejects.toThrow();
+    await expect(store.forget("forgotten")).rejects.toThrow();
+    expect(await store.has("revoked", "digest", scope)).toBe(false);
+    expect(await store.has("forgotten", "digest", scope)).toBe(false);
+    expect(await store.has("other", "digest", scope)).toBe(true);
+    await rm(temporary, { recursive: true });
+    await store.revoke("revoked", scope.key);
+    await store.forget("forgotten");
+    const restarted = new PluginToolApprovals(path.dirname(store.file));
+    expect(await restarted.has("revoked", "digest", scope)).toBe(false);
+    expect(await restarted.has("forgotten", "digest", scope)).toBe(false);
+    expect(await restarted.has("other", "digest", scope)).toBe(true);
   }));
   it("serializes writes, preserves unknown fields and refuses damaged or future stores", async () => fixture(async (directory, store) => {
     await writeFile(store.file, JSON.stringify({ version: 1, extra: { future: true }, grants: [{ plugin: "other", digest: "old", key: "other", label: "Other", extra: 7 }] }));

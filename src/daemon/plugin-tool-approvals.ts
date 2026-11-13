@@ -67,7 +67,10 @@ export class PluginToolApprovals {
     digest: string,
     scope: ToolApprovalScope,
   ): Promise<boolean> {
-    await this.#queue;
+    // A rejected mutation has already reported its error to its caller. Wait
+    // for it to settle without making later reads repeat that failure. Failed
+    // revocations still block through the tombstones below; load errors remain fatal.
+    await this.#queue.catch(() => {});
     return (
       !this.#forgotten.has(plugin) &&
       !this.#revoked.has(JSON.stringify([plugin, scope.key])) &&
