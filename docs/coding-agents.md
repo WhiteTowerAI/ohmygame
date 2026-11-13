@@ -503,6 +503,8 @@ agent. Codex's `item/tool/requestUserInput` and Claude Code's `AskUserQuestion`
 use the same question cards above the composer. These are separate from tool
 permissions. Cards preserve single choices, multiple selections and free-text
 answers; submit the answers to continue, or **Skip** without providing an answer.
+When a question allows custom answers, **Answer manually** appears alongside its
+choices and opens a text field when selected. Selecting it stops the countdown.
 Concurrent requests remain queued. Switching chats or hiding the panel does not
 answer or cancel a question, and partial drafts survive those view changes in
 memory. Reloading the page restores pending questions from the daemon, but not

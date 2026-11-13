@@ -2223,7 +2223,6 @@ const en = {
     notAnswered: "Not answered: {{subject}}",
   },
   questionnaire: {
-    kind: "Question",
     label: "Agent questions",
     previous: "Previous question",
     position: "{{current}} of {{total}}",

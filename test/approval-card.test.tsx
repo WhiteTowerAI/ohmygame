@@ -280,3 +280,35 @@ it("keeps a failed answer editable, supports text-only questions, and explicitly
   expect(container.querySelector('[role="timer"]')).toBeNull();
   expect(input.getAttribute("aria-label")).toBe("What name?");
 });
+
+it.each([false, true])("offers a manual answer as a choice and preserves multi-select=%s", async (multiSelect) => {
+  const { QuestionnaireCard } = await import("../src/renderer/questionnaire-card.js");
+  const submit = vi.fn(async () => true);
+  const interact = vi.fn(async () => true);
+  const question: Extract<ThreadItem, { type: "userInputRequest" }> = {
+    id: `manual-option-${multiSelect}`, turnId: "turn", requestId: "request", type: "userInputRequest", status: "inProgress",
+    autoAnswerAt: Date.now() + 60_000,
+    questions: [{ id: "q", prompt: "Which platform?", multiSelect, allowOther: true, options: [{ value: "web", label: "Web" }] }],
+  };
+  await act(async () => root.render(<QuestionnaireCard request={question} onSubmit={submit} onSkip={async () => true} onInteract={interact} />));
+  expect(container.querySelector('[aria-label="Previous question"]')).toBeNull();
+  expect(container.querySelector("input")).toBeNull();
+  const button = (label: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === label)!;
+  await act(async () => button("Web").click());
+  await act(async () => button("Answer manually").click());
+  expect(button("Answer manually").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Web").getAttribute("aria-pressed")).toBe(String(multiSelect));
+  expect(button("Submit answers").disabled).toBe(true);
+  expect(container.querySelector('[role="timer"]')).toBeNull();
+  const input = container.querySelector("input")!;
+  expect(document.activeElement).toBe(input);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Mobile");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Submit answers").click());
+  expect(submit).toHaveBeenCalledWith([multiSelect
+    ? { questionId: "q", value: "web, Mobile", values: ["web", "Mobile"] }
+    : { questionId: "q", value: "Mobile" }]);
+  expect(interact).toHaveBeenCalledOnce();
+});

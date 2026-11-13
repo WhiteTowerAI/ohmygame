@@ -2202,7 +2202,6 @@ const zhCN: typeof en = {
     notAnswered: "未答复：{{subject}}",
   },
   questionnaire: {
-    kind: "提问",
     label: "智能体提问",
     previous: "上一个问题",
     position: "{{current}} / {{total}}",

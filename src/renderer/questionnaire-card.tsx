@@ -64,8 +64,11 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
     const text = draft.text[id]?.trim();
     return custom ? [...(q.multiSelect ? draft.choices[id] ?? [] : []), ...(text ? [text] : [])] : draft.choices[id] ?? [];
   }
+  function answered(id: string): boolean {
+    return values(id).length > 0 && (!draft.custom[id] || Boolean(draft.text[id]?.trim()));
+  }
   async function submit(skip = false) {
-    if (busy.current || (!skip && request.questions.some((item) => !values(item.id).length))) return;
+    if (busy.current || (!skip && request.questions.some((item) => !answered(item.id)))) return;
     busy.current = true;
     setSubmitting(true);
     try {
@@ -88,17 +91,16 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
       onPointerDownCapture={() => void interact()} onKeyDownCapture={() => void interact()}>
       <header>
         <div className="questionnaire-title">
-          <span className="chat-card-kind">{t("questionnaire.kind")}</span>
           <strong>{question.prompt}</strong>
         </div>
-        <div className="questionnaire-navigation">
+        {request.questions.length > 1 ? <div className="questionnaire-navigation">
           <button type="button" disabled={submitting || draft.index === 0} aria-label={t("questionnaire.previous")} onClick={() => update({ ...draft, index: draft.index - 1 })}><ArrowLeft size={14} /></button>
           <span>{t("questionnaire.position", { current: draft.index + 1, total: request.questions.length })}</span>
           <button type="button" disabled={submitting || last} aria-label={t("questionnaire.next")} onClick={() => update({ ...draft, index: draft.index + 1 })}><ArrowRight size={14} /></button>
-        </div>
+        </div> : null}
       </header>
       {question.multiSelect ? <span className="questionnaire-hint">{t("questionnaire.multiple")}</span> : null}
-      <div className="questionnaire-options">
+      <div className="questionnaire-options" data-multiple={question.multiSelect || undefined}>
         {question.options.map((option) => {
           const checked = (!custom || question.multiSelect) && selected.includes(option.value);
           return <button type="button" key={option.value} aria-pressed={checked} disabled={submitting}
@@ -108,29 +110,38 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
                 ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])
                 : [option.value],
             } })}>
-            <span className="questionnaire-option-number">{checked ? <Check size={13} /> : null}</span>
+            <span className="questionnaire-option-mark" aria-hidden="true">{checked ? <Check size={11} /> : null}</span>
             <span className="questionnaire-option-copy">
               <strong>{option.label}{option.recommended ? <small>{t("providers.recommended")}</small> : null}</strong>
               {option.description ? <span>{option.description}</span> : null}
             </span>
           </button>;
         })}
+        {question.allowOther && question.options.length > 0 ? <button type="button" aria-pressed={custom}
+          aria-expanded={custom} disabled={submitting}
+          className={custom ? "questionnaire-option-selected" : undefined}
+          onClick={() => update({ ...draft, custom: { ...draft.custom, [question.id]: question.multiSelect ? !custom : true } })}>
+          <span className="questionnaire-option-mark" aria-hidden="true">{custom ? <Check size={11} /> : null}</span>
+          <span className="questionnaire-option-copy"><strong>{t("questionnaire.answerManually")}</strong></span>
+        </button> : null}
+        {question.allowOther && custom ? <Input className="questionnaire-text" size="sm"
+          aria-label={question.options.length ? t("questionnaire.answerManually") : question.prompt}
+          autoFocus={question.options.length > 0} key={question.id}
+          placeholder={t("questionnaire.typeAnswer")} disabled={submitting} maxLength={2000}
+          value={draft.text[question.id] ?? ""}
+          onChange={(event) => update({ ...draft, text: { ...draft.text, [question.id]: event.target.value } })} /> : null}
       </div>
-      {question.allowOther ? custom ? <Input className="questionnaire-text" size="sm" aria-label={question.options.length ? t("questionnaire.other") : question.prompt}
-        placeholder={t("questionnaire.typeAnswer")} disabled={submitting} maxLength={2000}
-        value={draft.text[question.id] ?? ""}
-        onChange={(event) => update({ ...draft, text: { ...draft.text, [question.id]: event.target.value } })} />
-        : <Button variant="ghost" size="sm" className="questionnaire-other" disabled={submitting} onClick={() => update({ ...draft, custom: { ...draft.custom, [question.id]: true } })}>{t("questionnaire.other")}</Button> : null}
-      {request.autoAnswerAt && !held ? <div className="questionnaire-auto">
-        <span role="timer">{t("questionnaire.countdown", { seconds: Math.max(0, Math.ceil((request.autoAnswerAt - now) / 1000)) })}</span>
-        <Button variant="ghost" size="sm" onClick={() => void interact()}>{t("questionnaire.answerManually")}</Button>
-      </div> : null}
       <footer>
-        <button type="button" className="questionnaire-skip" disabled={submitting} onClick={() => void submit(true)}>{t("common.skip")}</button>
-        <Button size="sm" disabled={submitting || (last ? request.questions.some((item) => !values(item.id).length) : !values(question.id).length)}
-          onClick={() => last ? void submit() : update({ ...draft, index: draft.index + 1 })}>
-          {last ? t("questionnaire.submitAll") : t("questionnaire.next")}
-        </Button>
+        {request.autoAnswerAt && !held ? <span className="questionnaire-auto" role="timer">
+          {t("questionnaire.countdown", { seconds: Math.max(0, Math.ceil((request.autoAnswerAt - now) / 1000)) })}
+        </span> : null}
+        <div className="questionnaire-actions">
+          <button type="button" className="questionnaire-skip" disabled={submitting} onClick={() => void submit(true)}>{t("common.skip")}</button>
+          <Button size="sm" disabled={submitting || (last ? request.questions.some((item) => !answered(item.id)) : !answered(question.id))}
+            onClick={() => last ? void submit() : update({ ...draft, index: draft.index + 1 })}>
+            {last ? t("questionnaire.submitAll") : t("questionnaire.next")}
+          </Button>
+        </div>
       </footer>
     </section>
   );

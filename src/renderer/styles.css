@@ -9077,21 +9077,25 @@ summary.work-summary:hover {
   list-style: none;
 }
 
-.image-read-details {
+.image-read-details,
+.questionnaire-outcome {
   margin: 0;
 }
 
-.image-read-details > summary {
+.image-read-details > summary,
+.questionnaire-outcome > summary {
   width: fit-content;
   max-width: 100%;
   grid-template-columns: 14px minmax(0, auto) 14px;
 }
 
-.image-read-details > summary::-webkit-details-marker {
+.image-read-details > summary::-webkit-details-marker,
+.questionnaire-outcome > summary::-webkit-details-marker {
   display: none;
 }
 
-.image-read-details[open] .tool-detail-chevron {
+.image-read-details[open] .tool-detail-chevron,
+.questionnaire-outcome[open] .tool-detail-chevron {
   transform: rotate(90deg);
 }
 
@@ -9485,7 +9489,7 @@ summary.work-summary:hover {
   transition: transform 120ms ease;
 }
 
-:is(.tool-activity-details, .image-read-details, .compaction-details) .tool-detail-chevron {
+:is(.tool-activity-details, .image-read-details, .compaction-details, .questionnaire-outcome) .tool-detail-chevron {
   opacity: 0;
   transition:
     color 120ms ease,
@@ -9493,8 +9497,8 @@ summary.work-summary:hover {
     transform 120ms ease;
 }
 
-:is(.tool-activity-details, .image-read-details, .compaction-details) > summary:hover .tool-detail-chevron,
-:is(.tool-activity-details, .image-read-details, .compaction-details) > summary:focus-visible .tool-detail-chevron {
+:is(.tool-activity-details, .image-read-details, .compaction-details, .questionnaire-outcome) > summary:hover .tool-detail-chevron,
+:is(.tool-activity-details, .image-read-details, .compaction-details, .questionnaire-outcome) > summary:focus-visible .tool-detail-chevron {
   opacity: 1;
 }
 
@@ -10256,8 +10260,8 @@ summary.work-summary:hover {
 .questionnaire-options > button {
   display: grid;
   width: 100%;
-  min-height: 44px;
-  grid-template-columns: 24px minmax(0, 1fr);
+  min-height: 36px;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
   padding: 6px var(--space-2);
@@ -10274,10 +10278,10 @@ summary.work-summary:hover {
   background: var(--color-hover);
 }
 
-.questionnaire-option-number {
+.questionnaire-option-mark {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px var(--color-border-strong);
@@ -10285,7 +10289,7 @@ summary.work-summary:hover {
   font-size: var(--text-xs);
 }
 
-.questionnaire-option-selected .questionnaire-option-number {
+.questionnaire-option-selected .questionnaire-option-mark {
   background: var(--color-ink);
   box-shadow: none;
   color: var(--color-on-ink);
@@ -10362,17 +10366,70 @@ summary.work-summary:hover {
   opacity: 0.45;
 }
 
-.questionnaire-text { width: 100%; min-width: 0; }
-.questionnaire-other, .questionnaire-auto button { text-align: left; color: var(--color-text-secondary); }
-.questionnaire-auto { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
-.questionnaire-auto, .questionnaire-hint { font-size: 12px; color: var(--color-text-secondary); }
-.questionnaire-outcome { font-size: 12px; padding: 6px 0; }
-.questionnaire-outcome summary { cursor: pointer; }
-.questionnaire-outcome p { margin: 4px 0 10px; white-space: pre-wrap; }
+/* Keep the question compact within the chat column; approval cards retain their layout. */
+.questionnaire-card:not(.approval-card) {
+  gap: var(--space-2);
+  max-height: min(70vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
-.questionnaire-title > strong, .questionnaire-option-copy { overflow-wrap: anywhere; }
+.questionnaire-title > strong,
+.questionnaire-option-copy {
+  overflow-wrap: anywhere;
+}
 
-.questionnaire-card:not(.approval-card) { max-height: min(70vh, 620px); overflow-y: auto; overscroll-behavior: contain; }
+.questionnaire-options[data-multiple] .questionnaire-option-mark {
+  border-radius: 4px;
+}
+
+.questionnaire-text {
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0;
+}
+
+.questionnaire-card:not(.approval-card) > footer {
+  flex-wrap: wrap;
+}
+
+.questionnaire-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.questionnaire-auto,
+.questionnaire-hint {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.questionnaire-auto {
+  flex: 1 1 auto;
+}
+
+.questionnaire-answers {
+  display: grid;
+  gap: var(--space-3);
+  margin: 4px 0 8px 21px;
+  overflow-wrap: anywhere;
+}
+
+.questionnaire-answers dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.questionnaire-answers dd {
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 
 .plan-review {
   display: grid;
