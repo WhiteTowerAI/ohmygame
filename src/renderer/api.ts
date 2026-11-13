@@ -1,4 +1,7 @@
+import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
+import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
 import { notifyAgentModelsChanged } from "./model-settings-events.js";
+import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
@@ -148,6 +151,13 @@ declare global {
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      readUsageData?: () => Promise<boolean>;
+      onUsageDataChanged?: (listener: (enabled: boolean) => void) => void;
+      updateUsageData?: (enabled: boolean, initialize: boolean) => Promise<boolean>;
+      backgroundRunning?: {
+        get: () => Promise<boolean>;
+        set: (enabled: boolean) => Promise<boolean>;
+      };
       restartApp?: () => Promise<void>;
       /** Holds off system sleep while an agent works (Settings → General). */
       setKeepAwake?: (enabled: boolean) => Promise<void>;
@@ -195,6 +205,8 @@ declare global {
       finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
+      /** The Browser panel's pages; absent outside the desktop app. */
+      browser?: DesktopBrowserBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
@@ -524,6 +536,22 @@ export async function refreshProviderModels(providerId: string): Promise<Provide
   return result;
 }
 
+/** A plugin provider's media models of a kind, in Settings. */
+export async function getPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`);
+}
+
+/** Lists the vendor's models of a kind through the plugin's adapter. */
+export async function listPluginMediaModels(providerId: string, kind: PluginMediaKind): Promise<PluginMediaModelList> {
+  return request(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}/list`, { method: "POST" });
+}
+
+export async function setPluginMediaModelsShown(providerId: string, kind: PluginMediaKind, ids: string[], shown: boolean): Promise<PluginMediaModelList> {
+  const result = await request<PluginMediaModelList>(`/plugin-media-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(kind)}`, { method: "PUT", body: JSON.stringify({ ids, shown }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
 }
@@ -719,6 +747,47 @@ export async function listModel3DAnimations(model?: AgentModelRef, options?: imp
 export async function listModel3DOperations(): Promise<Model3DModel[]> { return request("/model3d-operations"); }
 export async function model3DBalance(model: AgentModelRef): Promise<import("../shared/contracts.js").Model3DBalance> {
   return request(`/model3d-balance?${new URLSearchParams({ provider: model.provider, id: model.id })}`);
+}
+
+/** Settings › Agents › Instructions: the person's own instructions and OhMyGame's for each kind of project. */
+export async function getAgentInstructions(): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions");
+}
+
+export async function setAgentInstructions(custom: string): Promise<AgentInstructionsView> {
+  return request("/settings/agent-instructions", { method: "PUT", body: JSON.stringify({ custom }) });
+}
+
+/** The browser settings every project shares, and why the saved ones can't be used if they can't. */
+export async function getBrowserSettings(): Promise<BrowserSettings & { problem?: string }> {
+  return request("/settings/browser");
+}
+
+export async function setBrowserSettings(settings: BrowserSettings): Promise<BrowserSettings> {
+  return request("/settings/browser", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+/** A project's saved tabs and the sites visited in it. */
+export async function getProjectBrowser(projectId: string): Promise<ProjectBrowser & { problem?: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/browser`);
+}
+
+export async function saveBrowserTabs(projectId: string, tabs: SavedBrowserTab[], active: string | undefined): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/tabs`, { method: "PUT", body: JSON.stringify({ tabs, active }) });
+}
+
+/** The sites a project's plugins put on the new-tab page. */
+export async function getPluginBrowserShortcuts(projectId: string): Promise<PluginBrowserShortcut[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-browser-shortcuts?locale=${encodeURIComponent(language)}`);
+}
+
+export async function recordBrowserVisit(projectId: string, url: string, title: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/browser/visits`, { method: "POST", body: JSON.stringify({ url, title }) });
+}
+
+/** What a conversation's agent is told, as its model last received it. */
+export async function getConversationInstructions(projectId: string, conversationId: string): Promise<ConversationInstructions> {
+  return request(`/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/instructions`);
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {
@@ -1995,6 +2064,11 @@ export async function deletePluginFile(projectId: string, plugin: string, filePa
 }
 
 /** The plugin commands a project offers. */
+/** Home's ways to start from the plugins a new project starts with. */
+export async function listPluginStarters(): Promise<{ plugins: string[]; commands: import("../shared/plugins.js").ProjectPluginCommand[] }> {
+  return request(`/plugin-starters?locale=${encodeURIComponent(language)}`);
+}
+
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }

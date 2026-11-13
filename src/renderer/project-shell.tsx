@@ -119,6 +119,7 @@ import {
 import { AgentAccountMenu } from "./agent-account-menu.js";
 import { PluginLogDialog } from "./plugin-log.js";
 import { ConversationMenu } from "./conversation-menu.js";
+import { ConversationInstructionsDialog } from "./conversation-instructions-dialog.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
@@ -146,7 +147,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginPanelToolbar, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, ProjectPanelGate, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -158,6 +159,7 @@ import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { Button, Dialog, DropdownMenu, Empty, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
+import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { language, t } from "./i18n.js";
 
@@ -215,6 +217,7 @@ const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
   story: Book,
   canvas: GalleryWide,
   plugin: Package,
+  browser: Globe2,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -259,6 +262,7 @@ export function ProjectShell({
   /** Says why a new project's first message is back in the input box, until a message is sent. */
   const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
@@ -291,6 +295,14 @@ export function ProjectShell({
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
   for (const id of pluginPanels.keys())
     if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
+  // The browser starts its tabs once the person first opens it in a project, and keeps them until the project closes.
+  const [browserOpenedIn, setBrowserOpenedIn] = useState<string>();
+  const [browserOpenRequests, setBrowserOpenRequests] = useState<Array<BrowserOpenRequest & { projectId: string }>>([]);
+  const browserPlaced = !!layout && !!areaOf(layout, "browser");
+  useEffect(() => { if (browserPlaced && state.project) setBrowserOpenedIn(state.project.id); }, [browserPlaced, state.project?.id]);
+  useEffect(() => window.ohMyGameDesktop?.browser?.onCommand((id, command) => {
+    if (command === "reveal" && id === state.project?.id) revealPanel("browser");
+  }), [state.project?.id]);
   const latestLayout = useRef({ current, offered, layout, homes });
   latestLayout.current = { current, offered, layout, homes };
   function changeLayout(next: Layout): void {
@@ -1221,7 +1233,7 @@ export function ProjectShell({
    * a link, or the plugin's code. Resolves to what its code returned, or why
    * it failed, which it has already shown.
    */
-  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<{ result?: unknown; error?: string }> {
+  async function runProjectPluginCommand(command: ProjectPluginCommand, target?: PluginCommandTarget): Promise<{ result?: unknown; error?: string }> {
     if (!project) return {};
     const run = command.run;
     if ("prompt" in run) {
@@ -1251,7 +1263,8 @@ export function ProjectShell({
     }
     try {
       await saveBeforeBuild(command);
-      const { result, change } = await runPluginCommand(project.id, command.id);
+      const input = "native" in run && run.input ? target?.input : undefined;
+      const { result, change } = await runPluginCommand(project.id, command.id, input);
       showPluginChange(command.title, change);
       return { result };
     } catch (cause) {
@@ -1340,6 +1353,10 @@ export function ProjectShell({
         pluginConfirmOpen.current = true;
         setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
       }),
+      ...(window.ohMyGameDesktop?.browser ? { openBrowser: (url: string) => {
+        setBrowserOpenRequests((requests) => [...requests, { projectId: current.id, url }]);
+        revealPanel("browser");
+      } } : {}),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1406,6 +1423,13 @@ export function ProjectShell({
     ...pluginCommandEntries("project.menu"),
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
+  // The game's toolbar and the canvas show their own slots, deep in the workspace.
+  const runCommandRef = useRef(runProjectPluginCommand);
+  runCommandRef.current = runProjectPluginCommand;
+  const pluginSlots = useMemo(() => ({
+    commands: project ? plugins.commands : [], when: plugins.when,
+    run: (command: ProjectPluginCommand, target?: PluginCommandTarget) => runCommandRef.current(command, target),
+  }), [!!project, plugins.commands, plugins.when]);
   const publishButton = project ? publishAction(project, { publishing, agentBusy, plugins: publishCommands.length }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's
@@ -1457,6 +1481,11 @@ export function ProjectShell({
     ...presetsFor(offered).map((preset): Command => ({
       id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
       run: () => changeLayout(presetLayout(preset, offered, homes)),
+    })),
+    // Plugins' layouts, which open the panels they need.
+    ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
+      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size={16} />,
+      run: () => void runProjectPluginCommand(command),
     })),
   ] : []);
   // The cards that wait on an answer and the composer: in the chat panel, or
@@ -1573,7 +1602,7 @@ export function ProjectShell({
   };
 
   return (
-    <>
+    <PluginSlotsContext.Provider value={pluginSlots}>
     {chatInput}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
@@ -1598,6 +1627,7 @@ export function ProjectShell({
     <ProjectFrame
       rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+        {project ? <PluginPanelToolbar commands={commandsForSlot(plugins.commands, "project.toolbar", plugins.when)} onRun={runProjectPluginCommand} /> : null}
         {/* Play stays in place from every view. A Web preview or a story fills
             the slot with Play in its own window; an external preview can only be shown. */}
         {project && story ? <span className="project-top-play" ref={setPlaySlot} />
@@ -1678,6 +1708,7 @@ export function ProjectShell({
                 restore: unarchive,
                 remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
               } : undefined}
+              onShowInstructions={() => setInstructionsOpen(true)}
             />
             <button
               className="icon-button pane-header-action"
@@ -1690,6 +1721,7 @@ export function ProjectShell({
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
     </div>, nodes.chat.toolbar)}
+    {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
       <div className="agent-body" ref={timeline} onScroll={(event) => {
         const element = event.currentTarget;
@@ -1800,6 +1832,9 @@ export function ProjectShell({
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
+      {project && browserOpenedIn === project.id && window.ohMyGameDesktop?.browser ? createPortal(<ErrorBoundary label={panelTitle("browser")} resetKey={project.id}>
+        <BrowserPanel key={project.id} bridge={window.ohMyGameDesktop.browser} projectId={project.id} visible={visible.includes("browser")} pluginsRevision={capabilitiesRevision} openRequests={browserOpenRequests.filter((request) => request.projectId === project.id)} onOpened={(opened) => setBrowserOpenRequests((requests) => requests.filter((request) => request !== opened))} />
+      </ErrorBoundary>, nodes.browser.body) : null}
       {project && workspace && workspaceTop ? workspace.render({
         busy: agentBusy, revision: workspaceRevision, ask: requestPrompt, openFile: openWorkspaceFile, top: workspaceTop, panel: nodes.plugin,
       }) : null}
@@ -1810,7 +1845,7 @@ export function ProjectShell({
       </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
-    </>
+    </PluginSlotsContext.Provider>
   );
 }
 

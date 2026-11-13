@@ -14398,3 +14398,48 @@ summary.work-summary:hover {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* A conversation's instructions, part by part */
+.conversation-instructions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.conversation-instructions .ui-code-block pre {
+  max-height: 360px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation-instructions-tools {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation-instructions-tools li {
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.conversation-instructions-tools code {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.conversation-instructions-tools span {
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+}
+
+.conversation-instructions > .settings-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}

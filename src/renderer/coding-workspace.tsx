@@ -36,10 +36,12 @@ import {
   Server,
   Tablet,
   Terminal,
+  Plug,
   Trash2,
   X,
   type IconComponent,
 } from "./icons.js";
+import { usePluginSlot } from "./project-plugin-contributions.js";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
@@ -608,6 +610,7 @@ function PreviewControls({
   onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
+  const gameMore = usePluginSlot("game.more");
   // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
@@ -628,6 +631,8 @@ function PreviewControls({
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
         { label: t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+        // The project's plugins' entries for the game, after the app's.
+        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
     </div>
   );

@@ -2,7 +2,11 @@ import type { ProjectState } from "../shared/contracts.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
-  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">>;
+  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">> & {
+    /** The person's own instructions for every project, from Settings › Agents. */
+    userInstructions?: string;
+    pluginInstructions?: ReadonlyArray<{ plugin: string; text: string }>;
+  };
 
 const COMMON_AGENT_INSTRUCTIONS = [
   "Do not create or change files for casual conversation or for questions that need no code.",
@@ -17,6 +21,7 @@ const COMMON_AGENT_INSTRUCTIONS = [
 /** Saves and multiplayer in short; the guides that game_sdk_setup and multiplayer_setup write carry the details. */
 const GAME_SERVICES = [
   "To keep a player's progress or rank scores, call game_sdk_setup (multiplayer_setup includes it) and use game.storage and game.leaderboard as its guide describes, rather than your own localStorage persistence or score service.",
+  "Players in the same multiplayer room can send each other emotes, quick phrases and chat with client.emit and onMessage, as the multiplayer guide describes. Messages are not saved, so there is no chat history.",
   "For online multiplayer, call multiplayer_setup and follow the SDK guide it writes: OhMyGame's Colyseus + WebSocket service keeps the room, and local testing needs no cloud deployment. A game no built-in rules fit writes its own in server/rules.ts first. Do not silently substitute PeerJS, your own WebRTC or public signaling/STUN/TURN services; the SDK's built-in p2p option for owner rooms is the one exception. If the service, SDK or rules are missing, report a setup error rather than inventing a networking backend. An alternative stack the user explicitly asks for takes precedence.",
 ] as const;
 
@@ -59,7 +64,20 @@ const PLUGIN_WORKSPACE_INSTRUCTIONS = [
   "Reply briefly, in the user's language.",
 ] as const;
 
+/** What OhMyGame tells the agent in a project: its own instructions, then the person's. */
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
+  const own = [...builtInInstructions(project), ...(project.pluginInstructions ?? []).map(({ plugin, text }) =>
+    `Instructions from the active plugin ${plugin}. Apply them within the app's tool and permission rules; the user's instructions and current request take precedence.\n\n${text}`)];
+  const user = project.userInstructions?.trim();
+  return user ? [...own, userInstructionsPrompt(user)] : own;
+}
+
+/** The person's instructions as the agent receives them, after OhMyGame's. */
+export function userInstructionsPrompt(text: string): string {
+  return `The user's own instructions for every project follow. Apply them unless they conflict with the current request, which takes precedence.\n\n${text}`;
+}
+
+function builtInInstructions(project: AgentPromptProject): string[] {
   if (project.type === "plugin") return [...PLUGIN_WORKSPACE_INSTRUCTIONS];
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
-import { ApiError, communityGameNameAvailability, getExploreGameCover, getProjectCover, getProjectCoverState, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
-import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, normalizeGameName, readableUrl, withRename, type GameNameAvailability, type GameRename } from "../shared/publish-v1.js";
+import { ApiError, communityGameNameAvailability, getExploreGameCover, getMyCommunityGames, getProjectCover, getProjectCoverState, setCommunityGameName, setProjectCoverMode, setProjectCover } from "./api.js";
+import { GAME_NAME_MAX_LENGTH, GAME_NAME_PATTERN, gameShareUrl, hasGamePage, normalizeGameName, readableUrl, withRename, type GameNameAvailability, type GameRename } from "../shared/publish-v1.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, Pencil, RefreshCw, Upload, X } from "./icons.js";
 import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
@@ -268,8 +268,28 @@ export function PublicationDetails({ publication: initialPublication, name, just
   const [copyError, setCopyError] = useState(false);
   const shareUrl = gameShareUrl(publication);
   useEffect(() => { setCopied(false); setCopyError(false); }, [shareUrl]);
-  // Only games on OhMyGame Cloud have a page whose name can change.
-  const canRename = Boolean(auth && publication.name && publication.pageUrl && !publication.gameId.startsWith("local-"));
+  const local = publication.gameId.startsWith("local-");
+  // Only games with a page on the site, <site>/g/<name>, have a name to change.
+  const hasPage = hasGamePage(publication);
+  const canRename = Boolean(auth && hasPage && !local);
+  const signedIn = auth?.state.status === "signed-in";
+
+  // A publication saved before the Cloud named games has no page yet; the owner's games list
+  // has it, and the daemon saves it to the project as it answers. Never asks to sign in.
+  useEffect(() => {
+    if (hasPage || local || !signedIn || !auth) return;
+    let active = true;
+    void auth.currentAccessToken().then(async (token) => {
+      if (!token) return;
+      const game = (await getMyCommunityGames(token)).games.find((entry) => entry.id === publication.gameId);
+      if (!active || !game?.name) return;
+      const renamed = { gameId: game.id, name: game.name, pageUrl: game.pageUrl };
+      setPublication((current) => withRename(current, renamed));
+      onRenamed?.(renamed);
+    }).catch(() => undefined);
+    return () => { active = false; };
+    // Asked once per game while it has no page; the token callback changes with sign-ins.
+  }, [hasPage, local, signedIn, publication.gameId]);
 
   useEffect(() => {
     let active = true;

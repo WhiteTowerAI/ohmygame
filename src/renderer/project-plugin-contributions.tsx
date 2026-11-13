@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectInputMap, ProjectPluginChange, ProjectPluginCommand, ProjectPluginPreview, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
@@ -9,6 +9,7 @@ import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Alert, Button, DropdownMenu, Empty, IconButton, Skeleton } from "./ui/index.js";
 import type { PanelId } from "./workspace-layout.js";
+import "./plugin-frame.css";
 
 // What a project's plugins add to its workspace: panels beside the
 // built-in ones, commands in the slots their manifests name, and preview
@@ -51,6 +52,34 @@ export function pageCommand(panel: Pick<PluginPanel, "plugin" | "capabilities">,
 /** The commands a slot shows, in manifest order. */
 export function commandsForSlot(commands: readonly ProjectPluginCommand[], slot: string, context: WhenContext): ProjectPluginCommand[] {
   return commands.filter((command) => command.slots.some((entry) => entry.slot === slot && matchesWhen(entry.when, context)));
+}
+
+/**
+ * What a command run from somewhere in a project is about, such as a canvas
+ * node. A prompt needs none: the composer already sends the canvas selection.
+ */
+export interface PluginCommandTarget {
+  /** Passed to a native command that declares `run.input`; others run as from a menu. */
+  input?: unknown;
+}
+
+/**
+ * The project's plugin commands and how to run one, for the views deep in the
+ * workspace (the game's toolbar, the canvas) that show a slot of their own.
+ * Outside a project, there are none.
+ */
+export interface PluginSlots {
+  commands: readonly ProjectPluginCommand[];
+  when: WhenContext;
+  run: (command: ProjectPluginCommand, target?: PluginCommandTarget) => Promise<unknown>;
+}
+
+export const PluginSlotsContext = createContext<PluginSlots | undefined>(undefined);
+
+/** A slot's commands in this project, and how to run one. */
+export function usePluginSlot(slot: string): { commands: ProjectPluginCommand[]; run: PluginSlots["run"] } {
+  const slots = useContext(PluginSlotsContext);
+  return { commands: slots ? commandsForSlot(slots.commands, slot, slots.when) : [], run: slots?.run ?? (async () => undefined) };
 }
 
 /** The "/" list: commands with a `slash` name, and those in the `composer.slash` slot. */

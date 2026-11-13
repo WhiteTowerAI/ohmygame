@@ -190,7 +190,58 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | `keywords`, provider `media` and agent `icon`, and [Library sources](#library-sources) (`contributes.assetSources`). |
+| 2.5.0 | Static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+
+## Agent instructions
+
+`contributes.instructions` (API 2.5.0) is a static string of 1–8,000 characters
+with at least one non-whitespace character. It is displayed in full in the
+add/update review and the plugin's page, as plain text. It cannot name a file,
+run code, interpolate settings or use localized `%keys%`.
+
+Only active plugins in the project contribute instructions. Pi and coding
+agents receive them after the app's built-in instructions and before the
+person's own instructions, each attributed to its plugin. The current request
+and the person's instructions take precedence. A session keeps its starting
+instructions; plugin changes invalidate idle sessions for the next message.
+The conversation's instructions view includes these paragraphs.
+
+```json
+{ "contributes": { "instructions": "Keep the project's existing naming conventions." } }
+```
+
+## Browser
+
+Plugin API 2.5.0 adds shortcuts to the desktop app's built-in
+[Browser panel](runtime.md#browser-panel):
+
+```json
+{
+  "contributes": {
+    "browserShortcuts": [
+      { "id": "docs", "title": "Documentation", "url": "https://example.com/docs" }
+    ]
+  }
+}
+```
+
+Each shortcut has a unique `id`, a `title` of at most 60 characters (or a
+`%key%` from the plugin's locales), and a valid HTTPS `url` of at most 500
+characters without credentials. Only plugins active in the project contribute
+shortcuts. They appear separately from the person's editable shortcuts.
+
+A visible project panel can open an HTTP(S) page in a new tab and reveal Browser:
+
+```js
+await host.request("browser.open", { url: "https://example.com/docs" });
+```
+
+The address must be at most 4,000 characters and contain no credentials.
+The request resolves to `null` once the app accepts it; loading errors appear
+in Browser. It fails outside desktop project panels, from hidden pages, or
+after five requests in ten seconds across a plugin's panels. No additional
+capability is needed: this only opens a page and grants no access to its DOM,
+cookies, history or scripts. The browser allows at most 20 tabs per project.
 
 ## Native code
 
@@ -251,9 +302,11 @@ host, and the add review and the plugin's page list the events.
 | `turn.completed` | A run's turns are closed, however the run ended | `conversationId`, `status`, `changes` (each file once, at most 500) |
 | `build.started`, `build.completed` | Around packing the project for export or publishing | `purpose`, then `status` with `bytes` or `error` |
 | `files.changed` | Files changed, in OhMyGame or outside it | `paths` (at most 200 every half second), `truncated` |
+| `tool.beforeCall` | Before a hosted tool executes (API 2.5.0) | `callId`, `tool`, `args`, `source`, optional `server` |
+| `tool.afterCall` | After an executed tool succeeds or fails (API 2.5.0) | The same call identity and arguments, `status`, `text`, optional `truncated` |
 | `image.beforeGenerate` | Before an image is generated in the project, by an agent, the canvas or the app | `prompt`, `imageModel`, `size` or `resolution` and `aspectRatio`, `transparentBackground`, `references` |
 
-Every hook but `image.beforeGenerate` only hears: nothing waits for it,
+Every hook but `image.beforeGenerate` and `tool.beforeCall` only hears: nothing waits for it,
 and it can't stop or change what happened. It may return
 `{ notice, tone }`, which the project shows as a toast under the plugin's
 id (at most 300 characters, five in ten seconds); `tone` is `default` or
@@ -262,6 +315,52 @@ id (at most 300 characters, five in ten seconds); `tone` is `default` or
 `image.beforeGenerate` answer the app can't use. `.git`, `node_modules` and `.ohmygame` aren't
 watched, and a project's files are watched only while it is open and one
 of its plugins hears `files.changed` or has a page with `project.files`.
+
+`tool.beforeCall` runs in project order and must return one of:
+
+```js
+context.registerHook("tool.beforeCall", (call) => {
+  if (call.source === "mcp" && call.server === "desktop") {
+    return { decision: "ask", reason: "This action controls your desktop." };
+  }
+  return { decision: "allow" };
+});
+// Or: { decision: "deny", reason: "Desktop control is disabled." }
+```
+
+A deny/ask reason is required and is at most 300 characters. Arguments cannot
+be changed; returning additional fields is an error. Each native handler has
+10 seconds to answer. An invalid reply, error, timeout, unreadable project or
+cancellation blocks the call. The plugin's error and identity reach the agent.
+Each `ask` opens the existing approval card for this single call, showing the
+plugin, tool, exact JSON arguments and reason; there is no persistent grant.
+Arguments whose formatted JSON exceeds 8,000 characters cannot be approved:
+the agent must split the operation. The human's waiting time does not consume
+the handler timeout. Stopping the turn cancels unanswered requests. If the set
+or version of gates changes during approval, the call must be retried.
+
+The boundary covers Pi tools (including built-in file/shell tools), OhMyGame
+and plugin tools exposed to coding agents, and project tools on the external
+MCP endpoint. `source` is `agent`, `external` or `mcp`. Individual MCP calls
+(including direct tools, scripts, resources and MCP app calls) use `mcp`, the
+server name and the original tool name. Their proxy does not cause a second
+approval. The adapter's own approval rules still apply after the host gate,
+even if the adapter cached a grant. External MCP calls have no active app
+conversation to approve in, so `ask` is refused with an explanation.
+Native coding agents' own file/shell tools and plugins' own native code are
+outside this boundary; their existing permissions still apply.
+
+`tool.afterCall` observes executed calls, not denied calls. It runs independently
+and cannot change the result. Its `text` contains at most 8,000 characters of
+text output, with `truncated: true` when cut; binary/image data and structured
+results are not included. `status` is `succeeded` or `failed`. MCP callbacks
+observe the individual RPC outcome before the adapter formats it. Like other
+notification hooks, it may return a bounded notice, and failures only get logged.
+
+The pinned `pi-mcp-adapter` patch keeps the host gate ahead of cached approvals,
+preserves its refusal reason and emits per-RPC results. Remove these patch
+hunks when an upstream version provides the same host contract and the
+`plugin-mcp-host` regressions pass against it.
 
 `image.beforeGenerate` may return the fields it changes: `prompt` (at most
 8,000 characters), `imageModel` (`{ provider, id }`), `transparentBackground`,
@@ -572,7 +671,7 @@ elsewhere.
 ## Model providers
 
 `contributes.providers` adds model providers to Settings → Providers: chat,
-media (images and videos), or both under one key.
+media (images, videos, audio and 3D models), or both under one key.
 `PluginModelProviders` (`src/daemon/plugin-model-providers.ts`) puts each in
 the model runtime as `plugin.<publisher>.<name>.<id>` while its plugin is
 installed, runs in this app and isn't disabled everywhere; projects' plugin
@@ -608,8 +707,9 @@ switches don't apply. It follows installs, updates and setting changes.
   `PluginMediaProviders` (`src/daemon/plugin-media-providers.ts`) adds the
   models it lists under `image` and `video` to the image and video catalogs
   while the key is set and the provider is on; a video's task survives a
-  restart for a retry to resume. [Media provider plugins](media-provider-plugins.md) has
-  the contract.
+  restart for a retry to resume. A kind with `discoverModels` lists more of
+  the vendor's models, which the person turns on in Settings.
+  [Media provider plugins](media-provider-plugins.md) has the contract.
 
 ## Coding agents
 
@@ -1052,15 +1152,35 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
   built-in ones.
-- **Commands** show in the slots `composer.slash` (and every command with a
-  `slash` name), `composer.add`, `project.menu` and `project.publish`, the
-  Publish menu, after the app's own entries. The Publish button opens for a
+- **Commands** show in the slots their manifest names, after the app's own
+  entries, when the slot's `when` holds:
+
+  | Slot | Where |
+  | --- | --- |
+  | `composer.slash` | The composer's "/" list, with every command that has a `slash` name. |
+  | `composer.add` | The composer's + menu. |
+  | `project.menu` | The project's name menu. |
+  | `project.toolbar` | Buttons in the project's top bar, before Play; past three, a ⋯ menu. |
+  | `project.publish` | The Publish menu. |
+  | `project.layout` | The command menu (⌘K), beside the built-in layouts, as for a command that opens its panel. |
+  | `panel.toolbar` | The toolbar of the command's own panel. |
+  | `game.more` | The ⋯ menu of the game's preview. |
+  | `canvas.add` | The canvas's add menu. |
+  | `canvas.node` | A canvas node's right-click menu. |
+  | `home.starters` | Home, under the prompt box, from the plugins a new project starts with. Only prompt commands show, and they fill the box. |
+
+  The Publish button opens for a
   project with no web build, such as a Maker game, once a plugin offers a way
   to publish it, and shows it publishing while a plugin's code runs. A prompt is sent, or
   put in the composer with `insert`; `openPanel` brings the panel forward;
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
-  offers Undo when they changed files. The other slots are not shown yet.
+  offers Undo when they changed files.
+  From the canvas, a prompt goes with the board and its selection, as any
+  message there does; a right-clicked node is selected. A native command whose `run.input` names a JSON Schema gets
+  `{ boardId }` from `canvas.add`, and `{ boardId, nodeId, nodeType, assetId? }`
+  from `canvas.node`; its schema must accept them. On Home, `when` sees
+  `platform` and the plugins a new project starts with, but no project.
   A plugin page's `command.run` may send `input`: a tool command passes it
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked

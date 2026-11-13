@@ -1,3 +1,4 @@
+import { createBrowserUseTool } from "../src/daemon/browser-tools.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
@@ -20,24 +21,24 @@ const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } a
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
-    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
+    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(["animate-3d"])).toEqual([
-      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "animate_3d_asset",
+      "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "animate_3d_asset",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin"]);
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("canvas_check");
     expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
     expect(activePiToolNames(["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("generate_canvas_media");
@@ -51,14 +52,14 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_fetch", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
-    )).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
+    )).toEqual(["read", "grep", "find", "ls", "web_fetch", "web_search", "questionnaire", "update_plan"]);
     expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin",
+      "read", "write", "edit", "bash", "web_fetch", "update_plan", "install_plugin",
     ]);
   });
 
@@ -368,7 +369,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
     expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined);
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Welcome", kind: "speech", voiceId: "narrator", model }), undefined, expect.objectContaining({ begin: expect.any(Function) }));
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
   it("registers standalone image and frame processing tools", async () => {
@@ -465,5 +466,24 @@ describe("image plugin changes", () => {
       .toBe("\nPlugins in this project changed the request before it was generated: acme/style 1.0.0 (prompt, aspectRatio). The prompt used was: a cat, pixel art");
     expect(pluginChangeNote({ prompt: "a cat", pluginChanges: [{ plugin: "acme/size", version: "2.0.0", fields: ["size"] }] }))
       .toBe("\nPlugins in this project changed the request before it was generated: acme/size 2.0.0 (size).");
+  });
+});
+
+
+describe("browser tool scope", () => {
+  it("binds calls to the project and returns screenshot content", async () => {
+    const request = vi.fn(async () => ({ state: { projectId: "p1", tabs: [] }, screenshot: { width: 600, height: 500, data: "aW1hZ2U=" } }));
+    const tool = createBrowserUseTool("p1", { available: true, request, close() {} });
+    const result = await tool.execute("capture", { operation: "capture", tabId: "a" }, undefined, undefined, {} as never);
+    expect(request).toHaveBeenCalledWith({ projectId: "p1", operation: "capture", tabId: "a" }, undefined);
+    expect(result.content[1]).toEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/jpeg" });
+    await expect(tool.execute("invalid", { operation: "act", tabId: "a", actions: [{ type: "wait", milliseconds: 60_000 }] }, undefined, undefined, {} as never)).rejects.toThrow("Invalid");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps mutating browser actions out of planning and static fetch available", () => {
+    expect(projectPiToolNames("planning", [], ["browser_use", "web_fetch"])).not.toContain("browser_use");
+    expect(projectPiToolNames("planning", [], ["browser_use", "web_fetch"], false)).toContain("web_fetch");
+    expect(projectPiToolNames("normal", [], ["browser_use", "web_fetch"])).toContain("browser_use");
   });
 });

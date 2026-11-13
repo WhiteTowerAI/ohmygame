@@ -5,10 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
+import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
+import { ProviderAudio } from "../src/daemon/audio-generation.js";
+import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
 
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(16)]);
 const MP4 = Buffer.concat([Buffer.from("00000018", "hex"), Buffer.from("ftypisom"), Buffer.alloc(16)]);
@@ -21,7 +24,7 @@ type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["c
 
 type Reply = (url: string) => Response | undefined;
 
-async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply } = {}) {
+async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
   const entry = {
     id: "acme/flow", version: "1.0.0", root, digest: "d1", strings: { en: { provider: "Flow" } }, skills: [], toolSchemas: {},
@@ -48,7 +51,7 @@ async function setup(adapter: string, options: { key?: string | undefined; media
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
     return new Response(JSON.stringify({ url: "https://cdn.flow.example/one.png", id: "t1" }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  return { media: new PluginMediaProviders(services, fetcher), requests };
+  return { media: new PluginMediaProviders(services, fetcher, undefined, options.choices), requests };
 }
 
 const firstModel = async (media: PluginMediaProviders): Promise<ImageModel> => (await media.imageProviders())[0]!.models[0]!;
@@ -355,4 +358,229 @@ describe("plugin media providers: video", () => {
     expect(video.mediaType).toBe("video/mp4");
     await expect(videos.generate({ prompt: "a fox", model: { provider: "plugin.acme.flow.flow", id: "nope" } })).rejects.toThrow("not available");
   }, 15_000);
+});
+
+/** A tenth of a second of silence: 16-bit mono PCM at 8 kHz. */
+function wav(): Buffer {
+  const samples = Buffer.alloc(1600);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii"); header.writeUInt32LE(36 + samples.length, 4); header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii"); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(8000, 24); header.writeUInt32LE(16000, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii"); header.writeUInt32LE(samples.length, 40);
+  return Buffer.concat([header, samples]);
+}
+const WAV = wav();
+const GLB = (() => { const glb = Buffer.alloc(20); glb.write("glTF", 0, "ascii"); glb.writeUInt32LE(2, 4); glb.writeUInt32LE(20, 8); return glb; })();
+
+const AUDIO_MEDIA = { audio: { models: [
+  { id: "voice", title: "Voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }, { id: "bo", name: "Bo" }], formats: ["wav"], maxTextCharacters: 100 },
+  { id: "foley", title: "Foley", kinds: ["sound-effect", "music"], formats: ["wav"], minDurationSeconds: 1, maxDurationSeconds: 10, loop: true },
+] } } as unknown as Partial<Media>;
+
+// Answers at once with the file, saying what it was asked for in the address.
+const AUDIO_START = `export default { audio: { async start(input, host) {
+  await host.fetch("https://api.flow.example/v1/audio", { method: "POST", auth: true, json: input });
+  return { outputs: [{ url: "https://cdn.flow.example/" + input.model + ".wav" }] };
+} } };`;
+
+describe("plugin media providers: audio", () => {
+  it("lists a provider's audio models and voices, and makes speech in its first voice", async () => {
+    const { media, requests } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const [provider] = await media.audioProviders();
+    expect(provider!.voices).toEqual([{ id: "amy", name: "Amy" }, { id: "bo", name: "Bo" }]);
+    const [voice, foley] = provider!.models;
+    expect(voice).toEqual({ provider: "plugin.acme.flow.flow", providerName: "Flow", id: "voice", name: "Voice", protocol: "plugin",
+      capabilities: { produces: ["speech"], readsText: true, supportsSpeaker: true, formats: ["wav"], maxTextCharacters: 100 } });
+    const speech = await media.generateAudio(voice!, { prompt: "Hello there" });
+    expect(speech).toMatchObject({ bytes: WAV, mediaType: "audio/wav", model: { provider: "plugin.acme.flow.flow", id: "voice" }, metadata: { durationMs: 100, sampleRate: 8000, channels: 1 } });
+    expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "voice", kind: "speech", prompt: "Hello there", format: "wav", voiceId: "amy" });
+    await media.generateAudio(voice!, { prompt: "Faster", voiceId: "bo", speed: 50 });
+    expect(JSON.parse(requests[2]!.body!)).toMatchObject({ voiceId: "bo", speed: 50 });
+    // A model that makes more than one kind hears which; a loop goes only where the model takes one.
+    await media.generateAudio(foley!, { prompt: "rain", kind: "music", durationSeconds: 5, loop: true });
+    expect(JSON.parse(requests[4]!.body!)).toEqual({ model: "foley", kind: "music", prompt: "rain", format: "wav", durationSeconds: 5, loop: true });
+    await expect(media.generateAudio(voice!, { prompt: "x".repeat(101) })).rejects.toThrow("up to 100 characters");
+    await expect(media.generateAudio(voice!, { prompt: "Hi", voiceId: "zed" })).rejects.toThrow("isn't one this model speaks in");
+    await expect(media.generateAudio(foley!, { prompt: "rain", durationSeconds: 20 })).rejects.toThrow("1 to 10 seconds");
+    await expect(media.generateAudio(voice!, { prompt: "Hi", output: { format: "mp3" } })).rejects.toThrow("doesn't make mp3");
+  }, 15_000);
+
+  it("keeps a paid result whose download failed, so a retry fetches it without starting again", async () => {
+    let downloads = 0;
+    const { media, requests } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? (++downloads === 1 ? new Response("busy", { status: 503 }) : new Response(new Uint8Array(WAV))) : undefined });
+    const voice = (await media.audioProviders())[0]!.models[0]!;
+    await expect(media.generateAudio(voice, { prompt: "Hello" }, undefined, await journalAt("audio-1"))).rejects.toThrow("answered 503");
+    const again = await media.generateAudio(voice, { prompt: "Hello" }, undefined, await journalAt("audio-1"));
+    expect(again.mediaType).toBe("audio/wav");
+    expect(requests.filter((request) => request.url === "https://api.flow.example/v1/audio")).toHaveLength(1);
+  }, 15_000);
+
+  it("refuses a request without a prompt, and a length below a model's minimum", async () => {
+    const minimumOnly = { audio: { models: [{ id: "long", kinds: ["music"], formats: ["wav"], minDurationSeconds: 10 }] } } as unknown as Partial<Media>;
+    const { media, requests } = await setup(AUDIO_START, { media: minimumOnly });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    await expect(audio.generate({ prompt: "   " })).rejects.toThrow("needs a prompt");
+    await expect(audio.generate({ prompt: "a march", durationSeconds: 2 })).rejects.toThrow("10 to any number of seconds");
+    expect(requests).toEqual([]);
+  }, 15_000);
+
+  it("refuses a file that isn't the audio asked for", async () => {
+    const { media } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(PNG)) : undefined });
+    const voice = (await media.audioProviders())[0]!.models[0]!;
+    await expect(media.generateAudio(voice, { prompt: "Hello", output: { format: "wav" } })).rejects.toThrow("Invalid wav audio");
+    await expect(media.generateAudio(voice, { prompt: "Hello" })).rejects.toThrow("Flow returned a file that isn't playable audio");
+  }, 15_000);
+
+  it("keeps the audio a model made when no format was picked, as some vendors don't say which", async () => {
+    const mp3Only = { audio: { models: [{ ...(AUDIO_MEDIA.audio!.models[1]!), formats: ["mp3"] }] } } as unknown as Partial<Media>;
+    const { media } = await setup(AUDIO_START, { media: mp3Only, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const foley = (await media.audioProviders())[0]!.models[0]!;
+    expect((await media.generateAudio(foley, { prompt: "rain" })).mediaType).toBe("audio/wav");
+    await expect(media.generateAudio(foley, { prompt: "rain", output: { format: "mp3" } })).rejects.toThrow("Invalid mp3 audio");
+  }, 15_000);
+
+  it("joins the audio catalog, which picks its model by kind", async () => {
+    const { media } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const enabled = new Set(["plugin.acme.flow.flow"]);
+    const audio = new ProviderAudio(async () => media.audioAdapters((id) => enabled.has(id)));
+    const catalog = await audio.catalog();
+    expect(catalog.models.map((model) => model.id)).toEqual(["voice", "foley"]);
+    expect(catalog.providers).toEqual([{ provider: "plugin.acme.flow.flow", name: "Flow", defaultVoiceId: "amy", listsVoices: true, configured: true, state: "ready" }]);
+    expect(await audio.voices("plugin.acme.flow.flow", {})).toEqual({ voices: [{ id: "amy", name: "Amy" }, { id: "bo", name: "Bo" }] });
+    expect((await audio.generate({ prompt: "rain", kind: "sound-effect" })).model).toEqual({ provider: "plugin.acme.flow.flow", id: "foley" });
+    // Switched off in Settings, it leaves the catalog.
+    enabled.clear();
+    expect((await audio.catalog()).providers[0]!.state).toBe("disabled");
+    await expect(audio.generate({ prompt: "Hi" })).rejects.toThrow("No audio model is available");
+  }, 15_000);
+});
+
+const MODEL3D_MEDIA = { "3d": { models: [
+  { id: "mesh", title: "Mesh", operations: ["text", "image"], maxReferenceImages: 2, polycount: { min: 1000, max: 50000, default: 10000 }, texture: true },
+] } } as unknown as Partial<Media>;
+
+// Starts a task and has the model on the first check.
+const MODEL3D_TASK = `export default { "3d": {
+  async start(input, host) {
+    const answer = await (await host.fetch("https://api.flow.example/v1/meshes", { method: "POST", auth: true, json: { ...input, references: input.references.length } })).json();
+    return { task: { id: answer.id }, retryAfter: 0 };
+  },
+  async check(task) { return { outputs: [{ url: "https://cdn.flow.example/" + task.id + ".glb" }] }; },
+} };`;
+
+describe("plugin media providers: 3D", () => {
+  it("lists a provider's 3D models and makes one from a prompt or pictures through a task", async () => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: MODEL3D_MEDIA, reply: (url) => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    expect(model).toEqual({ provider: "plugin.acme.flow.flow", providerName: "Flow", id: "mesh", name: "Mesh", operations: ["text", "image"], maxReferenceImages: 2,
+      polycount: { min: 1000, max: 50000, default: 10000, presets: [10000] }, supportsTexture: true, supportsPbr: false, defaults: { texture: true, pbr: false } });
+    const ref = { provider: model.provider, id: model.id };
+    const made = await media.generate3D(model, { model: ref, operation: "text", prompt: " a chair ", images: [] }, undefined, await journalAt());
+    expect(made).toEqual({ bytes: GLB, mediaType: "model/gltf-binary" });
+    expect(JSON.parse(requests[0]!.body!)).toEqual({ model: "mesh", operation: "text", prompt: "a chair", references: 0, targetPolycount: 10000, texture: true, pbr: false });
+    await (await journalAt()).clear();
+    const picture = { mediaType: "image/png" as const, data: PNG.toString("base64") };
+    await media.generate3D(model, { model: ref, operation: "image", images: [picture], targetPolycount: 2000, texture: false, pbr: true });
+    expect(JSON.parse(requests.at(-2)!.body!)).toEqual({ model: "mesh", operation: "image", references: 1, targetPolycount: 2000, texture: false, pbr: false });
+    await expect(media.generate3D(model, { model: ref, operation: "image", images: [picture, picture, picture] })).rejects.toThrow("takes 1 to 2 pictures");
+    await expect(media.generate3D(model, { model: ref, operation: "text", prompt: "x", images: [], targetPolycount: 10 })).rejects.toThrow("between 1000 and 50000");
+    await expect(media.generate3D(model, { model: ref, operation: "remesh", images: [] })).rejects.toThrow("does not support this operation");
+  }, 15_000);
+
+  it("refuses a file that isn't a GLB model", async () => {
+    const { media } = await setup(MODEL3D_TASK, { media: MODEL3D_MEDIA, reply: (url) => url.endsWith(".glb") ? new Response(new Uint8Array(PNG)) : undefined });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    await expect(media.generate3D(model, { model: { provider: model.provider, id: model.id }, operation: "text", prompt: "a chair", images: [] })).rejects.toThrow("isn't a GLB model");
+  }, 15_000);
+
+  it("joins the 3D catalog and takes requests for its models", async () => {
+    const { media } = await setup(MODEL3D_TASK, { media: MODEL3D_MEDIA, reply: (url) => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
+    const models3D = new ProviderModels3D({
+      runtime: async () => { throw new Error("no runtime"); },
+      meshy: { generator: undefined as never, configured: () => false },
+      customProviders: async () => [], nativeModels: () => [], isEnabled: () => true, isVisible: () => true, defaultModel: () => undefined,
+      plugins: media,
+    });
+    const catalog = await models3D.catalog();
+    expect(catalog.models.map((model) => `${model.provider}/${model.id}`)).toEqual(["plugin.acme.flow.flow/mesh"]);
+    expect(catalog.providers).toEqual([{ provider: "plugin.acme.flow.flow", providerName: "Flow", state: "ready" }]);
+    const made = await models3D.generate({ model: { provider: "plugin.acme.flow.flow", id: "mesh" }, operation: "text", prompt: "a chair", images: [] });
+    expect(made.mediaType).toBe("model/gltf-binary");
+    await expect(models3D.generate({ model: { provider: "plugin.acme.flow.flow", id: "nope" }, operation: "text", prompt: "a chair", images: [] })).rejects.toThrow("unavailable");
+  }, 15_000);
+});
+
+describe("plugin media providers: listing the vendor's models", () => {
+  const LISTING = `export default { image: {
+    async models(host) {
+      const answer = await (await host.fetch("https://api.flow.example/v1/models", { auth: true })).json();
+      return { models: [
+        { id: "flux", title: "FLUX", description: "Fast pictures", resolutions: ["1K"], aspectRatios: ["1:1", "16:9"], data: { size: "image_size" } },
+        { id: "broken", title: "Broken" },
+        { id: "kolors", title: "Kolors again", resolutions: ["1K"], aspectRatios: ["1:1"] },
+      ], seen: answer.id };
+    },
+    async start(input, host) {
+      await host.fetch("https://api.flow.example/v1/images", { method: "POST", auth: true, json: { model: input.model, data: input.modelData ?? null } });
+      return { outputs: [{ url: "https://cdn.flow.example/one.png" }] };
+    },
+  } };`;
+  const discovering = { image: { discoverModels: true, models: [{ id: "kolors", title: "Kolors", resolutions: ["1K"], aspectRatios: ["1:1"] }] } } as Partial<Media>;
+  const ids = async (media: PluginMediaProviders) => (await media.imageProviders())[0]!.models.map((model) => model.id);
+
+  it("lists the vendor's models through the adapter, which stay off until turned on", async () => {
+    const choices = new PluginMediaModelChoices(root);
+    const { media, requests } = await setup(LISTING, { media: discovering, choices });
+    const provider = "plugin.acme.flow.flow";
+    expect(await media.listModels(provider, "image")).toEqual({ kind: "image", discoverable: true, models: [{ id: "kolors", name: "Kolors", default: true, shown: true }] });
+    const listed = await media.listModels(provider, "image", true);
+    expect(requests[0]).toMatchObject({ url: "https://api.flow.example/v1/models", headers: { authorization: "Bearer sk-test" } });
+    expect(listed).toEqual({ kind: "image", discoverable: true, listedAt: expect.any(String), skipped: 1, models: [
+      { id: "kolors", name: "Kolors", default: true, shown: true },
+      { id: "flux", name: "FLUX", description: "Fast pictures", default: false, shown: false },
+    ] });
+    expect(await ids(media)).toEqual(["kolors"]);
+
+    await media.setModelsShown(provider, "image", ["flux"], true);
+    await media.setModelsShown(provider, "image", ["kolors"], false);
+    expect(await ids(media)).toEqual(["flux"]);
+    const flux = (await media.imageProviders())[0]!.models[0]!;
+    expect(flux.generationOptions).toEqual([{ resolution: "1K", aspectRatio: "1:1" }, { resolution: "1K", aspectRatio: "16:9" }]);
+    await media.generateImage(flux, { prompt: "a fox" });
+    // The model's data goes back to the adapter.
+    expect(JSON.parse(requests.find((request) => request.url.endsWith("/v1/images"))!.body!)).toEqual({ model: "flux", data: { size: "image_size" } });
+
+    // What's on is kept whole, so a restarted app has it without listing again.
+    const again = (await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) })).media;
+    expect(await ids(again)).toEqual(["flux"]);
+    expect((await again.listModels(provider, "image")).models.map((model) => [model.id, model.shown])).toEqual([["kolors", false], ["flux", true]]);
+    // One not listed in this session can't be turned on.
+    await expect(again.setModelsShown(provider, "image", ["other"], true)).rejects.toMatchObject({ statusCode: 409 });
+    await again.setModelsShown(provider, "image", ["flux"], false);
+    await again.setModelsShown(provider, "image", ["kolors"], true);
+    expect(await ids(again)).toEqual(["kolors"]);
+  }, 15_000);
+
+  it("turns the manifest's models on and off, but lists nothing more, for a kind that doesn't discover", async () => {
+    const { media, requests } = await setup(LISTING);
+    const provider = "plugin.acme.flow.flow";
+    expect(await media.listModels(provider, "image", true)).toEqual({ kind: "image", discoverable: false, models: [expect.objectContaining({ id: "kolors", shown: true })] });
+    expect(requests).toEqual([]);
+    await media.setModelsShown(provider, "image", ["kolors"], false);
+    expect(await ids(media)).toEqual([]);
+    await expect(media.listModels(provider, "video")).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("says why the adapter couldn't list its models", async () => {
+    const { media } = await setup(`export default { image: { async models() { return { error: "no access" }; }, async start() { return { error: "x" }; } } };`, { media: discovering });
+    await expect(media.listModels("plugin.acme.flow.flow", "image", true)).rejects.toThrow("Flow couldn't list its models: no access");
+  });
+
+  it("never writes over a choices file it can't read", async () => {
+    await writeFile(path.join(root, "plugin-media-models.json"), "{ not json");
+    const { media } = await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) });
+    expect(await ids(media)).toEqual(["kolors"]);
+    await expect(media.setModelsShown("plugin.acme.flow.flow", "image", ["kolors"], false)).rejects.toMatchObject({ statusCode: 409 });
+  });
 });

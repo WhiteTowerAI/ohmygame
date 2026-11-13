@@ -2,7 +2,11 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { FilePlus, FolderOpen, LoaderCircle, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
-import { listProjects, waitForRuntime } from "./api.js";
+import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
+import { matchesWhen } from "../shared/plugin-when.js";
+import { composerDrafts, homeDraftScope } from "./composer-drafts.js";
+import { commandPrompt, PluginPanelToolbar } from "./project-plugin-contributions.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
@@ -56,6 +60,29 @@ interface CreateRequest {
 // Home is where every project starts: the prompt creates the project at once,
 // with the prompt as its first message, and opens the new-project dialog only
 // when something needs the person; Start blank and Choose project open it.
+/** Plugins' ways to start (`home.starters`), which put their prompt in the box. */
+function PluginStarters() {
+  const generation = useReadyRuntimeGeneration();
+  const [starters, setStarters] = useState<{ plugins: string[]; commands: ProjectPluginCommand[] }>({ plugins: [], commands: [] });
+  useEffect(() => {
+    let active = true;
+    // An answer of another shape, as from a service that predates starters, shows none.
+    void listPluginStarters().catch(() => undefined).then((next) => {
+      if (active) setStarters(Array.isArray(next?.commands) && Array.isArray(next.plugins) ? next : { plugins: [], commands: [] });
+    });
+    return () => { active = false; };
+  }, [generation]);
+  // Outside a project, `when` sees the platform and the plugins a new project starts with.
+  const context = {
+    values: { platform: typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.platform ?? "web" },
+    plugins: new Set(starters.plugins),
+  };
+  const shown = starters.commands.filter((command) => command.slots.some((slot) => matchesWhen(slot.when, context)));
+  return <PluginPanelToolbar commands={shown} onRun={async (command) => {
+    if ("prompt" in command.run) composerDrafts.get(homeDraftScope("home")).insertPrompt(commandPrompt(command.run));
+  }} />;
+}
+
 export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -148,6 +175,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               starts={<>
                 <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
                 {canImportFolder ? <Button variant="ghost" size="sm" icon={<FolderOpen size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+                <PluginStarters />
               </>}
             />
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}

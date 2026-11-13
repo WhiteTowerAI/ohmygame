@@ -184,6 +184,10 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication)
       .toMatchObject({ gameId: published.game.id, name: "zombie-run", pageUrl: "https://site.test/g/zombie-run" });
 
+    // A list read before that rename doesn't take the project's page back.
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/me/games", headers })).statusCode).toBe(200);
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication.name).toBe("zombie-run");
+
     // The Cloud's reason reaches the app, which words it in the person's language.
     const reserved = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${published.game.id}/name`, payload: { accessToken: token, name: "admin" } });
     expect(reserved.statusCode).toBe(400);

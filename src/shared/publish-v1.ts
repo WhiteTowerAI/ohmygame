@@ -147,6 +147,11 @@ export interface GameRename {
   pageUrl?: string;
 }
 
+/** Whether a game has its page on the site, <site>/g/<name>, rather than only its bare play address. */
+export function hasGamePage(game: { name?: string; pageUrl?: string }): boolean {
+  return Boolean(game.name && game.pageUrl?.endsWith(`/g/${game.name}`));
+}
+
 /** A publication with the game's new page name, if it is still that game's. */
 export function withRename(publication: PublicationState, renamed: GameRename): PublicationState {
   if (publication.gameId !== renamed.gameId) return publication;

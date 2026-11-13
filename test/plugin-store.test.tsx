@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProviderSummary } from "../src/shared/contracts.js";
+import type { PluginMediaModelList } from "../src/shared/plugin-manifest.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
 
 let configuration: StorePluginConfiguration;
@@ -19,6 +20,15 @@ const api = {
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
   listProviders: vi.fn(async () => providers),
+  getPluginMediaModels: vi.fn(async (): Promise<PluginMediaModelList> => ({ kind: "image", discoverable: true, models: [{ id: "flux/schnell", name: "FLUX schnell", default: true, shown: true }] })),
+  listPluginMediaModels: vi.fn(async (): Promise<PluginMediaModelList> => ({ kind: "image", discoverable: true, listedAt: "2026-11-13T00:00:00.000Z", skipped: 2, models: [
+    { id: "flux/schnell", name: "FLUX schnell", default: true, shown: true },
+    { id: "flux/pro", name: "FLUX pro", description: "Sharper pictures", default: false, shown: false },
+  ] })),
+  setPluginMediaModelsShown: vi.fn(async (): Promise<PluginMediaModelList> => ({ kind: "image", discoverable: true, listedAt: "2026-11-13T00:00:00.000Z", models: [
+    { id: "flux/schnell", name: "FLUX schnell", default: true, shown: true },
+    { id: "flux/pro", name: "FLUX pro", description: "Sharper pictures", default: false, shown: true },
+  ] })),
   readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
   listProjects: vi.fn(async () => [
     { id: "web", name: "Web game", type: "web-game", updatedAt: "2026-01-02T00:00:00.000Z" },
@@ -48,7 +58,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
   ],
   examples: [],
   skills: [{ id: "skills/maker/SKILL.md", name: "maker", description: "Build with Maker." }],
-  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], modelProviders: [], agents: [], tools: 2, skills: 1 },
+  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], modelProviders: [], agents: [], tools: 2, skills: 1, instructions: "Read the project first.\nKeep café and 中文 names." },
   ...overrides,
 });
 
@@ -94,6 +104,7 @@ it("lists what it asks for, turns it on with its one switch and nothing to confi
   // Turning it on is allowing it, so nothing asks first; nor is there a second switch to stop it everywhere.
   await act(async () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!.click());
   expect(document.querySelector("[role=dialog]")).toBeNull();
+  expect(document.querySelector(".plugin-instructions")?.textContent).toBe(row("2.0.0").adds.instructions);
   expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
   expect(onChanged).toHaveBeenCalledTimes(1);
   expect(document.body.textContent).not.toContain("Disable everywhere");
@@ -256,6 +267,32 @@ it("shows a plugin's model providers as in Settings, and sets a key in a dialog 
   await act(async () => type(dialog.querySelector<HTMLInputElement>("input[type=password]")!, " nv-key "));
   await act(async () => dialog.querySelector("form")!.requestSubmit());
   expect(api.saveStorePluginConfiguration).toHaveBeenCalledWith("acme/maker", { token: "nv-key" });
+});
+
+it("lists a media provider's models, loads more from the vendor, and turns one on", async () => {
+  providers = [{
+    id: "plugin.acme.maker.fal", name: "fal", configured: true, status: "connected", methods: [], capabilities: ["image"],
+    plugin: { id: "acme/maker", name: "Maker", keySetting: "token" },
+  } as unknown as ProviderSummary];
+  const [group] = groupStorePlugins([row("1.0.0", { adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: ["fal"], agents: [], tools: 0, skills: 0 } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((tab) => tab.textContent === "Settings")!.click());
+  await act(async () => document.querySelector<HTMLElement>(".plugin-settings .settings-provider-row")!.click());
+  const section = () => document.querySelector<HTMLElement>("[role=dialog] [aria-label='Image models']")!;
+  expect(api.getPluginMediaModels).toHaveBeenCalledWith("plugin.acme.maker.fal", "image");
+  expect(section().textContent).toContain("FLUX schnell");
+  expect(section().textContent).toContain("Load fal's models to turn on more.");
+  await act(async () => [...section().querySelectorAll("button")].find((button) => button.textContent === "Load models")!.click());
+  expect(api.listPluginMediaModels).toHaveBeenCalledWith("plugin.acme.maker.fal", "image");
+  // What was listed is off, under the hidden models, which loading opens.
+  expect(section().textContent).toContain("2 models were left out");
+  expect(section().textContent).toContain("Hidden models (1)");
+  const pro = section().querySelector<HTMLInputElement>("input[aria-label='Enable FLUX pro']")!;
+  expect(pro.checked).toBe(false);
+  expect(section().textContent).toContain("flux/pro · Sharper pictures");
+  await act(async () => pro.click());
+  expect(api.setPluginMediaModelsShown).toHaveBeenCalledWith("plugin.acme.maker.fal", "image", ["flux/pro"], true);
+  expect(section().querySelector<HTMLInputElement>("input[aria-label='Enable FLUX pro']")!.checked).toBe(true);
 });
 
 it("tries an example in a project it suits, turning it on there, or in a new one", async () => {

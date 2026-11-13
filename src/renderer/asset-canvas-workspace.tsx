@@ -117,7 +117,7 @@ import { fetchTemplateExample } from "./template-example-cache.js";
 import { effectPresetAspectRatio, effectPresetById, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
-import { useProjectPluginsRevision } from "./project-plugin-contributions.js";
+import { type PluginCommandTarget, usePluginSlot, useProjectPluginsRevision } from "./project-plugin-contributions.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig } from "../shared/generation-config.js";
 import { mergeCanvasDocument } from "../shared/canvas-workspace.js";
@@ -2458,6 +2458,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 documents={documents} tables={tables}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 pluginCanvas={pluginCanvas}
+                boardId={storage.boardId}
                 importing={importingAssets}
                 onAdd={addCanvasNode}
                 onAddPixelPreset={addPixelAssetPreset}
@@ -2579,6 +2580,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
+            pluginTarget={contextMenuNode ? canvasNodeTarget(storage.boardId, contextMenuNode) : undefined}
           /> : null}
           {notice && phase === "ready" && !conflicted ? <CanvasNotice className="story-save-notice" tone={notice.kind === "save" ? "error" : "neutral"} message={notice.kind === "save" ? t("assetCanvas.saveFailed") : notice.kind === "done" ? notice.message : t("canvas.actionFailed")} detail={notice.kind === "done" ? undefined : notice.message} actionLabel={t("canvas.retrySave")} onAction={notice.kind === "save" ? flush : undefined} onDismiss={() => setNotice(undefined)} /> : null}
           {!notice && transferError && phase === "ready" ? <CanvasNotice className="story-save-notice canvas-transfer-error" message={t("assetCanvas.transferFailed")} detail={transferError} onDismiss={() => setTransferError(undefined)} /> : null}
@@ -3026,12 +3028,24 @@ function nodeMediaType(node: AssetCanvasFlowNode): "image" | "video" | "audio" |
 function hasExampleOutput(node: AssetCanvasFlowNode): boolean {
   return node.type === "image" && !node.data.sourceInput && Boolean(pixelExampleImageUrl(node.data.exampleImage));
 }
+/** A board, for a plugin's `canvas.add` command. */
+function canvasBoardTarget(boardId: string): PluginCommandTarget {
+  return { input: { boardId } };
+}
+
+/** A node, for a plugin's `canvas.node` command. */
+function canvasNodeTarget(boardId: string, node: AssetCanvasFlowNode): PluginCommandTarget {
+  const assetId = node.data.assetId;
+  return { input: { boardId, nodeId: node.id, nodeType: node.type ?? "asset", ...(assetId ? { assetId } : {}) } };
+}
+
 function AssetCanvasAddControl({
   project,
   documents,
   tables,
   libraryAssets,
   pluginCanvas,
+  boardId,
   importing,
   onAdd,
   onAddPixelPreset,
@@ -3044,6 +3058,7 @@ function AssetCanvasAddControl({
   tables: CanvasTables;
   libraryAssets: LibraryAsset[];
   pluginCanvas: ProjectPluginCanvas;
+  boardId: string;
   importing: boolean;
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
@@ -3052,6 +3067,7 @@ function AssetCanvasAddControl({
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
   const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
+  const addSlot = usePluginSlot("canvas.add");
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -3108,6 +3124,9 @@ function AssetCanvasAddControl({
               </Fragment>)}
               <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>
               <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>{t("assetCanvas.fromLibrary")}</strong><small>{t("assetCanvas.fromLibraryHint")}</small></span></button>
+              {/* The project's plugins' ways to add to this board. */}
+              {addSlot.commands.map((command) => <button type="button" role="menuitem" key={command.id} onPointerEnter={() => setOpenCreationBranch(undefined)}
+                onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span><strong>{command.title}</strong></span></button>)}
             </div>
             {openCreationBranch ? <div className="story-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
               {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
@@ -3241,6 +3260,7 @@ function AssetCanvasContextMenu({
   onDetails,
   onRegenerate,
   onBatch,
+  pluginTarget,
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
@@ -3273,8 +3293,11 @@ function AssetCanvasContextMenu({
   onDetails?: () => void;
   onRegenerate?: () => void;
   onBatch?: () => void;
+  /** The node, for the project's plugins' entries (`canvas.node`). */
+  pluginTarget?: PluginCommandTarget;
 }) {
   const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
+  const nodeSlot = usePluginSlot("canvas.node");
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addToOpen, setAddToOpen] = useState(false);
@@ -3331,6 +3354,7 @@ function AssetCanvasContextMenu({
         </div> : null}
       </div> : canSendToProject ? projectItem(t("assetCanvas.addToProjectEllipsis")) : documentItem(t("assetCanvas.addToDocument")),
     ],
+    pluginTarget ? nodeSlot.commands.map((command) => <button key={command.id} type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(() => void nodeSlot.run(command, pluginTarget))}><Plug size={15} /><span>{command.title}</span></button>) : [],
     [<button className="is-danger" type="button" role="menuitem" key="delete" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span><kbd>{isMac() ? "⌫" : "Del"}</kbd></button>],
   ].map((section) => section.filter(Boolean)).filter((section) => section.length);
 

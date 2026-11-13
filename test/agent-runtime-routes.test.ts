@@ -7,6 +7,7 @@ import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { AgentRuntimeSettingsStore } from "../src/daemon/agent-runtimes/settings.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
 import { createApp } from "../src/daemon/app.js";
+import type { ConversationInstructions } from "../src/shared/agent-instructions.js";
 import * as codexPool from "../src/daemon/agent-runtimes/codex-server-pool.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
 import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
@@ -477,6 +478,12 @@ describe("coding agent routes", () => {
       return `/projects/${project.id}/conversations/${chat.id}`;
     };
     const base = await create(), untouched = await create();
+    // A coding agent's own instructions are its own: only what OhMyGame adds is shown.
+    const instructions = (await call<ConversationInstructions>("GET", `${base}/instructions`)).body;
+    expect(instructions).toMatchObject({ kind: "coding-agent", runtime: "codex-cli" });
+    expect(instructions.kind === "coding-agent" && instructions.text).toContain("Do not create or change files for casual conversation");
+    // With what every coding agent hears about OhMyGame's tools.
+    expect(instructions.kind === "coding-agent" && instructions.text).toContain("come from its ohmygame tool server");
     const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
     const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     expect((await turn("Hello")).status).toBe(202);

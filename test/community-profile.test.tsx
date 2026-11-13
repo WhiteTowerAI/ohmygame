@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   auth: {
     state: { status: "signed-in", user: { id: "creator" } },
     requestAccessToken: vi.fn(async () => "token"),
+    currentAccessToken: vi.fn(async () => undefined),
   },
   own: vi.fn(),
   projects: vi.fn<() => Promise<ProjectState[]>>(),

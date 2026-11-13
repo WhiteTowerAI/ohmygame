@@ -377,7 +377,7 @@ export interface StorePlugin {
   /** It adds only model providers and agents, which join the app itself whatever projects turn on. */
   appOnly?: true;
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[] };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; modelProviders: string[]; agents: string[]; tools: number; skills: number; hooks?: string[]; instructions?: string };
 }
 
 /** What a plugin's settings page shows; secrets only say whether they are set. */
@@ -411,8 +411,8 @@ export interface ProjectPluginCommand {
     | { openPanel: string }
     | { openSettings: true }
     | { url: string }
-    /** `build: "web"`: the app builds the game for the command first. */
-    | { native: string; build?: "web" };
+    /** `build: "web"`: the app builds the game for the command first. `input`: the JSON Schema of what it takes. */
+    | { native: string; input?: string; build?: "web" };
 }
 
 /** A canvas node a project's plugin adds (GET /projects/:id/plugin-canvas). */
