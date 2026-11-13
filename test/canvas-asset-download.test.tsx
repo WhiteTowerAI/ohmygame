@@ -7,6 +7,7 @@ import type { Node } from "@xyflow/react";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
 import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
+import type { PluginSlots } from "../src/renderer/project-plugin-contributions.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import type { CanvasAssetCatalogEntry } from "../src/shared/canvas-assets.js";
 import {
@@ -85,6 +86,9 @@ const { CanvasTableStorage } =
   await import("../src/renderer/canvas-table-storage.js");
 const { CanvasAssetProvider, canvasAssetSources } =
   await import("../src/renderer/use-workspace-asset-url.js");
+const { PluginSlotsContext } =
+  await import("../src/renderer/project-plugin-contributions.js");
+let pluginSlots: PluginSlots;
 let root: ReturnType<typeof createRoot>,
   container: HTMLDivElement,
   downloads: string[];
@@ -135,6 +139,7 @@ beforeEach(async () => {
   getWorkspaceAsset.mockClear();
   getLibraryAsset.mockClear();
   downloads = [];
+  pluginSlots = { commands: [], when: { values: {}, plugins: new Set() }, run: vi.fn(async () => undefined) };
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:canvas-test");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
@@ -212,19 +217,21 @@ beforeEach(async () => {
   root = createRoot(container);
   await act(async () =>
     root.render(
-      <CanvasAssetProvider assets={canvasAssetSources("download", assets)}>
-        <CanvasBoardEditor
-          project={{ id: "download", type: "web-game" } as ProjectState}
-          storage={storage}
-          documents={{ documents: [] } as unknown as CanvasDocuments}
-          tables={{
-            storage: new CanvasTableStorage("download"),
-            open: vi.fn(),
-            add: vi.fn(),
-          }}
-          assets={assets}
-        />
-      </CanvasAssetProvider>,
+      <PluginSlotsContext value={pluginSlots}>
+        <CanvasAssetProvider assets={canvasAssetSources("download", assets)}>
+          <CanvasBoardEditor
+            project={{ id: "download", type: "web-game" } as ProjectState}
+            storage={storage}
+            documents={{ documents: [] } as unknown as CanvasDocuments}
+            tables={{
+              storage: new CanvasTableStorage("download"),
+              open: vi.fn(),
+              add: vi.fn(),
+            }}
+            assets={assets}
+          />
+        </CanvasAssetProvider>
+      </PluginSlotsContext>,
     ),
   );
 });
@@ -435,4 +442,33 @@ it("keeps a plugin node's large 3D output waiting for the person", async () => {
   await act(async () => load.click());
   expect(getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith("download", "assets/imported/model.glb");
   await node.unmount();
+});
+
+// Both menu changes must survive: grouped built-in actions and plugin node commands.
+it("runs a plugin action for the selected node alongside grouped copy and download actions", async () => {
+  const command = {
+    id: "test/media:inspect",
+    plugin: "test/media",
+    title: "Inspect image",
+    slots: [{ slot: "canvas.node" }],
+    run: { native: "inspect", input: "node" },
+  };
+  pluginSlots.commands = [command];
+  await act(async () => props.onOpenMenu({
+    kind: "node", nodeId: "image-0",
+    screenPosition: { x: 0, y: 0 }, flowPosition: { x: 0, y: 0 },
+  }));
+  const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  const copy = items.find((item) => item.querySelector("span")?.textContent === t("assetCanvas.copyNode"))!;
+  expect(copy.querySelector("kbd")?.textContent).toBeTruthy();
+  expect(items.some((item) => item.textContent === t("assetCanvas.download"))).toBe(true);
+  const action = items.find((item) => item.textContent === command.title)!;
+  expect(action.previousElementSibling?.getAttribute("role")).toBe("separator");
+  expect(action.nextElementSibling?.getAttribute("role")).toBe("separator");
+  expect(action.nextElementSibling?.nextElementSibling?.textContent).toContain(t("common.delete"));
+  await act(async () => action.click());
+  expect(pluginSlots.run).toHaveBeenCalledExactlyOnceWith(command, {
+    input: { boardId: "b", nodeId: "image-0", nodeType: "image", assetId: "image-output" },
+  });
+  expect(document.querySelector('[role="menu"]')).toBeNull();
 });

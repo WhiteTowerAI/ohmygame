@@ -118,6 +118,11 @@ relative to that parent. Groups can be nested, but parent chains cannot form a
 cycle. Group frames have width and height in `editor/<board-id>.json`. The editor
 supports grouping selected nodes, ungrouping, dragging nodes between groups,
 copying group trees, and undo/redo. Deleting a group deletes its descendants.
+Copied nodes go on the system clipboard in the canvas's own format
+(`web application/x-ohmygame-canvas`), so another canvas pastes them as nodes.
+Other apps get the picture when one image node is copied, or the words when
+only text nodes are, and nothing else. The image viewer can also copy just the
+picture.
 Media toolbars move below the node when there is insufficient room above it.
 When the generation form is open, the lower toolbar sits after the form and
 follows its height and canvas zoom so it does not cover the inputs.

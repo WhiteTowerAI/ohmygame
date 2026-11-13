@@ -26,6 +26,68 @@ let copied: CanvasClipboard | undefined;
 export const lastCanvasClipboard = () => copied;
 export function rememberCanvasClipboard(value: CanvasClipboard) { copied = structuredClone(value); }
 
+/**
+ * Copied nodes go in a format only web pages read, so other apps see just
+ * what is written beside it: the picture of one image node, or the words of
+ * text nodes.
+ */
+export const CANVAS_CLIPBOARD_TYPE = "web application/x-ohmygame-canvas";
+
+/** What other apps get from copied nodes, if anything. */
+export function canvasClipboardOutside(nodes: readonly AssetCanvasNode[]): { imageAssetId?: string; text?: string } {
+  const [only] = nodes;
+  if (nodes.length === 1 && (only?.type === "image" || (only?.type === "asset" && only.data.mediaType === "image")) && only.data.assetId) return { imageAssetId: only.data.assetId };
+  const texts = nodes.flatMap((node) => node.type === "text" && node.data.text?.trim() ? [node.data.text] : []);
+  return texts.length === nodes.length && texts.length ? { text: texts.join("\n\n") } : {};
+}
+
+let latestWrite = 0;
+
+/**
+ * Writes copied nodes, with a PNG of their image when there is one. When the
+ * image can't be read, the nodes are still copied, and this resolves false.
+ * A later copy wins: an image still loading when it starts is never written.
+ */
+export async function writeCanvasClipboard(value: CanvasClipboard, outside: { text?: string; png?: Promise<Blob> }): Promise<boolean> {
+  const write = ++latestWrite;
+  const entries: Record<string, Blob | Promise<Blob>> = { [CANVAS_CLIPBOARD_TYPE]: new Blob([JSON.stringify(value)], { type: CANVAS_CLIPBOARD_TYPE }) };
+  if (outside.text) entries["text/plain"] = new Blob([outside.text], { type: "text/plain" });
+  if (!outside.png) { await navigator.clipboard.write([new ClipboardItem(entries)]); return true; }
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ ...entries, "image/png": unlessSuperseded(outside.png, write) })]);
+    return true;
+  } catch {
+    if (write !== latestWrite) return true;
+    await navigator.clipboard.write([new ClipboardItem(entries)]);
+    return false;
+  }
+}
+
+/** Writes just a picture. A later copy wins here too. */
+export async function writeImageClipboard(png: Promise<Blob>): Promise<void> {
+  const write = ++latestWrite;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": unlessSuperseded(png, write) })]);
+  } catch (cause) {
+    if (write === latestWrite) throw cause;
+  }
+}
+
+/** The clipboard waits for an image before writing anything, so a superseded copy fails instead. */
+function unlessSuperseded(png: Promise<Blob>, write: number): Promise<Blob> {
+  return png.then((blob) => { if (write !== latestWrite) throw new Error("A later copy replaced this one."); return blob; });
+}
+
+/** Nodes copied from a canvas, read from the clipboard a paste came from. */
+export async function readCanvasClipboard(): Promise<CanvasClipboard | undefined> {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      if (item.types.includes(CANVAS_CLIPBOARD_TYPE)) return parseCanvasClipboard(await (await item.getType(CANVAS_CLIPBOARD_TYPE)).text());
+    }
+  } catch { /* Nothing readable is nothing to paste. */ }
+  return undefined;
+}
+
 function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>) {
   const reference = (value: AssetCanvasReference): AssetCanvasReference[] => value.type === "library" ? [value] : ids.has(value.nodeId) ? [{ ...value, nodeId: ids.get(value.nodeId)! }] : [];
   if (node.type === "image" || node.type === "model-3d") node.data.images = node.data.images.flatMap(reference);

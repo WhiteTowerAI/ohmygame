@@ -7189,7 +7189,7 @@ button {
   display: grid;
   width: 100%;
   min-height: 34px;
-  grid-template-columns: 18px minmax(0, 1fr) 14px;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(14px, auto);
   align-items: center;
   gap: 7px;
   padding: 0 8px;
@@ -7216,6 +7216,12 @@ button {
 .story-canvas-context-menu button > span + svg {
   grid-column: 3;
   color: var(--text-faint);
+}
+.story-canvas-context-menu button > kbd {
+  grid-column: 3;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 10px;
 }
 .story-canvas-context-menu button:hover:not(:disabled),
 .story-canvas-context-menu button:focus-visible {
