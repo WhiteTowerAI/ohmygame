@@ -284,9 +284,9 @@ Quit stop it. Register connection cleanup with `context.onDispose`, and return
 from `activate` after starting the connection; do not await its entire lifetime.
 Closing a project does not end an app connection. Desktop close-to-background
 remains the person's separate opt-in setting.
-The Plugins page offers to enable it when an app-wide session plugin is enabled
-and granted access. Dismissing the prompt leaves the setting unchanged; it is
-also available in Settings. Quit and computer sleep still interrupt connections.
+A plugin's Management section offers to enable it when that app-wide session
+plugin is enabled and granted access. Dismissing the prompt leaves the setting
+unchanged; it is also available in Settings. Quit and computer sleep still interrupt connections.
 
 `context.project` is absent in the app host. `context.configuration` contains the
 activation's settings (including secrets only when granted); per-call
@@ -323,8 +323,11 @@ status and, on failure, an error message (at most 2,000 characters) and optional
 code, including empty cancelled/failed responses after event history expires.
 Messages carry structured
 `source: { plugin }` when supplied by a plugin; this attribution also appears in
-the app and survives history reload. The agent receives an external-source
-notice. Editing a plugin message in the app creates human input without that
+the app and survives history reload. The source row uses the installed plugin's
+name and icon, falling back to its ID if unavailable. Feishu delivery markers
+appear in source details instead of the message body, copy text or edit draft;
+the stored text and session reads retain the marker for reconciliation.
+The agent receives an external-source notice. Editing a plugin message in the app creates human input without that
 attribution. The optional source field extends stored prompt details version 1;
 older histories remain readable and no existing records are rewritten.
 

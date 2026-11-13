@@ -94,9 +94,9 @@ it("offers background running without changing it until the person enables it, a
     await act(async () => root.render(<SessionBackgroundPrompt />));
     expect(bridge.set).not.toHaveBeenCalled();
     bridge.set.mockRejectedValueOnce(new Error("Cannot save setting"));
-    await act(async () => button("Enable background running").click());
+    await act(async () => button("Enable").click());
     expect(host.textContent).toContain("Cannot save setting");
-    await act(async () => button("Enable background running").click());
+    await act(async () => button("Enable").click());
     expect(bridge.set).toHaveBeenLastCalledWith(true);
     expect(host.textContent).toBe("");
     await act(async () => root.render(<SessionBackgroundPrompt key="dismiss" />));
@@ -115,6 +115,26 @@ it("does not prompt when background running is enabled or unavailable", async ()
     window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => true, set: vi.fn() } } as NonNullable<typeof previous>;
     await act(async () => root.render(<SessionBackgroundPrompt key="enabled" />));
     expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("keeps the background offer in the enabled session plugin's management section", async () => {
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => false, set: vi.fn() } } as NonNullable<typeof previous>;
+  const plugin = row("1.0.0", { everyProject: true, capabilities: ["sessions"], grants: { enabled: true, allowed: ["sessions"] } });
+  const render = async (overrides: Partial<StorePlugin> = {}, safeMode = false) => {
+    const group = groupStorePlugins([{ ...plugin, ...overrides }])[0]!;
+    await act(async () => root.render(<StorePluginDetail group={group} safeMode={safeMode} onChanged={async () => {}} onRemoved={() => {}} />));
+  };
+  try {
+    await render();
+    expect(host.querySelector(".plugin-side .plugin-background-prompt")).not.toBeNull();
+    for (const overrides of [{ everyProject: false }, { grants: { enabled: false, allowed: ["sessions"] } }, { grants: { enabled: true, allowed: [] } }, { capabilities: [] }] satisfies Partial<StorePlugin>[]) {
+      await render(overrides);
+      expect(host.querySelector(".plugin-background-prompt")).toBeNull();
+    }
+    await render({}, true);
+    expect(host.querySelector(".plugin-background-prompt")).toBeNull();
   } finally { window.ohMyGameDesktop = previous; }
 });
 

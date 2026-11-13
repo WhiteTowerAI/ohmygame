@@ -68,13 +68,15 @@ export function SessionBackgroundPrompt() {
     catch (cause) { setError(message(cause)); }
     finally { setBusy(false); }
   }
-  return <Alert title={t("pluginStore.backgroundTitle")} action={<>
-    <Button size="sm" disabled={busy} onClick={() => { void enable(); }}>{t("pluginStore.backgroundEnable")}</Button>
-    <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDismissed(true)}>{t("pluginStore.backgroundLater")}</Button>
-  </>}>
-    {t("pluginStore.backgroundHint")}
+  return <section className="plugin-background-prompt" aria-label={t("pluginStore.backgroundTitle")}>
+    <h3>{t("pluginStore.backgroundTitle")}</h3>
+    <p>{t("pluginStore.backgroundHint")}</p>
+    <div className="plugin-background-actions">
+      <Button size="sm" disabled={busy} onClick={() => { void enable(); }}>{t("pluginStore.backgroundEnable")}</Button>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDismissed(true)}>{t("pluginStore.backgroundLater")}</Button>
+    </div>
     {error ? <p role="alert">{error}</p> : null}
-  </Alert>;
+  </section>;
 }
 /**
  * OhMyGame's own: bundled with the app, or from its npm scope. A folder in
@@ -236,8 +238,9 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch }: {
+export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, safeMode = false }: {
   group: StorePluginGroup;
+  safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
   /** Reviews a newer version from the market. */
@@ -395,15 +398,16 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
         <h2>{t("plugins.management")}</h2>
+        {enabled ? <dl className="plugin-props">
+          <dt>{t("plugins.everyProject")}</dt>
+          <dd className="plugin-state">
+            <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || !!everyProject.busy}
+              label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
+            <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
+          </dd>
+        </dl> : null}
+        {!safeMode && enabled && plugin.everyProject && plugin.grants?.allowed.includes("sessions") && plugin.capabilities.includes("sessions") ? <SessionBackgroundPrompt /> : null}
         <dl className="plugin-props">
-          {enabled ? <>
-            <dt>{t("plugins.everyProject")}</dt>
-            <dd className="plugin-state">
-              <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || !!everyProject.busy}
-                label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
-              <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
-            </dd>
-          </> : null}
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
