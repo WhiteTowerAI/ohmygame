@@ -1920,8 +1920,13 @@ describe("plugin hooks", () => {
       expect(watches.watching(folder)).toBe(true);
       await mkdir(path.join(folder, "node_modules"), { recursive: true });
       await writeFile(path.join(folder, "node_modules", "dep.js"), "1");
-      await writeFile(path.join(folder, "notes.md"), "# Notes");
-      await vi.waitFor(() => expect(changes.flatMap((change) => change.paths)).toContain("notes.md"), { timeout: 5_000 });
+      // OS notifications are advisory, especially during macOS watch startup.
+      // Retry the stimulus, not the assertions about delivered paths and ignored folders.
+      await vi.waitFor(async () => {
+        if (!changes.some((change) => change.paths.includes("notes.md")))
+          await writeFile(path.join(folder, "notes.md"), "# Notes");
+        expect(changes.flatMap((change) => change.paths)).toContain("notes.md");
+      }, { timeout: 5_000 });
       expect(changes.flatMap((change) => change.paths).some((item) => item.startsWith("node_modules"))).toBe(false);
       watches.set(folder, false);
       expect(watches.watching(folder)).toBe(false);
