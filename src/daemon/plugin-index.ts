@@ -1,3 +1,4 @@
+import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue } from "../shared/canvas-plugin-nodes.js";
 import { constants } from "node:fs";
@@ -432,7 +433,7 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
   return {
     projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
     panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
-    commands: (contributes.commands ?? []).map((command) => text(command.title)),
+    commands: (contributes.commands ?? []).filter((command) => !isPluginSettingsCommand(entry.manifest, command.id)).map((command) => text(command.title)),
     mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
     modelProviders: (contributes.providers ?? []).map((provider) => text(provider.title)),
     agents: (contributes.agents ?? []).map((agent) => text(agent.title)),

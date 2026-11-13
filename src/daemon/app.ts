@@ -167,6 +167,7 @@ import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
 import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type PluginLogView, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import type { WorkspaceFile } from "../shared/contracts.js";
@@ -1649,6 +1650,7 @@ export function createApp(options: AppOptions = {}) {
     return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
       const added = await pluginSources.origin(entry.id, entry.version);
+      const settingsView = pluginSettingsView(entry.manifest, text);
       return {
         id: entry.id,
         version: entry.version,
@@ -1682,6 +1684,7 @@ export function createApp(options: AppOptions = {}) {
           ...(field.required ? { required: true } : {}),
           ...(field.options ? { options: field.options } : {}),
         })),
+        ...(settingsView ? { settingsView } : {}),
         adds: pluginAdds(entry, text),
         ...(pluginAppOnly(entry.manifest) ? { appOnly: true as const } : {}),
       };
@@ -2350,6 +2353,20 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   // A plugin's settings: values for its page, secrets only as set or not.
+  app.get<{ Params: { publisher: string; name: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-status", async (request, reply) => {
+    try {
+      return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, "settings-status", request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.post<{ Params: { publisher: string; name: string; command: string }; Querystring: { locale?: string } }>("/plugin-store/:publisher/:name/settings-actions/:command", async (request, reply) => {
+    try {
+      return await pluginServices.native.runSettingsCommand(`${request.params.publisher}/${request.params.name}`, request.params.command, request.query.locale ?? "en");
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
     await pluginServices.ready();
     const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);

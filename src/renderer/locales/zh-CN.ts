@@ -2962,6 +2962,9 @@ const zhCN: typeof en = {
   },
   pluginControls: {
     fieldHelp: "如何填写",
+    connection: "连接",
+    enableConnection: "为所有项目开启此插件以建立连接。",
+    codeExpires: "有效至 {{time}}",
     needsConfiguration: "需要配置：{{fields}}",
     uninstall: "卸载插件",
     confirmUninstall: "要卸载“{{name}}”吗？",

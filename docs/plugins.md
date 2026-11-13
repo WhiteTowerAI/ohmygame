@@ -331,6 +331,26 @@ The agent receives an external-source notice. Editing a plugin message in the ap
 attribution. The optional source field extends stored prompt details version 1;
 older histories remain readable and no existing records are rewritten.
 
+Connection plugins can use `contributes.settings` for their Settings tab. Its
+`field` rows select configuration fields to show, and a `{ "widget": "status" }`
+row enables a connection section. Declare a `settings-status` native command
+and action rows referencing other declared native commands. These commands
+must set `changesFiles: false` and cannot request builds. They run only through
+the app's settings routes in the existing app activation, with `{ locale }`
+(`en` or `zh-CN`); they are excluded from project command lists and execution.
+Every call rechecks global enablement and grants. This UI is available in builds
+including PR #820; earlier API 2.5 builds do not render it.
+
+Status and action handlers return `{ message, detail?, code?, actions }`.
+`message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at
+most ten declared action IDs currently available. Optional `code` is
+`{ text, expiresAt }`: 1–200 characters to copy and a positive epoch millisecond
+deadline. Unknown fields are discarded and invalid responses fail visibly.
+The visible tab reads status every two seconds; hiding it cancels that read,
+not plugin-owned pairing. Reads must not create or renew challenges. Plugins
+own account persistence, code expiry, cancellation and rebinding; action replies
+return the resulting status. A saved account must not depend on the page lifetime.
+
 Send rejects busy projects and planned, archived or unready conversations. It
 uses the conversation's selected model or the app default; it never adds an
 implicit follow-up or changes a person's selected model. Pending dangerous-action

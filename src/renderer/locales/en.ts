@@ -3008,6 +3008,9 @@ const en = {
   },
   pluginControls: {
     fieldHelp: "How to fill this in",
+    connection: "Connection",
+    enableConnection: "Turn this plugin on for every project to connect.",
+    codeExpires: "Valid until {{time}}",
     needsConfiguration: "Needs configuration: {{fields}}",
     uninstall: "Uninstall plugin",
     confirmUninstall: "Uninstall “{{name}}”?",

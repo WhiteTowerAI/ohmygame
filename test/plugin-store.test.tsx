@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { PluginSettingsStatus } from "../src/shared/plugin-settings.js";
 import type { ProviderSummary } from "../src/shared/contracts.js";
 import type { PluginMediaModelList } from "../src/shared/plugin-manifest.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
@@ -11,6 +12,8 @@ let configuration: StorePluginConfiguration;
 let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
+  readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal) => ({ message: "Connected", actions: ["pair"] })),
+  runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
@@ -477,4 +480,42 @@ it("goes back to About when the open tab goes away with the newest version", asy
 it("offers plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
   expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 } }))).toEqual([]);
+});
+
+
+it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
+  let finish!: (value: PluginSettingsStatus) => void;
+  api.runPluginSettingsAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const render = (active: boolean, enabled = true) => root.render(<StrictMode><PluginSettingsActions plugin={plugin} active={active} enabled={enabled} /></StrictMode>);
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Connected");
+  await act(async () => button("Bind account").click());
+  expect(api.runPluginSettingsAction).toHaveBeenCalledWith("acme/maker", "pair");
+  expect(button("Bind account").disabled).toBe(true);
+  await act(async () => render(false));
+  expect(api.readPluginSettingsStatus.mock.calls.at(-1)?.[1]?.aborted).toBe(true);
+  await act(async () => finish({ message: "Connected", code: { text: "/bind ABCD", expiresAt: Date.now() + 300000 }, actions: ["cancel-pair"] }));
+  expect(api.runPluginSettingsAction).toHaveBeenCalledTimes(1);
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting for your private message", actions: ["cancel-pair"] });
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Waiting for your private message");
+  expect(button("Cancel binding").disabled).toBe(false);
+  api.runPluginSettingsAction.mockRejectedValueOnce(new Error("Disk is full"));
+  await act(async () => button("Cancel binding").click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Disk is full");
+  await act(async () => render(true, false));
+  expect(host.textContent).toContain("Turn this plugin on");
+  expect(host.textContent).not.toContain("Cancel binding");
+});
+
+it("shows only declared connection fields while retaining legacy saved settings", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelectorAll(".plugin-configuration input")).toHaveLength(1);
+  expect(host.querySelector<HTMLInputElement>(".plugin-configuration input")!.value).toBe("");
+  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
 });

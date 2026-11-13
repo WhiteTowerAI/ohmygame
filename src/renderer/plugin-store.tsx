@@ -15,6 +15,7 @@ import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { PluginSettingsActions } from "./plugin-settings-actions.js";
 import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -304,12 +305,12 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   // Its model providers show as in Settings → Providers, and their keys leave the form.
   const providers = usePluginProviders(plugin.adds.modelProviders.length ? plugin.id : undefined);
   const providerKeys = new Set(providers.providers?.flatMap((provider) => provider.plugin?.keySetting ?? []));
-  const settings = plugin.settings.filter((field) => !providerKeys.has(field.name));
+  const settings = plugin.settings.filter((field) => !providerKeys.has(field.name) && (!plugin.settingsView || plugin.settingsView.fields.includes(field.name)));
   const settingsReady = !plugin.adds.modelProviders.length || providers.providers !== undefined || providers.error !== undefined;
   const tabs: { value: StoreDetailTab; label: string; count?: number }[] = [
     { value: "about", label: t("plugins.about") },
     ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
-    ...(plugin.settings.length || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
+    ...(plugin.settings.length || plugin.settingsView?.status || providers.providers?.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
   ];
   // Uninstalling the newest version can take away the tab that was open.
   const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
@@ -394,6 +395,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {tabs.some((item) => item.value === "settings") ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
           {providers.providers?.length ? <PluginProviderList providers={providers.providers} /> : null}
           {settingsReady && settings.length ? <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} fields={settings} /> : null}
+          {plugin.settingsView?.status ? <PluginSettingsActions key={`${plugin.id}:${plugin.revision}`} plugin={plugin} active={tab === "settings"} enabled={!safeMode && enabled && plugin.everyProject && !!plugin.grants?.allowed.includes("sessions")} /> : null}
         </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
