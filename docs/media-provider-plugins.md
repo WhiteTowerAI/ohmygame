@@ -327,3 +327,20 @@ can't promise what the plugin doesn't do.
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.
+
+
+## Stored settings before vendor migration
+
+MiniMax's existing keys stay in `minimax.json` until activation is verified. The
+version-1 key store preserves unknown fields when either regional key changes or
+is cleared; clearing the last key removes the file only if no other data remains.
+Model preferences in `model-visibility.json` likewise retain unrelated fields and
+metadata on unchanged default model references. Invalid or newer files cannot be
+rewritten after a failed load; repair and reload them before editing.
+
+Plugin configuration retains unknown root and field metadata. A damaged record,
+unknown field type or future file version makes the store read-only instead of
+silently filtering that record out on the next save. Secrets remain typed and are
+not exposed to native plugin code without its secrets capability. These storage
+protections prepare the optional vendor migration; they do not copy keys, rename
+saved model references, enable a plugin, or replace a built-in provider.

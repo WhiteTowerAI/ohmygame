@@ -40,6 +40,8 @@ export class ProviderModelSettingsStore {
   #nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
   #defaults: MediaModelDefaults = {};
   #pending: Promise<unknown> = Promise.resolve();
+  #stored: JsonObject = { version: 1, hidden: {} };
+  #unreadable = false;
 
   constructor(dataDirectory: string, piAgentDirectory: string) {
     this.#preferencesPath = path.join(dataDirectory, "model-visibility.json");
@@ -47,28 +49,30 @@ export class ProviderModelSettingsStore {
   }
 
   async load(): Promise<void> {
+    this.#unreadable = true;
     const text = await readOptional(this.#preferencesPath);
-    if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown } & Partial<Record<(typeof DEFAULT_KEYS)[MediaModelUsage], unknown>>;
-    if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
-    this.#hidden = stored.hidden as Record<string, string[]>;
+    const stored = (text === undefined ? { version: 1, hidden: {} } : JSON.parse(text)) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown } & Partial<Record<(typeof DEFAULT_KEYS)[MediaModelUsage], unknown>>;
+    if (!isObject(stored) || stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
+    const hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
     if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
-    this.#disabled = (stored.disabled ?? []) as string[];
+    const disabled = (stored.disabled ?? []) as string[];
     // An invalid optional transport preference must not hide all provider settings.
-    this.#responsesTransports = Object.fromEntries(Object.entries(isObject(stored.responsesTransports) ? stored.responsesTransports : {})
+    const responsesTransports = Object.fromEntries(Object.entries(isObject(stored.responsesTransports) ? stored.responsesTransports : {})
       .filter(([, mode]) => RESPONSES_TRANSPORT_MODES.includes(mode as ResponsesTransportMode))) as Record<string, ResponsesTransportMode>;
-    this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    const customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    const nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
+    const defaults: MediaModelDefaults = {};
     if (stored.nativeModels3D !== undefined) {
       if (!isObject(stored.nativeModels3D)) throw new Error("Invalid native 3D models");
       for (const [provider, entries] of Object.entries(stored.nativeModels3D)) {
         if (!isNative3DProvider(provider) || !Array.isArray(entries) || entries.length > 2_000) throw new Error("Invalid native 3D models");
         const models = entries.map((entry) => normalizeNativeModel3D(provider, entry, "restore"));
         if (new Set(models.map((model) => model.id)).size !== models.length) throw new Error("Duplicate 3D model IDs");
-        this.#nativeModels3D[provider] = models;
+        nativeModels3D[provider] = models;
       }
     }
-    for (const provider of Object.values(this.#customProviders)) {
+    for (const provider of Object.values(customProviders)) {
       if (provider.reasoningCapabilities === undefined) continue;
       if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
       for (const capabilities of Object.values(provider.reasoningCapabilities)) normalizeThinkingLevelMap(capabilities);
@@ -77,8 +81,16 @@ export class ProviderModelSettingsStore {
       const model = stored[DEFAULT_KEYS[usage]];
       if (model === undefined) continue;
       if (!isObject(model) || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) throw new Error("Invalid default media model");
-      this.#defaults[usage] = { provider: model.provider, id: model.id };
+      defaults[usage] = { provider: model.provider, id: model.id };
     }
+    this.#hidden = hidden;
+    this.#disabled = disabled;
+    this.#responsesTransports = responsesTransports;
+    this.#customProviders = customProviders;
+    this.#nativeModels3D = nativeModels3D;
+    this.#defaults = defaults;
+    this.#stored = stored;
+    this.#unreadable = false;
   }
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
@@ -267,7 +279,7 @@ export class ProviderModelSettingsStore {
         const ids = new Set(models.map((model) => model.id));
         hidden[id] = (settings.hiddenModelIds ?? hidden[id] ?? []).filter((modelId) => ids.has(modelId));
       }
-      const oldPreferences = this.#preferences();
+      const oldPreferences = this.#stored;
       try {
         await writeAtomic(this.#modelsPath, contents);
         await this.#writePreferences({ customProviders, hidden });
@@ -276,7 +288,8 @@ export class ProviderModelSettingsStore {
         this.#hidden = hidden;
       } catch (cause) {
         await writeAtomic(this.#modelsPath, text);
-        await writeAtomic(this.#preferencesPath, oldPreferences);
+        await writeAtomic(this.#preferencesPath, `${JSON.stringify(oldPreferences, null, 2)}\n`);
+        this.#stored = oldPreferences;
         throw cause;
       }
     });
@@ -297,10 +310,10 @@ export class ProviderModelSettingsStore {
       if (isNative3DProvider(id)) delete nativeModels3D[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
       const defaults = Object.fromEntries(Object.entries(this.#defaults).filter(([, model]) => model.provider !== id)) as MediaModelDefaults;
-      const oldPreferences = this.#preferences();
+      const oldPreferences = this.#stored;
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, ...defaultFields(defaults) });
+        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, ...defaultFields(defaults) }, id);
         await apply();
         this.#customProviders = customProviders;
         this.#nativeModels3D = nativeModels3D;
@@ -310,18 +323,40 @@ export class ProviderModelSettingsStore {
         this.#defaults = defaults;
       } catch (cause) {
         if (contents !== text) await writeAtomic(this.#modelsPath, text);
-        await writeAtomic(this.#preferencesPath, oldPreferences);
+        await writeAtomic(this.#preferencesPath, `${JSON.stringify(oldPreferences, null, 2)}\n`);
+        this.#stored = oldPreferences;
         throw cause;
       }
     });
   }
 
-  #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, responsesTransports: this.#responsesTransports, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, ...defaultFields(this.#defaults), ...overrides }, null, 2)}\n`;
-  }
-
-  #writePreferences(overrides: JsonObject): Promise<void> {
-    return writeAtomic(this.#preferencesPath, this.#preferences(overrides));
+  async #writePreferences(overrides: JsonObject, removedProvider?: string): Promise<void> {
+    if (this.#unreadable) throw new Error("Model preferences are unreadable; fix or update the file before changing settings");
+    const next = { ...this.#stored, ...overrides };
+    // These sections have normalized read views. Preserve entries that the
+    // operation did not change instead of serializing those views over raw data.
+    for (const [field, before] of [["responsesTransports", this.#responsesTransports], ["nativeModels3D", this.#nativeModels3D]] as const) {
+      const after = overrides[field];
+      const raw = this.#stored[field];
+      if (!isObject(after) || !isObject(raw)) continue;
+      const merged: JsonObject = Object.assign(Object.create(null), raw);
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (JSON.stringify(before[key as keyof typeof before]) === JSON.stringify(after[key])) continue;
+        if (Object.hasOwn(after, key)) merged[key] = after[key];
+        else delete merged[key];
+      }
+      if (removedProvider) delete merged[removedProvider];
+      next[field] = merged;
+    }
+    // Retain metadata of unchanged model references when another default changes.
+    for (const key of Object.values(DEFAULT_KEYS)) {
+      const previous = this.#stored[key];
+      const model = next[key];
+      if (isObject(previous) && isObject(model) && previous.provider === model.provider && previous.id === model.id)
+        next[key] = { ...previous, ...model };
+    }
+    await writeAtomic(this.#preferencesPath, `${JSON.stringify(next, null, 2)}\n`);
+    this.#stored = next;
   }
 
   isVisible(model: ModelRef): boolean {
@@ -389,7 +424,10 @@ export class ProviderModelSettingsStore {
   }
 
   #enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.#pending.then(operation);
+    const next = this.#pending.then(() => {
+      if (this.#unreadable) throw new Error("Model preferences are unreadable; fix or update the file before changing settings");
+      return operation();
+    });
     this.#pending = next.catch(() => undefined);
     return next;
   }

@@ -312,3 +312,45 @@ describe("provider model settings", () => {
     expect(runtime.getModel("openai", model.id)).toBeUndefined();
   });
 });
+
+describe("model preferences preservation", () => {
+  it("retains unknown fields and model metadata across queued writes and restart", async () => {
+    const { directory } = await fixture();
+    const file = path.join(directory, "model-visibility.json");
+    const video = { provider: "minimax-video-cn", id: "MiniMax-H3", future: { migrated: false } };
+    const unknown = { migration: { stage: "pending" } };
+    await writeFile(file, JSON.stringify({ version: 1, hidden: {}, defaultVideoModel: video, unknown, responsesTransports: { future: "new-transport" } }));
+    const settings = new ProviderModelSettingsStore(directory, directory);
+    await settings.load();
+    await Promise.all([
+      settings.setEnabled("minimax-video-global", false),
+      settings.setVisibility("minimax-video-cn", ["MiniMax-H3-Max"], false),
+      settings.setDefaultImageModel({ provider: "image", id: "one" }),
+      settings.setResponsesTransport("openai", "sse"),
+    ]);
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ unknown, defaultVideoModel: video, responsesTransports: { future: "new-transport" } });
+    await expect(settings.removeProviderSettings("minimax-video-cn", async () => { throw new Error("runtime rejected"); })).rejects.toThrow("runtime rejected");
+    await settings.setEnabled("another-provider", false);
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ unknown, defaultVideoModel: video, responsesTransports: { future: "new-transport", openai: "sse" } });
+    const again = new ProviderModelSettingsStore(directory, directory);
+    await again.load();
+    expect(again.isEnabled("minimax-video-global")).toBe(false);
+    expect(again.isVisible({ provider: "minimax-video-cn", id: "MiniMax-H3-Max" })).toBe(false);
+    expect(again.defaultVideoModel()).toEqual({ provider: video.provider, id: video.id });
+    await again.removeProviderSettings("future", async () => {});
+    expect(JSON.parse(await readFile(file, "utf8")).responsesTransports).toEqual({ openai: "sse" });
+  });
+
+  it("refuses queued edits after an unreadable preferences file", async () => {
+    const { directory } = await fixture();
+    const file = path.join(directory, "model-visibility.json");
+    for (const text of ["", "{broken", "null", "[]", JSON.stringify({ version: 2, hidden: {} }), JSON.stringify({ version: 1, hidden: {}, disabled: "future" })]) {
+      await writeFile(file, text);
+      const settings = new ProviderModelSettingsStore(directory, directory);
+      await expect(settings.load()).rejects.toThrow();
+      await expect(settings.setEnabled("minimax-video-cn", false)).rejects.toThrow("unreadable");
+      await expect(settings.setDefaultMediaModel("video", { provider: "replacement", id: "video" })).rejects.toThrow("unreadable");
+      expect(await readFile(file, "utf8")).toBe(text);
+    }
+  });
+});

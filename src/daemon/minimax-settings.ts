@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { MinimaxProviderId } from "./minimax-models.js";
 
-interface StoredMinimaxSettings {
+interface StoredMinimaxSettings extends Record<string, unknown> {
   version: 1;
   cnApiKey?: string;
   globalApiKey?: string;
@@ -18,23 +18,29 @@ export class MinimaxSettingsStore {
   readonly #filePath: string;
   #settings: StoredMinimaxSettings = { version: 1 };
   #mutations: Promise<void> = Promise.resolve();
+  #unreadable = false;
 
   constructor(dataDirectory: string) {
     this.#filePath = path.join(dataDirectory, "minimax.json");
   }
 
   async load(): Promise<void> {
+    this.#unreadable = true;
     try {
-      const parsed = JSON.parse(await readFile(this.#filePath, "utf8")) as Record<string, unknown>;
-      if (parsed.version !== 1) throw new Error(`Invalid MiniMax settings: ${this.#filePath}`);
-      this.#settings = {
-        version: 1,
-        ...apiKey("cnApiKey", parsed.cnApiKey),
-        ...apiKey("globalApiKey", parsed.globalApiKey),
-      };
+      const parsed: unknown = JSON.parse(await readFile(this.#filePath, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+        (parsed as Record<string, unknown>).version !== 1)
+        throw new Error(`Invalid MiniMax settings: ${this.#filePath}`);
+      const stored = parsed as StoredMinimaxSettings;
+      for (const field of Object.values(KEY_FIELDS))
+        if (stored[field] !== undefined && typeof stored[field] !== "string")
+          throw new Error(`Invalid MiniMax settings: ${this.#filePath}`);
+      this.#settings = stored;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      this.#settings = { version: 1 };
     }
+    this.#unreadable = false;
   }
 
   get(providerId: MinimaxProviderId): { configured: boolean } {
@@ -61,7 +67,7 @@ export class MinimaxSettingsStore {
     await this.#mutate(async () => {
       const next = { ...this.#settings };
       delete next[KEY_FIELDS[providerId]];
-      if (!next.cnApiKey && !next.globalApiKey) {
+      if (Object.keys(next).every((field) => field === "version")) {
         await rm(this.#filePath, { force: true });
       } else {
         await this.#persist(next);
@@ -71,7 +77,10 @@ export class MinimaxSettingsStore {
   }
 
   async #mutate(operation: () => Promise<void>): Promise<void> {
-    const pending = this.#mutations.then(operation);
+    const pending = this.#mutations.then(() => {
+      if (this.#unreadable) throw new Error("MiniMax settings are unreadable; fix or update the file before changing settings");
+      return operation();
+    });
     this.#mutations = pending.catch(() => undefined);
     await pending;
   }
@@ -87,11 +96,4 @@ export class MinimaxSettingsStore {
       throw error;
     }
   }
-}
-
-function apiKey<Key extends "cnApiKey" | "globalApiKey">(
-  key: Key,
-  value: unknown,
-): Partial<Pick<StoredMinimaxSettings, Key>> {
-  return typeof value === "string" && value ? { [key]: value } as Pick<StoredMinimaxSettings, Key> : {};
 }
