@@ -34,7 +34,6 @@ import {
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { sniffImageType } from "./image-format.js";
-import { composeVideo } from "./media-tools.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
 import { GenerationShutdown, mediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
@@ -325,14 +324,13 @@ export class ToolRunner {
       return this.#runAudio(input as AudioGenerationRequest, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "skeleton", "characterDescription", "requestedPrompt", "pluginChanges"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
   async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     const prompt = input.prompt?.trim() ?? "";
-    const sourceOnlyPixelLab = input.imageModel?.provider === "pixellab" && ["estimate-skeleton", "8-rotations-v3"].includes(input.imageModel.id);
-    if (!prompt && !sourceOnlyPixelLab) throw new ToolRunError("Prompt must not be empty", 400);
+    if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
     const usesConfiguredOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
     if (input.size !== undefined && usesConfiguredOptions) throw new ToolRunError("Image size cannot be combined with resolution, aspect ratio, output count, or reference images", 400);
@@ -362,21 +360,8 @@ export class ToolRunner {
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
-        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}), ...(input.skeleton ? { skeleton: input.skeleton } : {}), ...(input.characterDescription ? { characterDescription: input.characterDescription } : {}) } : { size }),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)))).flatMap((image) => [image, ...(image.additionalImages ?? [])]);
-      // PixelLab returns one PNG per animation frame. Keep the canvas compact by
-      // publishing a loopable GIF as the primary asset; users can extract frames
-      // from that GIF later with the existing media action when they need them.
-      if (input.imageModel?.provider === "pixellab" && ["animate-v3", "animate-skeleton-v3"].includes(input.imageModel.id) && generated.length > 1) {
-        await mkdir(temporary, { recursive: true });
-        const framePaths = await Promise.all(generated.map(async (image, index) => {
-          const framePath = path.join(temporary, `frame-${String(index + 1).padStart(2, "0")}.png`);
-          await writeFile(framePath, image.bytes);
-          return framePath;
-        }));
-        const animation = await composeVideo({ framePaths, fps: 8, format: "gif", signal });
-        generated = [{ bytes: animation.bytes, mediaType: "image/gif" }];
-      }
       signal?.throwIfAborted();
       const files: ToolRunFile[] = generated.map((image, index) => {
         // Providers and proxies can ignore the requested output format.
@@ -389,7 +374,6 @@ export class ToolRunner {
             origin: "generated",
             prompt,
             ...changed,
-            ...(generated[index]!.skeleton ? { skeleton: generated[index]!.skeleton } : {}),
             sourceKey: `tool:${id}:${file.name}`,
           })).id;
           registeredAssetIds.push(file.assetId);

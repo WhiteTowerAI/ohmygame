@@ -602,8 +602,7 @@ export class CanvasStore {
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
-    const sourceOnlyPixelLab = node.type === "image" && node.data.model?.provider === "pixellab" && ["estimate-skeleton", "8-rotations-v3"].includes(node.data.model.id);
-    if (!prompt && !sourceOnlyPixelLab) throw new CanvasError("Add a prompt before generating");
+    if (!prompt) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") {
       let imagePrompt = prompt;
       if (node.data.presetId === "continuous-sequence" && node.data.actionDescription !== undefined) {
@@ -624,15 +623,8 @@ export class CanvasStore {
         parentId = parent.parentId;
       }
       const images = await Promise.all(node.data.images.map(image));
-      const firstAssetId = node.data.images[0] ? assetId(node.data.images[0]) : undefined;
-      const skeleton = node.data.model?.provider === "pixellab" && node.data.model.id === "animate-skeleton-v3" && firstAssetId
-        ? manifest.assets[firstAssetId]?.skeleton
-        : undefined;
-      const sourceDescription = firstAssetId ? manifest.assets[firstAssetId]?.prompt?.trim() : undefined;
-      const skeletonAnimation = node.data.model?.provider === "pixellab" && node.data.model.id === "animate-skeleton-v3";
-      const skeletonRecognition = node.data.model?.provider === "pixellab" && node.data.model.id === "estimate-skeleton";
-      const generationPrompt = skeletonAnimation ? imagePrompt : skeletonRecognition && sourceDescription ? sourceDescription : node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic");
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: generationPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), ...(skeleton ? { skeleton } : {}), ...(skeletonAnimation && sourceDescription ? { characterDescription: sourceDescription } : {}), images }, revision, undefined, reuse);
+      const generationPrompt = node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic");
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generationPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

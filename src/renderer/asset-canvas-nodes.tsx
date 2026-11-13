@@ -1,5 +1,5 @@
 import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
-import { IMAGE_MAX_REFERENCE_IMAGES, PIXELLAB_SKELETON_LABELS } from "../shared/contracts.js";
+import { IMAGE_MAX_REFERENCE_IMAGES } from "../shared/contracts.js";
 import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
@@ -109,14 +109,8 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const aspectRatios = [...new Set(modelOptions
     .filter((option) => option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
-  const sourceOnlyModel = selectedModel?.provider === "pixellab" && ["estimate-skeleton", "8-rotations-v3"].includes(selectedModel.id);
-  const skeletonRecognition = selectedModel?.provider === "pixellab" && selectedModel.id === "estimate-skeleton";
-  const skeletonAnimation = selectedModel?.provider === "pixellab" && selectedModel.id === "animate-skeleton-v3";
-  const pixelAnimation = selectedModel?.provider === "pixellab" && ["animate-v3", "animate-skeleton-v3"].includes(selectedModel.id);
-  const skeleton = runtime?.references[0]?.assetId ? runtime.libraryImages?.find((asset) => asset.id === runtime.references[0]?.assetId)?.skeleton : undefined;
-  const skeletonReady = !skeletonAnimation || Boolean(skeleton?.keypoints.length === PIXELLAB_SKELETON_LABELS.length && new Set(skeleton.keypoints.map((point) => point.label)).size === PIXELLAB_SKELETON_LABELS.length && skeleton.keypoints.every((point) => PIXELLAB_SKELETON_LABELS.includes(point.label as typeof PIXELLAB_SKELETON_LABELS[number])));
 
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean((sourceOnlyModel || effectivePrompt(data, runtime).trim()) && selectedModel && skeletonReady && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceUnavailable && (data.quickReskinMode === "person-clothing" ? data.images?.length === 2 : data.presetId !== "quick-reskin" || data.images?.length === 1));
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
@@ -152,7 +146,6 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
       <MediaReferenceStrip runtime={runtime} />
-      {skeletonAnimation && !skeletonReady ? <p className="asset-canvas-skeleton-hint" role="status">{t("assetCanvas.media.image.skeletonAnimationHint")}</p> : null}
       {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
         ...data,
         imageRuntime: undefined,
@@ -161,8 +154,8 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         kind="image"
         value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
         runtime={runtime}
-        label={sourceOnlyModel ? t(skeletonRecognition ? "assetCanvas.media.image.skeletonLabel" : "assetCanvas.media.image.directionsLabel") : pixelAnimation ? t("assetCanvas.media.image.animationLabel") : sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-        placeholder={sourceOnlyModel ? t(skeletonRecognition ? "assetCanvas.media.image.skeletonPlaceholder" : "assetCanvas.media.image.directionsPlaceholder") : pixelAnimation ? t("assetCanvas.media.image.animationPlaceholder") : sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+        label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
+        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
       />}

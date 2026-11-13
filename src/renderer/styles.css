@@ -5706,7 +5706,6 @@ button {
   overflow-x: auto;
 }
 
-.asset-canvas-skeleton-hint { margin: 6px 0 0; color: var(--text-secondary); font-size: var(--text-xs); }
 
 .video-reference-prompt { position: relative; }
 .video-mention-menu {

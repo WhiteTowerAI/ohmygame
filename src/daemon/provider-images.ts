@@ -8,7 +8,6 @@ import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import type { PluginMediaProviders } from "./plugin-media-providers.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
-import { PixelLab } from "./pixellab.js";
 
 const CAPABILITY_TTL_MS = 10 * 60_000;
 
@@ -29,7 +28,6 @@ interface ProviderImagesOptions {
   defaultModel?: () => ImageModelRef | undefined;
   /** Plugins' model providers that make images. */
   pluginImages?: Pick<PluginMediaProviders, "imageProviders" | "generateImage">;
-  pixelLab?: PixelLab;
 }
 
 interface ImageSelection {
@@ -61,7 +59,6 @@ export class ProviderImages implements ImageGenerator {
       runtime ? this.#openRouterEntry(runtime, signal) : undefined,
       runtime || this.options.openAIConnection ? this.#openAIEntry(runtime, signal) : undefined,
       this.#seedreamEntry(),
-      this.#pixelLabEntry(),
       ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
       ...plugins.map((provider) => catalogEntry(provider.id, provider.name, async () => provider.models, "")),
       this.isEnabled("codex-cli") && this.options.codexImages ? this.options.codexImages.catalog(signal).then((catalog) => ({ models: catalog.models, status: catalog.providers[0]! })) : undefined,
@@ -145,15 +142,6 @@ export class ProviderImages implements ImageGenerator {
     };
   }
 
-  #pixelLabEntry(): CatalogEntry | undefined {
-    const pixelLab = this.options.pixelLab;
-    if (!this.isEnabled("pixellab") || !pixelLab?.configured()) return undefined;
-    return {
-      models: pixelLab.models(),
-      status: { provider: "pixellab", providerName: "PixelLab", state: "ready" },
-    };
-  }
-
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
     const requested = input.imageModel ?? this.options.defaultModel?.();
     if (requested && !this.isEnabled(requested.provider)) throw new ImageGenerationError("The selected image provider is disabled. Enable it or choose another default image model.", 409);
@@ -165,10 +153,6 @@ export class ProviderImages implements ImageGenerator {
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const { imageModel: _, ...generationInput } = input;
-    if (definition.provider === "pixellab") {
-      if (!this.options.pixelLab) throw new ImageGenerationError("PixelLab image generation is unavailable", 503);
-      return this.options.pixelLab.generate({ ...generationInput, imageModel: definition }, signal);
-    }
     if (definition.protocol === "codex-cli") {
       if (!this.options.codexImages) throw new ImageGenerationError("Codex image generation is unavailable", 503);
       // Canvas nodes retain size preferences when switching models; Codex manages its own dimensions.
@@ -218,7 +202,6 @@ export class ProviderImages implements ImageGenerator {
     // A plugin's provider needs no model runtime.
     if (requested?.provider.startsWith("plugin.")) return this.#pluginSelection(requested.provider, requested.id);
     if (requested?.provider === SEEDREAM_PROVIDER_ID) return this.#seedreamSelection(requested.id);
-    if (requested?.provider === "pixellab") return this.#pixelLabSelection(requested.id);
     if (requested?.provider === "openai" && this.options.openAIConnection) return this.#configuredOpenAISelection(requested.id, signal);
     let runtime: ModelRuntime;
     try {
@@ -298,11 +281,6 @@ export class ProviderImages implements ImageGenerator {
     return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;
   }
 
-  #pixelLabSelection(requestedId?: string): ImageSelection | undefined {
-    if (!this.isEnabled("pixellab")) return undefined;
-    const model = this.options.pixelLab?.models().find((candidate) => !requestedId || candidate.id === requestedId);
-    return model ? { model } : undefined;
-  }
 
   async #compatibleModels(runtime: ModelRuntime, providerId: string, signal?: AbortSignal, source?: ImageSource): Promise<ImageModel[]> {
     const provider = runtime.getProvider(providerId);

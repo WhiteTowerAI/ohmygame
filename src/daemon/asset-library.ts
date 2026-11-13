@@ -18,7 +18,6 @@ interface AddAssetOptions {
   requestedPrompt?: string;
   pluginChanges?: ImageHookRecord[];
   model3d?: LibraryAsset["model3d"];
-  skeleton?: LibraryAsset["skeleton"];
   sourceKey?: string;
   duration?: number;
   origin?: LibraryAssetOrigin;
@@ -198,7 +197,6 @@ export class AssetLibrary {
       saved: origin !== "workspace",
       ...(options.audio ? { audio: options.audio } : {}),
       ...(options.model3d ? { model3d: options.model3d } : {}),
-      ...(options.skeleton ? { skeleton: options.skeleton } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
       ...(options.pluginChanges?.length && options.requestedPrompt !== undefined
@@ -295,20 +293,10 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.prompt === undefined || typeof asset.prompt === "string") &&
     (asset.requestedPrompt === undefined || typeof asset.requestedPrompt === "string") &&
     (asset.pluginChanges === undefined || isImageHookRecords(asset.pluginChanges)) &&
-    (asset.skeleton === undefined || isSkeletonMetadata(asset.skeleton)) &&
     (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
     (asset.saved === undefined || typeof asset.saved === "boolean") &&
     (asset.derivedFrom === undefined || isLibraryAssetDerivation(asset.derivedFrom));
-}
-
-function isSkeletonMetadata(value: NonNullable<LibraryAsset["skeleton"]>): boolean {
-  return Array.isArray(value.keypoints) && value.keypoints.length > 0 && value.keypoints.every((point) =>
-    typeof point?.x === "number" && Number.isFinite(point.x) && point.x >= 0 && point.x <= 1 &&
-    typeof point?.y === "number" && Number.isFinite(point.y) && point.y >= 0 && point.y <= 1 &&
-    typeof point?.label === "string" && Boolean(point.label) &&
-    (point.zIndex === undefined || Number.isInteger(point.zIndex)),
-  );
 }
 
 export function isLibraryAssetDerivation(value: unknown): value is LibraryAssetDerivation {

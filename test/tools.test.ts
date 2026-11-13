@@ -2,7 +2,6 @@ import { TEST_GLB } from "./model3d-fixture.js";
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
@@ -261,28 +260,6 @@ describe("tool runner", () => {
     });
     expect(storedRun).not.toHaveProperty("prompt");
     expect(storedRun).not.toHaveProperty("requestId");
-  });
-
-  it("publishes PixelLab animation frames as one loopable GIF", async () => {
-    const dataDirectory = await temporaryData();
-    // A real 1×1 PNG: composeVideo reads the frames through Sharp and FFmpeg.
-    const frame = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#2463eb" } }).png().toBuffer();
-    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({
-      bytes: frame,
-      mediaType: "image/png",
-      additionalImages: [{ bytes: frame, mediaType: "image/png" }],
-    });
-    const runner = new ToolRunner(dataDirectory, { generate });
-    await runner.load();
-
-    const run = await runner.run("generate-image", {
-      prompt: "walking forward in place",
-      imageModel: { provider: "pixellab", id: "animate-v3" },
-    });
-
-    expect(run.files).toEqual([{ name: "output.gif", mediaType: "image/gif" }]);
-    const output = await readFile(path.join(dataDirectory, "tools", "runs", run.id, "output.gif"));
-    expect(output.subarray(0, 6).toString("ascii")).toBe("GIF89a");
   });
 
   it("records what a project's plugins changed before an image was generated", async () => {

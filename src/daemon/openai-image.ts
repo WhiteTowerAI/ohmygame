@@ -1,4 +1,4 @@
-import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage, SkeletonMetadata } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 import sharp from "sharp";
 
 export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
@@ -8,8 +8,7 @@ export interface GeneratedImage {
   mediaType: GeneratedImageMediaType;
   requestId?: string;
   /** Some providers return a sequence of independently usable image frames. */
-  additionalImages?: Array<Pick<GeneratedImage, "bytes" | "mediaType" | "skeleton">>;
-  skeleton?: SkeletonMetadata;
+  additionalImages?: Array<Pick<GeneratedImage, "bytes" | "mediaType">>;
 }
 
 export interface ImageGenerationInput {
@@ -21,7 +20,6 @@ export interface ImageGenerationInput {
   images?: PromptImage[];
   /** Request and validate a real alpha background for sprite/effect assets. */
   transparentBackground?: boolean;
-  skeleton?: SkeletonMetadata;
   characterDescription?: string;
 }
 

@@ -324,6 +324,29 @@ so; it runs again when the plugin is turned back on. Plugin nodes take part in
 [out-of-date marking, Regenerate from here and batch runs](canvas-agent.md)
 like the app's own nodes.
 
+### PixelLab
+
+PixelLab is a bundled Asset Canvas plugin. Enable it in **Plugins**, open its
+**Settings** tab, and save a PixelLab API key there. Its key is private plugin
+configuration; it is not a model-provider setting and is sent only to
+`api.pixellab.ai`.
+
+The plugin adds three image nodes under **Plugins → PixelLab**:
+
+- **Pixen pixel art** creates one pixel-art image from a description.
+- **Create character** optionally takes a south-facing reference image and
+  returns PixelLab's own character GIF in four or eight directions.
+- **Skeleton animation** takes a south-facing reference image, creates a
+  PixelLab character, requests `/characters/animations` with
+  `mode: "skeleton-v3"`, and returns PixelLab's exported GIF for the chosen
+  direction. Its Action field is passed to PixelLab as `action_description`;
+  OhMyGame does not infer poses or manufacture animation frames locally.
+
+PixelLab's reference-image constraints, including its size and orientation
+requirements, are enforced by PixelLab and its response is shown to the
+person. The plugin neither creates a local sprite sheet nor changes the frames
+returned by the service.
+
 `contributes.canvasPresets` offers ready-made groups of nodes under
 **Presets** in the same menu: `{ id, title, description?, board }`, where
 `board` is a JSON file in the package holding `{ nodes, edges }` in the

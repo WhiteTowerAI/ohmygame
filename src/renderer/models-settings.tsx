@@ -27,8 +27,6 @@ import {
   updateVolcengineTtsApiKey,
   updateElevenLabsSettings,
   removeElevenLabsSettings,
-  savePixelLabApiKey,
-  removePixelLabApiKey,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
@@ -283,7 +281,6 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "volcengine-tts") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "elevenlabs") return <ElevenLabsProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "pixellab") return <PixelLabProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -376,39 +373,6 @@ export function PluginProviderList({ providers }: { providers: ProviderSummary[]
       <div className="settings-body plugin-providers"><PluginProviderSettings provider={open} /></div>
     </Dialog> : null}
   </div>;
-}
-
-function PixelLabProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
-  const deletion = useProviderDeletion(provider.id, onCompleted, removePixelLabApiKey);
-  const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError(undefined);
-    try {
-      await savePixelLabApiKey(apiKey.trim());
-      setApiKey("");
-      onCompleted();
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSaving(false); }
-  }
-  return <section className="settings-panel settings-provider-detail">
-    <ProviderDetailHeader provider={provider} onBack={onBack}>
-      {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.delete.removeKey")} /><ProviderEnableControl provider={provider} disabled={deletion.busy || saving} /></> : null}
-    </ProviderDetailHeader>
-    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
-    <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
-      <label className="settings-search-field-label">{t("providers.apiKey")}</label>
-      <div className="settings-detail-inline">
-        <input className="settings-search-input" type="password" value={apiKey} placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} onChange={(event) => setApiKey(event.target.value)} />
-        <Button variant="primary" type="submit" disabled={saving || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
-      </div>
-      {error ? <p className="settings-note is-danger">{error}</p> : null}
-    </form>
-    {provider.configured ? <ProviderImageModels providerId={provider.id} /> : null}
-  </section>;
 }
 
 /** A provider an installed plugin adds, in Settings: the same settings its plugin's page opens. */

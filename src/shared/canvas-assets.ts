@@ -4,7 +4,6 @@ import type { AssetCanvasNode, LibraryAsset } from "./contracts.js";
 export interface CanvasAsset {
   audio?: LibraryAsset["audio"];
   model3d?: LibraryAsset["model3d"];
-  skeleton?: LibraryAsset["skeleton"];
   name: string;
   path: string;
   description?: string;
@@ -28,11 +27,9 @@ export const CANVAS_ASSETS_SCHEMA = Type.Object({
       forwardAxis: Type.Optional(Type.Union([Type.Literal("+X"), Type.Literal("+Z")])), provider: Type.Optional(Type.String()),
       operation: Type.Optional(Type.Union([Type.Literal("image"), Type.Literal("text"), Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")])),
     }, { additionalProperties: false })),
-    skeleton: Type.Optional(Type.Object({
-      keypoints: Type.Array(Type.Object({
-        x: Type.Number({ minimum: 0, maximum: 1 }), y: Type.Number({ minimum: 0, maximum: 1 }), label: Type.String({ minLength: 1, maxLength: 80 }), zIndex: Type.Optional(Type.Integer()),
-      }), { minItems: 1, maxItems: 32 }),
-    }, { additionalProperties: false })),
+    // compat: since beta.5.0, remove from beta.7 and 2026-12-13. PixelLab used
+    // to persist this vendor-specific payload in assets.json; loading migrates it away.
+    skeleton: Type.Optional(Type.Unknown()),
     name: Type.String({ minLength: 1, maxLength: 200 }),
     path: Type.String({ minLength: 1, maxLength: 1000, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+" }),
     description: Type.Optional(Type.String({ maxLength: 2000 })),
