@@ -12,6 +12,8 @@ let configuration: StorePluginConfiguration;
 let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
+  readPluginToolAccess: vi.fn(async () => [{ plugin: "acme/maker", digest: "digest", key: "app", label: "TextEdit" }]),
+  revokePluginToolAccess: vi.fn(async (_id: string, _key: string) => []),
   readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
   runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
   restartStorePlugin: vi.fn(async () => {}),
@@ -557,4 +559,34 @@ it("refreshes settings saved by connection while retaining an unsaved manual dra
   expect(api.readStorePluginConfiguration).toHaveBeenCalledTimes(2);
   expect(input.value).toBe("/my/manual/draft");
   expect(host.textContent).not.toContain("fixture-secret");
+});
+
+it("offers revocable tool access even without configuration fields and retains failures", async () => {
+  const { PluginToolAccess } = await import("../src/renderer/plugin-tool-access.js");
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [], adds: { ...row("1.0.0").adds, hooks: ["tool.beforeCall"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(button("Settings")).toBeTruthy();
+  await act(async () => button("Settings").click());
+  expect(host.textContent).toContain("TextEdit");
+  api.revokePluginToolAccess.mockRejectedValueOnce(new Error("Cannot write access"));
+  await act(async () => button("Revoke").click());
+  expect(host.textContent).toContain("Cannot write access");
+  expect(host.textContent).toContain("TextEdit");
+  await act(async () => button("Revoke").click());
+  expect(api.revokePluginToolAccess).toHaveBeenLastCalledWith("acme/maker", "app");
+  expect(host.textContent).toContain("No remembered access");
+  expect(document.activeElement?.textContent).toBe("Remembered access");
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active={false} />));
+});
+
+it("retains a completed revocation when its settings tab is hidden without stealing focus", async () => {
+  const { PluginToolAccess } = await import("../src/renderer/plugin-tool-access.js");
+  let finish!: (value: never[]) => void;
+  api.revokePluginToolAccess.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active />));
+  await act(async () => button("Revoke").click());
+  await act(async () => root.render(<PluginToolAccess id="acme/maker" active={false} />));
+  await act(async () => finish([]));
+  expect(host.textContent).toContain("No remembered access");
+  expect(document.activeElement?.textContent).not.toBe("Remembered access");
 });

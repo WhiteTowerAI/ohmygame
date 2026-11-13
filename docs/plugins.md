@@ -192,6 +192,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
+| 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`). |
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
 
 ## Agent instructions
@@ -472,7 +473,22 @@ be changed; returning additional fields is an error. Each native handler has
 10 seconds to answer. An invalid reply, error, timeout, unreadable project or
 cancellation blocks the call. The plugin's error and identity reach the agent.
 Each `ask` opens the existing approval card for this single call, showing the
-plugin, tool, exact JSON arguments and reason; there is no persistent grant.
+plugin, tool, exact JSON arguments and reason. API 2.7 adds an optional
+`remember: { key, label }` to `ask`. The host offers **Allow and remember**,
+**Allow once**, and **Deny**. Only the first persists consent; a plugin cannot
+save consent itself. Keys use 1–200 ASCII letters, digits, `._:/ -`, starting
+with a letter or digit. Labels are nonempty text of at most 200 characters.
+
+Remembered consent is app-wide, tied to plugin content digest, target key and
+label, and remains through restarts. The hook still runs on every call and
+must enforce the target identity itself. A changed plugin requires consent
+again. **Plugins → plugin → Settings → Remembered access** lists and revokes
+saved targets. Uninstalling the last version also clears consent unless the person
+chooses to keep plugin data. Revoking also invalidates pending approvals, but cannot undo
+an action already dispatched. The daemon owns the versioned
+`plugin-tool-approvals.json` in its data directory; it refuses unreadable or
+future data and preserves unknown fields. No migration exists yet (version 1).
+External clients without an active conversation cannot consume these grants.
 Arguments whose formatted JSON exceeds 8,000 characters cannot be approved:
 the agent must split the operation. The human's waiting time does not consume
 the handler timeout. Stopping the turn cancels unanswered requests. If the set
