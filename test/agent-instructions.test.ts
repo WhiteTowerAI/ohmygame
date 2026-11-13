@@ -1,7 +1,8 @@
+import { PluginServices } from "../src/daemon/plugin-services.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentInstructionsStore, conversationInstructions } from "../src/daemon/agent-instructions.js";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
 import { ensureOhMyGamePiEnvironment } from "../src/daemon/pi-agent.js";
@@ -61,6 +62,14 @@ describe("the person's own agent instructions", () => {
       expect(appendSystemPromptForProject({ type, userInstructions: "  " })).toEqual(own);
     }
   });
+});
+
+it("places sourced plugin instructions before the person's own, without interpreting their text", () => {
+  const text = "Keep 100% of café and 中文 names.\n<literal>";
+  const prompt = appendSystemPromptForProject({ type: "general", pluginInstructions: [{ plugin: "acme/maker", text }], userInstructions: "My final rule" });
+  expect(prompt.at(-2)).toContain("active plugin acme/maker");
+  expect(prompt.at(-2)).toContain(text);
+  expect(prompt.at(-1)).toContain("My final rule");
 });
 
 describe("a conversation's instructions", () => {
@@ -150,4 +159,15 @@ describe("agent instructions API", () => {
     expect((await call("GET", `/projects/${project.id}/conversations/missing/instructions`)).status).toBe(404);
     expect((await call("GET", `/projects/missing/conversations/${own.id}/instructions`)).status).toBe(404);
   });
+});
+
+it("only injects instructions from active project plugins and refuses an unreadable project", async () => {
+  const services = new PluginServices({ directory: await folder() });
+  cleanup.push(() => services.close());
+  const resolve = vi.spyOn(services, "resolve");
+  const plugin = (id: string, status: string) => ({ id, status, entry: { manifest: { contributes: { instructions: id } } } });
+  resolve.mockResolvedValue({ ok: true, plugins: [plugin("active", "active"), plugin("off", "disabled"), plugin("waiting", "needs-approval"), plugin("consent", "needs-consent")] } as never);
+  expect(await services.instructions("/project")).toEqual([{ plugin: "active", text: "active" }]);
+  resolve.mockResolvedValue({ ok: false, issues: ["future version"] });
+  await expect(services.instructions("/project")).rejects.toThrow("Cannot read");
 });

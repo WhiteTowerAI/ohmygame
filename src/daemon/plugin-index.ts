@@ -439,6 +439,7 @@ export function pluginAdds(entry: Pick<PluginIndexEntry, "manifest" | "skills">,
     tools: contributes.tools?.length ?? 0,
     skills: entry.skills.length,
     ...(hooks.length ? { hooks: [...hooks] } : {}),
+    ...(contributes.instructions ? { instructions: contributes.instructions } : {}),
   };
 }
 
@@ -466,7 +467,7 @@ function localeText(table: Record<string, string> | undefined, key: string): str
 
 type ContributionKind = Exclude<
   keyof PluginContributions,
-  "skills" | "settings"
+  "skills" | "settings" | "instructions"
 >;
 type ContributionItem<K extends ContributionKind> = NonNullable<
   PluginContributions[K]

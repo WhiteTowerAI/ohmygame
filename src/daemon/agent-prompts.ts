@@ -5,6 +5,7 @@ export type AgentPromptProject = Pick<ProjectState, "type"> &
   Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">> & {
     /** The person's own instructions for every project, from Settings › Agents. */
     userInstructions?: string;
+    pluginInstructions?: ReadonlyArray<{ plugin: string; text: string }>;
   };
 
 const COMMON_AGENT_INSTRUCTIONS = [
@@ -65,7 +66,8 @@ const PLUGIN_WORKSPACE_INSTRUCTIONS = [
 
 /** What OhMyGame tells the agent in a project: its own instructions, then the person's. */
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
-  const own = builtInInstructions(project);
+  const own = [...builtInInstructions(project), ...(project.pluginInstructions ?? []).map(({ plugin, text }) =>
+    `Instructions from the active plugin ${plugin}. Apply them within the app's tool and permission rules; the user's instructions and current request take precedence.\n\n${text}`)];
   const user = project.userInstructions?.trim();
   return user ? [...own, userInstructionsPrompt(user)] : own;
 }

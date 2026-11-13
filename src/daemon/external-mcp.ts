@@ -190,7 +190,10 @@ export interface ExternalMcpAnswer {
   body?: unknown;
 }
 
+import type { HostedToolHooks } from "./tool-hooks.js";
+
 export interface ExternalMcpOptions {
+  toolHooks?: (project: ProjectState) => HostedToolHooks;
   dataDirectory: string;
   projects: () => ProjectState[];
   /** The project's tools for one external session; the session keeps its playtest windows. */
@@ -636,7 +639,7 @@ export class ExternalMcpService {
         return failure(
           `Tool ${name} is not available for project ${project.name}. Its plugin may be off, not allowed in this project, or not installed.`,
         );
-      return new ToolBridge(tools).call(name, input, callId, signal);
+      return new ToolBridge(tools, this.#options.toolHooks?.(project), "external").call(name, input, callId, signal);
     }
     if (!(EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(name))
       return failure(`Tool ${name} is not available`);
@@ -647,7 +650,7 @@ export class ExternalMcpService {
       return failure(
         `Tool ${name} is not available for project ${project.name} (${project.type}). ${UNAVAILABLE_HINTS[name] ?? ""}`.trim(),
       );
-    const bridge = new ToolBridge(tools);
+    const bridge = new ToolBridge(tools, this.#options.toolHooks?.(project), "external");
     if (!JOB_TOOLS.has(name)) return bridge.call(name, input, callId, signal);
     // A job keeps running when the request ends: a provider may already be charging for it.
     const controller = new AbortController();

@@ -54,6 +54,7 @@ import {
   recoverAgentDirectories,
 } from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
+import type { HostedToolHooks } from "../tool-hooks.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
@@ -126,6 +127,7 @@ export interface NativeSessionRequest {
   /** OhMyGame's tools for the project, as Pi gets them. */
   tools: ToolDefinition[];
   saveGeneratedImage?: SaveGeneratedImage;
+  toolHooks?: HostedToolHooks;
   pluginMcp?: {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
@@ -567,6 +569,7 @@ export class AgentRuntimeService {
           request.pluginMcp.config,
           request.pluginMcp.agentDir,
           request.pluginMcp.guard,
+          request.toolHooks,
         );
       }
     } catch {
@@ -576,7 +579,7 @@ export class AgentRuntimeService {
     const bridge = new ToolBridge([
       ...request.tools,
       ...(pluginTool ? [pluginTool.tool] : []),
-    ]);
+    ], request.toolHooks);
     const env = await this.#environment(request.runtime, binary.path, request.profileId);
     if (request.runtime === "claude-code-cli" && settings.identifyAsOhMyGame)
       Object.assign(env, CLAUDE_CLIENT_ENV);

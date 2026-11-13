@@ -32,6 +32,7 @@ import {
 } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
+import { toolHooksExtension, type HostedToolHooks } from "./tool-hooks.js";
 import { appendSystemPromptForProject, type AgentPromptProject } from "./agent-prompts.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
@@ -3127,7 +3128,9 @@ export async function createPiSession(
   mcp?: { factory: ExtensionFactory; host: PluginMcpHost },
   responsesTransport?: (provider: string) => ResponsesTransportMode,
   snapshotBeforeMessage?: () => Promise<string>,
+  toolHooks?: { hooks: HostedToolHooks; mcpTools: ReadonlySet<string> },
 ): Promise<CodingSession> {
+  let toolController = new AbortController();
   let checkpointFailure: { cause: unknown } | undefined;
   let stopForCheckpointFailure: () => void = () => {};
   const failCheckpoint = (cause: unknown) => {
@@ -3138,6 +3141,9 @@ export async function createPiSession(
     if (checkpointFailure) throw checkpointFailure.cause;
   };
   const guardedCheckpoints: ExtensionFactory = async (pi) => {
+    pi.on("agent_start", () => { if (toolController.signal.aborted) toolController = new AbortController(); });
+    pi.on("agent_end", () => toolController.abort());
+    pi.on("session_shutdown", () => toolController.abort());
     pi.on("before_agent_start", async (event) => {
       try {
         const notice = await readWorkspaceNotice(project);
@@ -3150,6 +3156,7 @@ export async function createPiSession(
       if (checkpointFailure) throw checkpointFailure.cause;
       return snapshotBeforeMessage();
     }, failCheckpoint)(pi);
+    if (toolHooks) await toolHooksExtension(toolHooks.hooks, () => toolController.signal, toolHooks.mcpTools)(pi);
   };
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
@@ -3192,6 +3199,8 @@ export async function createPiSession(
   try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
   // The MCP host already does this for the sessions it manages.
   if (!mcp) shutDownExtensionsOnDispose(session);
+  const abort = session.abort.bind(session);
+  session.abort = async () => { toolController.abort(); await abort(); };
   const prompt = session.prompt.bind(session);
   const followUp = session.followUp.bind(session);
   const steer = session.steer.bind(session);
@@ -3201,6 +3210,7 @@ export async function createPiSession(
     emitsInitialUserMessage: true,
     prompt: async (text: string, options?: Parameters<typeof prompt>[1]) => {
       checkpointFailure = undefined;
+      toolController = new AbortController();
       await prompt(withSkills(text), options);
       assertCheckpoint();
     },
