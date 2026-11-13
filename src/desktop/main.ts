@@ -1,3 +1,4 @@
+import { ElectronBrowserDriver } from "./browser-driver.js";
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream, mkdirSync, readFileSync } from "node:fs";
@@ -114,6 +115,10 @@ const browserViews = new BrowserViews({
   onCommand: (projectId, command) => mainWindow?.webContents.send("ohmygame:browser-command", projectId, command),
   openExternal: (url) => void shell.openExternal(url).catch(() => {}),
 });
+const agentBrowser = new ElectronBrowserDriver(browserViews, (projectId) => {
+  mainWindow?.show();
+  mainWindow?.webContents.send("ohmygame:browser-command", projectId, "reveal");
+});
 /** People's recordings, by project; an agent's belong to its playtest session. */
 const gameRecordings = new Map<string, GameRecordingState>();
 const gameRecordingStarts = new Set<string>();
@@ -201,6 +206,7 @@ async function stopServices(): Promise<void> {
   updateChecks?.stop();
   agentNotifications.stop();
   webGamePlayers.close();
+  agentBrowser.close();
   browserViews.dispose();
   agentPlaytests.close();
   gameRecorder.close();
@@ -518,6 +524,11 @@ handle("ohmygame:layout-browser", (event, projectId: unknown, attachment: unknow
   requirePlayerSource(event.sender, projectId);
   if (!validRouteId(attachment)) throw new Error("Invalid browser attachment");
   browserViews.layout(projectId, attachment, requirePreviewLayout(layout));
+});
+handle("ohmygame:browser-ready", (event, projectId: unknown, attachment: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment)) throw new Error("Invalid browser attachment");
+  browserViews.ready(projectId, attachment);
 });
 handle("ohmygame:detach-browser", (event, projectId: unknown, attachment: unknown) => {
   requirePlayerSource(event.sender, projectId);
@@ -911,6 +922,7 @@ try {
     log: daemonLog,
     logDirectory,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
+    handleBrowserRequest: (request, signal) => agentBrowser.request(request, signal),
     onState: (state) => {
       mainLog.line(runtimeStateLine(state));
       if (state.status !== "ready") {

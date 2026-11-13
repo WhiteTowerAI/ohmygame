@@ -143,6 +143,7 @@ if (process.isMainFrame) {
         ipcRenderer.invoke("ohmygame:attach-browser", projectId, attachment, layout, saved, labels) as Promise<BrowserState>,
       layout: (projectId: string, attachment: string, layout: WebGamePreviewLayout) =>
         ipcRenderer.invoke("ohmygame:layout-browser", projectId, attachment, layout) as Promise<void>,
+      ready: (projectId: string, attachment: string) => ipcRenderer.invoke("ohmygame:browser-ready", projectId, attachment) as Promise<void>,
       detach: (projectId: string, attachment: string) => ipcRenderer.invoke("ohmygame:detach-browser", projectId, attachment) as Promise<void>,
       capture: (projectId: string) => ipcRenderer.invoke("ohmygame:capture-browser", projectId) as Promise<Uint8Array>,
       open: (projectId: string, url?: string) => ipcRenderer.invoke("ohmygame:browser-open", projectId, url) as Promise<BrowserState>,

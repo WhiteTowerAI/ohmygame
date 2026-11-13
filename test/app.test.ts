@@ -1022,6 +1022,7 @@ describe("daemon", () => {
       "write",
       "edit",
       "bash",
+      "web_fetch",
       "web_search",
       "update_plan",
       "install_plugin",

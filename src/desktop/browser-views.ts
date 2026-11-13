@@ -47,9 +47,11 @@ interface Tab {
 interface Editor extends WebGamePreviewLayout {
   id: string;
   window: BrowserWindow;
+  ready?: boolean;
 }
 
 interface Project {
+  selectionRevision: number;
   labels: BrowserMenuLabels;
   tabs: Tab[];
   popups: Set<BrowserWindow>;
@@ -76,6 +78,34 @@ export class BrowserViews {
   #session?: Session;
 
   constructor(private readonly options: BrowserViewsOptions) {}
+
+  attached(projectId: string): boolean {
+    const editor = this.#projects.get(projectId)?.editor;
+    return !!editor?.ready && !editor.window.isDestroyed();
+  }
+
+  ready(projectId: string, attachment: string): void {
+    const editor = this.#projects.get(projectId)?.editor;
+    if (editor?.id === attachment) editor.ready = true;
+  }
+
+  /** The agent uses the person's tab, with the same page and sign-in session. */
+  page(projectId: string, tabId: string): WebContents {
+    const tab = this.#requireTab(this.#require(projectId), tabId);
+    if (!tab.view || tab.view.webContents.isDestroyed()) throw new Error("This tab has no page");
+    return tab.view.webContents;
+  }
+
+  pageVisible(projectId: string, tabId: string): boolean {
+    const project = this.#projects.get(projectId);
+    const tab = project?.tabs.find((entry) => entry.id === tabId);
+    return project?.active === tabId && !!tab?.view?.getVisible();
+  }
+
+  /** Changes even when the person switches away and back between agent checks. */
+  selectionRevision(projectId: string): number | undefined {
+    return this.#projects.get(projectId)?.selectionRevision;
+  }
 
   state(projectId: string): BrowserState {
     const project = this.#projects.get(projectId);
@@ -105,6 +135,7 @@ export class BrowserViews {
           title: tab.title,
         }));
       project = {
+        selectionRevision: 0,
         labels,
         tabs,
         popups: new Set(),
@@ -166,6 +197,7 @@ export class BrowserViews {
       throw new Error(`A project can have at most ${BROWSER_MAX_TABS} tabs.`);
     const tab: Tab = { id: randomUUID(), url, title: "" };
     project.tabs.push(tab);
+    project.selectionRevision++;
     project.active = tab.id;
     this.#show(projectId, project);
     return this.state(projectId);
@@ -186,6 +218,7 @@ export class BrowserViews {
   select(projectId: string, tabId: string): void {
     const project = this.#require(projectId);
     this.#requireTab(project, tabId);
+    if (project.active !== tabId) project.selectionRevision++;
     project.active = tabId;
     this.#show(projectId, project);
   }
@@ -196,8 +229,10 @@ export class BrowserViews {
     if (index < 0) return;
     const [tab] = project.tabs.splice(index, 1);
     this.#closeView(project, tab!);
-    if (project.active === tabId)
+    if (project.active === tabId) {
+      project.selectionRevision++;
       project.active = (project.tabs[index] ?? project.tabs[index - 1])?.id;
+    }
     this.#show(projectId, project);
   }
 

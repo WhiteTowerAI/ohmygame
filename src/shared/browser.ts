@@ -139,6 +139,8 @@ export interface DesktopBrowserBridge {
     saved: ProjectBrowser,
     labels: BrowserMenuLabels,
   ): Promise<BrowserState>;
+  /** The renderer has finished restoring tabs and is listening for changes. */
+  ready(projectId: string, attachment: string): Promise<void>;
   layout(
     projectId: string,
     attachment: string,
@@ -195,4 +197,4 @@ export function isBrowserMenuLabels(
 }
 
 /** Shortcuts a page with focus hands to the panel. */
-export type BrowserCommand = "focus-address" | "new-tab";
+export type BrowserCommand = "focus-address" | "new-tab" | "reveal";
