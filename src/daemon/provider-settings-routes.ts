@@ -19,6 +19,7 @@ import type { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { OpenAIImageSettingsStore } from "./openai-image-settings.js";
 import type { ProjectManager } from "./projects.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
+import { canEnableUnconfiguredProvider, providerEnablementIds } from "./provider-enable-groups.js";
 import type { PluginModelProviders } from "./plugin-model-providers.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { isSeedanceProviderId } from "./seedance-models.js";
@@ -77,6 +78,7 @@ export interface ProviderSettingsRouteOptions {
   openAIEndpoint: ModelEndpointSettingsStore;
   seedanceSettings: SeedanceSettingsStore;
   minimaxSettings: MinimaxSettingsStore;
+  providerRemovalHandlers: ReadonlyMap<string, () => Promise<void>>;
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
@@ -103,7 +105,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     native3DProviders,
     openAIEndpoint,
     seedanceSettings,
-    minimaxSettings,
+    minimaxSettings, providerRemovalHandlers,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
@@ -119,10 +121,10 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   }, async (request, reply) => {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
-    const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
-    if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
-    await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
-    catalogRefresh.invalidate(provider.id);
+    if (!provider.configured && provider.id !== "codex-cli" && !canEnableUnconfiguredProvider(provider.id) && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    const enablementIds = providerEnablementIds(provider.id);
+    await providerModelSettings.setEnabled(enablementIds, request.body.enabled);
+    for (const id of enablementIds) catalogRefresh.invalidate(id);
     return { ...provider, enabled: request.body.enabled };
   });
 
@@ -181,24 +183,24 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
   });
   const removeProvider = async (providerId: string) => {
     const runtime = await getModelRuntime();
-    const native = native3DProviders.find(([id]) => id === providerId);
-    const seedance = isSeedanceProviderId(providerId);
-    const minimax = isMinimaxProviderId(providerId);
-    const doubaoSpeech = providerId === DOUBAO_SPEECH_PROVIDER_ID;
-    if (!native && !seedance && !minimax && !doubaoSpeech && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
-    catalogRefresh.invalidate(providerId);
+    const removeCredentials = providerRemovalHandlers.get(providerId);
+    if (!removeCredentials && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const enablementIds = providerEnablementIds(providerId);
+    for (const id of enablementIds) catalogRefresh.invalidate(id);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
-      await providerModelSettings.removeProviderSettings(providerId, async () => {
+      await providerModelSettings.removeProviderSettings(enablementIds, async () => {
         await runtime.refresh({ allowNetwork: false });
         if (previousEndpoint) await openAIEndpoint.update(openAIEndpoint.defaultBaseUrl);
-        if (native) await native[2].clear();
-        else if (seedance) await seedanceSettings.clear(providerId);
-        else if (minimax) await minimaxSettings.clear(providerId);
-        else if (doubaoSpeech) await doubaoVoiceSettings.clear();
-        else await runtime.logout(providerId);
-        await syncOpenAIEndpoint(runtime);
-        if (providerId === "openai") await openAIImages.clear(false);
+        if (removeCredentials) {
+          // Local-provider cleanup is last: no later runtime work can leave it half-complete.
+          await syncOpenAIEndpoint(runtime);
+          await removeCredentials();
+        } else {
+          await runtime.logout(providerId);
+          await syncOpenAIEndpoint(runtime);
+          if (providerId === "openai") await openAIImages.clear(false);
+        }
       });
     } catch (cause) {
       if (previousEndpoint) await openAIEndpoint.update(previousEndpoint);

@@ -122,6 +122,43 @@ describe("provider deletion", () => {
     ]));
   });
 
+  it("uses each registered local credential cleaner without taking over ElevenLabs' credential route", async () => {
+    const { app, directory } = await fixture({
+      "minimax.json": { version: 1, cnApiKey: "minimax-cn-key", globalApiKey: "minimax-global-key" },
+      "doubao-voice.json": { version: 1, apiKey: "shared-audio-key", services: {} },
+      "elevenlabs.json": { version: 1, apiKey: "elevenlabs-key" },
+    });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/minimax-video-cn" })).statusCode).toBe(204);
+    expect(JSON.parse(await readFile(path.join(directory, "minimax.json"), "utf8"))).toEqual({ version: 1, globalApiKey: "minimax-global-key" });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/minimax-video-global" })).statusCode).toBe(204);
+    await expect(readFile(path.join(directory, "minimax.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-tts" })).statusCode).toBe(204);
+    expect(JSON.parse(await readFile(path.join(directory, "doubao-voice.json"), "utf8"))).toEqual({ version: 1, services: {} });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/elevenlabs" })).statusCode).toBe(404);
+    expect(JSON.parse(await readFile(path.join(directory, "elevenlabs.json"), "utf8"))).toEqual({ version: 1, apiKey: "elevenlabs-key" });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/elevenlabs/credential" })).statusCode).toBe(204);
+    await expect(readFile(path.join(directory, "elevenlabs.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("clears every Hyper3D enablement switch when removing its key", async () => {
+    const { app, directory, restart } = await fixture({
+      "hyper3d.json": { version: 1, apiKey: "hyper3d-test-key" },
+      "model-visibility.json": { version: 1, hidden: {}, disabled: ["hyper3d", "cloud-hyper3d"] },
+    });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/hyper3d" })).statusCode).toBe(204);
+    expect((await preferences(directory)).isEnabled("hyper3d")).toBe(true);
+    expect((await preferences(directory)).isEnabled("cloud-hyper3d")).toBe(true);
+    const restored = await restart();
+    expect((await restored.app.inject({ method: "GET", url: "/settings/providers" })).json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "hyper3d", configured: false, enabled: true }),
+      expect.objectContaining({ id: "cloud-hyper3d", enabled: true }),
+    ]));
+    expect((await restored.app.inject({ method: "PUT", url: "/settings/models/providers/hyper3d", payload: { apiKey: "replacement-test-key" } })).statusCode).toBe(200);
+    expect((await restored.app.inject({ method: "GET", url: "/settings/providers" })).json()).toContainEqual(
+      expect.objectContaining({ id: "hyper3d", configured: true, enabled: true }),
+    );
+  });
+
   it("deletes custom providers through the shared endpoint, including keyless local services", async () => {
     const { app, runtime, directory, restart } = await fixture();
     for (const authentication of ["api_key", "none"] as const) {
