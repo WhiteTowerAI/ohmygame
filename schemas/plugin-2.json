@@ -1469,6 +1469,104 @@
                               },
                               "minItems": 1,
                               "uniqueItems": true
+                            },
+                            "imageAspectRatios": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "adaptive"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "21:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "16:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:2"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1:1"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:4"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:16"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:21"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
+                            },
+                            "frameAspectRatios": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "adaptive"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "21:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "16:9"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "4:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:2"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "1:1"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "2:3"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "3:4"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:16"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "const": "9:21"
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "uniqueItems": true
                             }
                           },
                           "additionalProperties": false
