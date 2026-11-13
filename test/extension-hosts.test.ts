@@ -22,7 +22,7 @@ import { NativePlugins } from "../src/daemon/native-plugins.js";
 import { applyImageChange, PluginHooks, type PluginNotice } from "../src/daemon/plugin-hooks.js";
 import { ProjectFileWatches, watchedPath } from "../src/daemon/project-file-watch.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { PluginIndex, pluginAdds } from "../src/daemon/plugin-index.js";
 import {
   adoptTypedProject,
   availableProjectTypes,
@@ -291,12 +291,26 @@ describe("extension hosts", () => {
       engines: { "ohmygame-api": "^2.5.0" }, entrypoints: { native: "./index.mjs" },
       capabilities: { native: true, sessions: true },
       configuration: { label: { type: "text", title: "Label", default: "first" } },
+      contributes: {
+        commands: [
+          { id: "settings-status", title: "Status", run: { native: "status", changesFiles: false } },
+          { id: "pair", title: "Pair", run: { native: "pair", changesFiles: false } },
+          { id: "bad", title: "Bad", run: { native: "bad", changesFiles: false } },
+          { id: "project-only", title: "Project", run: { native: "projectOnly", changesFiles: false } },
+        ],
+        settings: { groups: [{ rows: [{ field: "label" }, { widget: "status" }, { title: "Pair", action: { command: "pair" } }, { title: "Bad", action: { command: "bad" } }] }] },
+      },
     }));
     await writeFile(path.join(dir, "index.mjs"), `
       import { appendFile } from "node:fs/promises";
       import path from "node:path";
       export async function activate(context) {
         if (context.project || !context.sessions) throw new Error("Wrong scope");
+        let paired = false;
+        context.registerCommand("status", input => ({ message: context.configuration.label + ":" + input.locale, actions: paired ? [] : ["pair"] }));
+        context.registerCommand("pair", () => { paired = true; return { message: "Paired", actions: [] }; });
+        context.registerCommand("bad", () => ({ message: "Bad", actions: ["undeclared"] }));
+        context.registerCommand("projectOnly", () => { throw new Error("Must not run"); });
         const file = path.join(context.dataFolder, "starts.jsonl");
         const projects = await context.sessions.request({ operation: "projects" });
         await appendFile(file, JSON.stringify({ pid: process.pid, label: context.configuration.label, projects }) + "\\n");
@@ -321,24 +335,76 @@ describe("extension hosts", () => {
       if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
       await services.native.startPersistent(() => services.everyProject());
       expect(services.hosts.generation("app")).toBeUndefined();
+      await expect(services.native.runSettingsCommand("acme/messenger", "pair", "en")).rejects.toThrow();
       await services.setEveryProject("acme/messenger", true);
       const file = path.join(services.dataFolder("acme/messenger"), "starts.jsonl");
       const starts = async () => (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
       expect(await starts()).toEqual([expect.objectContaining({ label: "first", projects: { projects: [{ id: "p", name: "Game" }], truncated: false } })]);
+      expect(pluginAdds(services.index.get("acme/messenger")!, (value) => value).commands).toEqual(["Project"]);
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "zh-CN")).toEqual({ message: "first:zh-CN", actions: ["pair"] });
+      await expect(services.native.runSettingsCommand("acme/messenger", "project-only", "en")).rejects.toThrow("declare");
+      await expect(services.native.runSettingsCommand("acme/messenger", "bad", "en")).rejects.toThrow("invalid settings status");
+      expect(await services.native.runSettingsCommand("acme/messenger", "pair", "en")).toEqual({ message: "Paired", actions: [] });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).toEqual({ message: "first:en", actions: [] });
+      await expect(services.native.runCommand("acme/messenger:pair", { folder: "app" })).rejects.toThrow("settings");
       const generation = services.hosts.generation("app");
       await new Promise((resolve) => setTimeout(resolve, 250));
       await services.native.closeProject(path.join(data, "project"));
       expect(services.hosts.generation("app")).toBe(generation);
       await services.configure("acme/messenger", { label: "second" });
       expect((await starts()).at(-1)).toMatchObject({ label: "second" });
+      expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "other")).toEqual({ message: "second:en", actions: ["pair"] });
       await services.hosts.stop("app");
       await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
       expect(services.hosts.generation("app")).not.toBe(generation);
       await services.setEveryProject("acme/messenger", false);
       expect(services.hosts.active("app")).toEqual({});
+      await expect(services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).rejects.toThrow();
       expect((await readFile(path.join(services.dataFolder("acme/messenger"), "disposed"), "utf8")).trim().split("\n")).toHaveLength(3);
       expect(handle.mock.calls.filter(([, request]) => request.operation === "projects")).toHaveLength(3);
       await vi.waitFor(() => expect(cancelled).toHaveLength(3));
+    } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
+  });
+
+  it("saves explicit connection credentials privately and rejects status writes and stale configuration", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-connect-"));
+    const dir = path.join(data, "package");
+    await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+    const commands = ["settings-status", "connect", "hidden", "unsafe"];
+    await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "acme/connect", version: "1.0.0", displayName: "Connect", description: "Connection fixture",
+      engines: { "ohmygame-api": "^2.6.0" }, entrypoints: { native: "./index.mjs" },
+      capabilities: { native: true, sessions: true, secrets: true },
+      configuration: { appId: { type: "text", title: "App" }, token: { type: "secret", title: "Token" }, legacy: { type: "text", title: "Legacy" } },
+      contributes: { commands: commands.map(id => ({ id, title: id, run: { native: id === "settings-status" ? "status" : id, changesFiles: false } })),
+        settings: { groups: [{ rows: [{ field: "appId" }, { field: "token" }, { widget: "status" }, ...commands.slice(1).map(id => ({ title: id, action: { command: id } }))] }] } },
+    }));
+    await writeFile(path.join(dir, "index.mjs"), `export function activate(context) {
+      context.registerCommand("status", () => ({ message: "Idle", actions: [], configuration: { token: "status-secret" } }));
+      context.registerCommand("connect", () => ({ message: "Connected", actions: [], configuration: { appId: "app", token: "created-secret" } }));
+      context.registerCommand("hidden", () => ({ message: "Hidden", actions: [], configuration: { legacy: "changed" } }));
+      context.registerCommand("unsafe", () => ({ message: "Unsafe", actions: [], link: { title: "Open", url: "javascript:alert(1)", expiresAt: 1800000000000 } }));
+    }`);
+    const services = new PluginServices({ directory: path.join(data, "store") });
+    try {
+      expect((await services.install(dir)).ok).toBe(true);
+      await services.native.startPersistent(() => services.everyProject());
+      await services.setEveryProject("acme/connect", true);
+      const run = (id: string) => services.native.runSettingsCommand("acme/connect", id, "en");
+      await expect(run("settings-status")).rejects.toThrow("explicit settings action");
+      await expect(run("hidden")).rejects.toThrow("Invalid settings configuration");
+      await expect(run("unsafe")).rejects.toThrow("invalid settings status");
+      expect(await run("connect")).toEqual({ message: "Connected", actions: [], configurationChanged: true });
+      const entry = services.index.get("acme/connect")!;
+      expect(services.values.forNative(entry)).toEqual({ appId: "app", token: "created-secret" });
+      expect(services.values.view(entry)).toEqual({ appId: { type: "text", value: "app" }, token: { type: "secret", configured: true }, legacy: { type: "text", value: null } });
+      // Both writes are admitted before either reaches disk; CAS must run inside the write queue.
+      const expected = services.values.forNative(entry);
+      const manual = services.values.update(entry, { appId: "manual" });
+      const stale = services.values.update(entry, { appId: "overwritten", token: "wrong" }, expected);
+      await manual;
+      await expect(stale).rejects.toThrow("settings changed");
+      expect(services.values.forNative(entry)).toEqual({ appId: "manual", token: "created-secret" });
     } finally { await services.close(); await rm(data, { recursive: true, force: true }); }
   });
 

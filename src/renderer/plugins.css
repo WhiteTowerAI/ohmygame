@@ -953,6 +953,34 @@
   font-weight: var(--weight-medium);
 }
 
+.plugin-background-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.plugin-background-prompt h3,
+.plugin-background-prompt p {
+  margin: 0;
+  font-size: inherit;
+  line-height: 1.5;
+}
+
+.plugin-background-prompt h3 { font-weight: var(--weight-medium); }
+.plugin-background-prompt p { color: var(--color-text-secondary); }
+.plugin-background-prompt [role="alert"] { color: var(--color-danger); }
+.plugin-background-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.plugin-connection { display: flex; flex-direction: column; gap: var(--space-3); max-width: 560px; }
+.plugin-connection h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.plugin-connection p { margin: 0; font-size: var(--text-sm); white-space: pre-line; overflow-wrap: anywhere; }
+.plugin-connection [role="alert"] { color: var(--color-danger); }
+.plugin-connection-actions, .plugin-pairing-code > div { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.plugin-pairing-code { display: flex; flex-direction: column; gap: var(--space-2); }
+.plugin-pairing-code code { user-select: all; font-size: var(--text-md); overflow-wrap: anywhere; }
+.plugin-pairing-code small { color: var(--color-text-secondary); }
+
 .plugin-props {
   display: grid;
   grid-template-columns: minmax(64px, max-content) 1fr;

@@ -84,7 +84,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "scheduled.changed" || event.type === "conversation.model.changed" || event.type === "checkpoint.created" || event.type === "checkpoint.completed" || event.type === "workspace.undone" || event.type === "workspace.reapplied";
+  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "scheduled.changed" || event.type === "conversation.model.changed" || event.type === "conversation.settings.changed" || event.type === "checkpoint.created" || event.type === "checkpoint.completed" || event.type === "workspace.undone" || event.type === "workspace.reapplied";
   if (conversationScopedEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
@@ -92,6 +92,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return conversation?.id === event.data.conversation.id
         ? { ...next, conversation: event.data.conversation }
         : next;
+    case "conversation.settings.changed":
+      return { ...next, settings: event.data.settings };
     case "conversation.model.changed":
       if (!conversation) return next;
       return {

@@ -8417,7 +8417,31 @@ button {
   font-size: 10px;
 }
 
-.user-message-source { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.user-message-source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.user-message-source > :is(svg, img) { flex-shrink: 0; }
+.user-message-source-details {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: help;
+}
+.user-message-source-details:hover { color: var(--text-secondary); }
+.user-message-source-details:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .user-message-contexts {
   display: flex;
@@ -13843,11 +13867,17 @@ summary.work-summary:hover {
   .custom-provider-dialog .project-settings-field-row { grid-template-columns: minmax(0, 1fr); }
 }
 
-.plugin-configuration form, .plugin-configuration label, .plugin-oauth label, .plugin-install-dialog label { display: grid; gap: 8px; }
+.plugin-configuration form, .plugin-configuration-field, .plugin-configuration label, .plugin-oauth label, .plugin-install-dialog label { display: grid; gap: 8px; }
 .plugin-configuration form { gap: 16px; max-width: 560px; }
 .plugin-configuration input, .plugin-configuration select, .plugin-oauth input, .plugin-install-dialog textarea, .plugin-install-dialog select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); font: inherit; }
 .plugin-configuration input[type="checkbox"] { width: 18px; }
 .plugin-configuration small { color: var(--text-muted); font-size: 12px; }
+.plugin-setting-help { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.plugin-setting-help summary { display: flex; align-items: center; gap: 5px; width: fit-content; list-style: none; cursor: pointer; }
+.plugin-setting-help summary::-webkit-details-marker { display: none; }
+.plugin-setting-help summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.plugin-setting-help > div { margin-top: 8px; white-space: pre-line; overflow-wrap: anywhere; }
+.plugin-setting-help a { display: inline-flex; align-items: center; gap: 3px; }
 .plugin-mcp { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 
 .plugin-mcp > [role="alert"] { margin: 12px 0 0; color: var(--danger); overflow-wrap: anywhere; }
@@ -13861,7 +13891,7 @@ summary.work-summary:hover {
 .plugin-oauth input { min-width: 0; font-size: 12px; }
 
 .plugin-configuration { font-size: 12px; }
-.plugin-configuration form > button, .plugin-configuration label > button { justify-self: start; }
+.plugin-configuration form > button, .plugin-configuration label > button, .plugin-configuration-field > button { justify-self: start; }
 .plugin-install-dialog { max-height: 90dvh; overflow: auto; }
 .cloud-quota-details { display: grid; gap: 12px; }
 .cloud-quota-row { display: grid; min-width: 0; gap: 7px; }

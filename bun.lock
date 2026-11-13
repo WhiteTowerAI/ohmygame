@@ -84,7 +84,7 @@
     },
     "packages/create-ohmygame-plugin": {
       "name": "create-ohmygame-plugin",
-      "version": "2.5.0",
+      "version": "2.6.0",
       "bin": {
         "create-ohmygame-plugin": "dist/create.mjs",
       },
@@ -103,14 +103,14 @@
     },
     "packages/plugin-cli": {
       "name": "@ohmygame/plugin-cli",
-      "version": "2.5.0",
+      "version": "2.6.0",
       "bin": {
         "ohmygame-plugin": "dist/cli.mjs",
       },
     },
     "packages/plugin-ui": {
       "name": "@ohmygame/plugin-ui",
-      "version": "2.5.0",
+      "version": "2.6.0",
     },
     "packages/sdk": {
       "name": "@ohmygame/sdk",

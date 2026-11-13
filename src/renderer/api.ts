@@ -977,6 +977,14 @@ export async function readStorePluginConfiguration(id: string): Promise<import("
   return request(`/plugin-store/${pluginPath(id)}/configuration`);
 }
 
+export function readPluginSettingsStatus(id: string, signal?: AbortSignal): Promise<import("../shared/plugin-settings.js").PluginSettingsStatus> {
+  return request(`/plugin-store/${pluginPath(id)}/settings-status?locale=${encodeURIComponent(language)}`, { signal });
+}
+
+export function runPluginSettingsAction(id: string, command: string): Promise<import("../shared/plugin-settings.js").PluginSettingsStatus> {
+  return request(`/plugin-store/${pluginPath(id)}/settings-actions/${encodeURIComponent(command)}?locale=${encodeURIComponent(language)}`, { method: "POST" });
+}
+
 /** Saves some settings; `null` puts one back to its default. */
 export async function saveStorePluginConfiguration(id: string, changes: Record<string, string | boolean | null>): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
   return request(`/plugin-store/${pluginPath(id)}/configuration`, { method: "PUT", body: JSON.stringify(changes) });

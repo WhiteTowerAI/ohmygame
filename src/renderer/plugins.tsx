@@ -267,7 +267,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={page} group={detail} market={market} updates={updates} onUpdate={setAdding}
+        ? <StorePluginDetail key={page} group={detail} safeMode={safeMode} market={market} updates={updates} onUpdate={setAdding}
           onUpdateSource={setUpdating} onAddAgain={() => setAddOpen(true)} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin}
           // A keyword searches every installed plugin, whatever the list was narrowed to.
           onSearch={(keyword) => { setQuery(keyword); setKind("all"); setInstalledCategory("all"); showCatalog(); }} />

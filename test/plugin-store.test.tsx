@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { PluginSettingsStatus } from "../src/shared/plugin-settings.js";
 import type { ProviderSummary } from "../src/shared/contracts.js";
 import type { PluginMediaModelList } from "../src/shared/plugin-manifest.js";
 import type { PluginUninstallPreview, StorePlugin, StorePluginConfiguration } from "../src/shared/plugins.js";
@@ -11,6 +12,8 @@ let configuration: StorePluginConfiguration;
 let providers: ProviderSummary[] = [];
 let uninstallPreview: PluginUninstallPreview;
 const api = {
+  readPluginSettingsStatus: vi.fn(async (_id: string, _signal?: AbortSignal): Promise<PluginSettingsStatus> => ({ message: "Connected", actions: ["pair"] })),
+  runPluginSettingsAction: vi.fn<(id: string, command: string) => Promise<PluginSettingsStatus>>(),
   restartStorePlugin: vi.fn(async () => {}),
   setStorePluginEveryProject: vi.fn(async () => {}),
   uninstallStorePlugin: vi.fn(async () => {}),
@@ -40,7 +43,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { groupStorePlugins, storePluginContributions, StorePluginDetail } = await import("../src/renderer/plugin-store.js");
+const { groupStorePlugins, storePluginContributions, StorePluginDetail, SessionBackgroundPrompt } = await import("../src/renderer/plugin-store.js");
 
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
@@ -85,6 +88,58 @@ const type = (input: HTMLInputElement, value: string) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
+
+it("offers background running without changing it until the person enables it, and retains errors for retry", async () => {
+  const bridge = { get: vi.fn(async () => false), set: vi.fn(async (_value: boolean) => true) };
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: bridge } as NonNullable<typeof previous>;
+  try {
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(bridge.set).not.toHaveBeenCalled();
+    bridge.set.mockRejectedValueOnce(new Error("Cannot save setting"));
+    await act(async () => button("Enable").click());
+    expect(host.textContent).toContain("Cannot save setting");
+    await act(async () => button("Enable").click());
+    expect(bridge.set).toHaveBeenLastCalledWith(true);
+    expect(host.textContent).toBe("");
+    await act(async () => root.render(<SessionBackgroundPrompt key="dismiss" />));
+    await act(async () => button("Not now").click());
+    expect(bridge.set).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("does not prompt when background running is enabled or unavailable", async () => {
+  const previous = window.ohMyGameDesktop;
+  try {
+    window.ohMyGameDesktop = undefined;
+    await act(async () => root.render(<SessionBackgroundPrompt />));
+    expect(host.textContent).toBe("");
+    window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => true, set: vi.fn() } } as NonNullable<typeof previous>;
+    await act(async () => root.render(<SessionBackgroundPrompt key="enabled" />));
+    expect(host.textContent).toBe("");
+  } finally { window.ohMyGameDesktop = previous; }
+});
+
+it("keeps the background offer in the enabled session plugin's management section", async () => {
+  const previous = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { ...previous, backgroundRunning: { get: async () => false, set: vi.fn() } } as NonNullable<typeof previous>;
+  const plugin = row("1.0.0", { everyProject: true, capabilities: ["sessions"], grants: { enabled: true, allowed: ["sessions"] } });
+  const render = async (overrides: Partial<StorePlugin> = {}, safeMode = false) => {
+    const group = groupStorePlugins([{ ...plugin, ...overrides }])[0]!;
+    await act(async () => root.render(<StorePluginDetail group={group} safeMode={safeMode} onChanged={async () => {}} onRemoved={() => {}} />));
+  };
+  try {
+    await render();
+    expect(host.querySelector(".plugin-side .plugin-background-prompt")).not.toBeNull();
+    for (const overrides of [{ everyProject: false }, { grants: { enabled: false, allowed: ["sessions"] } }, { grants: { enabled: true, allowed: [] } }, { capabilities: [] }] satisfies Partial<StorePlugin>[]) {
+      await render(overrides);
+      expect(host.querySelector(".plugin-background-prompt")).toBeNull();
+    }
+    await render({}, true);
+    expect(host.querySelector(".plugin-background-prompt")).toBeNull();
+  } finally { window.ohMyGameDesktop = previous; }
+});
 
 it("groups the store's rows by plugin, newest version first", () => {
   const groups = groupStorePlugins([row("2.0.0"), row("1.0.0"), row("1.0.0", { id: "acme/tiles" })]);
@@ -218,6 +273,30 @@ it("keeps a setting changed again while the last change saves", async () => {
   await act(async () => finish());
   expect(pathInput.value).toBe("/second");
   expect(document.querySelector<HTMLButtonElement>(".plugin-configuration button[type=submit]")!.disabled).toBe(false);
+});
+
+it("offers longer field instructions without losing drafts, submitting, or expanding the input's label", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settings: [
+    { name: "path", type: "path", title: "Folder", description: "Choose the app's folder.\n\nFind it in your app settings.\nOfficial guide: https://example.com/guide\n<script>literal text</script> javascript:alert(1)" },
+    { name: "token", type: "secret", title: "Token", description: "Keep this private." },
+  ] })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const input = host.querySelector<HTMLInputElement>('.plugin-configuration input')!;
+  const help = host.querySelector<HTMLDetailsElement>('.plugin-setting-help')!;
+  expect(input.labels?.[0]?.textContent).toBe("Folder");
+  expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe("Choose the app's folder.");
+  expect(host.querySelectorAll('.plugin-setting-help')).toHaveLength(1);
+  expect(help.open).toBe(false);
+  await act(async () => type(input, "/unsaved"));
+  await act(async () => help.querySelector("summary")!.click());
+  expect(help.open).toBe(true);
+  expect(input.value).toBe("/unsaved");
+  expect(api.saveStorePluginConfiguration).not.toHaveBeenCalled();
+  expect(help.querySelector("a")?.href).toBe("https://example.com/guide");
+  expect(help.querySelector("a")?.target).toBe("_blank");
+  expect(help.querySelectorAll("a")).toHaveLength(1);
+  expect(help.querySelector("script")).toBeNull();
+  expect(help.textContent).toContain("<script>literal text</script>");
 });
 
 it("shows the plugin's description, Skills and settings under tabs, without a switch per Skill", async () => {
@@ -401,4 +480,81 @@ it("goes back to About when the open tab goes away with the newest version", asy
 it("offers plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
   expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 0 } }))).toEqual([]);
+});
+
+
+it("runs declared connection actions, preserves drafts and stops polling hidden settings without cancelling pairing", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const plugin = row("1.0.0", { everyProject: true, settingsView: { fields: ["path"], status: true, actions: [{ id: "pair", title: "Bind account" }, { id: "cancel-pair", title: "Cancel binding" }] } });
+  let finish!: (value: PluginSettingsStatus) => void;
+  api.runPluginSettingsAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const render = (active: boolean, enabled = true) => root.render(<StrictMode><PluginSettingsActions plugin={plugin} active={active} enabled={enabled} /></StrictMode>);
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Connected");
+  await act(async () => button("Bind account").click());
+  expect(api.runPluginSettingsAction).toHaveBeenCalledWith("acme/maker", "pair");
+  expect(button("Bind account").disabled).toBe(true);
+  await act(async () => render(false));
+  expect(api.readPluginSettingsStatus.mock.calls.at(-1)?.[1]?.aborted).toBe(true);
+  await act(async () => finish({ message: "Connected", code: { text: "/bind ABCD", expiresAt: Date.now() + 300000 }, actions: ["cancel-pair"] }));
+  expect(api.runPluginSettingsAction).toHaveBeenCalledTimes(1);
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting for your private message", actions: ["cancel-pair"] });
+  await act(async () => render(true));
+  expect(host.textContent).toContain("Waiting for your private message");
+  expect(button("Cancel binding").disabled).toBe(false);
+  api.runPluginSettingsAction.mockRejectedValueOnce(new Error("Disk is full"));
+  await act(async () => button("Cancel binding").click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Disk is full");
+  await act(async () => render(true, false));
+  expect(host.textContent).toContain("Turn this plugin on");
+  expect(host.textContent).not.toContain("Cancel binding");
+});
+
+it("shows only declared connection fields while retaining legacy saved settings", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelectorAll(".plugin-configuration input")).toHaveLength(1);
+  expect(host.querySelector<HTMLInputElement>(".plugin-configuration input")!.value).toBe("");
+  const [statusOnly] = groupStorePlugins([row("1.0.0", { settings: [], settingsView: { fields: [], status: true, actions: [] } })]);
+  await act(async () => root.render(<StorePluginDetail group={statusOnly!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(host.querySelector('[role="tabpanel"][aria-label="Settings"] .plugin-connection')).not.toBeNull();
+});
+
+it("opens authorization only from explicit actions and reports saved configuration without secrets", async () => {
+  const { PluginSettingsActions } = await import("../src/renderer/plugin-settings-actions.js");
+  const link = { title: "Continue in Feishu", url: "https://open.feishu.cn/registration", expiresAt: Date.now() + 60000 };
+  const plugin = row("1.0.0", { settingsView: { fields: ["path"], status: true, actions: [{ id: "begin", title: "Create robot" }, { id: "finish", title: "Connect robot" }] } });
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  const changed = vi.fn();
+  api.readPluginSettingsStatus.mockResolvedValueOnce({ message: "Waiting", link, actions: ["begin"] });
+  try {
+    await act(async () => root.render(<PluginSettingsActions plugin={plugin} active enabled onConfigurationChanged={changed} />));
+    expect(opened).not.toHaveBeenCalled();
+    await act(async () => button("Continue in Feishu").click());
+    expect(opened).toHaveBeenCalledTimes(1);
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Waiting", link: { ...link, url: `${link.url}?new` }, actions: ["finish"] });
+    await act(async () => button("Create robot").click());
+    expect(opened).toHaveBeenLastCalledWith(`${link.url}?new`, "_blank", "noopener,noreferrer");
+    api.runPluginSettingsAction.mockResolvedValueOnce({ message: "Connecting", actions: [], configurationChanged: true });
+    await act(async () => button("Connect robot").click());
+    expect(changed).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("Connecting");
+  } finally { opened.mockRestore(); }
+});
+
+it("refreshes settings saved by connection while retaining an unsaved manual draft", async () => {
+  const { StorePluginSettings } = await import("../src/renderer/plugin-store.js");
+  const plugin = row("1.0.0");
+  const render = (revision: number) => root.render(<StorePluginSettings plugin={plugin} revision={revision} />);
+  await act(async () => render(0));
+  const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "/my/manual/draft");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  configuration = { path: { type: "path", value: "/saved/by/connection" }, token: { type: "secret", configured: true } };
+  await act(async () => render(1));
+  expect(api.readStorePluginConfiguration).toHaveBeenCalledTimes(2);
+  expect(input.value).toBe("/my/manual/draft");
+  expect(host.textContent).not.toContain("fixture-secret");
 });

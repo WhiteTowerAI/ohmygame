@@ -1,3 +1,5 @@
+import { NativePlugins } from "../src/daemon/native-plugins.js";
+import type { PluginSessionRequest, PluginSessionResults } from "../src/shared/plugin-sessions.js";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
@@ -153,6 +155,35 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 `;
 
 describe("coding agent routes", () => {
+  it.skipIf(process.platform === "win32")("shares plugin model/reasoning transitions with the desktop, persists settings, and rejects stale or revoked changes", async () => {
+    let service!: Parameters<NativePlugins["serveSessions"]>[0];
+    const original = NativePlugins.prototype.serveSessions;
+    vi.spyOn(NativePlugins.prototype, "serveSessions").mockImplementation(function (this: NativePlugins, value) { service = value; original.call(this, value); });
+    const { call, claude } = await start();
+    const catalog = vi.spyOn(AgentRuntimeService.prototype, "models");
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", {})).body;
+    const chat = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {})).body;
+    const target = { projectId: project.id, conversationId: chat.id };
+    const base = `/projects/${project.id}/conversations/${chat.id}`;
+    const request = <R extends PluginSessionRequest>(r: R, authorize = async () => {}) => service.handle("ohmygame/feishu", r, new AbortController().signal, authorize) as Promise<PluginSessionResults[R["operation"]]>;
+    const model = { provider: "claude-code-cli", id: "sonnet" };
+    await vi.waitFor(async () => expect((await request({ operation: "settings", ...target })).models).toContainEqual(expect.objectContaining({ ...model, levels: ["low", "high"] })));
+    expect(catalog).toHaveBeenLastCalledWith(expect.objectContaining({ "claude-code-cli": "system", "codex-cli": "system" }));
+    await request({ operation: "model", ...target, model });
+    await request({ operation: "reasoning", ...target, model, level: "high" });
+    expect((await call<ConversationDetail>("GET", base)).body.settings).toMatchObject({ model, nativeReasoningLevel: "high" });
+    expect((await request({ operation: "settings", ...target })).level).toBe("high");
+    await expect(request({ operation: "reasoning", ...target, model, level: "invented" })).rejects.toThrow("not available");
+    await expect(request({ operation: "model", ...target, model: { ...model, id: "haiku" } }, async () => { throw new Error("Grant revoked"); })).rejects.toThrow("revoked");
+    expect((await request({ operation: "settings", ...target })).model).toEqual(model);
+    expect((await call("PUT", `${base}/model`, { ...model, id: "haiku" })).status).toBe(200);
+    await expect(request({ operation: "reasoning", ...target, model, level: "low" })).rejects.toThrow("Model changed");
+    expect((await request({ operation: "settings", ...target })).model?.id).toBe("haiku");
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    await expect(request({ operation: "model", ...target, model })).rejects.toThrow("not available");
+  });
+
   it.skipIf(process.platform === "win32")("adds a plugin's ACP agent to Agents, runs a conversation with it and follows the plugin", async () => {
     const { app, call, dataDirectory } = await start();
     // The agent reaches OhMyGame's tools over loopback, so the daemon listens.

@@ -192,6 +192,8 @@ and the format of an older major is then upgraded where it loads, as
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
 | 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 
+| 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
+
 ## Agent instructions
 
 `contributes.instructions` (API 2.5.0) is a static string of 1–8,000 characters
@@ -284,6 +286,9 @@ Quit stop it. Register connection cleanup with `context.onDispose`, and return
 from `activate` after starting the connection; do not await its entire lifetime.
 Closing a project does not end an app connection. Desktop close-to-background
 remains the person's separate opt-in setting.
+A plugin's Management section offers to enable it when that app-wide session
+plugin is enabled and granted access. Dismissing the prompt leaves the setting
+unchanged; it is also available in Settings. Quit and computer sleep still interrupt connections.
 
 `context.project` is absent in the app host. `context.configuration` contains the
 activation's settings (including secrets only when granted); per-call
@@ -309,8 +314,20 @@ Types live in `src/shared/plugin-sessions.ts`. `sessions.request(request,
 | `create` | `projectId` | New conversation `id`; empty conversations are not saved across app restarts |
 | `read` | `projectId, conversationId` | `messages, truncated, status, needsApproval, cursor` |
 | `send` | `projectId, conversationId, text` | Accepted `turnId`, before execution completes |
-| `stop` | `projectId, conversationId` | `stopped`, whether an active turn was asked to stop |
+| `stop` | `projectId, conversationId, turnId?` | `stopped`; API 2.6 optionally requires the exact active turn, so a stale button cannot stop a later one |
+| `settings` (2.6) | `projectId, conversationId` | `models: [{ provider, id, name, providerName, levels }], model?, level?, busy, loading, truncated` |
+| `model` (2.6) | `projectId, conversationId, model: { provider, id }` | `changed: true` after applying a configured, visible model |
+| `reasoning` (2.6) | `projectId, conversationId, model: { provider, id }, level` | `changed: true`; the model must still be selected and support the level |
 | `events` | `projectId, after?, waitMs?` | `cursor, reset, events` with types, conversation/turn IDs and timestamps |
+
+API 2.6 model settings use the conversation's account profiles, not new-chat
+account defaults. The catalog excludes disabled/hidden models, returns at most
+500, and reports loading/truncation. Changes share desktop transitions and
+persistence, refuse busy projects, recheck the grant before mutation, and emit
+`conversation.settings.changed` so an open desktop conversation updates. They
+change only that conversation, never global defaults. A lost mutation reply
+must not be retried automatically; re-read `settings` first. Reasoning requests
+include the model shown by the control to reject stale choices.
 
 Text messages are 1–32,000 characters. Lists return at most 500 entries; reads
 return the latest 200 user/assistant messages, at most 32,000 characters per
@@ -320,10 +337,50 @@ status and, on failure, an error message (at most 2,000 characters) and optional
 code, including empty cancelled/failed responses after event history expires.
 Messages carry structured
 `source: { plugin }` when supplied by a plugin; this attribution also appears in
-the app and survives history reload. The agent receives an external-source
-notice. Editing a plugin message in the app creates human input without that
+the app and survives history reload. The source row uses the installed plugin's
+name and icon, falling back to its ID if unavailable. Feishu delivery markers
+appear in source details instead of the message body, copy text or edit draft;
+the stored text and session reads retain the marker for reconciliation.
+The agent receives an external-source notice. Editing a plugin message in the app creates human input without that
 attribution. The optional source field extends stored prompt details version 1;
 older histories remain readable and no existing records are rewritten.
+
+Connection plugins can use `contributes.settings` for their Settings tab. Its
+`field` rows select configuration fields to show, and a `{ "widget": "status" }`
+row enables a connection section. Declare a `settings-status` native command
+and action rows referencing other declared native commands. These commands
+must set `changesFiles: false` and cannot request builds. They run only through
+the app's settings routes in the existing app activation, with `{ locale }`
+(`en` or `zh-CN`); they are excluded from project command lists and execution.
+Every call rechecks global enablement and grants. This UI is available in builds
+including PR #820; earlier API 2.5 builds do not render it.
+
+Status and action handlers return `{ message, detail?, code?, link?, actions }`.
+`message` is 1–500 characters, optional `detail` is 1–2,000; `actions` lists at
+most ten declared action IDs currently available. Optional `code` is
+`{ text, expiresAt }`: 1–200 characters to copy and a positive epoch millisecond
+deadline. API 2.6 also accepts `link: { title, url, expiresAt }`: a 1–100 character
+title, HTTPS URL up to 8,192 characters without embedded credentials, and a positive
+epoch millisecond deadline. Only a new link returned by an explicit action opens
+a browser automatically; status polling never opens one. The page also provides
+a button to reopen it. Unknown fields are discarded and invalid responses fail visibly.
+
+An explicit settings action may additionally return private
+`configuration: { [field]: string | boolean | null }`. The host validates at most
+100 declared, visible settings fields (strings up to 4,096 characters); secret
+fields require the plugin's `secrets` capability. It rechecks grants and the
+activation/configuration fingerprint, then compares the starting configuration
+inside the serialized save to reject concurrent changes. Saving uses the normal
+configuration/restart pipeline. The renderer receives only the sanitized status
+and host-generated `configurationChanged: true`, never this patch or secret
+values. `settings-status` cannot write configuration. Plugins own temporary
+authorization credentials until this explicit save and must dispose them on
+cancellation, expiration or activation shutdown.
+
+The visible tab reads status every two seconds; hiding it cancels that read,
+not plugin-owned pairing. Reads must not create or renew challenges. Plugins
+own account persistence, code expiry, cancellation and rebinding; action replies
+return the resulting status. A saved account must not depend on the page lifetime.
 
 Send rejects busy projects and planned, archived or unready conversations. It
 uses the conversation's selected model or the app default; it never adds an
@@ -669,6 +726,10 @@ was opened.
   `POST /plugin-store/:publisher/:name/restart` (starts a stopped one again),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`.
+  In an installed plugin's Settings, a configuration `description` stays plain
+  text. Its first paragraph is the visible hint; paragraphs after a blank line
+  are expandable help, with HTTPS URLs made clickable. Keep essential constraints
+  in the first paragraph. Older apps display the full description as a hint.
 - A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
   that suit the project, and the type's own, with the version the project
   uses (none when off), its status, whether it is on in every project, what
