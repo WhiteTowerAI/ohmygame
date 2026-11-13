@@ -1,0 +1,63 @@
+{
+  "$schema": "https://www.ohmygame.ai/schema/plugin-2.json",
+  "id": "ohmygame/pixellab",
+  "version": "1.0.2",
+  "engines": { "ohmygame-api": "^2.5.0" },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "icon": "./assets/icon.svg",
+  "categories": ["art"],
+  "entrypoints": { "native": "./native/index.mjs" },
+  "capabilities": { "native": true, "network": ["api.pixellab.ai"] },
+  "configuration": {
+    "apiKey": {
+      "type": "secret",
+      "title": "%config.apiKey%",
+      "description": "%config.apiKey.description%",
+      "required": true
+    }
+  },
+  "contributes": {
+    "canvasNodes": [
+      {
+        "id": "create-character",
+        "title": "%nodes.createCharacter.title%",
+        "description": "%nodes.createCharacter.description%",
+        "inputs": [{ "id": "reference", "title": "%nodes.reference%", "accepts": "image", "optional": true }],
+        "params": {
+          "description": { "type": "text", "title": "%params.description%" },
+          "body": { "type": "select", "title": "%params.body%", "options": ["mannequin", "bear", "cat", "dog", "horse", "lion", "custom"], "default": "mannequin" },
+          "directions": { "type": "select", "title": "%params.directions%", "options": ["4", "8"], "default": "8" }
+        },
+        "output": "image",
+        "run": { "native": "createCharacter", "timeoutSeconds": 600 }
+      },
+      {
+        "id": "skeleton-animation",
+        "title": "%nodes.skeletonAnimation.title%",
+        "description": "%nodes.skeletonAnimation.description%",
+        "inputs": [{ "id": "reference", "title": "%nodes.reference%", "accepts": "image" }],
+        "params": {
+          "description": { "type": "text", "title": "%params.description%" },
+          "action": { "type": "text", "title": "%params.action%" },
+          "direction": { "type": "select", "title": "%params.direction%", "options": ["south", "south-east", "east", "north-east", "north", "north-west", "west", "south-west"], "default": "south" },
+          "body": { "type": "select", "title": "%params.body%", "options": ["mannequin", "bear", "cat", "dog", "horse", "lion"], "default": "mannequin" }
+        },
+        "output": "image",
+        "run": { "native": "skeletonAnimation", "timeoutSeconds": 900 }
+      },
+      {
+        "id": "pixen",
+        "title": "%nodes.pixen.title%",
+        "description": "%nodes.pixen.description%",
+        "params": {
+          "description": { "type": "text", "title": "%params.description%" },
+          "transparent": { "type": "boolean", "title": "%params.transparent%", "default": true }
+        },
+        "output": "image",
+        "run": { "native": "pixen", "timeoutSeconds": 180 }
+      }
+    ],
+    "settings": { "groups": [{ "rows": [{ "field": "apiKey" }] }] }
+  }
+}

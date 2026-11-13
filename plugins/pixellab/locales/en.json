@@ -1,0 +1,19 @@
+{
+  "displayName": "PixelLab",
+  "description": "Create pixel characters and their animations with PixelLab.",
+  "config.apiKey": "PixelLab API key",
+  "config.apiKey.description": "Stored by the PixelLab plugin and sent only to api.pixellab.ai.",
+  "nodes.reference": "South-facing reference",
+  "nodes.createCharacter.title": "Create character",
+  "nodes.createCharacter.description": "Creates an official PixelLab character with four or eight directions.",
+  "nodes.skeletonAnimation.title": "Skeleton animation",
+  "nodes.skeletonAnimation.description": "Creates a character, then asks PixelLab to animate it with skeleton-v3.",
+  "nodes.pixen.title": "Pixen pixel art",
+  "nodes.pixen.description": "Creates native-resolution pixel art from a description.",
+  "params.description": "Description",
+  "params.action": "Action",
+  "params.direction": "Direction",
+  "params.body": "Body type",
+  "params.directions": "Directions",
+  "params.transparent": "Transparent background"
+}

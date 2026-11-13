@@ -621,7 +621,9 @@ export class CanvasStore {
         pixelStyle = parent.data.pixelStyle;
         parentId = parent.parentId;
       }
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
+      const images = await Promise.all(node.data.images.map(image));
+      const generationPrompt = node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic");
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generationPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.effectBasePrompt ? { transparentBackground: true } : {}), images }, revision, undefined, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
@@ -804,7 +806,10 @@ export class CanvasStore {
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
           const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
-          if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
+          if (detail && node && expectedType && node.type === expectedType) {
+            Object.assign(node.data, { assetId: output.assetId });
+            await writeCanvasBoard(workspace, detail.board);
+          }
         }
         job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
       });

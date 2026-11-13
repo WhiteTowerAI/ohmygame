@@ -13,7 +13,17 @@ import { CanvasError, parseCanvasJson, readCanvasFile, writeCanvasJson } from ".
 export async function readCanvasAssets(workspace: string): Promise<CanvasAssetManifest> {
   const text = await readCanvasFile(workspace, "assets.json");
   const manifest = text === undefined ? { version: 1 as const, assets: {} } : parseCanvasJson<CanvasAssetManifest>(text, "assets.json", CANVAS_ASSETS_SCHEMA);
-  return { ...manifest, assets: Object.assign(Object.create(null), manifest.assets) };
+  let migrated = false;
+  const assets = Object.assign(Object.create(null), Object.fromEntries(Object.entries(manifest.assets).map(([id, asset]) => {
+    // compat: since beta.5.0, remove from beta.7 and 2026-12-13. Drop the former
+    // PixelLab-only rig payload while preserving the asset itself.
+    const { skeleton: _skeleton, ...current } = asset as CanvasAsset & { skeleton?: unknown };
+    migrated ||= _skeleton !== undefined;
+    return [id, current];
+  })) as Record<string, CanvasAsset>);
+  const current = { ...manifest, assets };
+  if (migrated) await writeCanvasJson(workspace, "assets.json", current);
+  return current;
 }
 
 export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = [], origin: "generated" | "imported" = "imported"): Promise<CanvasAssetManifest> {

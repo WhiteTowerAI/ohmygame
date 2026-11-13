@@ -481,6 +481,7 @@ export async function listProviders(): Promise<ProviderSummary[]> {
   return request(`/settings/providers?locale=${encodeURIComponent(language)}`);
 }
 
+
 export async function setProviderEnabled(providerId: string, enabled: boolean): Promise<ProviderSummary> {
   const result = await request<ProviderSummary>(`/settings/models/providers/${encodeURIComponent(providerId)}/enabled`, { method: "PATCH", body: JSON.stringify({ enabled }) });
   notifyAgentModelsChanged();

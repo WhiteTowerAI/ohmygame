@@ -281,6 +281,7 @@ export class ProviderImages implements ImageGenerator {
     return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;
   }
 
+
   async #compatibleModels(runtime: ModelRuntime, providerId: string, signal?: AbortSignal, source?: ImageSource): Promise<ImageModel[]> {
     const provider = runtime.getProvider(providerId);
     if (!provider || !runtime.hasConfiguredAuth(providerId)) return [];

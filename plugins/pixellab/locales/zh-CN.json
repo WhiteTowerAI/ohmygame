@@ -1,0 +1,19 @@
+{
+  "displayName": "PixelLab",
+  "description": "使用 PixelLab 创建像素角色和动画。",
+  "config.apiKey": "PixelLab API 密钥",
+  "config.apiKey.description": "密钥由 PixelLab 插件保存，仅发送到 api.pixellab.ai。",
+  "nodes.reference": "正面参考图",
+  "nodes.createCharacter.title": "创建角色",
+  "nodes.createCharacter.description": "创建官方 PixelLab 四方向或八方向角色。",
+  "nodes.skeletonAnimation.title": "骨骼动画",
+  "nodes.skeletonAnimation.description": "先创建角色，再通过 PixelLab 的 skeleton-v3 生成动画。",
+  "nodes.pixen.title": "Pixen 像素画",
+  "nodes.pixen.description": "根据描述生成原生分辨率的像素画。",
+  "params.description": "描述",
+  "params.action": "动作",
+  "params.direction": "方向",
+  "params.body": "身体类型",
+  "params.directions": "方向数量",
+  "params.transparent": "透明背景"
+}

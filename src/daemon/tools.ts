@@ -330,7 +330,7 @@ export class ToolRunner {
   }
 
   async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
-    const prompt = input.prompt?.trim();
+    const prompt = input.prompt?.trim() ?? "";
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
     const usesConfiguredOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
@@ -357,17 +357,17 @@ export class ToolRunner {
     const registeredAssetIds: string[] = [];
     try {
       signal?.throwIfAborted();
-      const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
+      let generated = (await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
         ...(input.transparentBackground ? { transparentBackground: true } : {}),
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
-      }, signal)));
+      }, signal)))).flatMap((image) => [image, ...(image.additionalImages ?? [])]);
       signal?.throwIfAborted();
       const files: ToolRunFile[] = generated.map((image, index) => {
         // Providers and proxies can ignore the requested output format.
         const mediaType = sniffImageType(image.bytes) ?? image.mediaType;
-        return { name: imageFileName(mediaType, outputs > 1 ? index + 1 : undefined), mediaType };
+        return { name: imageFileName(mediaType, generated.length > 1 ? index + 1 : undefined), mediaType };
       });
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
@@ -781,7 +781,7 @@ function isRunId(value: string): boolean {
 }
 
 function isToolRunFileName(value: string): boolean {
-  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.(?:mp4|mp3|wav|ogg)(?:\.(?:audio\.json|srt|vtt))?)$/.test(value);
+  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp|gif)|model\.glb|output\.(?:mp4|mp3|wav|ogg)(?:\.(?:audio\.json|srt|vtt))?)$/.test(value);
 }
 
 function isToolId(value: unknown): value is ToolId {
@@ -790,7 +790,7 @@ function isToolId(value: unknown): value is ToolId {
 
 function imageFileName(mediaType: string, index?: number): string {
   const suffix = index ? `-${index}` : "";
-  return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : `output${suffix}.webp`;
+  return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : mediaType === "image/gif" ? `output${suffix}.gif` : `output${suffix}.webp`;
 }
 
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
