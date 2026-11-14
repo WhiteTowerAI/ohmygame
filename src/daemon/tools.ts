@@ -38,6 +38,7 @@ import { sniffImageType } from "./image-format.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
 import { GenerationShutdown, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
+import type { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import { inspectModel3D } from "./model3d-inspect.js";
 import type { Model3DExecution } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, resolveModel3D } from "../shared/generation-config.js";
@@ -91,6 +92,7 @@ export class ToolRunner {
     private readonly resolveInput?: (toolId: string, input: RunToolRequest, projectId?: string) => Promise<RunToolRequest>,
     private readonly audioGenerator?: AudioGenerator,
     private readonly mediaMigrations: MediaMigrationState = {},
+    private readonly model3DRecovery?: Pick<NativeModel3DRecovery, "forTask">,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -314,12 +316,12 @@ export class ToolRunner {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
-        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId)).catch(model3DToolError);
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId), recoveryId).catch(model3DToolError);
     }
     if (toolId === "animate-3d") {
       assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters", "model", "options"]);
       return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
-        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId)).catch(model3DToolError);
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId), recoveryId).catch(model3DToolError);
     }
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
@@ -410,12 +412,12 @@ export class ToolRunner {
   }
 
   /** `journal` keeps a plugin provider's task until the model is stored, as for video. */
-  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal): Promise<ToolRun> {
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal, recoveryId: string): Promise<ToolRun> {
     const operation = input.operation ?? "image", images = input.images;
     if (!["image", "text", "retexture", "remesh"].includes(operation)) throw new ToolRunError("Unknown 3D operation", 400);
     if (input.prompt !== undefined && typeof input.prompt !== "string") throw new ToolRunError("3D prompt must be a string", 400);
     validate3DOptions(input.options);
-    const generator = this.model3DGenerator;
+    const generator = await this.model3DRecovery?.forTask(input.model, operation, recoveryId) ?? this.model3DGenerator;
     const model = generator?.resolveOperationModel ? await generator.resolveOperationModel(input.model, operation)
       : generator?.resolveModel ? await generator.resolveModel(input.model) : resolveModel3D(input.model);
     if (!model) throw new ToolRunError("The selected model does not support this 3D operation", 400);
@@ -460,7 +462,7 @@ export class ToolRunner {
     return { bytes, metadata };
   }
 
-  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal): Promise<ToolRun> {
+  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal, recoveryId: string): Promise<ToolRun> {
     const { actionIds, heightMeters } = input;
     if (typeof input.assetId !== "string" || !input.assetId) throw new ToolRunError("Choose a 3D model to animate", 400);
     if (!Array.isArray(actionIds) || actionIds.length < 1 || actionIds.length > MAX_ANIMATION_ACTIONS
@@ -470,9 +472,9 @@ export class ToolRunner {
     if (heightMeters !== undefined && (typeof heightMeters !== "number" || !Number.isFinite(heightMeters) || heightMeters <= 0 || heightMeters > 100)) {
       throw new ToolRunError("Character height must be a positive number of meters", 400);
     }
-    const generator = this.model3DGenerator;
-    if (!generator?.animate) throw new ToolRunError("3D animation is not configured", 503);
     validate3DOptions(input.options);
+    const generator = await this.model3DRecovery?.forTask(input.model, "animate", recoveryId) ?? this.model3DGenerator;
+    if (!generator?.animate) throw new ToolRunError("3D animation is not configured", 503);
     const source = await this.#modelSource(input.assetId);
     const connection = generator.resolveOperationModel ? await generator.resolveOperationModel(input.model, "animate") : undefined;
     if (generator.resolveOperationModel && !connection) throw new ToolRunError("Choose an available animation provider", 400);

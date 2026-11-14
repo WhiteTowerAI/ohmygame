@@ -114,6 +114,9 @@ import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
 import { Hyper3DProvider } from "./hyper3d-provider.js";
+import { NativeModel3DRecovery } from "./model3d-native-recovery.js";
+import type { CommittedModel3DMigration } from "./model3d-settings-transaction.js";
+import { model3DMigrationPackageIssue } from "./model3d-migration-package.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -142,7 +145,7 @@ import { HOOK_CHANGES_MAX } from "../shared/plugin-hooks.js";
 import { ProjectFileWatches } from "./project-file-watch.js";
 import { projectHistory, projectUsage } from "./plugin-data.js";
 import { localizePluginString, pluginAdds, pluginAppOnly, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
-import { isPluginId, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
+import { isPluginId, networkCovers, PLUGIN_MEDIA_KINDS, pluginApiIssue, type PluginMediaKind, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -214,6 +217,8 @@ export interface AppOptions {
   minimaxSettingsMigrated?: boolean;
   /** Validated committed Seedance settings migration, supplied by the startup owner. */
   seedanceSettingsMigrated?: boolean;
+  /** Prepared committed native-task recovery contexts; startup activation is separate. */
+  model3DRecovery?: readonly CommittedModel3DMigration[];
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -924,6 +929,16 @@ export function createApp(options: AppOptions = {}) {
     },
     options.audioGenerator ?? providerAudio,
     { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true },
+    new NativeModel3DRecovery(dataDirectory, options.model3DRecovery ?? [], async ({ references }, url) => {
+      const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
+      if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
+      const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
+      if (url && !networkCovers(provider?.entry.manifest.capabilities?.network, url))
+        throw new Model3DGenerationError("The native 3D recovery address is not on an approved plugin host", 409);
+      const key = provider?.provider.apiKey && pluginServices.values.secret(provider.entry, provider.provider.apiKey);
+      if (!key) throw unavailable();
+      return key;
+    }, options.model3DFetch),
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // Explicit legacy bundles are retained for migration fixtures and custom hosts.
