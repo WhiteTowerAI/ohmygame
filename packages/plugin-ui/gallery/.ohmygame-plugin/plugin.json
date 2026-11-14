@@ -2,7 +2,7 @@
   "$schema": "https://www.ohmygame.ai/schema/plugin-2.json",
   "id": "demo/ui-gallery",
   "version": "1.0.0",
-  "engines": { "ohmygame-api": "^2.2.0" },
+  "engines": { "ohmygame-api": "^2.7.0" },
   "displayName": "Page components gallery",
   "description": "Every OhMyGame page component in one panel, for checking how they look and behave. Add it from this folder; it isn't bundled.",
   "icon": "./assets/icon.svg",

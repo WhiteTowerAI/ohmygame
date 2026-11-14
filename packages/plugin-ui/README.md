@@ -22,6 +22,13 @@ const project = await host.request("project.info");
 Pages allow no inline scripts and no other sites' scripts, so a page's own
 script is a file beside it.
 
+The shared stylesheet reserves space for traditional page scrollbars with
+`scrollbar-gutter: stable`; tabs and disclosures can change height without
+shifting the page horizontally. Dialog content does the same within its own
+scroll area. Overlay scrollbars keep the platform's normal behavior. A plugin
+with its own scroll container should apply this property to that container;
+avoid `100vw` for content width or JavaScript scrollbar-width compensation.
+
 Install the package for its types and for editor support:
 
 - `@ohmygame/plugin-ui` types the bridge, for example
