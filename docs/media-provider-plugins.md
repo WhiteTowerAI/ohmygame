@@ -476,3 +476,54 @@ Before enabling migration in the app, complete these separate gates:
   before applying, preserve independently configured plugin values and switches,
   and keep legacy keys and providers usable until cutover succeeds. Specify the
   compatibility removal release/date when that migration first ships.
+
+### Rehearse settings migration on a disposable copy
+
+With the app closed, use a private copy of its data directory:
+
+```bash
+bun run rehearse:minimax-migration --data-dir /absolute/path/to/copied-app-data
+```
+
+The rehearsal copies only `minimax.json`, `plugin-store/configuration.json` and
+`model-visibility.json` into a temporary directory. It refuses linked settings
+files or directories. On POSIX, the temporary directory is mode `0700` and files
+are `0600`; Windows uses the current user's temporary-directory permissions.
+There is no apply, output-directory or keep-copy option.
+
+After the existing settings inspector accepts the copied data, the rehearsal:
+
+- Copies each regional key only into an empty compatible target. Existing
+  matching keys remain, while conflicts and independently changed target switches
+  block the proposal. Legacy keys and provider choices stay intact.
+- Copies explicit hidden-model and disabled-provider choices and remaps a known
+  built-in video default. It preserves unrelated data and extra metadata on the
+  default reference, changing only its provider field.
+- Reloads the staged files through the owning stores and verifies that a second
+  proposal makes no changes. It then rolls back changed files to their exact
+  original bytes, removing target files that were originally absent.
+- Refuses rollback over an unexpected edit in the temporary copy, reports partial
+  write/rollback failures, and removes the temporary directory on completion or
+  caught errors. A final byte comparison detects source settings that differ
+  from the initial snapshot; it never restores over a changed source file.
+
+The report contains fixed statuses and counts only, with
+`scope: temporary-settings-copy` and `activation: held`. Exit `0` means all
+attempted rehearsal checks passed, `1` means blocked/failed, and `2` means invalid
+arguments. Unattempted checks are `null`. It does not expose keys, file paths,
+raw exceptions or the staged documents. Empty or already mapped settings produce
+no proposed changes and still exercise reload and rollback verification.
+
+This is a settings rehearsal, not an application migration or a production
+transaction protocol. It neither scans nor rewrites projects, jobs, recovery
+journals, plugin grants or installation state. It does not validate the eventual
+published package, call MiniMax or activate a provider. Source comparison is not
+a transactional snapshot across files; use a consistent copy while the app is
+closed. Process termination or machine failure may leave a private
+`ohmygame-minimax-rehearsal-*` directory in the system temporary directory; remove
+that leftover copy locally. Cleanup failures are reported explicitly.
+
+Production activation still needs a durable resume/rollback protocol coordinated
+with app-owned writes, complete project and unfinished-task disposition, a pinned
+published artifact, and live acceptance. A passing rehearsal does not release any
+of those gates or authorize publication.

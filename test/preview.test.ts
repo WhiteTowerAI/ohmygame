@@ -515,13 +515,13 @@ describe("PreviewManager", () => {
   it("cleans up the process when readiness fails", async () => {
     const workspacePath = await createWorkspace(true);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 1_000,
-    });
+    // Give npm the same launch budget as successful process fixtures. The
+    // non-listening server must actually start before we can assert its cleanup.
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
 
     await expect(manager.start(project)).rejects.toThrow(
-      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 1000ms[\s\S]*server error/,
+      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 10000ms[\s\S]*server error/,
     );
     const pid = Number(
       await readFile(path.join(workspacePath, "server.pid"), "utf8"),
