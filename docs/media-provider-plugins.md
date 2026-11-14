@@ -891,6 +891,29 @@ Native unfinished audio has no durable vendor task to poll; it must retain its
 owner and cannot be rewritten into an automatic plugin resubmission. Transaction,
 reference and old-task handling remain separate preparation work.
 
+### ElevenLabs settings rehearsal
+
+```sh
+bun run rehearse:elevenlabs-migration --data-dir /path/to/copied-app-data
+```
+
+The rehearsal reads the same three files, creates a disposable private copy,
+applies the proposal there, reloads the owning stores, checks idempotence, and
+rolls back to the exact original bytes. It then removes the copy and verifies
+that the supplied files did not change. Source credentials, unknown metadata,
+plugin switches and unrelated providers stay untouched; only an unoccupied
+plugin key, matching provider preferences and reviewed audio defaults may move.
+Reports contain counts and fixed failure codes, never settings values.
+
+The underlying transaction has ElevenLabs-specific receipts, uses the native
+credential file as a read-only guard, and recovers interrupted writes before a
+new attempt. This command never installs/enables the plugin or commits changes
+to the supplied directory. Startup activation, package-integrity gating, canvas
+references and old-task retirement are still held for separate implementation
+and real-account acceptance. Remove this compatibility path only after that
+migration's retained profiles/tasks are handled, no earlier than beta.7 and
+2026-12-15.
+
 ### Seedream / Seedance beta and settings inspection
 
 `@ohmygame/seedance@0.1.0` is an optional Beta published from
