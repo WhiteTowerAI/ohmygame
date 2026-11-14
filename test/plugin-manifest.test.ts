@@ -262,6 +262,11 @@ describe("plugin manifest", () => {
     const video = { maxMinutes: 60, models: [{ id: "wan", durations: [5, 10], resolutions: ["720p"], aspectRatios: ["16:9"], maxReferenceImages: 2, referenceModes: ["frame", "reference"] }] };
     const ratios = { ...video.models[0], imageAspectRatios: ["adaptive", "16:9"], frameAspectRatios: ["adaptive"] };
     expect(mediaOf({ video: { models: [ratios] } })).toEqual([]);
+    expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages: 30 }] } })).toEqual([]);
+    for (const maxReferenceImages of [-1, 1.5, 31])
+      expect(mediaOf({ video: { models: [{ ...ratios, maxReferenceImages }] } })).not.toEqual([]);
+    expect(mediaOf({ image: { models: [{ ...image.models[0], maxReferenceImages: 17 }] } })).not.toEqual([]);
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.8.0" } }, "2.7.0")).toBeDefined();
     for (const patch of [{ frameAspectRatios: [] }, { imageAspectRatios: ["bad"] }, { maxReferenceImages: 0 }, { referenceModes: ["reference"] }])
       expect(mediaOf({ video: { models: [{ ...ratios, ...patch }] } })).not.toEqual([]);
 

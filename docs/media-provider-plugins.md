@@ -152,6 +152,12 @@ plugin API. Every kind's input also has `modelData` when the model has
   pictures, `aspectRatios` applies; omitted overrides fall back to it. Each
   override must be a nonempty list of supported ratios and requires
   `maxReferenceImages > 0`; `frameAspectRatios` also requires frame mode.
+  API 2.8 permits video `maxReferenceImages` from 0 through 30. A plugin that
+  needs more than 16 must require `^2.8.0`; frame mode still takes at most two
+  images, and image-generation models retain their 16-reference limit. Static
+  and discovered models use the same schema. Sandbox memory and request limits
+  remain unchanged; reference count does not guarantee that arbitrarily large
+  input files fit.
   These lists may differ: a provider can offer only `adaptive` for frames
   while requiring a concrete text-to-video ratio. The picker and request
   validation use the same rule, including discovered models saved in Settings.
