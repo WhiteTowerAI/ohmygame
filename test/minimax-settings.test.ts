@@ -5,10 +5,13 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { migrateMinimaxSettings } from "../src/daemon/minimax-settings-migration.js";
+import { MINIMAX_MIGRATION_PACKAGE, minimaxMigrationPackageIssue } from "../src/daemon/minimax-migration-package.js";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { PluginValues } from "../src/daemon/plugin-values.js";
-import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
+import { PluginIndex, type PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { MinimaxSettingsStore } from "../src/daemon/minimax-settings.js";
 import { createAssetGenerationNode } from "../src/shared/asset-canvas.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
@@ -449,23 +452,6 @@ describe("MiniMax migration inspection", () => {
     });
   }
 
-  async function killAt(directory: string, action: "resume" | "rollback" | "startup" | "commit", boundary: string) {
-    const child = fork(path.resolve("test/fixtures/minimax-settings-transaction-worker.cjs"), [directory, action, boundary], {
-      execPath: "node", execArgv: ["--conditions=ohmygame-source", "--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
-    });
-    const exited = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
-    let reached = false;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Worker did not reach checkpoint")), 10_000);
-        child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error("Unexpected worker checkpoint")); });
-        child.once("exit", () => { clearTimeout(timeout); reject(new Error(`Worker exited before checkpoint: ${boundary}`)); });
-        child.once("error", (error) => { clearTimeout(timeout); reject(error); });
-      });
-      reached = true;
-    } finally { child.kill("SIGKILL"); const code = await exited; if (reached) expect(code).not.toBe(0); }
-  }
-
   const recoverInFreshProcess = (directory: string) => promisify(execFile)("node", [
     "--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "resume", "none",
   ]);
@@ -868,3 +854,130 @@ describe("application settings write ownership", () => {
     expect(order).toEqual(["current", "later"]);
   });
 });
+
+
+describe("startup MiniMax settings migration", () => {
+  async function fixture(run: (directory: string, root: string) => Promise<void>) {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-minimax-startup-"));
+    const root = path.join(directory, "plugin-store/packages/ohmygame/minimax/0.1.0");
+    try {
+      await cp(path.resolve(".runtime/minimax-migration-package/source"), root, { recursive: true });
+      const index = new PluginIndex(path.join(directory, "plugin-store/index.json"));
+      const result = await index.add(root);
+      if (!result.ok) throw new Error("Invalid prepared MiniMax fixture");
+      expect(result.entry.digest).toBe(MINIMAX_MIGRATION_PACKAGE.digest);
+      await writeFile(path.join(directory, "plugin-store/origins.json"), JSON.stringify({ "ohmygame/minimax@0.1.0": { type: "npm", package: "@ohmygame/minimax", version: "0.1.0", registry: "npmjs" } }));
+      await writeFile(path.join(directory, "plugin-store/grants.json"), JSON.stringify({ schema: 2, plugins: { "ohmygame/minimax": { enabled: true, everyProject: true, allowed: capabilityGrants(result.entry.manifest), future: "keep" } }, projects: {} }));
+      await writeFile(path.join(directory, "minimax.json"), JSON.stringify({ version: 1, cnApiKey: "old-cn-secret", globalApiKey: "old-global-secret", future: { keep: true } }));
+      await run(directory, root);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+
+  it("migrates actual published-package settings once without changing source, switches or jobs", async () => {
+    await fixture(async (directory) => {
+      const preferences = { version: 1, hidden: { "minimax-video-cn": ["MiniMax-H3"] }, disabled: ["minimax-video-cn"], defaultVideoModel: { provider: "minimax-video-global", id: "MiniMax-H3-Max", future: 7 }, future: { keep: true } };
+      await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify(preferences));
+      await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { "other/plugin": { keep: { type: "text", value: "untouched" } } }, future: 42 }));
+      await writeFile(path.join(directory, "jobs.json"), "opaque historical job bytes");
+      const untouched = await Promise.all(["minimax.json", "plugin-store/grants.json", "plugin-store/index.json", "plugin-store/origins.json", "jobs.json"].map(async (file) => [file, await readFile(path.join(directory, file), "utf8")] as const));
+      expect(await migrateMinimaxSettings(directory)).toEqual({ status: "migrated", reasons: [] });
+      const config = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
+      expect(config).toEqual({ version: 1, plugins: { "other/plugin": { keep: { type: "text", value: "untouched" } }, "ohmygame/minimax": { cnApiKey: { type: "secret", value: "old-cn-secret" }, globalApiKey: { type: "secret", value: "old-global-secret" } } }, future: 42 });
+      const after = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+      expect(after).toEqual({ ...preferences, hidden: { ...preferences.hidden, "plugin.ohmygame.minimax.cn": ["MiniMax-H3"] }, disabled: ["minimax-video-cn", "plugin.ohmygame.minimax.cn"], defaultVideoModel: { ...preferences.defaultVideoModel, provider: "plugin.ohmygame.minimax.global" } });
+      for (const [file, text] of untouched) expect(await readFile(path.join(directory, file), "utf8")).toBe(text);
+      await expect(access(path.join(directory, SETTINGS_TRANSACTION_FILE))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      // A deliberate removal after migration must never be undone on restart.
+      delete config.plugins["ohmygame/minimax"].cnApiKey;
+      const changed = JSON.stringify(config);
+      await writeFile(path.join(directory, "plugin-store/configuration.json"), changed);
+      expect(await migrateMinimaxSettings(directory)).toEqual({ status: "committed", reasons: [] });
+      expect(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8")).toBe(changed);
+    });
+  });
+
+  it.each(["disabled", "scope", "permission", "development", "bytes", "metadata", "version", "missing", "release", "safe-mode", "conflict"])("preserves every settings byte when preflight refuses %s", async (failure) => {
+    await fixture(async (directory, root) => {
+      const edit = async (file: string, change: (value: any) => void) => {
+        const location = path.join(directory, file), value = JSON.parse(await readFile(location, "utf8"));
+        change(value); await writeFile(location, JSON.stringify(value));
+      };
+      if (failure === "missing") await rm(path.join(directory, "plugin-store/index.json"));
+      if (failure === "release") await edit("plugin-store/index.json", (v) => { v.entries[0].version = "0.2.0"; });
+      if (failure === "disabled") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].enabled = false; });
+      if (failure === "scope") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].everyProject = false; });
+      if (failure === "permission") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].allowed = []; });
+      if (failure === "development") await edit("plugin-store/origins.json", (v) => { v["ohmygame/minimax@0.1.0"] = { type: "development", folder: root }; });
+      if (failure === "bytes") await writeFile(path.join(root, "media/adapter.js"), "changed adapter");
+      if (failure === "metadata") await edit("plugin-store/index.json", (v) => { v.entries[0].manifest.description = "Changed cached description"; });
+      if (failure === "version") await edit("plugin-store/grants.json", (v) => { v.schema = 99; });
+      if (failure === "conflict") await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { "ohmygame/minimax": { cnApiKey: { type: "secret", value: "different-secret" } } } }));
+      const before = await settingsSnapshot(directory);
+      const result = await migrateMinimaxSettings(directory, failure === "safe-mode");
+      expect(result.status).toBe("deferred");
+      expect(result.reasons.length).toBeGreaterThan(0);
+      expect(JSON.stringify(result)).not.toMatch(/old-cn-secret|old-global-secret|different-secret/);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      for (const receipt of [SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP]) await expect(access(path.join(directory, receipt))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("recovers and commits after the activating process dies before or after commit", async () => {
+    for (const boundary of ["plugin-store/configuration.json", "applied", SETTINGS_TRANSACTION_BACKUP]) await fixture(async (directory) => {
+      const before = await settingsSnapshot(directory);
+      await killAt(directory, "activate", boundary);
+      await promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "activate", "none"]);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      const receipt = JSON.parse(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP), "utf8"));
+      for (const [file, bytes] of before) expect(receipt.files[file].before).toBe(bytes?.toString("base64") ?? null);
+      expect(await readFile(path.join(directory, "minimax.json"))).toEqual(before.get("minimax.json"));
+      const plugin = new PluginValues(path.join(directory, "plugin-store/configuration.json"));
+      await plugin.load();
+      expect(plugin.storedSecret("ohmygame/minimax", "cnApiKey").value).toBe("old-cn-secret");
+    });
+  });
+
+  it("rolls back if the verified package changes before commit", async () => {
+    await fixture(async (directory, root) => {
+      const before = await settingsSnapshot(directory);
+      rehearsalHooks.afterRename = async (target) => {
+        if (target.endsWith(`${path.sep}configuration.json`)) {
+          rehearsalHooks.afterRename = undefined;
+          await writeFile(path.join(root, "media/adapter.js"), "changed during apply");
+        }
+      };
+      await expect(migrateMinimaxSettings(directory)).rejects.toThrow("original settings restored");
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+    });
+  });
+
+  it("refuses linked package directories without reading another installation", async () => {
+    await fixture(async (directory, root) => {
+      const actual = `${root}-outside`;
+      await cp(root, actual, { recursive: true });
+      await rm(root, { recursive: true });
+      await symlink(actual, root, process.platform === "win32" ? "junction" : "dir");
+      expect(await minimaxMigrationPackageIssue(directory)).toBe("plugin-files-unreadable");
+      expect((await migrateMinimaxSettings(directory)).status).toBe("deferred");
+    });
+  });
+});
+
+async function killAt(directory: string, action: "resume" | "rollback" | "startup" | "commit" | "activate", boundary: string) {
+  const child = fork(path.resolve("test/fixtures/minimax-settings-transaction-worker.cjs"), [directory, action, boundary], {
+    execPath: "node", execArgv: ["--conditions=ohmygame-source", "--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  const exited = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
+  let reached = false;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Worker did not reach checkpoint")), 10_000);
+      child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error("Unexpected worker checkpoint")); });
+      child.once("exit", () => { clearTimeout(timeout); reject(new Error(`Worker exited before checkpoint: ${boundary}`)); });
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+    });
+    reached = true;
+  } finally { child.kill("SIGKILL"); const code = await exited; if (reached) expect(code).not.toBe(0); }
+}

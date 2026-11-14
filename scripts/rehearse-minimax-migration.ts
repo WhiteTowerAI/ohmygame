@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
   inspectMinimaxMigration,
-  MINIMAX_MIGRATION_REGIONS,
 } from "./inspect-minimax-migration.js";
 
 import {
@@ -23,7 +22,7 @@ import {
   forgetSettingsTransaction,
 } from "../src/daemon/minimax-settings-transaction.js";
 
-type Json = Record<string, unknown>;
+import { proposeMinimaxSettings } from "../src/daemon/minimax-migration-settings.js";
 
 export async function rehearseMinimaxMigration(dataDirectory: string) {
   const report = {
@@ -58,7 +57,7 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
       report.status = "blocked";
       report.blockers = before.blockers;
     } else {
-      const plan = propose(original, before);
+      const plan = proposeMinimaxSettings(original, before);
       changes = plan.changes;
       report.proposed = plan.counts;
       stage = "apply-copy";
@@ -69,7 +68,7 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
       report.checks.reload = after.blockers.length === 0;
       if (!report.checks.reload)
         throw new Error("Reload rejected staged settings");
-      const repeated = propose(await snapshot(staged), after);
+      const repeated = proposeMinimaxSettings(await snapshot(staged), after);
       report.checks.idempotent = repeated.changes.size === 0;
       if (!report.checks.idempotent)
         throw new Error("Proposal was not idempotent");
@@ -117,80 +116,6 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
     }
   }
   return report;
-}
-
-/** Called only after the owning stores accepted this exact copied snapshot. */
-function propose(
-  original: Snapshot,
-  inspected: Awaited<ReturnType<typeof inspectMinimaxMigration>>,
-) {
-  const parse = (file: File, fallback: Json): Json => {
-    const bytes = original.get(file);
-    return bytes === undefined ? fallback : JSON.parse(bytes.toString("utf8"));
-  };
-  const keys = parse("minimax.json", { version: 1 });
-  const configuration = parse("plugin-store/configuration.json", {
-    version: 1,
-    plugins: {},
-  });
-  const preferences = parse("model-visibility.json", {
-    version: 1,
-    hidden: {},
-  });
-  const configurationBefore = JSON.stringify(configuration),
-    preferencesBefore = JSON.stringify(preferences);
-  const counts = { keys: 0, providerPreferences: 0, defaultVideoModel: false };
-  for (const region of inspected.regions) {
-    const field = MINIMAX_MIGRATION_REGIONS.find(
-      ({ source }) => source === region.source,
-    )!.field;
-    if (region.key === "copy") {
-      const plugins = configuration.plugins as Record<string, Json>;
-      configuration.plugins = {
-        ...plugins,
-        "ohmygame/minimax": {
-          ...plugins["ohmygame/minimax"],
-          [field]: { type: "secret", value: keys[field] },
-        },
-      };
-      counts.keys++;
-    }
-    if (region.visibility?.action === "copy") {
-      const before = JSON.stringify(preferences);
-      const hidden = preferences.hidden as Record<string, string[]>;
-      if (Object.hasOwn(hidden, region.source))
-        preferences.hidden = {
-          ...hidden,
-          [region.target]: [...hidden[region.source]],
-        };
-      if (!region.visibility.source.enabled)
-        preferences.disabled = [
-          ...((preferences.disabled as string[]) ?? []),
-          region.target,
-        ];
-      if (before !== JSON.stringify(preferences)) counts.providerPreferences++;
-    }
-  }
-  if (inspected.defaultVideoModel.action === "map") {
-    // Unlike a normal user selection, a provider rename must retain reference metadata.
-    preferences.defaultVideoModel = {
-      ...(preferences.defaultVideoModel as Json),
-      provider: inspected.defaultVideoModel.target,
-    };
-    counts.defaultVideoModel = true;
-  }
-  const changes: Snapshot = new Map();
-  if (JSON.stringify(configuration) !== configurationBefore)
-    changes.set(
-      "plugin-store/configuration.json",
-      Buffer.from(`${JSON.stringify(configuration, null, 2)}\n`),
-    );
-  if (JSON.stringify(preferences) !== preferencesBefore)
-    changes.set(
-      "model-visibility.json",
-      Buffer.from(`${JSON.stringify(preferences, null, 2)}\n`),
-    );
-  return { changes, counts };
 }
 
 async function write(

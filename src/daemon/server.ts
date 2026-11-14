@@ -1,4 +1,4 @@
-import { recoverInterruptedMinimaxSettings } from "./minimax-settings-transaction.js";
+import { migrateMinimaxSettings } from "./minimax-settings-migration.js";
 import { acquireProfileOwnership } from "./profile-ownership.js";
 import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
@@ -54,7 +54,11 @@ try {
   const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
   process.once("exit", releaseProfile);
   // Before createApp's eager plugin indexing or any settings caches exist.
-  await recoverInterruptedMinimaxSettings(dataDirectory);
+  const minimaxMigration = await migrateMinimaxSettings(dataDirectory, process.env.OHMYGAME_SAFE_MODE === "1");
+  if (minimaxMigration.status === "deferred")
+    console.warn("MiniMax settings migration deferred:", minimaxMigration.reasons.join(", "));
+  else if (minimaxMigration.status === "migrated")
+    console.info("MiniMax settings migrated to the verified Beta plugin");
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,

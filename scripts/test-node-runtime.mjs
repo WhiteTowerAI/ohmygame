@@ -1,7 +1,9 @@
-import { prepareSettingsTransaction, resumeSettingsTransaction, SETTINGS_TRANSACTION_FILE } from "../dist/daemon/minimax-settings-transaction.js";
+import { PluginIndex } from "../dist/daemon/plugin-index.js";
+import { capabilityGrants } from "../dist/daemon/project-plugins.js";
+import { prepareSettingsTransaction, resumeSettingsTransaction, SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP } from "../dist/daemon/minimax-settings-transaction.js";
 import { snapshot as settingsSnapshot } from "../dist/daemon/minimax-settings-snapshot.js";
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,7 +66,28 @@ try {
   const health = await fetch(`${daemon.runtime.url}/health`, { headers: { authorization: `Bearer ${daemon.runtime.token}` } });
   assert.equal(health.status, 200, "Rejected contenders must not disturb the running daemon");
   await daemon.stop();
+  // An optional, explicitly enabled official package exists before startup.
+  // No adapter is run and the canary keys never leave this temporary profile.
+  const packageRoot = path.join(daemonOptions.dataDirectory, "plugin-store/packages/ohmygame/minimax/0.1.0");
+  await cp(path.join(root, ".runtime/minimax-migration-package/source"), packageRoot, { recursive: true });
+  const pluginIndex = new PluginIndex(path.join(daemonOptions.dataDirectory, "plugin-store/index.json"));
+  await pluginIndex.load();
+  const indexed = await pluginIndex.add(packageRoot);
+  assert(indexed.ok);
+  await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/origins.json"), JSON.stringify({ "ohmygame/minimax@0.1.0": { type: "npm", package: "@ohmygame/minimax", version: "0.1.0", registry: "npmjs" } }));
+  await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/grants.json"), JSON.stringify({ schema: 2, plugins: { "ohmygame/minimax": { enabled: true, everyProject: true, allowed: capabilityGrants(indexed.entry.manifest) } }, projects: {} }));
+  const legacyKeys = JSON.stringify({ version: 1, cnApiKey: "startup-cn-canary", globalApiKey: "startup-global-canary" });
+  await writeFile(path.join(daemonOptions.dataDirectory, "minimax.json"), legacyKeys);
   daemon = await startDaemon(daemonOptions);
+  assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "minimax.json"), "utf8"), legacyKeys);
+  await access(path.join(daemonOptions.dataDirectory, SETTINGS_TRANSACTION_BACKUP));
+  const migrationHeaders = { authorization: `Bearer ${daemon.runtime.token}` };
+  const configuration = await fetch(`${daemon.runtime.url}/plugin-store/ohmygame/minimax/configuration`, { headers: migrationHeaders }).then(r => r.json());
+  assert.deepEqual(configuration.globalApiKey, { type: "secret", configured: true });
+  assert(!JSON.stringify(configuration).includes("canary"));
+  const videos = await fetch(`${daemon.runtime.url}/video-models`, { headers: migrationHeaders }).then(r => r.json());
+  assert(videos.some(model => model.provider === "plugin.ohmygame.minimax.global"));
+  assert(!videos.some(model => model.provider === "plugin.ohmygame.minimax.cn"), "Old provider's disabled choice survives initial cache construction");
   const unauthorized = await fetch(`${daemon.runtime.url}/projects`);
   assert.equal(unauthorized.status, 401);
   for (const route of ["/health", "/projects"]) {

@@ -40,7 +40,12 @@ syncBuiltinESMExports();
 (async () => {
   const migration =
     await import("../../src/daemon/minimax-settings-transaction.ts");
-  if (action === "startup")
+  if (action === "activate") {
+    const { acquireProfileOwnership } = await import("../../src/daemon/profile-ownership.ts");
+    process.once("exit", acquireProfileOwnership([directory]));
+    const { migrateMinimaxSettings } = await import("../../src/daemon/minimax-settings-migration.ts");
+    await migrateMinimaxSettings(directory);
+  } else if (action === "startup")
     await migration.recoverInterruptedMinimaxSettings(directory);
   else if (action === "commit")
     await migration.commitSettingsTransaction(directory);
