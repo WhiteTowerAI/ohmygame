@@ -47,7 +47,7 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 /** A video download, which may be large. */
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-const ANSWER_HEADERS = ["content-type", "content-length", "retry-after", "location", "x-request-id"];
+const ANSWER_HEADERS = ["content-type", "content-length", "retry-after", "location", "x-request-id", "request-id"];
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 /** A task the adapter keeps between checks. */
 const TASK_MAX_CHARACTERS = 16 * 1024;
@@ -427,7 +427,10 @@ export class PluginMediaProviders {
       ...(kind === "speech" && input.speed !== undefined ? { speed: input.speed } : {}),
       ...modelData(declared),
     }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
-      const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped, journal);
+      const output = outputs[0]!;
+      if (output.requestId !== undefined && (typeof output.requestId !== "string" || !output.requestId.trim() || output.requestId.length > 512))
+        throw new AudioFailure("The plugin returned an invalid request ID");
+      const bytes = await this.#output(item, output, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped, journal);
       const audio = await inspectAudio(bytes, asked, 502).catch((cause: unknown) => {
         throw asked ? cause : new AudioFailure(`${this.#name(item)} returned a file that isn't playable audio`);
       });
@@ -439,7 +442,7 @@ export class PluginMediaProviders {
         bytes,
         mediaType: AUDIO_MEDIA_TYPES[made],
         model: { provider: model.provider, id: model.id },
-        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec },
+        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec, ...(typeof output.requestId === "string" ? { providerRequestId: output.requestId } : {}) },
       };
     });
   }

@@ -699,22 +699,52 @@ describe("plugin media providers: audio", () => {
     bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);
     const source = `export default { audio: { async start(input, host) {
       const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, json: input, responseType: "file" });
-      return { outputs: [await response.file()] };
+      return { outputs: [{ ...await response.file(), requestId: response.headers["request-id"] }] };
     } } };`;
-    const first = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(bytes), { headers: { "content-type": "audio/wav" } }) });
+    const first = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(bytes), { headers: { "content-type": "audio/wav", "request-id": "audio-request-1" } }) });
     const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
     const input = { prompt: "hello" };
-    expect(Buffer.from((await audio.generate(input, undefined, await journalAt())).bytes).equals(bytes)).toBe(true);
+    const firstResult = await audio.generate(input, undefined, await journalAt());
+    expect(Buffer.from(firstResult.bytes).equals(bytes)).toBe(true);
+    expect(firstResult.metadata?.providerRequestId).toBe("audio-request-1");
     const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
     expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
     expect(receipt).not.toContain(root);
     const restarted = await setup(source, { media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
     const next = new ProviderAudio(async () => restarted.media.audioAdapters(() => true));
     const journal = await journalAt();
-    expect(Buffer.from((await next.generate(input, undefined, journal)).bytes).equals(bytes)).toBe(true);
+    const restored = await next.generate(input, undefined, journal);
+    expect(Buffer.from(restored.bytes).equals(bytes)).toBe(true);
+    expect(restored.metadata?.providerRequestId).toBe("audio-request-1");
     expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
     await journal.clear();
     expect(await readdir(path.join(root, "media-tasks"))).toEqual([]);
+  });
+
+  it("redacts keys in audio request IDs without exposing other response headers", async () => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, responseType: "file" });
+      if (response.headers["set-cookie"]) throw new Error("Unexpected private header");
+      return { outputs: [{ ...await response.file(), requestId: response.headers["request-id"] }] };
+    } } };`;
+    const { media } = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV), { headers: { "request-id": "req-private-key", "set-cookie": "secret-cookie" } }) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.generate({ prompt: "hello" }, undefined, await journalAt())).metadata?.providerRequestId).toBe("req-[key]");
+    const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(receipt).not.toContain("private-key");
+    expect(receipt).not.toContain("secret-cookie");
+  });
+
+  it.each(["", " ", 42, "x".repeat(513)])("rejects invalid audio request IDs without replaying paid work: %j", async requestId => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, responseType: "file" });
+      return { outputs: [{ ...await response.file(), requestId: ${JSON.stringify(requestId)} }] };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV)) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("invalid request ID");
+    expect(requests).toHaveLength(1);
   });
 
   it("keeps a missing or tampered binary result without paying again", async () => {

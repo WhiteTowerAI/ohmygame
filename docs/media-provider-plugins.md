@@ -312,6 +312,17 @@ unavailable. If a response is lost, another explicit attempt may incur another
 vendor charge. All network, credential-redaction and multipart input ownership
 checks still apply. This API does not activate a native-provider migration.
 
+### Audio request diagnostics (API 2.21)
+
+Audio outputs may include `requestId`, a nonblank string of at most 512
+characters, alongside a URL, base64 or host-owned file handle. The host stores it
+as `metadata.providerRequestId`, including after task recovery. Invalid IDs fail
+without discarding a confirmed paid receipt or sending another paid request.
+`host.fetch` and `host.submit` expose the `request-id` response header alongside
+`x-request-id`; both are key-redacted. Other headers remain limited to the
+existing allowlist. Require `engines.ohmygame-api: "^2.21.0"` when relying on this
+metadata. An absent ID remains valid.
+
 ### Binary audio responses (API 2.19)
 
 For speech, music or sound endpoints that return audio bytes directly, require
@@ -774,6 +785,33 @@ silently filtering that record out on the next save. Secrets remain typed and ar
 not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
+
+### ElevenLabs settings inspection
+
+The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
+sound effects, music, account voices and Scribe transcription. Publishing it
+and activating legacy-settings migration are separate steps. The native service
+is still available; this inspector does not switch it.
+
+```sh
+bun run inspect:elevenlabs-migration --data-dir /path/to/copied-app-data
+```
+
+This reads only `elevenlabs.json`, plugin configuration and model preferences.
+It reports whether the key can be copied, provider enabled/hidden choices agree,
+and speech, sound-effect and music defaults match the reviewed model kinds.
+Scribe is included in visibility checks but cannot become a generation default.
+Unknown models, conflicting target choices and unreadable/future stores block
+migration. The report contains no keys, hashes, arbitrary model IDs or parser
+input. Exit codes are 0 for no settings blockers, 1 for blockers and 2 for invalid
+arguments or an unavailable directory.
+
+Even a clear report remains `activation: "held"`: it does not verify installation,
+grants, the published package, live generation, saved canvas references or jobs.
+It writes no settings, never enables a plugin and sends no vendor requests.
+Native unfinished audio has no durable vendor task to poll; it must retain its
+owner and cannot be rewritten into an automatic plugin resubmission. Transaction,
+reference and old-task handling remain separate preparation work.
 
 ### Seedream / Seedance beta and settings inspection
 
