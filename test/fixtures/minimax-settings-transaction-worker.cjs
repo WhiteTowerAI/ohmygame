@@ -56,5 +56,9 @@ syncBuiltinESMExports();
   else await migration.resumeSettingsTransaction(directory);
 })().then(
   () => process.exit(0),
-  (error) => process.send({ failure: error instanceof Error ? error.message : String(error) }, () => process.exit(1)),
+  (error) => {
+    const failure = error instanceof Error ? error.stack : String(error);
+    if (process.send) process.send({ failure }, () => process.exit(1));
+    else { console.error(failure); process.exit(1); }
+  },
 );
