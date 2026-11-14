@@ -195,7 +195,7 @@ async function inspectCanvasBoardText(workspace: string, id: string, text: strin
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
   const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
-  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio shape. It opens as type "audio" with its text in prompt, without audioReferences, audioReferenceSerial or subtitles, and with a Seed Audio model under provider "volcengine-tts". Save it that way.`);
+  const boardIssues = legacyAudio.map((nodeId) => `Node ${nodeId}: saved in an older audio shape. It opens as type "audio" with its text in prompt, without audioReferences, audioReferenceSerial or subtitles, and with any legacy Seed Audio reference moved to its current provider. Save it that way.`);
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;
     if (isResizableCanvasNodeType(node.type) || (width === undefined && height === undefined)) continue;
@@ -453,7 +453,7 @@ export class CanvasStore {
   async #board(id: string, boardId: string): Promise<CanvasBoardDetail> {
     const workspace = this.#project(id).workspacePath;
     if (!(await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) throw new CanvasError("Canvas board not found", 404);
-    const detail = this.mediaMigrations.elevenlabs || this.mediaMigrations.minimax || this.mediaMigrations.seedance || this.mediaMigrations.model3D?.length
+    const detail = this.mediaMigrations.doubao || this.mediaMigrations.elevenlabs || this.mediaMigrations.minimax || this.mediaMigrations.seedance || this.mediaMigrations.model3D?.length
       ? await this.#migrateMediaBoard(workspace, boardId)
       : await readCanvasBoard(workspace, boardId);
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);
