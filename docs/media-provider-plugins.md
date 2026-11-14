@@ -80,6 +80,20 @@ every provider, such as a first and last frame for video.
   declarations retain their defaults. Plugins using these additions need
   `engines.ohmygame-api: "^2.17.0"`. Account voice discovery is described below; transcription
   remains a separate migration obligation.
+  API 2.22 adds opt-in booleans `speaker`, `pitch`, `volume`, `style`,
+  `ssml` and `speechOptions`. They expose the existing shared audio controls
+  and pass the selected fields to `audio.start`. `speaker` accepts custom IDs
+  (including cloned or reference speakers), even for prompt-directed audio;
+  account-voice providers still require a chosen account voice. Static voice
+  lists remain restrictive unless `speaker` is declared. `ssml` and
+  `speechOptions` require `readsText`. Speech options pass `voiceKind`,
+  `voiceModel`, `autoLanguage`, `dialect`, `pronunciation`, `silenceMs`,
+  `sectionId` and the output's `bitRate` as top-level adapter input fields.
+  Their bounds are the shared audio request schema; the adapter validates
+  vendor-specific combinations. Undeclared options stay saved but are not
+  sent. With API 2.22 any generation model may declare `speedRange`, which
+  also passes speed for non-speech kinds. Existing declarations keep their
+  previous behavior. These additions require `engines.ohmygame-api: "^2.22.0"`.
   With API 2.18, `media.audio.listVoices: true` uses the adapter's
   `audio.voices({ search?, pageToken? }, host)` instead of the static list.
   It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
