@@ -44,7 +44,9 @@ syncBuiltinESMExports();
     const { acquireProfileOwnership } = await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
     const { migrateMinimaxSettings } = await import("../../src/daemon/minimax-settings-migration.ts");
-    await migrateMinimaxSettings(directory);
+    const result = await migrateMinimaxSettings(directory);
+    if (result.status !== "migrated" && result.status !== "committed")
+      throw new Error(`Activation ${result.status}: ${result.reasons.join(", ")}`);
   } else if (action === "startup")
     await migration.recoverInterruptedMinimaxSettings(directory);
   else if (action === "commit")
@@ -54,5 +56,5 @@ syncBuiltinESMExports();
   else await migration.resumeSettingsTransaction(directory);
 })().then(
   () => process.exit(0),
-  () => process.exit(1),
+  (error) => process.send({ failure: error instanceof Error ? error.message : String(error) }, () => process.exit(1)),
 );

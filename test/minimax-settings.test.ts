@@ -974,7 +974,7 @@ async function killAt(directory: string, action: "resume" | "rollback" | "startu
   try {
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Worker did not reach checkpoint")), 10_000);
-      child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error("Unexpected worker checkpoint")); });
+      child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error(`Unexpected worker checkpoint: ${JSON.stringify(message)}`)); });
       child.once("exit", () => { clearTimeout(timeout); reject(new Error(`Worker exited before checkpoint: ${boundary}`)); });
       child.once("error", (error) => { clearTimeout(timeout); reject(error); });
     });
