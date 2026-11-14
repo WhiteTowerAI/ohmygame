@@ -1663,3 +1663,28 @@ remains `activation: "held"`: this command does not install or enable a plugin,
 copy settings, verify live generation, rewrite canvas references or replay old
 paid requests. Native unfinished audio still owns its original request; a
 settings proposal cannot turn it into an automatic plugin resubmission.
+
+### Doubao settings rehearsal
+
+```sh
+bun run rehearse:doubao-migration --data-dir /path/to/copied-app-data
+```
+
+The rehearsal copies only the five inspected settings files into a private
+throwaway directory. After preflight, it proposes the shared key and default
+voice, combines known hidden models and matching provider switches, and maps
+speech/effect/music defaults while preserving unknown target metadata. It
+applies only to the copy, reloads it, checks that repeating the proposal changes
+nothing, then rolls back to the original bytes and removes the copy. Blocked
+settings never reach the transaction; the input directory is never written.
+Reports contain only fixed reasons, counts and verification booleans.
+
+The separate Doubao journal keeps all three native credential files immutable,
+including absent legacy files. Both proposal validation and recovery reject a
+journal that changes any of them. Original bytes stay in a committed backup;
+uncommitted recovery rolls back target configuration/preferences before a
+future settings consumer may load them. The shared transaction engine now takes
+an explicit list of immutable sources; existing provider receipt formats and
+recovery paths are unchanged. Production startup does not activate this Doubao
+transaction yet. Real-account acceptance, installed-package gating, reference
+mapping and native paid-request ownership remain separate cutover requirements.
