@@ -1,4 +1,4 @@
-import { MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER, MODEL3D_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
+import { ELEVENLABS_RETIRED_PROVIDER, MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER, MODEL3D_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
@@ -80,6 +80,7 @@ export interface ProviderSettingsRouteOptions {
   minimaxSettings: MinimaxSettingsStore;
   minimaxSettingsMigrated?: boolean;
   seedanceSettingsMigrated?: boolean;
+  elevenlabsSettingsMigrated?: boolean;
   retiredNative3D?: readonly string[];
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
@@ -125,6 +126,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     if (!route?.startsWith(prefix)) return;
     const provider = (request.params as { providerId?: string }).providerId
       ?? route.slice(prefix.length).split("/")[0];
+    if (provider === "elevenlabs" && options.elevenlabsSettingsMigrated)
+      return reply.code(409).send({ error: ELEVENLABS_RETIRED_PROVIDER });
     if (provider && options.retiredNative3D?.includes(provider))
       return reply.code(409).send({ error: MODEL3D_RETIRED_PROVIDER });
   });
