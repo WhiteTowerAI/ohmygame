@@ -344,3 +344,64 @@ silently filtering that record out on the next save. Secrets remain typed and ar
 not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
+
+### MiniMax settings inspection (preparation only)
+
+MiniMax remains private and unpublished pending live generation and restart
+acceptance. To inspect migration inputs, close the app and copy its data directory
+to a private local folder, then run from this repository:
+
+```bash
+bun run inspect:minimax-migration --data-dir /absolute/path/to/copied-app-data
+```
+
+The command reads `minimax.json`, `plugin-store/configuration.json` and
+`model-visibility.json` through their existing stores. It does not start the app,
+execute plugins, contact MiniMax, write files or offer an apply option. Missing
+files are treated as unset; a missing data directory is an error. Use a consistent
+copy: reading a live app's files does not provide a transactional snapshot.
+
+The JSON report separates China and Global mappings:
+
+| Built-in provider | Plugin provider | Key field |
+| --- | --- | --- |
+| `minimax-video-cn` | `plugin.ohmygame.minimax.cn` | `cnApiKey` |
+| `minimax-video-global` | `plugin.ohmygame.minimax.global` | `globalApiKey` |
+
+Key decisions are `absent`, `copy`, `same`, `target-only`, `conflict`, `invalid`
+or `blocked`. Different existing keys require a decision; an occupied but
+incompatible target field is never treated as empty. Values that exceed the
+plugin's length limit or violate the legacy key format are flagged. The report
+contains no keys, hashes, arbitrary stored metadata or parser error text.
+
+Visibility reports retain each provider's on/off setting and hidden H3/H3 Max
+models. An explicitly saved target setting that differs is marked `review-target`;
+unknown hidden models or an unknown built-in video default require review. A
+known built-in default is shown with its proposed provider mapping. Unrelated
+defaults remain unchanged. None of these proposed actions are executed.
+
+Exit code `0` means no settings blockers were found, `1` means the report contains
+blockers, and `2` means invalid arguments or a data-directory error. Every report
+says `scope: settings-only` and `activation: held`, even when it exits with `0`.
+It does not check installation, plugin enablement, project overrides, saved canvas
+references, unfinished jobs or recovery journals, and cannot authorize a cutover.
+
+Before enabling migration in the app, complete these separate gates:
+
+- Verify real generation, result download, stop and restart recovery in both
+  regions with the optional adapter. Retrying a recovered request must not start
+  a second paid generation. Local stop does not imply vendor cancellation.
+- Obtain publication authorization, publish the accepted package, pin its
+  integrity, and verify the installed package's provider/model contract. The
+  inspection's mapping is a preparation snapshot, not a package lock.
+- Define the migration at each owning load boundary: keys in the key/configuration
+  stores, switches and defaults in model preferences, saved references in canvas
+  loading. Preserve unknown metadata and refuse unreadable files. Do not bulk-edit
+  projects through startup helpers that also persist unrelated state.
+- Classify unfinished jobs and task journals before changing any model reference.
+  Keep recovery IDs, request fingerprints and provider ownership stable; retain
+  the legacy execution path for outstanding work rather than resubmit it.
+- Implement a resumable apply with conflict checks and rollback. Re-read settings
+  before applying, preserve independently configured plugin values and switches,
+  and keep legacy keys and providers usable until cutover succeeds. Specify the
+  compatibility removal release/date when that migration first ships.

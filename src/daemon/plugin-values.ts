@@ -46,6 +46,19 @@ export class PluginValues {
 
   constructor(private readonly file: string) {}
 
+  /** Whether loading found data that an update would lose. */
+  get readOnly(): boolean { return this.#unreadable; }
+
+  /** App-owned migration inspection without an installed manifest. Never send this to a plugin or the renderer. */
+  storedSecret(id: string, name: string): { occupied: boolean; value?: string } {
+    const fields = this.#values[id] ?? {};
+    const stored = fields[name];
+    return {
+      occupied: Object.hasOwn(fields, name),
+      value: stored?.type === "secret" && typeof stored.value === "string" ? stored.value : undefined,
+    };
+  }
+
   async load(): Promise<void> {
     this.#unreadable = true;
     let text: string;
