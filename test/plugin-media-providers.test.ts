@@ -745,6 +745,21 @@ describe("plugin media providers: 3D", () => {
     await expect(media.generate3D(model, { model: ref, operation: "remesh", images: [] })).rejects.toThrow("does not support this operation");
   }, 15_000);
 
+  it("passes a low-poly plugin model's default to its adapter and rejects out-of-range requests", async () => {
+    const definition = structuredClone(MODEL3D_MEDIA);
+    definition["3d"]!.models[0]!.polycount = { min: 48, max: 50, default: 48, presets: [48, 50] };
+    const { media, requests } = await setup(MODEL3D_TASK, { media: definition, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
+    const model = (await media.model3DProviders())[0]!.models[0]!;
+    const input = { model: { provider: model.provider, id: model.id }, operation: "text" as const, prompt: "a low-poly rock", images: [] };
+    expect((await media.generate3D(model, input)).bytes).toEqual(GLB);
+    expect(JSON.parse(requests[0]!.body!)).toMatchObject({ targetPolycount: 48 });
+    const count = requests.length;
+    for (const targetPolycount of [47, 48.5, 51]) {
+      await expect(media.generate3D(model, { ...input, targetPolycount })).rejects.toThrow("between 48 and 50");
+    }
+    expect(requests).toHaveLength(count);
+  });
+
   it("refuses a file that isn't a GLB model", async () => {
     const { media } = await setup(MODEL3D_TASK, { media: MODEL3D_MEDIA, reply: (url) => url.endsWith(".glb") ? new Response(new Uint8Array(PNG)) : undefined });
     const model = (await media.model3DProviders())[0]!.models[0]!;

@@ -269,12 +269,22 @@ durable task identity, so retrying a saved output does not submit another paid j
 Generation models and processing may choose `optionProfile` (`meshy`, `tripo`,
 `hyper3d`) to reuse existing operation controls and option validation. This only
 selects controls; all vendor requests still go through the plugin adapter.
-Without a profile the generic controls apply. Animation is described below;
-account balances and cross-job rig reuse are not part of this contract yet.
+Without a profile the generic controls apply. Animation, account balances and
+shared rigging are described in the following sections.
 
 A 3D output may include `forwardAxis: "+X" | "+Z"` and `requestId` (a nonempty
 string up to 512 characters). They survive task recovery; the axis is stored in
 Library model metadata so later processing knows the result's orientation.
+
+### Low-poly model ranges (API 2.15)
+
+3D model declarations may use face counts from 48 to 2,000,000, including
+`polycount.min`, `max`, `default` and `presets`. Require
+`engines.ohmygame-api: "^2.15.0"` for a declaration below 100. This accommodates
+existing Tripo P1/P2 ranges; each selected model and processing operation still
+enforces its own limits before generation. The canvas, agent tool and HTTP
+request share the broad lower bound. A saved count is preserved while a plugin
+model's catalog is unavailable, then checked against that model when used.
 
 ### 3D animation and action lists (API 2.12)
 
@@ -573,8 +583,9 @@ can't promise what the plugin doesn't do.
    remain until a separate migration is verified against a published package.
    Follow [#809](https://github.com/WhiteTowerAI/ohmygame/issues/809).
 7. 3D retexture and remesh are available in API 2.11; animation and its
-   action library in API 2.12. Still needed: cross-job rig reuse, balances,
-   transcription, and voices
+   action library in API 2.12, shared rigging in API 2.13, balances in API 2.14
+   and low-poly ranges in API 2.15. Still needed: editable plugin model
+   definitions/defaults, transcription, and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.

@@ -185,6 +185,8 @@ export interface CustomVideoModelSettings {
   referenceModes: Array<"frame" | "reference">;
 }
 
+/** Broad request/store bound; a selected model enforces its own stricter range. */
+export const MODEL_3D_MIN_POLYCOUNT = 48;
 export type Model3DOperation = "image" | "text" | "retexture" | "remesh" | "animate";
 export type Model3DActionId = number | string;
 export interface Model3DOptions {

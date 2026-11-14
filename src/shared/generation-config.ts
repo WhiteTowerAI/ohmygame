@@ -1,4 +1,4 @@
-import { type Model3DGenerationConfig, type Model3DModel, type Model3DModelRef, type Model3DOperation, type PromptImage, type Run3DToolRequest } from "./contracts.js";
+import { MODEL_3D_MIN_POLYCOUNT, type Model3DGenerationConfig, type Model3DModel, type Model3DModelRef, type Model3DOperation, type PromptImage, type Run3DToolRequest } from "./contracts.js";
 import { MODEL3D_CONNECTION_ID, remeshPolycount, remeshPolycountFor } from "./model3d-operations.js";
 import { BUILTIN_CLOUD_CATALOG, cloudModelId } from "./cloud-models.js";
 import { model3DModel } from "./custom-models.js";
@@ -54,7 +54,7 @@ export function normalizeModel3DConfig(value: Partial<Model3DGenerationConfig> |
   const texture = model?.supportsTexture === false ? false : value?.texture ?? model?.defaults?.texture ?? DEFAULT_MODEL_3D_CONFIG.texture;
   const selected = model ?? resolveModel3D(value?.model);
   const protocol = selected?.protocol ?? (value?.model?.id === MODEL3D_CONNECTION_ID && isNative3DProvider(value.model.provider) ? value.model.provider : undefined);
-  const unknownRange = { min: 100, max: MODEL_3D_MAX_POLYCOUNT, default: DEFAULT_MODEL_3D.polycount.default };
+  const unknownRange = { min: MODEL_3D_MIN_POLYCOUNT, max: MODEL_3D_MAX_POLYCOUNT, default: DEFAULT_MODEL_3D.polycount.default };
   const polycount = operation === "remesh"
     ? selected ? remeshPolycountFor(selected) : protocol ? remeshPolycount(protocol) : value?.model ? unknownRange : remeshPolycount()
     : selected?.polycount ?? (value?.model ? unknownRange : DEFAULT_MODEL_3D.polycount);
