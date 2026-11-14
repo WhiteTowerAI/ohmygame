@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.15.0";
+export const PLUGIN_HOST_API_VERSION = "2.16.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -599,12 +599,18 @@ const Media3DModel = Type.Object(
   {
     ...MEDIA_MODEL_COMMON,
     /** `text`: from a prompt; `image`: from pictures of the object. */
-    operations: Type.Array(Literals(PLUGIN_3D_OPERATIONS), { minItems: 1, uniqueItems: true }),
+    operations: Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]), { minItems: 1, uniqueItems: true }),
     /** Existing operation controls and validation; the plugin still owns all vendor HTTP. */
     optionProfile: Type.Optional(Type.Union([Type.Literal("meshy"), Type.Literal("tripo"), Type.Literal("hyper3d")])),
+    /** Labels beyond maxReferenceImages stay available if a custom version raises its limit again. */
     referenceImageLabels: Type.Optional(Type.Array(Text(), { minItems: 1, maxItems: 8 })),
     estimatedCredits: Type.Optional(Type.Number({ minimum: 0 })),
     defaults: Type.Optional(Type.Object({ texture: Type.Boolean(), pbr: Type.Boolean() }, { additionalProperties: false })),
+    /** Adapter-owned generation mode, exposed by the optional model editor (API 2.16). */
+    modelSettings: Type.Optional(Type.Object({
+      imageOperation: Type.Union([Type.Literal("image-to-3d"), Type.Literal("multi-image-to-3d")]),
+      modelType: Type.Union([Type.Literal("standard"), Type.Literal("smart-topology")]),
+    }, { additionalProperties: false })),
     /** Views of one object an `image` request may pass, the first the front; 1 when left out. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
     /** The triangle counts it takes; a model with one size sets min, max and default alike. */
@@ -628,7 +634,7 @@ const Media3DModel = Type.Object(
 
 /** Processing stays available independently of generation-model visibility. API 2.11. */
 const Media3DProcessing = Type.Object(
-  { ...Media3DModel.properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")]), { minItems: 1, uniqueItems: true }),
+  { ...Type.Omit(Media3DModel, ["modelSettings"]).properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")]), { minItems: 1, uniqueItems: true }),
     animationSourceAxis: Type.Optional(Type.Literal("+Z")) },
   { additionalProperties: false },
 );
@@ -682,7 +688,7 @@ const ProviderMedia = Type.Object(
     /** 3D models as GLB; 15 minutes a request when `maxMinutes` is left out. */
     "3d": Type.Optional(
       Type.Object(
-        { balance: Type.Optional(Type.Boolean()), inputFiles: Type.Optional(Type.Boolean()), processing: Type.Optional(Media3DProcessing), maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
+        { editableModels: Type.Optional(Type.Boolean()), balance: Type.Optional(Type.Boolean()), inputFiles: Type.Optional(Type.Boolean()), processing: Type.Optional(Media3DProcessing), maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -712,7 +718,19 @@ export interface PluginMediaModelList {
   listedAt?: string;
   /** Listed models left out because they didn't pass the checks. */
   skipped?: number;
-  models: Array<{ id: string; name: string; description?: string; default: boolean; shown: boolean }>;
+  /** Present only when this 3D provider opts into editing. */
+  editor?: { revision: string; templates: Array<PluginMediaModels["3d"]> };
+  models: Array<{ id: string; name: string; description?: string; default: boolean; shown: boolean;
+    definition?: PluginMediaModels["3d"]; custom?: boolean; edited?: boolean }>;
+}
+
+/** Only person-owned fields may be changed; opaque adapter data remains with the chosen template. */
+export type PluginEditable3DModel = Pick<PluginMediaModels["3d"], "id" | "title" | "operations" | "polycount" | "maxReferenceImages" | "texture" | "pbr" | "defaults" | "modelSettings">;
+export interface PluginSave3DModel {
+  revision: string;
+  /** Required for a new custom version; absent when editing an existing definition. */
+  templateId?: string;
+  model: PluginEditable3DModel;
 }
 
 /** What's wrong with a model of a kind beyond its schema, as [field, message]. */
@@ -736,8 +754,12 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
   if (kind === "3d") {
     const value = model as PluginMediaModels["3d"] | PluginMediaProcessingModel;
     const range = value.polycount;
+    const settings = (value as PluginMediaModels["3d"]).modelSettings;
+    if (settings?.imageOperation === "image-to-3d" && (value.maxReferenceImages ?? 1) !== 1)
+      issues.push(["modelSettings", "single-image models take exactly one reference image"]);
+    if (settings?.modelType === "smart-topology" && settings.imageOperation !== "image-to-3d")
+      issues.push(["modelSettings", "smart topology requires a single-image model"]);
     if (value.defaults?.texture && !value.texture || value.defaults?.pbr && (!value.pbr || !value.defaults.texture)) issues.push(["defaults", "defaults must be supported by texture and pbr capabilities"]);
-    if (value.referenceImageLabels && value.referenceImageLabels.length > (value.maxReferenceImages ?? 1)) issues.push(["referenceImageLabels", "must not exceed maxReferenceImages"]);
     if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
       issues.push(["polycount", "needs min ≤ default and presets ≤ max"]);
   }

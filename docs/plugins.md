@@ -201,6 +201,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.13.0 | Recoverable 3D animations can share durable paid prerequisites through `host.reuse`, with read-only validity checks and independent waiter cancellation. |
 | 2.14.0 | 3D providers can declare a read-only account balance hook, shown in provider settings independently of generation or processing models. |
 | 2.15.0 | 3D model face-count declarations support 48–2,000,000 faces; requests and saved plugin selections retain low-poly counts while each model enforces its own range. |
+| 2.16.0 | Opt-in 3D model editing preserves manual versions and preset defaults, with explicit generation modes passed as `input.modelSettings`. |
 
 ## Agent instructions
 

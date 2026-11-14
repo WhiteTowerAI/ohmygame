@@ -247,11 +247,17 @@ describe("plugin manifest", () => {
       expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: count, max: count, default: count, presets: [count] } }] } })).toEqual([]);
     }
     expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: 47, max: 100, default: 100 } }] } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: true, models: [{ ...model3D.models[0], referenceImageLabels: ["Front", "Left"], maxReferenceImages: 1, modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" } }] } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, editableModels: "yes" } }).length).toBeGreaterThan(0);
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "image-to-3d", modelType: "standard" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings single-image models take exactly one reference image");
+    expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], modelSettings: { imageOperation: "multi-image-to-3d", modelType: "smart-topology" } }] } })).toContain("/contributes/providers/0/media/3d/models/0/modelSettings smart topology requires a single-image model");
     expect(mediaOf({ "3d": { ...model3D, balance: true } })).toEqual([]);
     expect(mediaOf({ "3d": { ...model3D, balance: "yes" } }).length).toBeGreaterThan(0);
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
     const processing = { ...model3D.models[0], id: "connection", operations: ["remesh", "retexture"], optionProfile: "meshy" };
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing } })).toEqual([]);
+    const ignoredMode = validatePluginManifest({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", "3d": { ...model3D, inputFiles: true, processing: { ...processing, modelSettings: { imageOperation: "multi-image-to-3d", modelType: "standard" } } } } }] } });
+    expect(ignoredMode.ignored).toContainEqual(expect.objectContaining({ path: "/contributes/providers/0/media/3d/processing/modelSettings" }));
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, operations: ["animate"], animationSourceAxis: "+Z" } } })).toEqual([]);
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing: { ...processing, animationSourceAxis: "+Z" } } })).toEqual(["/contributes/providers/0/media/3d/processing/animationSourceAxis requires animate"]);
     expect(mediaOf({ "3d": { ...model3D, processing } })).toEqual(["/contributes/providers/0/media/3d/processing processing requires inputFiles"]);

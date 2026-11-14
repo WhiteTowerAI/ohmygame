@@ -615,6 +615,110 @@ const MODEL3D_TASK = `export default { "3d": {
 } };`;
 
 describe("plugin media providers: 3D", () => {
+  it("keeps manual versions and preset defaults across restart and passes their settings to the adapter", async () => {
+    const definition = structuredClone(MODEL3D_MEDIA);
+    definition["3d"]!.editableModels = true;
+    definition["3d"]!.models[0]!.modelSettings = { imageOperation: "multi-image-to-3d", modelType: "standard" };
+    definition["3d"]!.models[0]!.data = { opaque: { keep: true } };
+    definition["3d"]!.models[0]!.referenceImageLabels = ["Front", "Left"];
+    const options = { media: definition, choices: new PluginMediaModelChoices(root), reply: (url: string) => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined };
+    const { media } = await setup(MODEL3D_TASK, options), provider = "plugin.acme.flow.flow";
+    const original = await media.listModels(provider, "3d");
+    const edited = await media.saveModel3D(provider, { revision: original.editor!.revision,
+      model: { id: "mesh", title: "My preset", polycount: { min: 1000, max: 50000, default: 3000, presets: [3000] }, operations: ["text", "image"] } });
+    expect(edited.models[0]).toMatchObject({ name: "My preset", edited: true, custom: false });
+    await expect(media.saveModel3D(provider, { revision: original.editor!.revision, model: { ...original.models[0]!.definition! } })).rejects.toMatchObject({ statusCode: 409 });
+    const manual = await media.saveModel3D(provider, { revision: edited.editor!.revision, templateId: "mesh", model: {
+      id: "manual-version", title: "My version", operations: ["text", "image"], maxReferenceImages: 1,
+      polycount: { min: 100, max: 15000, default: 2000, presets: [2000] }, defaults: { texture: false, pbr: false },
+      modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" },
+    } });
+    expect(manual.models.find(model => model.id === "manual-version")).toMatchObject({ custom: true, shown: true, definition: { maxReferenceImages: 1, referenceImageLabels: ["Front", "Left"] } });
+    await media.setModelsShown(provider, "3d", ["manual-version"], false);
+    const restarted = await setup(MODEL3D_TASK, { ...options, choices: new PluginMediaModelChoices(root) });
+    expect((await restarted.media.model3DProviders())[0]!.models.map(model => model.id)).toEqual(["mesh"]);
+    await restarted.media.setModelsShown(provider, "3d", ["manual-version"], true);
+    const models = (await restarted.media.model3DProviders())[0]!.models;
+    expect(models[0]).toMatchObject({ name: "My preset", polycount: { default: 3000 } });
+    const model = models.find(model => model.id === "manual-version")!;
+    expect(model).toMatchObject({ polycount: { default: 2000 }, defaults: { texture: false, pbr: false } });
+    await restarted.media.generate3D(model, { model: { provider, id: model.id }, operation: "text", prompt: "a chair", images: [] });
+    expect(JSON.parse(restarted.requests[0]!.body!)).toMatchObject({ model: "manual-version", targetPolycount: 2000, texture: false,
+      modelData: { opaque: { keep: true } }, modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" } });
+    const current = await restarted.media.listModels(provider, "3d");
+    const removed = await restarted.media.removeModel3D(provider, "manual-version", current.editor!.revision);
+    const reset = await restarted.media.removeModel3D(provider, "mesh", removed.editor!.revision, true);
+    expect(reset.models).toHaveLength(1);
+    expect(reset.models[0]).toMatchObject({ name: "Mesh", definition: { polycount: { default: 10000 } } });
+  });
+
+  it("uses one current definition for generation after the caller loaded an older catalog", async () => {
+    const definition = structuredClone(MODEL3D_MEDIA); definition["3d"]!.editableModels = true;
+    definition["3d"]!.models[0]!.modelSettings = { imageOperation: "multi-image-to-3d", modelType: "standard" };
+    const { media, requests } = await setup(MODEL3D_TASK, { media: definition, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(GLB)) : undefined });
+    const provider = "plugin.acme.flow.flow", initial = await media.listModels(provider, "3d");
+    const old = { id: "custom", operations: ["text", "image"] as Array<"text" | "image">, polycount: { min: 100, max: 50000, default: 10000 } };
+    const added = await media.saveModel3D(provider, { revision: initial.editor!.revision, templateId: "mesh", model: old });
+    const stale = (await media.model3DProviders())[0]!.models.find(model => model.id === "custom")!;
+    const updated = { ...old, maxReferenceImages: 1, polycount: { min: 100, max: 5000, default: 2000 }, defaults: { texture: false, pbr: false },
+      modelSettings: { imageOperation: "image-to-3d" as const, modelType: "smart-topology" as const } };
+    const saved = await media.saveModel3D(provider, { revision: added.editor!.revision, model: updated });
+    const input = { model: { provider, id: "custom" }, operation: "text" as const, prompt: "a chair", images: [] };
+    await expect(media.generate3D(stale, { ...input, targetPolycount: 40000 })).rejects.toThrow("between 100 and 5000");
+    await expect(media.generate3D(stale, { ...input, operation: "image", images: [1, 2].map(() => ({ mediaType: "image/png" as const, data: PNG.toString("base64") })) })).rejects.toThrow("1 to 1 pictures");
+    expect(requests).toEqual([]);
+    await media.generate3D(stale, input);
+    expect(JSON.parse(requests[0]!.body!)).toMatchObject({ targetPolycount: 2000, texture: false,
+      modelSettings: { imageOperation: "image-to-3d", modelType: "smart-topology" } });
+    await media.saveModel3D(provider, { revision: saved.editor!.revision, model: { ...updated, operations: ["image"] } });
+    const count = requests.length;
+    await expect(media.generate3D(stale, input)).rejects.toThrow("does not support this operation");
+    expect(requests).toHaveLength(count);
+  });
+
+  it("rejects concurrent stale edits and package changes without losing definitions, hidden choices or adapter data", async () => {
+    const provider = "plugin.acme.flow.flow", choices = new PluginMediaModelChoices(root);
+    const definition = structuredClone(MODEL3D_MEDIA); definition["3d"]!.editableModels = true;
+    definition["3d"]!.models[0]!.data = { contract: 1 };
+    const { media } = await setup(MODEL3D_TASK, { media: definition, choices });
+    const list = await media.listModels(provider, "3d");
+    const model = { id: "manual", operations: ["image"] as const, polycount: { min: 48, max: 50000, default: 48 } };
+    const edit = { revision: list.editor!.revision, templateId: "mesh", model: { ...model, operations: [...model.operations] } };
+    const results = await Promise.allSettled([media.saveModel3D(provider, edit), media.saveModel3D(provider, { ...edit, model: { ...edit.model, id: "second" } })]);
+    expect(results.map(result => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect((results[1] as PromiseRejectedResult).reason.statusCode).toBe(409);
+    const hidden = await media.setModelsShown(provider, "3d", ["manual"], false);
+    const snapshot = await readFile(path.join(root, "plugin-media-models.json"), "utf8");
+    const revised = structuredClone(definition);
+    revised["3d"]!.models.push({ ...revised["3d"]!.models[0]!, id: "manual", data: { contract: 2 } });
+    const changed = await setup(MODEL3D_TASK, { digest: "new-package", media: revised, choices });
+    const current = await changed.media.listModels(provider, "3d");
+    expect(current.models.find(value => value.id === "manual")).toMatchObject({ custom: true, shown: false, definition: { data: { contract: 1 }, polycount: { default: 48 } } });
+    await expect(changed.media.removeModel3D(provider, "manual", hidden.editor!.revision)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(changed.media.removeModel3D(provider, "manual", current.editor!.revision, true)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await readFile(path.join(root, "plugin-media-models.json"), "utf8")).toBe(snapshot);
+    const removed = await changed.media.removeModel3D(provider, "manual", current.editor!.revision);
+    // A new manifest preset with the same ID must not become enabled by deleting the old custom definition.
+    expect(removed.models.find(value => value.id === "manual")).toMatchObject({ custom: false, shown: false, definition: { data: { contract: 2 } } });
+    const cloned = await changed.media.saveModel3D(provider, { revision: removed.editor!.revision, templateId: "manual", model: { ...edit.model, id: "new-version" } });
+    expect(cloned.models.find(value => value.id === "new-version")!.definition!.data).toEqual({ contract: 2 });
+    expect(changed.requests).toEqual([]);
+  });
+
+  it("refuses saved definitions when editing support disappears or a processing ID collides", async () => {
+    const provider = "plugin.acme.flow.flow", choices = new PluginMediaModelChoices(root);
+    const model = MODEL3D_MEDIA["3d"]!.models[0]!;
+    await choices.update(provider, "3d", () => ({ added: [], hidden: ["unavailable"], definitions: [{ custom: true, model: { ...model, id: "connection" } }] }));
+    const before = await readFile(path.join(root, "plugin-media-models.json"), "utf8");
+    const optedOut = await setup(MODEL3D_TASK, { choices, media: MODEL3D_MEDIA });
+    await expect(optedOut.media.model3DProviders()).rejects.toMatchObject({ statusCode: 409 });
+    const collision = await setup(MODEL3D_TASK, { choices, media: { "3d": { ...MODEL3D_MEDIA["3d"]!, editableModels: true, inputFiles: true,
+      processing: { id: "connection", operations: ["remesh"], polycount: model.polycount } } } });
+    await expect(collision.media.listModels(provider, "3d")).rejects.toMatchObject({ statusCode: 409 });
+    expect(await readFile(path.join(root, "plugin-media-models.json"), "utf8")).toBe(before);
+    expect(collision.requests).toEqual([]);
+  });
+
   it("refuses a changed adapter before submitting a new paid stage", async () => {
     const adapter = `export default { "3d": {
       async start(input, host) {
@@ -851,11 +955,11 @@ describe("plugin media providers: listing the vendor's models", () => {
 
   it("preserves store extensions and absent model preferences across updates and restart", async () => {
     const provider = "plugin.acme.flow.flow", file = path.join(root, "plugin-media-models.json");
-    const stored = { version: 1, future: { enabled: true }, providers: {
-      [provider]: { futureKind: { models: ["future"] }, image: { added: [], hidden: ["temporarily-absent"], future: { keep: true } } },
+    const stored = { version: 2, future: { enabled: true }, providers: {
+      [provider]: { futureKind: { models: ["future"] }, image: { added: [], hidden: ["temporarily-absent"], future: { keep: true }, definitions: { opaque: "not-owned-by-image" } } },
       "plugin.other.future": { futureKind: { opaque: [1, 2] } },
     } };
-    await writeFile(file, JSON.stringify(stored));
+    await writeFile(file, JSON.stringify({ ...stored, version: 1 }));
     const { media } = await setup(LISTING, { choices: new PluginMediaModelChoices(root) });
     await media.setModelsShown(provider, "image", ["kolors"], false);
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...stored, providers: { ...stored.providers,
@@ -868,7 +972,9 @@ describe("plugin media providers: listing the vendor's models", () => {
   });
 
   it.each([
-    { version: 2, providers: {} },
+    { version: 3, providers: {} },
+    { version: 1, providers: { other: { "3d": { added: [], hidden: [], definitions: [] } } } },
+    { version: 2, providers: { other: { "3d": { added: [], hidden: [], definitions: [{ custom: true, model: { id: "unreadable" } }] } } } },
     { version: 1, providers: { other: null } },
     { version: 1, providers: { other: { image: { added: [{ id: "unreadable" }], hidden: [] } } } },
     { version: 1, providers: { other: { image: { added: [], hidden: [7] } } } },
@@ -909,7 +1015,7 @@ describe("plugin media providers: listing the vendor's models", () => {
   it("never writes over a choices file it can't read", async () => {
     await writeFile(path.join(root, "plugin-media-models.json"), "{ not json");
     const { media } = await setup(LISTING, { media: discovering, choices: new PluginMediaModelChoices(root) });
-    expect(await ids(media)).toEqual(["kolors"]);
+    await expect(ids(media)).rejects.toMatchObject({ statusCode: 409 });
     await expect(media.setModelsShown("plugin.acme.flow.flow", "image", ["kolors"], false)).rejects.toMatchObject({ statusCode: 409 });
   });
 });
