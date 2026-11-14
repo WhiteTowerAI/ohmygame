@@ -1650,8 +1650,9 @@ linked files/directories.
 
 Equal effective service keys can be proposed for the shared plugin field.
 Different keys or only one connected service hold migration: combining them
-would replace a key or reconnect a service. Separate provider enable switches
-also hold migration. Known hidden models can be combined, but unknown models,
+would replace a key or reconnect a service. The current `volcengine-tts` provider owns both models. Its switch and hidden
+models transfer together; conflicting explicit choices under the historical
+`volcengine-seed-audio` provider hold migration. Unknown models,
 conflicting target choices, invalid voice types, future/malformed stores and
 unknown legacy fields require review. Defaults must match both their original
 provider's model and audio kind. Credentials, voice IDs, unknown data and parser

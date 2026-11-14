@@ -185,16 +185,26 @@ describe("read-only Doubao plugin migration inspection", () => {
     await inspect({
       "volcengine-tts.json": { version: 1, apiKey: "private-key" },
       "model-visibility.json": { version: 1, hidden: {}, disabled: ["volcengine-seed-audio"] },
-    }, report => expect(report.blockers).toEqual(["separate-service-connection", "visibility-separate-service-switches"]));
+    }, report => expect(report.blockers).toEqual(["separate-service-connection", "visibility-legacy-visibility-conflict"]));
   });
   it("recognizes matching combined target settings without confusing the other model with an unknown ID", async () => {
     await inspect({
       "doubao-voice.json": { version: 1, apiKey: "private-key", services: {}, defaultVoiceId: "private-voice" },
       "plugin-store/configuration.json": { version: 1, plugins: { [pluginId]: { apiKey: { type: "secret", value: "private-key" }, defaultVoiceId: { type: "text", value: "private-voice" } } } },
-      "model-visibility.json": { version: 1, hidden: { "volcengine-seed-audio": ["seed-audio-1.0"], [target]: ["seed-audio-1.0"] } },
+      "model-visibility.json": { version: 1, hidden: { "volcengine-tts": ["seed-audio-1.0"], [target]: ["seed-audio-1.0"] } },
     }, report => {
       expect(report.blockers).toEqual([]);
       expect(report).toMatchObject({ key: "same", defaultVoice: "same", visibility: { action: "same" } });
+    });
+  });
+  it("maps current Seed Audio choices under the shared provider and preserves a current disabled switch without requiring a legacy switch", async () => {
+    await inspect({
+      "doubao-voice.json": { version: 1, apiKey: "private-key", services: {} },
+      "model-visibility.json": { version: 1, hidden: { "volcengine-tts": ["seed-audio-1.0"] }, disabled: ["volcengine-tts"], defaultMusicModel: { provider: "volcengine-tts", id: "seed-audio-1.0" } },
+    }, report => {
+      expect(report.blockers).toEqual([]);
+      expect(report.visibility).toMatchObject({ action: "copy", enabled: false, hiddenModels: ["seed-audio-1.0"] });
+      expect(report.defaultAudioModels.music).toEqual({ action: "map", source: "volcengine-tts", target, model: "seed-audio-1.0" });
     });
   });
   it("holds conflicting target credentials, voice and visibility without leaking stored values", async () => {
@@ -218,7 +228,7 @@ describe("read-only Doubao plugin migration inspection", () => {
     ["model-visibility.json", { version: 2, hidden: {} }, "model-preferences-unreadable"],
     ["model-visibility.json", { version: 1, hidden: { [target]: ["unknown-private"] } }, "visibility-unsupported-models"],
     ["model-visibility.json", { version: 1, hidden: {}, defaultMusicModel: { provider: "volcengine-tts", id: "seed-tts-2.0" } }, "default-music-model-unsupported"],
-    ["model-visibility.json", { version: 1, hidden: {}, defaultSpeechModel: { provider: "volcengine-tts", id: "seed-audio-1.0" } }, "default-speech-model-unsupported"],
+    ["model-visibility.json", { version: 1, hidden: {}, defaultSpeechModel: { provider: "volcengine-seed-audio", id: "seed-tts-2.0" } }, "default-speech-model-unsupported"],
   ])("holds incompatible %s data (%#) unchanged", async (file, value, blocker) => {
     await inspect({ [file]: value }, report => expect(report.blockers).toContain(blocker));
   });
