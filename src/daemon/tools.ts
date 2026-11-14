@@ -1,4 +1,4 @@
-import { mediaJobNotice, retiredMediaRetry, type MediaMigrationState } from "./media-model-migration.js";
+import { mediaJobNotice, retiredMediaRetry, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -238,7 +238,7 @@ export class ToolRunner {
   async animationActions(model?: ModelRef, options?: RunAnimate3DToolRequest["options"]): Promise<Model3DAnimationAction[]> {
     const generator = this.model3DGenerator;
     if (!generator?.animations) throw new ToolRunError("3D animation is not configured", 503);
-    try { return await generator.animations(undefined, model, options); }
+    try { return await generator.animations(undefined, migratedModel3DSelection(model, "animate", this.mediaMigrations), options); }
     catch (cause) { throw cause instanceof Model3DGenerationError ? new ToolRunError(cause.message, cause.statusCode) : cause; }
   }
 
@@ -272,7 +272,14 @@ export class ToolRunner {
       const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
       input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;
     }
-    return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
+    const resolved = this.resolveInput ? await this.resolveInput(toolId, input, projectId) : input;
+    if (!hooksApplied && (toolId === "image-to-3d" || toolId === "animate-3d")) {
+      const value = resolved as Run3DToolRequest | RunAnimate3DToolRequest;
+      const operation = toolId === "animate-3d" ? "animate" : (value as Run3DToolRequest).operation ?? "image";
+      const model = migratedModel3DSelection(value.model, operation, this.mediaMigrations);
+      if (model !== value.model) return { ...value, model };
+    }
+    return resolved;
   }
 
   /** Executes an input whose model and generation options have already been resolved. */

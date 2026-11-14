@@ -1262,3 +1262,23 @@ No recovery adapter is exposed as a selectable model.
 Startup does not yet supply these contexts. Transaction activation, removal of
 native catalogs/settings routes and vendor acceptance remain separate requirements
 before the actual cutover. These preparation checks use simulated vendor responses.
+
+#### Prepared application ownership
+
+The internal `model3DMigrations` application context is a cloned set of committed
+records. The same records retire the native catalog/settings entries, migrate
+project and future canvas selections, and authorize recovery of existing paid
+tasks. Retired native settings routes return a translated conflict response and
+cannot modify the retained native keys or model definitions. The own-key Hyper3D
+migration first preserves both old effective switch states in the settings proposal,
+then separates their controls so free-cloud changes cannot revive native access.
+
+New standalone or canvas requests map reviewed native model IDs to the plugin.
+Implicit new Meshy animation and its action catalog use the migrated processing
+connection. Prepared retries keep their original native inputs and receipt IDs;
+they are never rewritten as new plugin submissions. The standalone HTTP job
+schema preserves 3D operation, source asset and advanced options, with their
+strict operation-specific validation still owned by ToolRunner.
+
+Production startup still supplies no 3D migration contexts. This is tested
+application preparation; vendor acceptance and startup activation remain held.

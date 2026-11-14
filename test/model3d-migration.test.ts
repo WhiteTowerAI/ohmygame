@@ -1,3 +1,7 @@
+import { ProjectManager } from "../src/daemon/projects.js";
+import { CanvasStore } from "../src/daemon/canvas-workspace.js";
+import { AssetLibrary } from "../src/daemon/asset-library.js";
+import type { ToolJob } from "../src/shared/contracts.js";
 import {
   cp,
   mkdtemp,
@@ -82,6 +86,27 @@ describe("prepared 3D model reference migration", () => {
     expect(migrated.nodes[0]).toMatchObject({ data: { model: { provider: "plugin.ohmygame.meshy.meshy", id: "connection" } } });
     expect(migrated.nodes[1]).toBe(board.nodes[1]);
     expect(migratedMediaBoard(board, { model3D: [{ ...state.model3D![0]!, source: "tripo", target: "plugin.ohmygame.tripo.tripo" }] })).toBe(board);
+  });
+});
+
+describe("prepared Hyper3D enablement split", () => {
+  it.each([[], ["hyper3d"], ["cloud-hyper3d"], ["hyper3d", "cloud-hyper3d"]].map((disabled) => ({ disabled })))("preserves both effective switches from $disabled", async ({ disabled }) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "hyper3d-switches-"));
+    try {
+      await writeFile(path.join(directory, "hyper3d.json"), JSON.stringify({ version: 1, apiKey: "native-key" }));
+      await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, disabled, future: true }));
+      const before = await settingsSnapshot(directory, model3DSettingsFiles("hyper3d"));
+      const models = MODEL_3D_PRESETS.hyper3d.map((model) => pluginModel3DDefinition("hyper3d", model));
+      const plan = await proposeModel3DSettings(before, "hyper3d", models);
+      expect(plan.report.blockers).toEqual([]);
+      const after = new Map([...before, ...plan.changes]);
+      const visibility = JSON.parse(after.get("model-visibility.json")!.toString());
+      expect(visibility.disabled.includes("plugin.ohmygame.hyper3d.hyper3d")).toBe(disabled.length > 0);
+      expect(visibility.disabled.includes("cloud-hyper3d")).toBe(disabled.length > 0);
+      expect(visibility.future).toBe(true);
+      expect((await proposeModel3DSettings(after, "hyper3d", models)).changes.size).toBe(0);
+      expect(await settingsSnapshot(directory, model3DSettingsFiles("hyper3d"))).toEqual(before);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
 
@@ -298,6 +323,83 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       return { before, plan, transaction, media, ownedFiles };
     }
 
+    it("retires native catalogs and settings from the committed application context", async () => {
+      await fixture(async (directory, root) => {
+        const { before, plan, transaction } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        await transaction.resumeSettingsTransaction(directory);
+        await transaction.commitSettingsTransaction(directory);
+        const record = (await transaction.committedMigration(directory))!;
+        const library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
+        await Promise.all([library.load(), projects.load()]);
+        const project = await projects.create("Saved 3D selections", "asset-canvas");
+        const legacy = { provider: pin.provider, id: MODEL_3D_PRESETS[pin.provider][0]!.id };
+        await projects.setMediaModelDefaults(project.id, { "3d": legacy });
+        const oldTools = new ToolRunner(directory, { generate: vi.fn() });
+        const oldCanvas = new CanvasStore(projects, library, oldTools);
+        const boardId = (await oldCanvas.workspace(project.id)).boards[0]!.id;
+        const board = await oldCanvas.board(project.id, boardId);
+        board.board.nodes.push({ id: "future", type: "model-3d", position: { x: 0, y: 0 }, data: { model: legacy, operation: "text", prompt: "Future tower", images: [], targetPolycount: 4000, texture: true, pbr: false } });
+        board.board.editorLayout.nodes.future = { x: 0, y: 0 };
+        await oldCanvas.saveBoard(project.id, board.board, board.revision);
+        await oldCanvas.close(); await oldTools.close();
+        const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
+        const request = vi.fn<typeof fetch>(async () => { throw new Error("Unexpected provider request"); });
+        const artifact = pin.provider === "meshy" ? "https://assets.meshy.ai/model.glb" : "https://cdn.tripo3d.ai/model.glb";
+        let taskNumber = 0;
+        const pluginRequest = vi.fn<typeof fetch>(async (url, init) => {
+          if (String(url) === artifact) return new Response(new Uint8Array(TEST_GLB));
+          if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "source-file" } });
+          const id = init?.method === "POST" ? `plugin-${++taskNumber}` : String(url).split("/").at(-1);
+          if (pin.provider === "meshy") return init?.method === "POST" ? Response.json({ result: id }) : Response.json({ id, status: "SUCCEEDED", model_urls: { glb: artifact } });
+          return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: id } }) : Response.json({ code: 0, data: { task_id: id, status: "success", output: { model_url: artifact } } });
+        });
+        const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request, imageFetch: pluginRequest, model3DMigrations: [record] });
+        try {
+          await app.ready();
+          expect(JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/settings.json"), "utf8")).mediaModelDefaults["3d"]).toEqual({ ...legacy, provider: target });
+          const mappedBoard = await app.inject(`/projects/${project.id}/canvas/boards/${boardId}`);
+          expect(mappedBoard.statusCode).toBe(200);
+          expect(mappedBoard.json().board.nodes.find((node: { id: string }) => node.id === "future").data.model).toEqual({ ...legacy, provider: target });
+          const catalog = (await app.inject("/model3d-models/catalog")).json();
+          expect(catalog.models.some((model: { provider: string }) => model.provider === target)).toBe(true);
+          expect(catalog.models.some((model: { provider: string }) => model.provider === pin.provider)).toBe(false);
+          const summaries = (await app.inject("/settings/providers")).json();
+          expect(summaries.some((provider: { id: string }) => provider.id === pin.provider)).toBe(false);
+          expect(summaries.some((provider: { id: string }) => provider.id === target)).toBe(true);
+          const endpoint = `/settings/models/providers/${pin.provider}`;
+          const definition = MODEL_3D_PRESETS[pin.provider][0]!;
+          const beforeRequests = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+          const statuses = [];
+          for (const [method, suffix, payload] of [
+            ["GET", "", undefined], ["PUT", "", { apiKey: "replacement" }], ["DELETE", "", undefined],
+            ["PATCH", "/enabled", { enabled: true }], ["GET", "/models", undefined],
+            ["PUT", "/models/visibility", { ids: [definition.id], visible: false }],
+            ["POST", "/models/custom", custom], ["PUT", `/models/${definition.id}`, definition],
+            ["DELETE", `/models/${definition.id}/overrides`, undefined], ["DELETE", `/models/custom/${custom.id}`, undefined],
+          ] as const) statuses.push((await app.inject({ method, url: endpoint + suffix, ...(payload ? { payload } : {}) })).statusCode);
+          expect(statuses).toEqual(Array(10).fill(409));
+          expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(beforeRequests);
+          const started = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { model: { provider: pin.provider, id: definition.id }, operation: "text", prompt: "A stone tower", images: [], texture: false, pbr: false } });
+          expect(started.statusCode, started.body).toBe(202);
+          let completed: ToolJob | undefined;
+          await expect.poll(async () => { completed = (await app.inject("/tool-jobs")).json().find((job: { id: string }) => job.id === started.json().id); return completed?.status; }, { timeout: 10_000 }).not.toBe("running");
+          expect(completed, JSON.stringify(completed)).toMatchObject({ status: "succeeded", model: { provider: target, id: definition.id } });
+          expect(taskNumber).toBe(1);
+          const sourceAssetId = completed!.run?.files[0]?.assetId;
+          expect(sourceAssetId).toBeTruthy();
+          const options = pin.provider === "meshy" ? { textureModel: "meshy-6" } : { textureQuality: "detailed" };
+          const textured = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { model: { provider: pin.provider, id: definition.id }, operation: "retexture", sourceAssetId, prompt: "Weathered stone", images: [], options } });
+          expect(textured.statusCode).toBe(202);
+          await expect.poll(async () => { completed = (await app.inject("/tool-jobs")).json().find((job: { id: string }) => job.id === textured.json().id); return completed?.status; }, { timeout: 10_000 }).not.toBe("running");
+          expect(completed, JSON.stringify(completed)).toMatchObject({ status: "succeeded", model: { provider: target, id: "connection" } });
+          const texturePost = pluginRequest.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith(pin.provider === "meshy" ? "/retexture" : "/models/texture"));
+          expect(JSON.parse(String(texturePost?.[1]?.body))).toMatchObject(pin.provider === "meshy" ? { ai_model: "meshy-6", model_url: expect.stringContaining("data:") } : { texture_quality: "detailed", input: "source-file" });
+          expect(taskNumber).toBe(2); expect(request).not.toHaveBeenCalled();
+        } finally { await app.close(); }
+      });
+    });
+
     it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
       await fixture(async (directory, root) => {
         let failDownload = true;
@@ -334,7 +436,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         if (mode === "provider-disabled") await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, disabled: [target] }));
         if (mode === "uninstalled") await rm(root, { recursive: true });
         const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
-        const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request, model3DRecovery: [record] });
+        const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request, model3DMigrations: [record] });
         try {
           await app.ready(); failDownload = false; request.mockClear();
           expect((await app.inject({ method: "POST", url: `/tool-jobs/${job.id}/retry` })).statusCode).toBe(202);
