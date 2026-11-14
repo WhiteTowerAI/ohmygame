@@ -138,6 +138,8 @@ export interface ProviderSummary extends ModelProviderSummary {
 }
 
 export interface PluginProviderInfo {
+  /** The media adapter declares a read-only provider-level 3D credit query. */
+  model3dBalance?: boolean;
   /** The plugin's id, `publisher/name`. */
   id: string;
   name: string;

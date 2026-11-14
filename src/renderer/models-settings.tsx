@@ -447,6 +447,7 @@ function PluginProviderSettings({ provider, onBack }: { provider: ProviderSummar
     </div> : null}
     {/* Chat models only: a provider that only makes media has none in the model runtime. */}
     {provider.configured && provider.capabilities.includes("language") ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
+    {provider.configured && provider.enabled !== false && plugin.model3dBalance ? <Provider3DBalance model={{ provider: provider.id, id: MODEL3D_CONNECTION_ID }} /> : null}
     {/* What its media adapter makes once the key is set: its models, and more listed from the vendor. */}
     {provider.configured ? PLUGIN_MEDIA_KINDS.filter((kind) => provider.capabilities.includes(kind)).map((kind) => <PluginMediaModels key={`${kind}-${modelsRevision}`} providerId={provider.id} providerName={provider.name} kind={kind} />) : null}
   </section>;

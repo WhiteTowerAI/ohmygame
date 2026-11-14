@@ -199,6 +199,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.11.0 | 3D processing connections support retexture and remesh, declared controls and defaults, and result orientation. |
 | 2.12.0 | 3D processing supports recoverable animation, bounded batch merging, source orientation and read-only action lists. |
 | 2.13.0 | Recoverable 3D animations can share durable paid prerequisites through `host.reuse`, with read-only validity checks and independent waiter cancellation. |
+| 2.14.0 | 3D providers can declare a read-only account balance hook, shown in provider settings independently of generation or processing models. |
 
 ## Agent instructions
 
