@@ -316,6 +316,20 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
 }
 type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; inputRevision?: string; pluginOutput?: string };
 
+/** Read history without creating a canvas, interrupting running jobs or saving it.
+ * Without projectId this checks file shape only, not project registration.
+ */
+export async function readCanvasJobHistory(workspace: string, projectId?: string): Promise<StoredJob[]> {
+  try {
+    const value: unknown = JSON.parse(await readFile(await canvasPath(workspace, "jobs.json"), "utf8"));
+    if (!Array.isArray(value) || value.length > 1000 || value.some((job) => !job || typeof job.id !== "string" ||
+      (projectId === undefined ? typeof job.context?.projectId !== "string" : job.context?.projectId !== projectId) ||
+      typeof job.context?.boardId !== "string" || typeof job.context?.nodeId !== "string" ||
+      !["running", "succeeded", "failed", "cancelled"].includes(job.status))) throw new CanvasError("Invalid generation history");
+    return value;
+  } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") return []; throw cause; }
+}
+
 /** A plugin canvas node's input, as its code gets it. */
 export type CanvasPluginInput =
   | { type: "image" | "audio" | "video" | "model"; path: string; contentType: string }
@@ -497,12 +511,7 @@ export class CanvasStore {
     if (this.#jobs.has(id)) return this.#jobs.get(id)!;
     const project = this.#project(id);
     await ensureCanvasIndex(project.workspacePath);
-    let jobs: StoredJob[] = [];
-    try {
-      const value: unknown = JSON.parse(await readFile(await canvasPath(this.#project(id).workspacePath, "jobs.json"), "utf8"));
-      if (!Array.isArray(value) || value.length > 1000 || value.some((job) => !job || typeof job.id !== "string" || job.context?.projectId !== id || typeof job.context?.boardId !== "string" || typeof job.context?.nodeId !== "string" || !["running", "succeeded", "failed", "cancelled"].includes(job.status))) throw new CanvasError("Invalid generation history");
-      jobs = value.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled", error: "Generation was interrupted. Retry to resume a submitted 3D task or plugin provider's video." } : job);
-    } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+    const jobs = (await readCanvasJobHistory(project.workspacePath, id)).map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation was interrupted. Retry to resume a submitted 3D task or plugin provider's video." } : job);
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }

@@ -386,6 +386,50 @@ says `scope: settings-only` and `activation: held`, even when it exits with `0`.
 It does not check installation, plugin enablement, project overrides, saved canvas
 references, unfinished jobs or recovery journals, and cannot authorize a cutover.
 
+Add one or more copied project directories to inspect canvas references and
+history alongside the settings:
+
+```bash
+bun run inspect:minimax-migration --data-dir /absolute/path/to/copied-app-data \
+  --workspace /absolute/path/to/copied-project-one \
+  --workspace /absolute/path/to/copied-project-two
+```
+
+This produces report version `2`, with `scope: selected-workspaces` and
+`activation: held`. The settings-only invocation remains version `1`. Workspace
+numbers in the report follow argument order. Project registration and complete
+project coverage are not verified: it never loads or rewrites the app's project
+registry. Copy the app data and selected projects while the app is closed.
+
+- Canvas inspection reads the index and every `canvas/boards/*.json`, including
+  unindexed boards. Missing, unindexed, unreadable and future-format boards need
+  review. Counts distinguish built-in and plugin MiniMax references and unknown
+  model IDs. Existing schema and cross-node checks still apply; editor layout
+  files are read as part of board validation, without saving normalized data.
+- Job inspection reads `canvas/jobs.json` without creating a canvas, marking
+  running jobs interrupted, or saving history. The application's ordinary load
+  path still performs its existing interruption handling. Retry ownership comes
+  from saved `input.model`, not the current board or display model; disagreement,
+  unsupported input, mixed project histories and repeated recovery IDs require
+  review. Failed and cancelled MiniMax jobs are included with running jobs.
+- All `media-tasks/*.json` in the selected app data are counted as unconfirmed,
+  task-recorded, result-recorded or unreadable. Temporary writes are flagged.
+  Recovery-ID matches to selected histories are associations only: the journal
+  stores an opaque fingerprint, not a readable provider identity. Unattributed
+  records may belong to other projects or agent calls; shared IDs may be retry
+  history. None are deleted, claimed, rehashed or treated as safe to resubmit.
+  A recorded task/result is not proof that the provider can still resume it.
+
+Any unfinished MiniMax job or existing media journal keeps an ownership-review
+blocker, including journals that might belong to another provider. The legacy
+MiniMax generator has no persisted vendor-task recovery; a missing journal does
+not prove that no paid request was sent. Do not automatically retry it through
+the plugin. Preserve historical job inputs, recovery IDs and request fingerprints
+when planning board-reference migration, and retain the legacy path until those
+jobs have an explicit disposition. The report omits paths, prompts, task payloads,
+result URLs, arbitrary IDs and fingerprints. Linked canvas or journal files are
+rejected. Exit codes retain the settings inspection's meaning.
+
 Before enabling migration in the app, complete these separate gates:
 
 - Verify real generation, result download, stop and restart recovery in both
