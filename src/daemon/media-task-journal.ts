@@ -21,6 +21,7 @@ export class GenerationShutdown extends Error {
 type Submission = { fingerprint: string; response?: unknown };
 type Entry = { version: 1; fingerprint: string; task?: unknown; outputs?: unknown; submissions?: Record<string, Submission>; submissionScope?: string; unsafeStart?: true };
 const validId = (id: string) => /^[a-zA-Z0-9-]{1,120}$/.test(id);
+const validReceiptId = (id: string) => validId(id) || /^_reuse-[a-zA-Z0-9-]{1,100}$/.test(id);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -40,7 +41,7 @@ function readEntry(value: unknown, inspection = false): Entry {
     if (!digest(value.submissionScope)) throw new Error("Invalid submission scope");
     if (!object(value.submissions) || Object.keys(value.submissions).length > MAX_SUBMISSIONS) throw new Error("Invalid submission records");
     for (const [id, receipt] of Object.entries(value.submissions)) {
-      if (!validId(id) || !object(receipt) || !digest(receipt.fingerprint) || Object.keys(receipt).some(key => !["fingerprint", "response"].includes(key)) ||
+      if (!validReceiptId(id) || !object(receipt) || !digest(receipt.fingerprint) || Object.keys(receipt).some(key => !["fingerprint", "response"].includes(key)) ||
         ("response" in receipt && Buffer.byteLength(JSON.stringify(receipt.response)) > MAX_RESPONSE_BYTES)) throw new Error("Invalid submission record");
     }
   }
@@ -70,6 +71,8 @@ export interface MediaTaskJournal {
   begin(request: unknown): Promise<MediaTaskStart>;
   /** Record and reuse one explicit paid step. An uncertain response must never be sent again. */
   submit<T>(id: string, scope: string, request: unknown, create: () => Promise<T>): Promise<T>;
+  /** Pin a reference whose paid work has its own durable owner; failed resolution is retryable. */
+  reference<T>(id: string, scope: string, request: unknown, resolve: () => Promise<T>): Promise<T>;
   /** A raw start request cannot be safely replayed even if other steps have receipts. */
   unsafeStart(): Promise<void>;
   /** Whether partial paid work must survive even a terminal later-step error. */
@@ -80,6 +83,8 @@ export interface MediaTaskJournal {
   finish(outputs: unknown): Promise<void>;
   /** The generation ended for good: there's nothing to resume. */
   clear(): Promise<void>;
+  /** Wait for owned receipt writes, including work whose VM has stopped. */
+  settled(): Promise<void>;
   /** Lets another run of the same request begin. */
   release(): void;
 }
@@ -150,6 +155,28 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     if (!held || !entry || entry.fingerprint !== fingerprint) throw new Error("Task ownership is required");
     return entry;
   };
+  const record = <T>(id: string, scope: string, request: unknown, create: () => Promise<T>, intent: boolean): Promise<T> => {
+    return enqueue(async () => {
+      const current = owned();
+      if (!(intent ? validId(id) : validReceiptId(id))) throw new Error("Invalid submission id");
+      const submissionScope = hash(scope);
+      if (current.submissionScope && current.submissionScope !== submissionScope) throw new Error("The media adapter changed after this generation started. Restore the original plugin version to resume, or start a new generation.");
+      const fingerprint = hash(request), previous = current.submissions && Object.hasOwn(current.submissions, id) ? current.submissions[id] : undefined;
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) throw new Error("This paid step changed. Restore its original request or start a new generation.");
+        if (!("response" in previous)) throw new Error("This paid step may already have been submitted, but its response was lost. Check the provider before starting a new generation; retry will not submit it again.");
+        return structuredClone(previous.response) as T;
+      }
+      if (Object.keys(current.submissions ?? {}).length >= MAX_SUBMISSIONS) throw new Error("Too many paid steps in this generation");
+      if (intent) await write({ ...current, submissionScope, submissions: { ...current.submissions, [id]: { fingerprint } } });
+      const response = await create();
+      const text = JSON.stringify(response);
+      if (text === undefined || Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new Error("Paid step response cannot be recorded; check the provider before starting a new generation");
+      const saved = JSON.parse(text) as T;
+      await write({ ...owned(), submissionScope, submissions: { ...owned().submissions, [id]: { fingerprint, response: saved } } });
+      return structuredClone(saved);
+    });
+  };
   return {
     async begin(request) {
       if (active.has(file)) throw new MediaTaskBusyError("This generation is still stopping. Try again in a moment.");
@@ -169,28 +196,8 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       await write({ version: 1, fingerprint });
       return { state: "new" };
     },
-    submit<T>(id: string, scope: string, request: unknown, create: () => Promise<T>): Promise<T> {
-      return enqueue(async () => {
-        const current = owned();
-        if (!validId(id)) throw new Error("Invalid submission id");
-        const submissionScope = hash(scope);
-        if (current.submissionScope && current.submissionScope !== submissionScope) throw new Error("The media adapter changed after this generation started. Restore the original plugin version to resume, or start a new generation.");
-        const fingerprint = hash(request), previous = current.submissions && Object.hasOwn(current.submissions, id) ? current.submissions[id] : undefined;
-        if (previous) {
-          if (previous.fingerprint !== fingerprint) throw new Error("This paid step changed. Restore its original request or start a new generation.");
-          if (!("response" in previous)) throw new Error("This paid step may already have been submitted, but its response was lost. Check the provider before starting a new generation; retry will not submit it again.");
-          return structuredClone(previous.response) as T;
-        }
-        if (Object.keys(current.submissions ?? {}).length >= MAX_SUBMISSIONS) throw new Error("Too many paid steps in this generation");
-        await write({ ...current, submissionScope, submissions: { ...current.submissions, [id]: { fingerprint } } });
-        const response = await create();
-        const text = JSON.stringify(response);
-        if (text === undefined || Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new Error("Paid step response cannot be recorded; check the provider before starting a new generation");
-        const saved = JSON.parse(text) as T;
-        await write({ ...owned(), submissions: { ...owned().submissions, [id]: { fingerprint, response: saved } } });
-        return structuredClone(saved);
-      });
-    },
+    submit: (id, scope, request, create) => record(id, scope, request, create, true),
+    reference: (id, scope, request, resolve) => record(id, scope, request, resolve, false),
     unsafeStart() { return enqueue(async () => { await write({ ...owned(), unsafeStart: true }); }); },
     hasSubmissions() { return !!entry?.submissions && Object.keys(entry.submissions).length > 0; },
     save(task) { return enqueue(async () => { const { outputs: _, ...current } = owned(); await write({ ...current, task }); }); },
@@ -206,6 +213,7 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
         try { await remove(); } finally { active.delete(file); }
       }
     },
+    async settled() { await pending.catch(() => {}); },
     release() {
       closing = true;
       // Pending submissions own their writes even when the VM/waiter has exited.

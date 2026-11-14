@@ -1313,7 +1313,7 @@ export function createApp(options: AppOptions = {}) {
   // their plugins and keys; a project's file doesn't change them.
   const pluginModelProviders = new PluginModelProviders(pluginServices, options.modelDiscoveryFetch);
   const pluginMediaProviders = new PluginMediaProviders(pluginServices, options.imageFetch,
-    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory));
+    (plugin, message) => app.log.info({ plugin }, `Media adapter: ${message}`), new PluginMediaModelChoices(dataDirectory), dataDirectory);
   const syncPluginModelProviders = async () => {
     // Joins the queue now, so a list asked for after a change waits for it.
     const changed = await pluginModelProviders.sync(getModelRuntime());
@@ -5100,6 +5100,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await pluginMediaProviders.close();
     await pluginServices.native.stopPersistent();
     limitContinuations.close();
     await scheduledMessages.close();

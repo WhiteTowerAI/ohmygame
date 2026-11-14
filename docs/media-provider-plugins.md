@@ -314,6 +314,46 @@ The action call has a 30-second deadline. Only GET/HEAD requests are allowed;
 auth and redaction rules apply. Listing can therefore populate controls without
 creating paid jobs. An unavailable library reports an error and can be retried.
 
+### Shared animation prerequisites (API 2.13)
+
+Use `engines.ohmygame-api: "^2.13.0"` and `await host.reuse("rig")` from
+`3d.start` or `3d.check` to share a paid rig across animation jobs. This requires
+a recoverable animation; generation, listing and cancellation calls cannot use
+it. IDs contain 1–100 ASCII letters, digits or hyphens.
+
+Implement `3d.reuse(id, input, previous, host)`. `input` is the host's animation
+input **without `actionIds`**. Its source bytes, model, height, axis, options and
+model data, plus plugin/provider identity, account and package digest, determine
+the shared scope. Do not rely on module globals: each hook has its own VM.
+
+- When `previous === null`, submit paid work with `host.submit` and return
+  `{ value: { taskId: "..." } }`. The non-null value must fit in 16 KB of JSON.
+  Return the remote task identity promptly; poll long-running rig work in the
+  animation's ordinary `check` hook. Unjournaled writes and nested `host.reuse`
+  calls are refused.
+- With a saved value, query the exact vendor task with GET/HEAD and return
+  `{ valid: true }` if it can still be used, or `{ valid: false }` only for a
+  confirmed unusable/expired task. Validate task ID, status and expiry according
+  to that vendor's contract. A timeout, unavailable query or unknown status must
+  throw. Validation cannot submit or upload. Throwing retains the paid record;
+  it never triggers a replacement rig.
+
+The daemon owns one in-flight hook per scope. Cancelling an animation only
+detaches its waiter; another animation can join the same owner. Daemon shutdown
+aborts owners and waits for their receipt writes. Hook calls retain the sandbox's
+120-second deadline and existing network permissions, auth and redaction.
+Changed credentials, permissions or package identity prevent further HTTP.
+
+The shared store uses versioned task journals under `plugin-media-reuse/` in the
+app data directory. Successful references are pinned to each generation's own
+journal, so retrying an older job keeps its original rig even after a newer job
+has replaced an expired shared rig. Failed read-only resolution is retryable;
+an uncertain paid submission stays unconfirmed and is never resubmitted.
+Internal `_reuse-` receipt IDs cannot collide with public `host.submit` IDs;
+older hosts refuse journals containing them rather than discard paid state.
+Malformed/future records are preserved and refused. Native historical jobs
+continue using their original journals.
+
 ### Host-owned input files (API 2.10)
 
 A 3D provider can opt into `media["3d"].inputFiles: true`, with
