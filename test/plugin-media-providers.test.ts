@@ -612,6 +612,16 @@ describe("plugin media providers: audio", () => {
     expect(requests).toHaveLength(1);
   }, 15_000);
 
+  it("allows extra default voices beyond a requested page size while bounding the whole page", async () => {
+    for (const count of [101, 500, 501]) {
+      const voices = Array.from({ length: count }, (_, index) => ({ id: `voice-${index}`, name: `Voice ${index}` }));
+      const { media } = await setup(`export default { audio: { voices() { return ${JSON.stringify({ voices })}; } } };`, { media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media> });
+      const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+      if (count <= 500) expect((await audio.voices("plugin.acme.flow.flow", {})).voices).toHaveLength(count);
+      else await expect(audio.voices("plugin.acme.flow.flow", {})).rejects.toMatchObject({ statusCode: 502 });
+    }
+  }, 15_000);
+
   it("cancels an active account voice request without cancelling a separate search", async () => {
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });

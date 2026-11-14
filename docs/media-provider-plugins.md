@@ -84,7 +84,8 @@ every provider, such as a first and last frame for video.
   `audio.voices({ search?, pageToken? }, host)` instead of the static list.
   It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
   Search is at most 200 characters and page tokens at most 2,000. Each page
-  has at most 100 distinct voices; IDs follow the app's voice ID rules
+  has at most 500 distinct voices, allowing default voices returned in addition
+  to an account's requested page size; IDs follow the app's voice ID rules
   (letters, digits, `_`, `-`, at most 256 characters), names are at most 200
   characters, and labels have at most 20 entries (80-character keys and
   200-character values). Omit the next token on the last page; returning
@@ -194,8 +195,8 @@ plugin API. Every kind's input also has `modelData` when the model has
   validation use the same rule, including discovered models saved in Settings.
 - **Audio:** `model`, `kind` (one of the model's), `prompt` (the words for a
   model that reads text, a description for the rest), `format` (one of the
-  model's), `voiceId` for a model that reads text (one of its `voices`, the
-  first by default), and when asked and the model takes them,
+  model's), `voiceId` for a model that reads text (the first static voice by
+  default; account voices require an explicit choice), and when asked and the model takes them,
   `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
   `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
   Declared `speedRange` limits are checked before dispatch; explicit zero is

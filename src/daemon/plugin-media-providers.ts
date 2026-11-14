@@ -290,7 +290,7 @@ export class PluginMediaProviders {
     });
     if (answer && typeof answer === "object" && "error" in answer && typeof answer.error === "string")
       throw new AudioFailure(`${this.#name(item)}: ${answer.error.slice(0, 1000)}`);
-    if (!answer || typeof answer !== "object" || !("voices" in answer) || !Array.isArray(answer.voices) || answer.voices.length > 100)
+    if (!answer || typeof answer !== "object" || !("voices" in answer) || !Array.isArray(answer.voices) || answer.voices.length > 500)
       throw new AudioFailure("The plugin returned an invalid voice page");
     const token = "nextPageToken" in answer ? answer.nextPageToken : undefined;
     if (token !== undefined && (typeof token !== "string" || !token || token.length > 2000 || token === query.pageToken))
