@@ -206,6 +206,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.18.0 | Audio providers opt into read-only, paginated account voice discovery with approved HTTPS previews and explicit voice selection. |
 | 2.19.0 | Paid audio responses can be saved as host-owned binary files and resumed without another submission. |
 | 2.20.0 | Audio models can transcribe host-owned audio uploads through a bounded, synchronous adapter step. |
+| 2.22.0 | Audio models opt into speaker, pitch, volume, style, SSML and shared speech options; declared options reach their sandboxed adapter. |
 | 2.21.0 | Audio outputs retain a bounded provider request ID; media adapters can read the redacted `request-id` response header. |
 
 ## Agent instructions

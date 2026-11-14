@@ -533,6 +533,56 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it("passes declared speech controls and custom voices without changing saved options", async () => {
+    const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [{
+      id: "speech", kinds: ["speech"], readsText: true, formats: ["wav"],
+      voices: [{ id: "preset", name: "Preset" }], speaker: true, pitch: true,
+      volume: true, style: true, ssml: true, speechOptions: true,
+    }] } } as unknown as Partial<Media>, reply: url => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.catalog()).models[0]!.capabilities).toMatchObject({
+      supportsSpeaker: true, supportsPitch: true, supportsVolume: true,
+      supportsStyle: true, supportsSSML: true, supportsSpeechOptions: true,
+    });
+    const input = {
+      prompt: "你好", voiceId: "S_custom-voice", voiceKind: "cloned" as const,
+      voiceModel: "expressive" as const, autoLanguage: false, dialect: "yue",
+      pitch: 0, volume: -10, style: "calm", ssml: "<speak>你好</speak>",
+      pronunciation: [{ word: "重", replacement: "chong2" }], silenceMs: 0,
+      sectionId: "scene-1", output: { format: "wav" as const, bitRate: 64_000 },
+    };
+    const saved = structuredClone(input);
+    await audio.generate(input);
+    expect(JSON.parse(requests.find(request => request.url.endsWith("/v1/audio"))!.body!)).toMatchObject({
+      model: "speech", kind: "speech", prompt: "你好", format: "wav",
+      voiceId: "S_custom-voice", voiceKind: "cloned", voiceModel: "expressive",
+      autoLanguage: false, dialect: "yue", pitch: 0, volume: -10, style: "calm",
+      ssml: "<speak>你好</speak>", pronunciation: [{ word: "重", replacement: "chong2" }],
+      silenceMs: 0, sectionId: "scene-1", bitRate: 64_000,
+    });
+    expect(input).toEqual(saved);
+    requests.length = 0;
+    for (const voiceId of ["../secret", "x".repeat(257)])
+      await expect(audio.generate({ ...input, voiceId })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toHaveLength(0);
+  });
+
+  it("retains reference speakers and rate for prompt audio while omitting undeclared speech controls", async () => {
+    const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [{
+      id: "scene", kinds: ["speech", "sound-effect", "music"], formats: ["wav"],
+      speaker: true, pitch: true, volume: true, style: true, speedRange: [-50, 100],
+    }] } } as unknown as Partial<Media>, reply: url => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    await audio.generate({ prompt: "A calm song", kind: "music", voiceId: "speaker-1", speed: 20, pitch: 2, volume: 0, style: "soft", ssml: "saved SSML", autoLanguage: true, pronunciation: [{ word: "word", replacement: "sound" }], output: { bitRate: 64_000 } });
+    expect(JSON.parse(requests.find(request => request.url.endsWith("/v1/audio"))!.body!)).toEqual({
+      model: "scene", kind: "music", prompt: "A calm song", format: "wav",
+      voiceId: "speaker-1", speed: 20, pitch: 2, volume: 0, style: "soft",
+    });
+    requests.length = 0;
+    await expect(audio.generate({ prompt: "song", kind: "music", speed: 101 })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toHaveLength(0);
+  });
+
   it("transcribes through host-owned multipart input without advertising speech generation", async () => {
     const source = `export default { audio: { async transcribe(input, host) {
       if (input.audio.base64 || input.audio.byteLength !== ${WAV.length}) throw new Error("Expected a host-owned audio input");

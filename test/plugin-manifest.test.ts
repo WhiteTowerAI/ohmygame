@@ -247,6 +247,13 @@ describe("plugin manifest", () => {
     expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [] }] } })).not.toEqual([]);
     expect(mediaOf({ audio: { models: [{ id: "empty", kinds: [], transcribes: false }] } })).not.toEqual([]);
     const speechLimits = { ...audio.models[0], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { mp3: [44100], wav: [8000, 24000] } };
+    const speechOptions = { speaker: true, pitch: true, volume: true, style: true, ssml: true, speechOptions: true };
+    expect(mediaOf({ audio: { models: [{ ...speechLimits, ...speechOptions }] } })).toEqual([]);
+    expect(mediaOf({ audio: { models: [{ ...audio.models[1], speaker: true, speedRange: [-50, 100] }] } })).toEqual([]);
+    for (const key of Object.keys(speechOptions))
+      expect(mediaOf({ audio: { models: [{ ...speechLimits, [key]: "yes" }] } }).length).toBeGreaterThan(0);
+    for (const key of ["ssml", "speechOptions"])
+      expect(mediaOf({ audio: { models: [{ ...audio.models[1], [key]: true }] } })).toContain(`/contributes/providers/0/media/audio/models/0/${key} requires a model that reads text`);
     expect(mediaOf({ audio: { models: [speechLimits, { ...audio.models[1], minDurationSeconds: 0.5 }] } })).toEqual([]);
     for (const invalid of [{ maxTextCharacters: 40_001 }, { minDurationSeconds: 0 }, { speedRange: [20, -30] }, { speedRange: [-51, 20] }, { speedRange: [0.5, 20] }, { speedRange: [-30] }, { languages: [] }, { sampleRatesByFormat: { wav: [12345] } }, { sampleRatesByFormat: { mp3: [] } }, { sampleRatesByFormat: { ogg_opus: [48000] } }])
       expect(mediaOf({ audio: { models: [{ ...speechLimits, ...invalid }] } }).length).toBeGreaterThan(0);
