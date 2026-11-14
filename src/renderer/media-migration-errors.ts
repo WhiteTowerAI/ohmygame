@@ -1,4 +1,5 @@
 import {
+  ELEVENLABS_RETIRED_RETRY,
   MINIMAX_RETIRED_PROVIDER,
   MODEL3D_RETIRED_PROVIDER,
   SEEDANCE_RETIRED_PROVIDER,
@@ -8,6 +9,7 @@ import {
 import { t } from "./i18n.js";
 
 export function mediaMigrationError(message: string): string {
+  if (message === ELEVENLABS_RETIRED_RETRY) return t("api.elevenlabsRetiredRetry");
   if (message === MINIMAX_RETIRED_PROVIDER)
     return t("api.minimaxRetiredProvider");
   if (message === MINIMAX_RETIRED_RETRY) return t("api.minimaxRetiredRetry");
