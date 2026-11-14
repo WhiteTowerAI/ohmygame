@@ -42,6 +42,7 @@
     "rehearse:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/rehearse-seedance-migration.ts",
     "rehearse:3d-migration": "node --conditions=ohmygame-source --import tsx scripts/rehearse-model3d-migration.ts",
     "inspect:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-minimax-migration.ts",
+    "inspect:doubao-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-doubao-migration.ts",
     "inspect:elevenlabs-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-elevenlabs-migration.ts",
     "inspect:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-seedance-migration.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
