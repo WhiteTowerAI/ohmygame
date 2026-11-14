@@ -1777,6 +1777,12 @@ describe("daemon", () => {
     expect(await run({ kind: "speech", projectId, nodeId: "line" })).toEqual(seed);
     expect(await run({ kind: "speech" })).toEqual(eleven);
     expect(await run({ kind: "speech", model: tts })).toEqual(tts);
+    const flash = { provider: "elevenlabs", id: "eleven_flash_v2_5" };
+    expect(await run({ model: flash, prompt: "a".repeat(40_000) })).toEqual(flash);
+    expect(generate.mock.calls.at(-1)![0].prompt).toHaveLength(40_000);
+    for (const [tool, length] of [["generate-audio", 40_001], ["generate-image", 32_001]] as const) {
+      expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "a".repeat(length) } })).statusCode).toBe(400);
+    }
     // Without a kind, as for an audio node with no model, the speech default applies.
     expect(await run({})).toEqual(eleven);
     // Without a default for music, the automatic choice stands; a disconnected default is skipped.

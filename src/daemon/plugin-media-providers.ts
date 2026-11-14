@@ -227,6 +227,9 @@ export class PluginMediaProviders {
             ...(model.readsText ? { readsText: true } : {}),
             ...(model.readsText && model.voices ? { supportsSpeaker: true } : {}),
             formats: [...(model.formats ?? ["mp3" as const])],
+            ...(model.languages ? { languages: [...model.languages] } : {}),
+            ...(model.speedRange ? { speedRange: [...model.speedRange] as [number, number] } : {}),
+            ...(model.sampleRatesByFormat ? { sampleRatesByFormat: structuredClone(model.sampleRatesByFormat) } : {}),
             ...(model.maxTextCharacters ? { maxTextCharacters: model.maxTextCharacters } : {}),
             ...(model.minDurationSeconds ? { minDurationSeconds: model.minDurationSeconds } : {}),
             ...(model.maxDurationSeconds ? { maxDurationSeconds: model.maxDurationSeconds } : {}),
@@ -297,8 +300,15 @@ export class PluginMediaProviders {
     if (!formats.includes(format)) throw new AudioGenerationError(`The selected audio model doesn't make ${format}`, 400);
     const { maxTextCharacters, minDurationSeconds, maxDurationSeconds } = model.capabilities;
     if (maxTextCharacters && input.prompt.length > maxTextCharacters) throw new AudioGenerationError(`The selected audio model takes up to ${maxTextCharacters} characters`, 400);
-    if (input.durationSeconds !== undefined && (minDurationSeconds && input.durationSeconds < minDurationSeconds || maxDurationSeconds && input.durationSeconds > maxDurationSeconds))
+    if (input.durationSeconds !== undefined && (!Number.isFinite(input.durationSeconds) || minDurationSeconds && input.durationSeconds < minDurationSeconds || maxDurationSeconds && input.durationSeconds > maxDurationSeconds))
       throw new AudioGenerationError(`The selected audio model makes ${minDurationSeconds ?? 1} to ${maxDurationSeconds ?? "any number of"} seconds`, 400);
+    const speedRange = model.capabilities.speedRange;
+    if (speedRange && input.speed !== undefined && (!Number.isInteger(input.speed) || input.speed < speedRange[0] || input.speed > speedRange[1]))
+      throw new AudioGenerationError(`The selected audio model takes a speed from ${speedRange[0]} to ${speedRange[1]}`, 400);
+    const rates = model.capabilities.sampleRatesByFormat?.[format];
+    const sampleRate = model.capabilities.sampleRatesByFormat ? input.output?.sampleRate : undefined;
+    if (sampleRate !== undefined && !rates?.includes(sampleRate))
+      throw new AudioGenerationError("The selected audio model doesn't support this sample rate", 400);
     const voices = declared.voices ?? [];
     if (input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
       throw new AudioGenerationError("The selected voice isn't one this model speaks in", 400);
@@ -309,13 +319,14 @@ export class PluginMediaProviders {
       kind,
       prompt: input.prompt,
       format,
+      ...(sampleRate !== undefined ? { sampleRate } : {}),
       ...(voiceId ? { voiceId } : {}),
       ...(input.durationSeconds !== undefined ? { durationSeconds: input.durationSeconds } : {}),
       ...(input.instrumental && model.capabilities.supportsInstrumental ? { instrumental: true } : {}),
       ...(input.loop && model.capabilities.supportsLoop ? { loop: true } : {}),
       ...(input.language ? { language: input.language } : {}),
       // The canvas offers a speed for every speech model, on the shared -50…100 scale.
-      ...(kind === "speech" && input.speed ? { speed: input.speed } : {}),
+      ...(kind === "speech" && input.speed !== undefined ? { speed: input.speed } : {}),
       ...modelData(declared),
     }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped);
@@ -324,6 +335,8 @@ export class PluginMediaProviders {
       });
       const made = asked ?? audioFormat(audio);
       if (!made) throw new AudioFailure(`${this.#name(item)} returned ${audio.mime} audio, which isn't MP3, WAV or Ogg Opus`);
+      if (sampleRate !== undefined && audio.sampleRate !== sampleRate)
+        throw new AudioFailure(`${this.#name(item)} returned a different sample rate than requested`);
       return {
         bytes,
         mediaType: AUDIO_MEDIA_TYPES[made],
