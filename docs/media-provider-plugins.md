@@ -1186,9 +1186,10 @@ or vendor request. Real package/enablement checks, local vendor acceptance,
 saved-reference migration and native task recovery remain required before cutover.
 
 The rehearsal also includes `.<provider>-model-references-v1.json` in the same
-transaction as settings. This versioned record contains only the reviewed
+transaction as settings. This versioned record contains the reviewed
 package identity/digest, generation IDs (including native custom versions), their
-operations and the processing connection. Unsupported or conflicting existing
+operations, the processing connection and the effective native model settings for
+recovery. It contains no keys or model display names. Unsupported or conflicting existing
 records block the entire proposal. Interrupted, uncommitted transactions restore
 both settings and the record byte for byte.
 
@@ -1222,3 +1223,35 @@ outputs and layout remain intact. Project metadata keeps unrelated fields, while
 unsupported board data is refused unchanged. Job inputs, recovery IDs and native
 paid-stage journals are never mapped by this step, and their retry routing remains
 a separate cutover requirement.
+
+#### Native task recovery preparation
+
+`NativeModel3DRecovery` can route saved tool and canvas jobs through the original
+native adapter, independently of the current public model catalog. It loads the
+effective generation and processing settings sealed by the migration, including
+custom versions. It never rebases those settings onto newer presets or uses later
+model edits. Older identity-only preparation records remain readable for reference
+mapping, but recovery refuses them rather than inventing the missing settings.
+
+The prepared application context checks the current reviewed npm package,
+every-project enablement, capability grants, provider switch and plugin secret.
+Each native HTTP request checks authorization again and refuses a changed key.
+Requests and downloads must use HTTPS on the plugin's approved hosts, without
+URL credentials; automatic redirects are refused so they cannot bypass that grant.
+Clearing the key, disabling the plugin/provider, revoking its grants or uninstalling
+it does not fall back to the retained native key. A key or original input that
+already changed before migration still fails the saved request fingerprint.
+
+The recovery adapter owns a journal in `tools/model3d-tasks` with the existing-stage
+gate. Standalone retries and canvas retries retain their saved inputs and recovery
+IDs even after future canvas selections move to a plugin. Implicit historical
+Meshy animation keeps its original owner; later stages can continue only after
+the first saved stage is confirmed. New plugin submissions never consume these
+native receipts. A host refusal before dispatch removes only that unsubmitted
+stage's marker, so restoring authorization can continue. Once dispatch starts,
+transport failures remain ambiguous and never automatically resubmit a paid task.
+No recovery adapter is exposed as a selectable model.
+
+Startup does not yet supply these contexts. Transaction activation, removal of
+native catalogs/settings routes and vendor acceptance remain separate requirements
+before the actual cutover. These preparation checks use simulated vendor responses.

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Model3DGenerationError, type Model3DExecution } from "./model3d.js";
+import { Model3DGenerationError, Model3DRequestNotSent, type Model3DExecution } from "./model3d.js";
 
 type Entry = { fingerprint: string; credentials?: Record<string, string> };
 type Journal = { version: 1; entries: Record<string, Entry> };
@@ -73,8 +73,9 @@ export async function model3DJournal(directory: string, id: string, options: { r
         let credentials: T;
         try { credentials = await create(); }
         catch (cause) {
-          // A definite validation/rate-limit rejection created no task. Network errors and invalid success responses remain ambiguous.
-          if (cause instanceof Model3DGenerationError && [400, 429].includes(cause.statusCode)) { delete entries[stage]; await save(); }
+          // A host pre-dispatch refusal or definite API rejection created no task.
+          // Network errors and invalid success responses remain ambiguous.
+          if (cause instanceof Model3DRequestNotSent || cause instanceof Model3DGenerationError && [400, 429].includes(cause.statusCode)) { delete entries[stage]; await save(); }
           throw cause;
         }
         if (!object(credentials) || !Object.keys(credentials).length || Object.values(credentials).some(value => typeof value !== "string" || !value)) {

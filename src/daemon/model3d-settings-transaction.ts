@@ -1,4 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
+import type { CustomModel3DSettings } from "../shared/contracts.js";
+import { normalizeModelUsages } from "../shared/custom-models.js";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
 import type {
   PluginMediaModels,
@@ -16,6 +18,16 @@ import type { Snapshot } from "./media-settings-snapshot.js";
 interface ReferenceRecord extends Model3DReferenceMigration {
   version: 1;
   release: { id: string; version: string; digest: string };
+  recovery?: NativeModel3DSettings;
+}
+
+export interface NativeModel3DSettings {
+  models: { id: string; settings: CustomModel3DSettings }[];
+  processing: { id: string; settings: CustomModel3DSettings };
+}
+export interface CommittedModel3DMigration {
+  references: Model3DReferenceMigration;
+  recovery: NativeModel3DSettings;
 }
 
 const referenceFile = (provider: Native3DProviderId) =>
@@ -35,21 +47,44 @@ export function model3DSettingsTransaction(provider: Native3DProviderId) {
     label: provider,
   });
   const { committedSettingsFile, ...operations } = transaction;
+  const read = async (directory: string) => {
+    const entry = await committedSettingsFile(
+      directory,
+      referenceFile(provider),
+    );
+    return entry ? parseReferences(entry.bytes, provider) : undefined;
+  };
+  const references = ({
+    source,
+    target,
+    models,
+    processing,
+  }: ReferenceRecord): Model3DReferenceMigration => ({
+    source,
+    target,
+    models,
+    ...(processing ? { processing } : {}),
+  });
   return {
     ...operations,
     async committedReferences(
       directory: string,
     ): Promise<Model3DReferenceMigration | undefined> {
-      const entry = await committedSettingsFile(
-        directory,
-        referenceFile(provider),
-      );
-      if (!entry) return undefined;
-      const { source, target, models, processing } = parseReferences(
-        entry.bytes,
-        provider,
-      );
-      return { source, target, models, ...(processing ? { processing } : {}) };
+      const record = await read(directory);
+      return record && references(record);
+    },
+    async committedMigration(
+      directory: string,
+    ): Promise<CommittedModel3DMigration | undefined> {
+      const record = await read(directory);
+      if (!record) return undefined;
+      // Earlier preparation records can still map references, but cannot reconstruct
+      // original paid request defaults. Never fill them from today's presets.
+      if (!record.recovery)
+        throw new Error(
+          "The committed 3D migration has no original recovery settings",
+        );
+      return { references: references(record), recovery: record.recovery };
     },
   };
 }
@@ -89,6 +124,7 @@ export async function proposeModel3DTransaction(
     target: `plugin.ohmygame.${provider}.${provider}`,
     release: { id: pin.id, version: pin.version, digest: pin.digest },
     models: plan.references!,
+    recovery: plan.recovery!,
     ...(media.processing
       ? {
           processing: {
@@ -158,6 +194,7 @@ function parseReferences(
       "release",
       "models",
       ...(Object.hasOwn(value, "processing") ? ["processing"] : []),
+      ...(Object.hasOwn(value, "recovery") ? ["recovery"] : []),
     ]) ||
     value.version !== 1 ||
     value.source !== provider ||
@@ -181,6 +218,48 @@ function parseReferences(
         )))
   )
     throw invalid();
+  if (Object.hasOwn(value, "recovery")) {
+    const recovery = value.recovery;
+    const model = (entry: unknown) => {
+      if (
+        !object(entry) ||
+        !fields(entry, ["id", "settings"]) ||
+        typeof entry.id !== "string" ||
+        !entry.id.length ||
+        entry.id.length > 200 ||
+        /[\s\x00-\x1f]/.test(entry.id) ||
+        !object(entry.settings)
+      )
+        return false;
+      try {
+        const settings = normalizeModelUsages({ "3d": entry.settings })?.["3d"];
+        return (
+          settings?.protocol === provider &&
+          !settings.baseUrl &&
+          isDeepStrictEqual(settings, entry.settings)
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (
+      !object(recovery) ||
+      !fields(recovery, ["models", "processing"]) ||
+      !Array.isArray(recovery.models) ||
+      recovery.models.length !== value.models.length ||
+      !recovery.models.every(model) ||
+      new Set(recovery.models.map((entry) => entry.id)).size !==
+        recovery.models.length ||
+      !value.models.every((entry) =>
+        (recovery.models as { id: string }[]).some(
+          (original) => original.id === entry.id,
+        ),
+      ) ||
+      !model(recovery.processing) ||
+      (recovery.processing as { id: string }).id !== "connection"
+    )
+      throw invalid();
+  }
   // Historical release identity is evidence, not a fresh installation/permission check.
   // Do not compare it with today's pins: retiring an npm version cannot undo a commit.
   return value as unknown as ReferenceRecord;

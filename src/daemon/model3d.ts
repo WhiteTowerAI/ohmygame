@@ -60,6 +60,9 @@ export class Model3DGenerationError extends Error {
   }
 }
 
+/** Host-only proof that fetch was never called. Never use for an uncertain transport failure. */
+export class Model3DRequestNotSent extends Model3DGenerationError {}
+
 /** Bound downloaded artifacts while streaming, before allocating a complete GLB. */
 export async function readModel3DResult(response: Response): Promise<Buffer> {
   const maximum = 100 * 1024 * 1024;

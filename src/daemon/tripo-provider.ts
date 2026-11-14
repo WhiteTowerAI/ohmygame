@@ -4,7 +4,7 @@ import { model3DPreset } from "../shared/model3d-presets.js";
 import { remeshPolycount, tripoActions } from "../shared/model3d-operations.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import type { ImageSource } from "./image-adapters.js";
-import { Model3DGenerationError, readModel3DResult, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput, type Model3DExecution, type Model3DGenerator } from "./model3d.js";
+import { Model3DGenerationError, Model3DRequestNotSent, readModel3DResult, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput, type Model3DExecution, type Model3DGenerator } from "./model3d.js";
 
 const BASE_URL = "https://openapi.tripo3d.ai/v3";
 const VIEW_NAMES = ["front", "left", "back", "right"] as const;
@@ -142,7 +142,7 @@ export class TripoProvider implements Model3DGenerator {
     try { response = await this.request(`${(this.connection?.baseUrl ?? BASE_URL).replace(/\/+$/, "")}/${endpoint}`, { ...init,
       signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(init.signal ? [init.signal] : [])]),
       headers: { ...this.connection?.headers, ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${key}` }), ...init.headers } }); }
-    catch (cause) { if (init.signal?.aborted) throw init.signal.reason ?? cause; throw new TripoNetworkError(`Could not reach Tripo (${cause instanceof Error ? cause.message : String(cause)})`); }
+    catch (cause) { if (cause instanceof Model3DRequestNotSent) throw cause; if (init.signal?.aborted) throw init.signal.reason ?? cause; throw new TripoNetworkError(`Could not reach Tripo (${cause instanceof Error ? cause.message : String(cause)})`); }
     const body = record(await response.json().catch(() => undefined));
     if (response.ok && body.code === 0 && body.data && typeof body.data === "object") return record(body.data);
     const message = typeof body.message === "string" ? body.message : "Invalid API response";

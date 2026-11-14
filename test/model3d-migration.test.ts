@@ -8,7 +8,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createApp } from "../src/daemon/app.js";
+import { ToolRunner } from "../src/daemon/tools.js";
+import { MeshyProvider } from "../src/daemon/meshy-provider.js";
+import { TripoProvider } from "../src/daemon/tripo-provider.js";
+import { TEST_GLB } from "./model3d-fixture.js";
 import {
   MODEL3D_MIGRATION_PACKAGES,
   model3DMigrationPackageIssue,
@@ -292,6 +298,66 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       return { before, plan, transaction, media, ownedFiles };
     }
 
+    it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
+      await fixture(async (directory, root) => {
+        let failDownload = true;
+        const host = pin.provider === "meshy" ? "assets.meshy.ai" : "cdn.tripo3d.ai";
+        const artifact = mode === "unapproved-host" ? "https://unapproved.test/model.glb" : `${mode === "insecure-url" ? "http" : "https"}://${host}/model.glb`;
+        const request = vi.fn<typeof fetch>(async (url, init) => {
+          if (String(url) === artifact) return failDownload ? new Response("offline", { status: 503 }) : new Response(new Uint8Array(TEST_GLB));
+          if (pin.provider === "meshy") return init?.method === "POST" ? Response.json({ result: "owned-task" }) : Response.json({ status: "SUCCEEDED", model_urls: { glb: artifact } });
+          if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "owned-file" } });
+          return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: "owned-task" } }) : Response.json({ code: 0, data: { status: "success", output: { model_url: artifact } } });
+        });
+        const Native = pin.provider === "meshy" ? MeshyProvider : TripoProvider;
+        const original = new ToolRunner(directory, { generate: vi.fn() }, new Native(() => "private-canary", request, 0));
+        await original.load();
+        const job = original.start("image-to-3d", { model: { provider: pin.provider, id: MODEL_3D_PRESETS[pin.provider][0]!.id }, images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] });
+        await expect.poll(() => original.jobs()[0]?.status).toBe("failed"); await original.close();
+        const { before, plan, transaction } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        await transaction.resumeSettingsTransaction(directory);
+        await transaction.commitSettingsTransaction(directory);
+        const record = (await transaction.committedMigration(directory))!;
+        if (mode === "cleared-key" || mode === "changed-key") {
+          const file = path.join(directory, "plugin-store/configuration.json"), stored = JSON.parse(await readFile(file, "utf8"));
+          if (mode === "cleared-key") delete stored.plugins[pin.id].apiKey;
+          else stored.plugins[pin.id].apiKey.value = "changed-plugin-key";
+          await writeFile(file, JSON.stringify(stored));
+        }
+        if (mode === "plugin-disabled" || mode === "missing-grants") {
+          const file = path.join(directory, "plugin-store/grants.json"), stored = JSON.parse(await readFile(file, "utf8"));
+          if (mode === "plugin-disabled") stored.plugins[pin.id].enabled = false;
+          else stored.plugins[pin.id].allowed = [];
+          await writeFile(file, JSON.stringify(stored));
+        }
+        if (mode === "provider-disabled") await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, disabled: [target] }));
+        if (mode === "uninstalled") await rm(root, { recursive: true });
+        const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
+        const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request, model3DRecovery: [record] });
+        try {
+          await app.ready(); failDownload = false; request.mockClear();
+          expect((await app.inject({ method: "POST", url: `/tool-jobs/${job.id}/retry` })).statusCode).toBe(202);
+          let current: { status: string; error?: string } | undefined;
+          await expect.poll(async () => {
+            current = (await app.inject("/tool-jobs")).json()[0]; return current?.status;
+          }).toBe(mode === "enabled" ? "succeeded" : "failed");
+          if (mode === "enabled") {
+            expect(request.mock.calls.length).toBeGreaterThan(0);
+            expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+            expect(request.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
+          } else {
+            if (mode === "unapproved-host" || mode === "insecure-url") {
+              expect(request).toHaveBeenCalledTimes(1);
+              expect(request.mock.calls.some(([url]) => String(url) === artifact)).toBe(false);
+            } else expect(request).not.toHaveBeenCalled();
+            expect(current?.error).toMatch(/plugin|connection or input changed|address/);
+          }
+          expect(JSON.parse(await readFile(path.join(directory, `${pin.provider}.json`), "utf8")).apiKey).toBe("private-canary");
+        } finally { await app.close(); }
+      });
+    });
+
     it("seals the exact custom/preset and processing identities independently of later settings or uninstall", async () => {
       await fixture(async (directory, root) => {
         await seed(directory);
@@ -309,12 +375,20 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         expect(JSON.parse(metadata).release).toEqual({ id: pin.id, version: pin.version, digest: pin.digest });
         await transaction.commitSettingsTransaction(directory);
         expect(await transaction.committedReferences(directory)).toEqual(expected);
+        const committed = await transaction.committedMigration(directory);
+        expect(committed?.recovery.models.find(({ id }) => id === custom.id)?.settings).toEqual(custom.settings);
+        const preset = MODEL_3D_PRESETS[pin.provider][0]!, originalSettings = preset.settings;
+        try {
+          preset.settings = { ...originalSettings, supportsPbr: !originalSettings.supportsPbr };
+          expect(await transaction.committedMigration(directory)).toEqual(committed);
+        } finally { preset.settings = originalSettings; }
         expect(await readFile(path.join(directory, files[0]))).toEqual(before.get(files[0]));
         // Users may change or clear keys, models and preferences, then uninstall the package.
         await rm(path.join(directory, "plugin-store"), { recursive: true });
         for (const file of ownedFiles.filter((file) => !file.startsWith("plugin-store/")))
           await rm(path.join(directory, file), { force: true });
         expect(await transaction.committedReferences(directory)).toEqual(expected);
+        expect(await transaction.committedMigration(directory)).toEqual(committed);
         const mapping = (await transaction.committedReferences(directory))!;
         mapping.models[0]!.operations = [];
         expect(await transaction.committedReferences(directory)).toEqual(expected);
@@ -353,7 +427,10 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         if (failure === "source") record.source = "hyper3d";
         if (failure === "duplicate") record.models.push(record.models[0]);
         if (failure === "extra") record.future = "keep";
-        if (failure === "conflict") record.models[0].id = "another-version";
+        if (failure === "conflict") {
+          record.models[0].id = "another-version";
+          record.recovery.models[0].id = "another-version";
+        }
         await writeFile(path.join(directory, file), JSON.stringify(record));
         const original = await settingsSnapshot(directory, ownedFiles);
         const result = await proposeModel3DTransaction(original, pin.provider, media);
@@ -364,7 +441,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       });
     });
 
-    it.each(["checksum", "phase", "missing", "version", "unknown-field"])("refuses a corrupt committed %s record rather than inferring native ownership", async (failure) => {
+    it.each(["checksum", "phase", "missing", "version", "unknown-field", "recovery"])("refuses a corrupt committed %s record rather than inferring native ownership", async (failure) => {
       await fixture(async (directory, root) => {
         await seed(directory);
         const { before, plan, transaction, ownedFiles } = await transactionPlan(directory, root);
@@ -376,9 +453,10 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         const file = ownedFiles[4]!;
         if (failure === "phase") journal.phase = "rolled-back";
         if (failure === "missing") journal.files[file] = { before: null, after: null };
-        if (failure === "version" || failure === "unknown-field") {
+        if (failure === "version" || failure === "unknown-field" || failure === "recovery") {
           const metadata = JSON.parse(Buffer.from(journal.files[file].after, "base64").toString());
           if (failure === "version") metadata.version = 2;
+          else if (failure === "recovery") metadata.recovery.models[0].settings.future = "preserve";
           else metadata.future = "preserve";
           journal.files[file].after = Buffer.from(JSON.stringify(metadata)).toString("base64");
         }
@@ -387,6 +465,28 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         const bytes = JSON.stringify(journal);
         await writeFile(backup, bytes);
         await expect(transaction.committedReferences(directory)).rejects.toThrow(/checksum|Invalid committed/);
+        expect(await readFile(backup, "utf8")).toBe(bytes);
+      });
+    });
+
+    it("keeps identity-only committed records readable but refuses to invent native recovery settings", async () => {
+      await fixture(async (directory, root) => {
+        const { before, plan, transaction, ownedFiles } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        await transaction.resumeSettingsTransaction(directory);
+        await transaction.commitSettingsTransaction(directory);
+        const expected = await transaction.committedReferences(directory);
+        const backup = path.join(directory, `.${pin.provider}-settings-committed-v1.json`);
+        const journal = JSON.parse(await readFile(backup, "utf8"));
+        const file = ownedFiles[4]!;
+        const metadata = JSON.parse(Buffer.from(journal.files[file].after, "base64").toString());
+        delete metadata.recovery;
+        journal.files[file].after = Buffer.from(JSON.stringify(metadata)).toString("base64");
+        const { checksum: _, ...payload } = journal;
+        journal.checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+        const bytes = JSON.stringify(journal); await writeFile(backup, bytes);
+        expect(await transaction.committedReferences(directory)).toEqual(expected);
+        await expect(transaction.committedMigration(directory)).rejects.toThrow("no original recovery settings");
         expect(await readFile(backup, "utf8")).toBe(bytes);
       });
     });
