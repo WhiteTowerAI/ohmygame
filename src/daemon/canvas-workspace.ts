@@ -1,3 +1,4 @@
+import { migratedMinimaxBoard } from "./minimax-model-migration.js";
 import { Compile } from "typebox/schema";
 import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
@@ -181,6 +182,10 @@ export async function readCanvasBoard(workspace: string, id: string): Promise<Ca
 export async function inspectCanvasBoard(workspace: string, id: string): Promise<{ detail: CanvasBoardDetail; issues: string[]; boardIssues: string[] } | undefined> {
   const name = `boards/${validId(id)}.json`, text = await readCanvasFile(workspace, name);
   if (text === undefined) return undefined;
+  return inspectCanvasBoardText(workspace, id, text);
+}
+async function inspectCanvasBoardText(workspace: string, id: string, text: string): Promise<{ detail: CanvasBoardDetail; issues: string[]; boardIssues: string[] }> {
+  const name = `boards/${validId(id)}.json`;
   let legacyAudio: string[] = [];
   const raw = parseCanvasJson<Omit<CanvasBoard, "editorLayout">>(text, name, CANVAS_BOARD_SCHEMA, boardFileValidator, (value) => {
     const migrated = migrateLegacyAudioNodes(value);
@@ -367,7 +372,7 @@ export class CanvasStore {
   readonly #jobs = new Map<string, StoredJob[]>();
   readonly #controllers = new Map<string, AbortController>();
   #closed = false;
-  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner) {}
+  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner, private readonly minimaxSettingsMigrated = false) {}
   #project(id: string) {
     const project = this.projects.get(id);
     if (!project) throw new CanvasError("Project not found", 404);
@@ -443,18 +448,42 @@ export class CanvasStore {
     });
   }
   async board(id: string, boardId: string): Promise<CanvasBoardDetail> {
+    return withCanvasLock(this.#project(id).workspacePath, () => this.#board(id, boardId));
+  }
+  async #board(id: string, boardId: string): Promise<CanvasBoardDetail> {
     const workspace = this.#project(id).workspacePath;
     if (!(await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) throw new CanvasError("Canvas board not found", 404);
-    const detail = await readCanvasBoard(workspace, boardId);
+    const detail = this.minimaxSettingsMigrated
+      ? await this.#migrateMinimaxBoard(workspace, boardId)
+      : await readCanvasBoard(workspace, boardId);
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);
     return detail;
+  }
+  // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Only future
+  // selections move; historical jobs and output provenance retain their owner.
+  async #migrateMinimaxBoard(workspace: string, boardId: string): Promise<CanvasBoardDetail | undefined> {
+    const name = `boards/${validId(boardId)}.json`, text = await readCanvasFile(workspace, name);
+    if (text === undefined) return;
+    // Validate the full current board, including tolerated legacy audio, before
+    // touching raw JSON. Do not serialize editor-normalized nodes or layout.
+    const current = await inspectCanvasBoardText(workspace, boardId, text);
+    const raw = JSON.parse(text) as CanvasBoard;
+    const migrated = migratedMinimaxBoard(raw);
+    if (migrated === raw) return current.detail;
+    const next = `${JSON.stringify(migrated, null, 2)}\n`;
+    if (Buffer.byteLength(next) > 4 * 1024 * 1024) throw new CanvasError("The board is too large to migrate its model selections", 409);
+    await inspectCanvasBoardText(workspace, boardId, next);
+    if (await readCanvasFile(workspace, name) !== text) throw new CanvasError("The board changed during model migration. Reload it before continuing.", 409);
+    await writeAtomic(workspace, name, next);
+    return readCanvasBoard(workspace, boardId);
   }
   async saveBoard(id: string, board: CanvasBoard, expected: string) {
     const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
-      const current = await this.board(id, board.id);
+      const current = await this.#board(id, board.id);
       if (current.revision !== expected) throw new CanvasError("The board changed. Reload the latest board before saving.", 409);
       if (!isCanvasBoard(board)) throw new CanvasError("Invalid canvas board");
+      if (this.minimaxSettingsMigrated) board = migratedMinimaxBoard(board);
       const index = (await readCanvasIndex(workspace))!;
       const documents = index.documents;
       const existingTables = new Set(current.board.nodes.flatMap((node) => node.type === "table" ? [node.data.tableId] : []));
@@ -522,7 +551,7 @@ export class CanvasStore {
     const upstream = reading ? await this.#upstream(id, read.board, reading) : {};
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
-      const detail = await this.board(id, boardId);
+      const detail = await this.#board(id, boardId);
       if (expectedReads && nodeReads(detail.board, nodeId) !== expectedReads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const node = detail.board.nodes.find((node) => node.id === nodeId);
       const expectedNodeType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
@@ -749,7 +778,7 @@ export class CanvasStore {
     const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
-      if (nodeReads((await this.board(id, boardId)).board, nodeId) !== reads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
+      if (nodeReads((await this.#board(id, boardId)).board, nodeId) !== reads) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const jobs = await this.#loadJobs(id);
       const nodeJobs = jobs.filter((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId);
       const running = nodeJobs.find((job) => job.status === "running");

@@ -1,3 +1,5 @@
+import { createAssetGenerationNode } from "../dist/shared/asset-canvas.js";
+import { canvasNodeContent } from "../dist/shared/canvas-node-layout.js";
 import { prepareSettingsTransaction, resumeSettingsTransaction, SETTINGS_TRANSACTION_FILE } from "../dist/daemon/minimax-settings-transaction.js";
 import { snapshot as settingsSnapshot } from "../dist/daemon/minimax-settings-snapshot.js";
 import assert from "node:assert/strict";
@@ -81,6 +83,25 @@ try {
   const projects = await fetch(`${daemon.runtime.url}/projects`, { headers }).then(response => response.json());
   const story = projects.find(project => project.type === "interactive-story");
   assert(story, "The story fixture must exist before checking project archives");
+  const canvasBase = `${daemon.runtime.url}/projects/${story.id}/canvas`;
+  const workspaceResponse = await fetch(`${canvasBase}/workspace`, { headers });
+  assert.equal(workspaceResponse.status, 200);
+  const workspace = await workspaceResponse.json(), boardId = workspace.boards[0].id;
+  const boardFile = path.join(story.workspacePath, "canvas", "boards", `${boardId}.json`);
+  const layoutFile = path.join(story.workspacePath, "canvas", "editor", `${boardId}.json`);
+  const board = JSON.parse(await readFile(boardFile, "utf8")), layoutBefore = await readFile(layoutFile, "utf8");
+  const video = createAssetGenerationNode("video", { x: 200, y: 100 });
+  video.data.model = { provider: "minimax-video-global", id: "MiniMax-H3" };
+  video.data.prompt = "No generation: migrate this saved selection only";
+  board.nodes.push(canvasNodeContent(video));
+  await writeFile(boardFile, JSON.stringify(board));
+  const migratedBoardResponse = await fetch(`${canvasBase}/boards/${boardId}`, { headers });
+  assert.equal(migratedBoardResponse.status, 200);
+  const migratedBoard = await migratedBoardResponse.json();
+  assert.equal(migratedBoard.board.nodes.find(node => node.id === video.id).data.model.provider, "plugin.ohmygame.minimax.global");
+  assert.equal(JSON.parse(await readFile(boardFile, "utf8")).nodes.find(node => node.id === video.id).data.model.provider, "plugin.ohmygame.minimax.global");
+  assert.equal(await readFile(layoutFile, "utf8"), layoutBefore);
+
   const exported = await fetch(`${daemon.runtime.url}/projects/${story.id}/export`, {
     method: "POST", headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(10_000),
   });

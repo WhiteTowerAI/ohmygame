@@ -1,4 +1,4 @@
-import { recoverInterruptedMinimaxSettings } from "./minimax-settings-transaction.js";
+import { recoverInterruptedMinimaxSettings, hasCommittedSettingsTransaction } from "./minimax-settings-transaction.js";
 import { acquireProfileOwnership } from "./profile-ownership.js";
 import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
@@ -55,6 +55,7 @@ try {
   process.once("exit", releaseProfile);
   // Before createApp's eager plugin indexing or any settings caches exist.
   await recoverInterruptedMinimaxSettings(dataDirectory);
+  const minimaxSettingsMigrated = await hasCommittedSettingsTransaction(dataDirectory);
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,
@@ -69,6 +70,7 @@ try {
   }
   app = createApp({
     dataDirectory,
+    minimaxSettingsMigrated,
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,

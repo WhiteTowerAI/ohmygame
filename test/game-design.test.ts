@@ -1154,3 +1154,124 @@ it("sends an audio node's settings and keeps no subtitles a provider returns", a
   const restored = new AssetLibrary(directory); await restored.load();
   expect(restored.get(output.assetId!)?.audio?.metadata?.originalDurationMs).toBe(1200);
 });
+
+
+describe("MiniMax canvas model migration", () => {
+  it.each([false, true])("gates migration through the app's committed startup state (%s)", async (committed) => {
+    const app = createApp({ dataDirectory: await temp(), minimaxSettingsMigrated: committed }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const base = `/projects/${project.id}/canvas`;
+    const workspace = (await app.inject(`${base}/workspace`)).json();
+    const boardId = workspace.boards[0].id, file = path.join(project.workspacePath, "canvas", "boards", `${boardId}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.nodes.push({ id: "legacy-video", type: "video", data: { ...createAssetGenerationNode("video", { x: 0, y: 0 }).data, prompt: "A quiet garden", references: [], model: { provider: "minimax-video-global", id: "MiniMax-H3" } } });
+    const bytes = JSON.stringify(raw); await writeFile(file, bytes);
+    const response = await app.inject(`${base}/boards/${boardId}`);
+    expect(response.statusCode, response.body).toBe(200);
+    const expected = committed ? "plugin.ohmygame.minimax.global" : "minimax-video-global";
+    expect(response.json().board.nodes[0].data.model.provider).toBe(expected);
+    expect(JSON.parse(await readFile(file, "utf8")).nodes[0].data.model.provider).toBe(expected);
+    if (!committed) expect(await readFile(file, "utf8")).toBe(bytes);
+    const editing = response.json();
+    editing.board.nodes[0].data.model.provider = "minimax-video-global";
+    const saved = await app.inject({ method: "PUT", url: `${base}/boards/${boardId}`, payload: editing });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().board.nodes[0].data.model.provider).toBe(expected);
+  });
+
+  async function fixture() {
+    const state = await runtime();
+    const detail = await state.store.board(state.project.id, state.boardId);
+    const models = [
+      { provider: "minimax-video-cn", id: "MiniMax-H3" },
+      { provider: "minimax-video-global", id: "MiniMax-H3-Max" },
+      { provider: "minimax-video-cn", id: "unknown-model" },
+      { provider: "another-provider", id: "MiniMax-H3" },
+    ];
+    for (const model of models) {
+      const node = createAssetGenerationNode("video", { x: 300, y: 400 });
+      if (node.type !== "video") throw new Error("Expected video node");
+      node.data.model = model;
+      node.data.prompt = "Keep this creative direction";
+      node.title = model.provider;
+      detail.board.nodes.push(node);
+      detail.board.editorLayout.nodes[node.id] = node.position;
+    }
+    const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, true);
+    stores.push(migrating);
+    const folder = path.join(state.project.workspacePath, "canvas");
+    const file = path.join(folder, "boards", `${state.boardId}.json`);
+    return { ...state, migrating, folder, file, before };
+  }
+
+  it("moves saved selections on owned load while keeping layout, history and other node data", async () => {
+    const { store, migrating, project, boardId, folder, file, before } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`);
+    const layout = await readFile(layoutFile, "utf8"), index = await readFile(path.join(folder, "index.json"), "utf8");
+    const jobs = "opaque historical inputs, task IDs and recovery ownership";
+    await writeFile(path.join(folder, "jobs.json"), jobs);
+    expect((await store.board(project.id, boardId)).revision).toBe(before.revision);
+    const [first, second] = await Promise.all([migrating.board(project.id, boardId), migrating.board(project.id, boardId)]);
+    expect(first.revision).toBe(second.revision);
+    expect(first.revision).not.toBe(before.revision);
+    const expected = structuredClone(raw);
+    expected.nodes[1].data.model.provider = "plugin.ohmygame.minimax.cn";
+    expected.nodes[2].data.model.provider = "plugin.ohmygame.minimax.global";
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+    expect(await readFile(path.join(folder, "index.json"), "utf8")).toBe(index);
+    expect(await readFile(path.join(folder, "jobs.json"), "utf8")).toBe(jobs);
+    const bytes = await readFile(file, "utf8");
+    expect((await migrating.board(project.id, boardId)).revision).toBe(first.revision);
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    await expect(migrating.saveBoard(project.id, before.board, before.revision)).rejects.toMatchObject({ statusCode: 409 });
+    first.board.nodes[0]!.title = "A new edit after migration";
+    const saved = await migrating.saveBoard(project.id, first.board, first.revision);
+    expect(saved.board.nodes[0]!.title).toBe("A new edit after migration");
+  });
+
+  it("keeps a historical retry's model and recovery ID after moving the node selection", async () => {
+    const { store, migrating, tools, library, project, boardId, before } = await fixture();
+    const video = before.board.nodes[1]!;
+    const output = await library.add("continued.mp4", Buffer.from("video"));
+    const run = vi.spyOn(tools, "runPrepared")
+      .mockRejectedValueOnce(new Error("Interrupted legacy request"))
+      .mockResolvedValueOnce({ id: "continued", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    const job = await store.generateNode(project.id, boardId, video.id);
+    expect((await waitForJob(store, project.id)).status).toBe("failed");
+    await migrating.board(project.id, boardId);
+    expect(run).toHaveBeenCalledOnce();
+    await migrating.retry(project.id, job.id);
+    expect((await waitForJob(migrating, project.id)).status).toBe("succeeded");
+    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
+    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
+    expect(run.mock.calls[1]![1]).toMatchObject({ model: { provider: "minimax-video-cn", id: "MiniMax-H3" } });
+    expect((await migrating.board(project.id, boardId)).board.nodes.find((node) => node.id === video.id)).toMatchObject({ data: { model: { provider: "plugin.ohmygame.minimax.cn", id: "MiniMax-H3" }, assetId: expect.any(String) } });
+  });
+
+  it("refuses an expanded board exceeding the byte limit without writing an unreadable file", async () => {
+    const { migrating, project, boardId, file } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.nodes[1].data.prompt = "";
+    raw.nodes[1].data.prompt = "x".repeat(4 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(raw)) - 10);
+    const text = JSON.stringify(raw); await writeFile(file, text);
+    await expect(migrating.board(project.id, boardId)).rejects.toThrow("too large to migrate");
+    expect(await readFile(file, "utf8")).toBe(text);
+  });
+
+  it.each(["future-version", "unknown-data", "malformed", "wrong-id"])("refuses %s without replacing the board or its layout", async (kind) => {
+    const { migrating, project, boardId, folder, file } = await fixture();
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    if (kind === "future-version") raw.version = 2;
+    if (kind === "unknown-data") raw.nodes[1].data.future = { preserve: true };
+    if (kind === "wrong-id") raw.id = "another-board";
+    const bytes = kind === "malformed" ? "{invalid" : JSON.stringify(raw);
+    await writeFile(file, bytes);
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`), layout = await readFile(layoutFile, "utf8");
+    await expect(migrating.board(project.id, boardId)).rejects.toThrow();
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+  });
+});
