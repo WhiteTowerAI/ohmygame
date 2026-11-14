@@ -830,6 +830,7 @@ export function createApp(options: AppOptions = {}) {
     : providerModelSettings.isEnabled(id);
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
@@ -844,6 +845,7 @@ export function createApp(options: AppOptions = {}) {
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
     minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
     // Made with the plugin services below, before any request comes.
     pluginVideos: {
@@ -921,7 +923,7 @@ export function createApp(options: AppOptions = {}) {
       return { ...input, [key]: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
-    options.minimaxSettingsMigrated,
+    { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true },
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // Explicit legacy bundles are retained for migration fixtures and custom hosts.
@@ -3849,7 +3851,7 @@ export function createApp(options: AppOptions = {}) {
       status: settings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${name} API key` }],
       credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
+    })), ...(options.seedanceSettingsMigrated ? [] : SEEDANCE_PROVIDER_IDS).map((providerId) => {
       const definition = SEEDANCE_PROVIDERS[providerId];
       const configured = seedanceSettings.get(providerId).configured;
       return {
@@ -3993,6 +3995,7 @@ export function createApp(options: AppOptions = {}) {
     seedanceSettings,
     minimaxSettings,
     minimaxSettingsMigrated: options.minimaxSettingsMigrated,
+    seedanceSettingsMigrated: options.seedanceSettingsMigrated,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,

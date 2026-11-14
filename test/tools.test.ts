@@ -24,7 +24,7 @@ describe("tool runner", () => {
     const bytes = JSON.stringify([{ id: "legacy-minimax", toolId: "generate-video", status: "cancelled", title: "Preserve intent", createdAt: "2026-11-01T00:00:00.000Z", input, prepared: true, recoveryId: "original-owner" }]);
     await writeFile(file, bytes);
     const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
-    const runner = new ToolRunner(directory, fakeGenerator(), undefined, { generate }, undefined, undefined, undefined, committed);
+    const runner = new ToolRunner(directory, fakeGenerator(), undefined, { generate }, undefined, undefined, undefined, { minimax: committed });
     await runner.load();
     if (committed) {
       expect(() => runner.retryJob("legacy-minimax")).toThrow("Check its status in MiniMax");
@@ -38,6 +38,33 @@ describe("tool runner", () => {
       expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("original-owner");
     }
     await runner.close();
+  });
+
+  it.each(["image", "ark-video", "byteplus-video"] as const)("retains %s jobs and rejects replay only after Seedance cutover", async (kind) => {
+    for (const committed of [false, true]) {
+      const directory = await temporaryData(), file = path.join(directory, "tools/jobs.json");
+      await mkdir(path.dirname(file), { recursive: true });
+      const model = { provider: kind === "byteplus-video" ? "byteplus-modelark" : "volcengine-ark", id: "legacy-model" };
+      const input = { prompt: "Keep original intent", [kind === "image" ? "imageModel" : "model"]: model, ...(kind === "image" ? {} : { duration: 5, resolution: "720p", aspectRatio: "16:9" }) };
+      const bytes = JSON.stringify([{ id: "old-seedance", toolId: kind === "image" ? "generate-image" : "generate-video", status: "cancelled", title: "Keep intent", createdAt: "2026-11-01T00:00:00.000Z", input, model: { provider: "stale-display", id: "ignored" }, prepared: true, recoveryId: "same-owner", error: "Original provider error" }]);
+      await writeFile(file, bytes);
+      const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
+      const runner = new ToolRunner(directory, { generate }, undefined, { generate }, undefined, undefined, undefined, { seedance: committed });
+      try {
+        await runner.load();
+        if (committed) {
+          expect(() => runner.retryJob("old-seedance")).toThrow("Check its result and billing");
+          expect(runner.jobs()[0]?.error).toContain("Check its result and billing");
+          expect(await readFile(file, "utf8")).toBe(bytes);
+          expect(generate).not.toHaveBeenCalled();
+        } else {
+          runner.retryJob("old-seedance");
+          await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
+          expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
+          expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("same-owner");
+        }
+      } finally { await runner.close(); }
+    }
   });
 
   it("rejects removed audio reference and subtitle options before generation", async () => {

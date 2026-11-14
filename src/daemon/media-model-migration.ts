@@ -1,5 +1,13 @@
 import type { CanvasBoard } from "../shared/canvas-workspace.js";
-import type { AgentModelRef } from "../shared/contracts.js";
+import {
+  MINIMAX_RETIRED_RETRY,
+  SEEDANCE_RETIRED_RETRY,
+} from "../shared/media-migration-errors.js";
+import type {
+  AgentModelRef,
+  RunToolRequest,
+  ToolJob,
+} from "../shared/contracts.js";
 import { migratedMinimaxModel } from "./minimax-model-migration.js";
 import { SEEDANCE_MIGRATION_REGIONS } from "./seedance-migration-settings.js";
 
@@ -47,4 +55,47 @@ export function migratedMediaBoard(
       : { ...node, data: { ...node.data, model } };
   });
   return changed ? { ...board, nodes } : board;
+}
+
+// compat: since beta.5.8, remove from beta.7 and 2026-12-14. Historical
+// built-in tasks retain their owner; replay could submit another paid request.
+type HistoricalMediaJob = Pick<ToolJob, "toolId" | "model"> & {
+  input?: RunToolRequest;
+};
+export function retiredMediaRetry(
+  job: HistoricalMediaJob,
+  state: MediaMigrationState,
+): string | undefined {
+  const model =
+    job.toolId === "generate-image"
+      ? job.input && "imageModel" in job.input
+        ? job.input.imageModel
+        : job.model
+      : job.input && "model" in job.input
+        ? job.input.model
+        : job.model;
+  if (
+    state.minimax &&
+    job.toolId === "generate-video" &&
+    (model?.provider === "minimax-video-cn" ||
+      model?.provider === "minimax-video-global")
+  )
+    return MINIMAX_RETIRED_RETRY;
+  if (
+    state.seedance &&
+    (job.toolId === "generate-image" || job.toolId === "generate-video") &&
+    (model?.provider === "volcengine-ark" ||
+      model?.provider === "byteplus-modelark")
+  )
+    return SEEDANCE_RETIRED_RETRY;
+}
+
+/** A read-only notice; preserve the original error and input in stored history. */
+export function mediaJobNotice<
+  T extends HistoricalMediaJob & Pick<ToolJob, "status">,
+>(job: T, state: MediaMigrationState): T {
+  const error = ["failed", "cancelled"].includes(job.status)
+    ? retiredMediaRetry(job, state)
+    : undefined;
+  return error ? { ...job, error } : job;
 }

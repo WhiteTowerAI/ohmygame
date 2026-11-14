@@ -18,14 +18,14 @@ afterEach(async () => {
 const model = { id: "custom/test", name: "Custom test", api: "openai-completions", contextWindow: 32_000, maxTokens: 4_000, reasoning: false, supportsImages: false };
 const otherCredential = { type: "api_key", key: "other-test-key" };
 
-async function fixture(files: Record<string, unknown> = {}, minimaxSettingsMigrated = false) {
+async function fixture(files: Record<string, unknown> = {}, minimaxSettingsMigrated = false, seedanceSettingsMigrated = false) {
   vi.stubEnv("OPENAI_API_KEY", "");
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-provider-removal-"));
   directories.push(directory);
   for (const [file, contents] of Object.entries(files)) await writeFile(path.join(directory, file), typeof contents === "string" ? contents : JSON.stringify(contents));
   const restart = async () => {
     const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
-    const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, minimaxSettingsMigrated, createModelRuntime: async () => runtime });
+    const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, minimaxSettingsMigrated, seedanceSettingsMigrated, createModelRuntime: async () => runtime });
     apps.push(app);
     await app.ready();
     return { runtime, app };
@@ -44,6 +44,23 @@ async function connect(runtime: ModelRuntime, providerId: string) {
 }
 
 describe("provider deletion", () => {
+  it("keeps both Seedance keys while retiring connection setup and catalogs", async () => {
+    const { app, directory } = await fixture({ "seedance.json": { version: 1, volcengineApiKey: "retained-ark", byteplusApiKey: "retained-byteplus", future: true } }, false, true);
+    const before = await readFile(path.join(directory, "seedance.json"), "utf8");
+    for (const provider of ["volcengine-ark", "byteplus-modelark"]) {
+      for (const method of ["PUT", "DELETE"] as const) {
+        const result = await app.inject({ method, url: `/settings/models/providers/${provider}/seedance-key`, ...(method === "PUT" ? { payload: { apiKey: "replacement" } } : {}) });
+        expect(result.statusCode, result.body).toBe(409);
+      }
+      expect((await app.inject({ method: "DELETE", url: `/settings/models/providers/${provider}` })).statusCode).toBe(409);
+      for (const route of ["/image-models", "/video-models", "/settings/providers"]) {
+        const list = (await app.inject(route)).json();
+        expect(list.some((item: { id: string; provider: string }) => item.id === provider || item.provider === provider)).toBe(false);
+      }
+    }
+    expect(await readFile(path.join(directory, "seedance.json"), "utf8")).toBe(before);
+  });
+
   it("keeps legacy credentials after cutover and refuses writes through the retired connection", async () => {
     const { app, directory } = await fixture({ "minimax.json": { version: 1, globalApiKey: "retained" } }, true);
     const before = await readFile(path.join(directory, "minimax.json"), "utf8");

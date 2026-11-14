@@ -1,4 +1,4 @@
-import { MINIMAX_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
+import { MINIMAX_RETIRED_PROVIDER, SEEDANCE_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CustomProviderDetails, MediaModelCatalog, VideoModel, VideoModelRef } from "../shared/contracts.js";
@@ -37,6 +37,7 @@ export class ProviderVideos implements VideoGenerator {
       customProviders?: () => Promise<CustomProviderDetails[]>;
       defaultModel?: () => VideoModelRef | undefined;
       minimaxSettingsMigrated?: boolean;
+      seedanceSettingsMigrated?: boolean;
       minimaxApiKey?: (providerId: MinimaxProviderId) => string | undefined;
       /** Installed plugins' providers that make videos through an adapter. */
       pluginVideos?: Pick<PluginMediaProviders, "videoProviders" | "generateVideo">;
@@ -53,7 +54,7 @@ export class ProviderVideos implements VideoGenerator {
     const entries = await Promise.all([
       this.#openRouterCatalog(signal),
       ...SEEDANCE_PROVIDER_IDS.map(async (providerId) => {
-        if (!this.isEnabled(providerId) || !this.seedanceApiKey(providerId)) return undefined;
+        if (this.options.seedanceSettingsMigrated || !this.isEnabled(providerId) || !this.seedanceApiKey(providerId)) return undefined;
         const definition = SEEDANCE_PROVIDERS[providerId];
         const models = seedanceModels(providerId);
         return {
@@ -119,6 +120,7 @@ export class ProviderVideos implements VideoGenerator {
 
   async generate(input: VideoGenerationInput, signal?: AbortSignal, options: VideoGenerationOptions = {}): Promise<GeneratedVideo> {
     input = { ...input, model: input.model ?? this.options.defaultModel?.() };
+    if (this.options.seedanceSettingsMigrated && input.model && isSeedanceProviderId(input.model.provider)) throw new VideoGenerationError(SEEDANCE_RETIRED_PROVIDER, 409);
     if (this.options.minimaxSettingsMigrated && input.model && isMinimaxProviderId(input.model.provider)) throw new VideoGenerationError(MINIMAX_RETIRED_PROVIDER, 409);
     if (!this.isEnabled(input.model?.provider ?? "openrouter")) throw new VideoGenerationError("The selected provider is disabled", 409);
     if (input.model?.provider.startsWith("plugin.")) {

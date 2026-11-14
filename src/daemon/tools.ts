@@ -1,5 +1,4 @@
-import { MINIMAX_RETIRED_RETRY } from "../shared/media-migration-errors.js";
-import { legacyMinimaxJob, minimaxJobNotice } from "./minimax-model-migration.js";
+import { mediaJobNotice, retiredMediaRetry, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -91,7 +90,7 @@ export class ToolRunner {
     private readonly assetLibrary?: AssetLibrary,
     private readonly resolveInput?: (toolId: string, input: RunToolRequest, projectId?: string) => Promise<RunToolRequest>,
     private readonly audioGenerator?: AudioGenerator,
-    private readonly minimaxSettingsMigrated = false,
+    private readonly mediaMigrations: MediaMigrationState = {},
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -160,7 +159,7 @@ export class ToolRunner {
   jobs(): ToolJob[] {
     return [...this.#jobs.values()]
       .reverse()
-      .map(job => publicJob(minimaxJobNotice(job, this.minimaxSettingsMigrated)));
+      .map(job => publicJob(mediaJobNotice(job, this.mediaMigrations)));
   }
 
   cancelJob(jobId: string): ToolJob {
@@ -180,7 +179,8 @@ export class ToolRunner {
     if (!job) throw new ToolRunError("Generation job not found", 404);
     if (job.status !== "failed" && job.status !== "cancelled") throw new ToolRunError("Only failed or cancelled jobs can be retried", 409);
     if (!job.input) throw new ToolRunError("Generation job can no longer be retried", 409);
-    if (this.minimaxSettingsMigrated && legacyMinimaxJob(job)) throw new ToolRunError(MINIMAX_RETIRED_RETRY, 409);
+    const retired = retiredMediaRetry(job, this.mediaMigrations);
+    if (retired) throw new ToolRunError(retired, 409);
     this.#jobs.delete(jobId);
     return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId);
   }
