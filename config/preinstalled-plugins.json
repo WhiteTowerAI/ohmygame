@@ -58,11 +58,11 @@
     {
       "type": "npm",
       "pluginId": "taptap-maker",
-      "releaseId": "taptap-maker-1.0.1",
+      "releaseId": "taptap-maker-1.0.2",
       "id": "ohmygame/taptap-maker",
       "package": "@ohmygame/taptap-maker",
-      "version": "1.0.1",
-      "integrity": "sha512-aDcB+tPKfKfj2yDyGl5XSL5lUQZTDTh5HzOwbYKFbBqe5XniVPCAb6QdXxdzxdCDZnc1C66o6SHWTPVYrF2H4g=="
+      "version": "1.0.2",
+      "integrity": "sha512-nLkPWrq+dNGwRkyXth0vp9LYazE61OTRnEUgHK7A8lGTfFtjfCceC5kw0/97Vo5vkTLtyrUveTL8YdapS6nBdQ=="
     },
     {
       "type": "npm",

@@ -1709,3 +1709,26 @@ an explicit list of immutable sources; existing provider receipt formats and
 recovery paths are unchanged. Production startup does not activate this Doubao
 transaction yet. Real-account acceptance, installed-package gating, reference
 mapping and native paid-request ownership remain separate cutover requirements.
+
+### Prepared Doubao model references
+
+A dormant `doubao` migration flag maps both current audio models under
+`volcengine-tts`, plus the historical `volcengine-seed-audio` Seed Audio reference,
+to `plugin.ohmygame.doubao-voice.doubao-voice`. Mapping checks the model and audio
+kind, retains voice/output options and reference metadata, and changes only
+future selections in project defaults, canvas boards and new tool requests.
+Unknown models and incompatible kinds remain visible to normal validation.
+
+Old speech/effect/music nodes using the separate Seed Audio provider receive
+kind-specific prompt instructions during their existing audio-format migration.
+Provider mapping preserves those instructions before changing the ID, so opening
+an old music node still requests instrumental music. Raw nodes and output
+provenance remain otherwise unchanged; repeated loads are idempotent. Unknown
+board data is refused without overwriting it.
+
+Historical native paid jobs retain their owner and original stored request/error.
+After activation, failed/cancelled jobs show a translated notice to check the
+Volcengine result and billing; retry is refused before generation. Native audio
+has no durable vendor receipt that a plugin can safely resume. Production
+startup does not set this flag yet. Remove compatibility no earlier than beta.7
+and 2026-12-15, after retained native-task obligations are resolved.

@@ -37,6 +37,7 @@ const LEGACY_FILES: Record<DoubaoService, string> = {
 export class DoubaoVoiceSettingsStore {
   #settings: Settings = { version: 1, services: {} };
   #mutations = Promise.resolve();
+  #unreadable = false;
   readonly #directory: string;
   readonly #file: string;
   constructor(directory: string) {
@@ -45,18 +46,24 @@ export class DoubaoVoiceSettingsStore {
   }
 
   async load(): Promise<void> {
+    this.#unreadable = true;
     const current = await readSettings(this.#file);
     if (current) {
       if (
         current.version !== 1 ||
         !current.services ||
-        typeof current.services !== "object"
+        typeof current.services !== "object" || Array.isArray(current.services) ||
+        Object.entries(current.services).some(([service, key]) =>
+          !Object.hasOwn(LEGACY_FILES, service) || (key !== null && typeof key !== "string")) ||
+        (current.apiKey !== undefined && typeof current.apiKey !== "string") ||
+        (current.defaultVoiceId !== undefined && typeof current.defaultVoiceId !== "string")
       )
         throw new Error("Invalid Doubao Voice settings");
       this.#settings = current as unknown as Settings;
     }
-    const tts = await readSettings(this.#legacy("volcengine-tts"));
-    const seed = await readSettings(this.#legacy("volcengine-seed-audio"));
+    const tts = await readLegacySettings(this.#legacy("volcengine-tts"), true);
+    const seed = await readLegacySettings(this.#legacy("volcengine-seed-audio"), false);
+    this.#unreadable = false;
     if (!tts && !seed) return;
     const ttsKey = stringValue(tts?.apiKey),
       seedKey = stringValue(seed?.apiKey);
@@ -139,6 +146,7 @@ export class DoubaoVoiceSettingsStore {
   }
   async #mutate(next: () => Settings): Promise<void> {
     const pending = this.#mutations.then(async () => {
+      if (this.#unreadable) throw new Error("Doubao Voice settings cannot be overwritten after an unreadable load");
       const settings = next();
       await mkdir(path.dirname(this.#file), { recursive: true });
       const temporary = `${this.#file}.${randomUUID()}.tmp`;
@@ -171,7 +179,10 @@ async function readSettings(
   file: string,
 ): Promise<Record<string, unknown> | undefined> {
   try {
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    const text = await readFile(file, "utf8");
+    let value: unknown;
+    try { value = JSON.parse(text); }
+    catch { throw new Error("Invalid Doubao Voice settings"); }
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error(`Invalid Doubao Voice settings: ${file}`);
     return value as Record<string, unknown>;
@@ -183,4 +194,17 @@ async function readSettings(
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+
+/** Validate before the loader can merge/delete either old file. Unknown data stays untouched. */
+async function readLegacySettings(file: string, voice: boolean): Promise<Record<string, unknown> | undefined> {
+  const value = await readSettings(file);
+  if (!value) return;
+  const allowed = voice ? ["version", "apiKey", "defaultVoiceId"] : ["version", "apiKey"];
+  if (value.version !== 1 || Object.keys(value).some(key => !allowed.includes(key)) ||
+    (value.apiKey !== undefined && typeof value.apiKey !== "string") ||
+    (value.defaultVoiceId !== undefined && typeof value.defaultVoiceId !== "string"))
+    throw new Error("Unsupported legacy Doubao Voice settings");
+  return value;
 }

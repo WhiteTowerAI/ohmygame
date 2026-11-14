@@ -2682,6 +2682,8 @@ const zhCN: typeof en = {
   api: {
     model3DRetiredProvider: "此 3D 服务已迁移到插件。请选择插件模型，旧内置服务已停用。",
     seedanceRetiredProvider: "Seedream 和 Seedance 已迁移到插件。请选择插件模型，旧内置服务已停用。",
+    doubaoRetiredProvider: "豆包语音已改为通过插件提供。请选择豆包插件模型；旧内置服务已不再可用。",
+    doubaoRetiredRetry: "无法恢复这项旧内置豆包音频任务。请先在火山引擎确认结果和计费，再决定是否使用插件重新生成。",
     elevenlabsRetiredProvider: "ElevenLabs 已改为通过插件提供。请选择 ElevenLabs 插件模型；旧内置服务已不再可用。",
     elevenlabsRetiredRetry: "无法恢复这项旧内置 ElevenLabs 任务。请先在 ElevenLabs 确认结果和计费，再决定是否使用插件重新生成。",
     seedanceRetiredRetry: "无法恢复这项旧内置 Seedream 或 Seedance 任务。请先在火山方舟或 BytePlus 确认结果和计费，再决定是否使用插件重新生成。",
