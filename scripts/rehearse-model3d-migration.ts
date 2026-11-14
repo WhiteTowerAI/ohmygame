@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { MODEL3D_MIGRATION_PACKAGES } from "../src/daemon/model3d-migration-package.js";
 import {
-  model3DSettingsFiles,
-  proposeModel3DSettings,
-} from "../src/daemon/model3d-migration-settings.js";
+  model3DTransactionFiles,
+  model3DSettingsTransaction,
+  proposeModel3DTransaction,
+} from "../src/daemon/model3d-settings-transaction.js";
 import { snapshot, same } from "../src/daemon/media-settings-snapshot.js";
-import { createSettingsTransaction } from "../src/daemon/media-settings-transaction.js";
 import { indexPluginPackage } from "../src/daemon/plugin-index.js";
 import { rehearseSettingsMigration } from "./rehearse-media-settings.js";
 
@@ -41,24 +41,17 @@ export async function rehearseModel3DMigration(
   )?.media?.["3d"];
   if (!media?.editableModels)
     throw new Error("No editable 3D models in the reviewed package");
-  const files = model3DSettingsFiles(provider);
-  const transaction = createSettingsTransaction({
-    files,
-    source: files[0],
-    journal: `.${provider}-settings-transaction.json`,
-    backup: `.${provider}-settings-committed-v1.json`,
-    label: provider,
-  });
+  const files = model3DTransactionFiles(provider);
+  const transaction = model3DSettingsTransaction(provider);
   return rehearseSettingsMigration(dataDirectory, {
     name: provider,
     snapshot: (directory) => snapshot(directory, files),
     same: (a, b) => same(a, b, files),
     inspect: async (directory) => {
-      const plan = await proposeModel3DSettings(
+      const plan = await proposeModel3DTransaction(
         await snapshot(directory, files),
         provider,
-        media.models,
-        media.processing?.id,
+        media,
       );
       return { ...plan, blockers: plan.report.blockers };
     },

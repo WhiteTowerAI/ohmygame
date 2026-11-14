@@ -1185,6 +1185,22 @@ There is no `--apply` option, startup hook, plugin installation, permission chan
 or vendor request. Real package/enablement checks, local vendor acceptance,
 saved-reference migration and native task recovery remain required before cutover.
 
+The rehearsal also includes `.<provider>-model-references-v1.json` in the same
+transaction as settings. This versioned record contains only the reviewed
+package identity/digest, generation IDs (including native custom versions), their
+operations and the processing connection. Unsupported or conflicting existing
+records block the entire proposal. Interrupted, uncommitted transactions restore
+both settings and the record byte for byte.
+
+The prepared transaction API reads reference state only from the checksummed,
+committed backup, never from the editable sidecar or today's model catalog.
+Deleting models, clearing a key or uninstalling a plugin cannot undo that recorded
+migration; invalid backups are refused instead of interpreted as native ownership.
+Historical package identity does not grant execution permission: future startup
+activation must still check the installed package and current plugin enablement,
+and native task recovery must use current credentials. These startup and retry
+paths are not activated by the rehearsal.
+
 #### Prepared 3D reference migration
 
 The shared migration state accepts reviewed per-provider model IDs, generation
