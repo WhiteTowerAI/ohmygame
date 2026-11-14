@@ -60,11 +60,12 @@ syncBuiltinESMExports();
       ? await import("../../src/daemon/seedance-settings-transaction.ts")
       : await import("../../src/daemon/minimax-settings-transaction.ts");
   if (action === "activate") {
-    if (vendor === "elevenlabs") throw new Error("ElevenLabs activation is held");
     const { acquireProfileOwnership } =
       await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
-    const activate = native3d
+    const activate = vendor === "elevenlabs"
+      ? (await import("../../src/daemon/elevenlabs-settings-migration.ts")).migrateElevenLabsSettings
+      : native3d
       ? (directory) => import("../../src/daemon/model3d-settings-migration.ts").then(({ migrateModel3DSettings }) => migrateModel3DSettings(directory, vendor))
       : vendor === "seedance"
       ? (await import("../../src/daemon/seedance-settings-migration.ts")).migrateSeedanceSettings
