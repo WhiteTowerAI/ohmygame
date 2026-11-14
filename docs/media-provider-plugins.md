@@ -1629,3 +1629,37 @@ The actual installed Beta adapter supplies account voices and transcription as
 well as generation. Disabling or removing it cannot re-enable native fallback.
 Production startup still leaves this context unset pending local acceptance;
 this is application preparation, not an automatic provider switch.
+
+### Doubao / Volcengine settings inspection
+
+The optional `ohmygame/doubao-voice` Beta combines speech synthesis and Seed Audio
+under one API key and requires host API 2.25. Native services remain available.
+
+```sh
+bun run inspect:doubao-migration --data-dir /path/to/copied-app-data
+```
+
+This reads only `doubao-voice.json`, the two earlier `volcengine-tts.json` and
+`volcengine-seed-audio.json` files, plugin configuration and model preferences.
+It deliberately does not load the native settings store, whose loader merges
+and removes the earlier files. Current service overrides, including an explicit
+`null` disconnection, take precedence over earlier keys. The current default
+voice takes precedence; an absent one can use the earlier TTS default. The
+inspector preserves every file byte, checks for concurrent changes, and refuses
+linked files/directories.
+
+Equal effective service keys can be proposed for the shared plugin field.
+Different keys or only one connected service hold migration: combining them
+would replace a key or reconnect a service. Separate provider enable switches
+also hold migration. Known hidden models can be combined, but unknown models,
+conflicting target choices, invalid voice types, future/malformed stores and
+unknown legacy fields require review. Defaults must match both their original
+provider's model and audio kind. Credentials, voice IDs, unknown data and parser
+input never appear in the report.
+
+Exit codes are 0 for no settings blockers, 1 for blockers and 2 for invalid
+arguments, unavailable/linked data or a changing snapshot. Even a clear report
+remains `activation: "held"`: this command does not install or enable a plugin,
+copy settings, verify live generation, rewrite canvas references or replay old
+paid requests. Native unfinished audio still owns its original request; a
+settings proposal cannot turn it into an automatic plugin resubmission.
