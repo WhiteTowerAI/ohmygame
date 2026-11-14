@@ -472,7 +472,10 @@ appear in model menus, the canvas and the agent's tools, as with a chat
 provider's models. A model turned on is kept whole in
 `plugin-media-models.json` in the app's data, so it works after a restart
 without listing again, and a model the manifest lists can be turned off the
-same way. A file the app can't read is never written over.
+same way. Unknown store fields and hidden IDs missing from the current manifest
+are retained. If any saved model or known choice is unreadable, changes are
+refused without replacing the file. Model choices returned to callers are
+independent snapshots, and updates are validated before they are saved.
 
 ## Tasks: polling and events
 
