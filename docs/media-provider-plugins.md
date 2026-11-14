@@ -1255,3 +1255,24 @@ No recovery adapter is exposed as a selectable model.
 Startup does not yet supply these contexts. Transaction activation, removal of
 native catalogs/settings routes and vendor acceptance remain separate requirements
 before the actual cutover. These preparation checks use simulated vendor responses.
+
+#### Settings activation preparation
+
+`migrateModel3DSettings` prepares the exclusive per-provider activation boundary.
+It first restores any uncommitted attempt, then verifies the reviewed managed npm
+package and grants before proposing settings, reference mappings and original
+recovery parameters together. After applying, it reloads the owning stores,
+requires an idempotent proposal and checks package permissions again before
+sealing the commit. A failed validation rolls back the settings; it never undoes
+a separately revoked grant.
+
+A current plugin key can support migration even if the original native key was
+already cleared. If both keys are absent, no migration is committed. Conflicting
+keys, unreadable settings and safe mode defer new activation. An existing sealed
+commit remains authoritative after key resets, uninstall or safe-mode restart;
+those actions cannot silently revive the native provider.
+
+Production startup does not call this entry point yet. Its caller must own the
+profile, recover all other provider transactions first, and construct model,
+reference and task-recovery consumers from the committed result. Real vendor
+acceptance and those application changes are still required before cutover.

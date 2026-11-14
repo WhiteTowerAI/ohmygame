@@ -1,3 +1,5 @@
+import { migrateModel3DSettings } from "../src/daemon/model3d-settings-migration.js";
+import { killAt } from "./fixtures/settings-transaction-process.js";
 import {
   cp,
   mkdtemp,
@@ -297,6 +299,93 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
       const transaction = model3DSettingsTransaction(pin.provider);
       return { before, plan, transaction, media, ownedFiles };
     }
+
+    it("commits settings and recovery ownership without later reviving native settings", async () => {
+      await fixture(async (directory, root) => {
+        await seed(directory);
+        const source = await readFile(path.join(directory, `${pin.provider}.json`));
+        const result = await migrateModel3DSettings(directory, pin.provider);
+        expect(result.status).toBe("migrated");
+        if (result.status !== "migrated") throw new Error("Expected committed migration");
+        expect(result.migration.references).toMatchObject({ source: pin.provider, target });
+        expect(result.migration.recovery.models.find(({ id }) => id === custom.id)?.settings).toEqual(custom.settings);
+        expect(await readFile(path.join(directory, `${pin.provider}.json`))).toEqual(source);
+        const expected = { ...result, status: "committed" };
+        expect(await migrateModel3DSettings(directory, pin.provider)).toEqual(expected);
+        await rm(root, { recursive: true });
+        await rm(path.join(directory, `${pin.provider}.json`));
+        await rm(path.join(directory, "plugin-store/configuration.json"));
+        const before = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+        expect(await migrateModel3DSettings(directory, pin.provider, true)).toEqual(expected);
+        expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(before);
+      });
+    });
+
+    it.each(["safe-mode", "changed-package", "key-conflict", "unknown-settings"])("defers activation on %s without changing settings", async (failure) => {
+      await fixture(async (directory, root) => {
+        if (failure === "changed-package") await writeFile(path.join(root, "media/adapter.js"), "changed");
+        if (failure === "key-conflict") await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { [pin.id]: { apiKey: { type: "secret", value: "different" } } } }));
+        if (failure === "unknown-settings") await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 99, future: true }));
+        const before = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+        const result = await migrateModel3DSettings(directory, pin.provider, failure === "safe-mode");
+        expect(result.status).toBe("deferred");
+        expect(result.reasons).toContain(failure === "safe-mode" ? "plugin-safe-mode" : failure === "changed-package" ? "plugin-package-mismatch" : failure === "key-conflict" ? "key-conflict" : "model-preferences-unreadable");
+        expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(before);
+        expect(await model3DSettingsTransaction(pin.provider).hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(JSON.stringify(result)).not.toContain("private-canary");
+      });
+    });
+
+    it.each(["absent", "target-only"])("handles an original key already cleared (%s)", async (mode) => {
+      await fixture(async (directory) => {
+        await rm(path.join(directory, `${pin.provider}.json`));
+        if (mode === "target-only") await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { [pin.id]: { apiKey: { type: "secret", value: "plugin-key" } } } }));
+        const before = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+        const result = await migrateModel3DSettings(directory, pin.provider);
+        expect(result.status).toBe(mode === "absent" ? "unchanged" : "migrated");
+        expect((await settingsSnapshot(directory, [`${pin.provider}.json`])).get(`${pin.provider}.json`)).toBeUndefined();
+        if (mode === "absent") expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(before);
+        else expect(JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8")).plugins[pin.id].apiKey.value).toBe("plugin-key");
+      });
+    });
+
+    it("restores an interrupted attempt before refusing a changed package", async () => {
+      await fixture(async (directory, root) => {
+        const { before, plan, transaction, ownedFiles } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        await writeFile(path.join(directory, "plugin-store/configuration.json"), plan.changes.get("plugin-store/configuration.json")!);
+        await writeFile(path.join(root, "media/adapter.js"), "changed after interruption");
+        expect(await migrateModel3DSettings(directory, pin.provider)).toEqual({ status: "deferred", reasons: ["plugin-package-mismatch"] });
+        expect(await settingsSnapshot(directory, ownedFiles)).toEqual(before);
+        expect(await transaction.recoverInterruptedSettings(directory)).toBe(false);
+      });
+    });
+
+    it("rolls back applied settings when current grants fail final validation", async () => {
+      await fixture(async (directory) => {
+        await seed(directory);
+        const before = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+        await expect(promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/media-settings-transaction-worker.cjs", directory, "activate", "revoke-grants", pin.provider])).rejects.toMatchObject({ stderr: expect.stringContaining("3D settings migration failed; original settings restored") });
+        expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(before);
+        expect(JSON.parse(await readFile(path.join(directory, "plugin-store/grants.json"), "utf8")).plugins[pin.id].allowed).toEqual([]);
+        expect(await model3DSettingsTransaction(pin.provider).hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(await model3DSettingsTransaction(pin.provider).recoverInterruptedSettings(directory)).toBe(false);
+      });
+    });
+
+    it.each(["plugin-store/configuration.json", "applied", "committed"])("recovers activation killed at %s", async (stage) => {
+      await fixture(async (directory) => {
+        await seed(directory);
+        const before = await settingsSnapshot(directory, model3DTransactionFiles(pin.provider));
+        const backup = `.${pin.provider}-settings-committed-v1.json`;
+        await killAt(directory, "activate", stage === "committed" ? backup : stage, pin.provider);
+        const result = await migrateModel3DSettings(directory, pin.provider);
+        expect(result.status).toBe(stage === "committed" ? "committed" : "migrated");
+        const receipt = JSON.parse(await readFile(path.join(directory, backup), "utf8"));
+        for (const [file, bytes] of before) expect(receipt.files[file].before).toBe(bytes?.toString("base64") ?? null);
+        expect(await migrateModel3DSettings(directory, pin.provider)).toEqual({ ...result, status: "committed" });
+      });
+    });
 
     it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
       await fixture(async (directory, root) => {
