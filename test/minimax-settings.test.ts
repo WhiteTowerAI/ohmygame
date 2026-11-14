@@ -5,6 +5,10 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SettingsWrites } from "../src/daemon/settings-writes.js";
+import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
+import { PluginValues } from "../src/daemon/plugin-values.js";
+import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { MinimaxSettingsStore } from "../src/daemon/minimax-settings.js";
 import { createAssetGenerationNode } from "../src/shared/asset-canvas.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
@@ -16,6 +20,7 @@ import { snapshot as settingsSnapshot } from "../scripts/minimax-settings-snapsh
 import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, SETTINGS_TRANSACTION_FILE } from "../scripts/minimax-settings-transaction.js";
 
 const rehearsalHooks = vi.hoisted(() => ({
+  beforeRead: undefined as ((target: string) => void) | undefined,
   created: undefined as ((directory: string) => void) | undefined,
   beforeRename: undefined as ((target: string) => Promise<void>) | undefined,
   afterRename: undefined as ((target: string) => Promise<void>) | undefined,
@@ -24,6 +29,10 @@ const rehearsalHooks = vi.hoisted(() => ({
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
   const patched = { ...original,
+    readFile: async (...args: Parameters<typeof original.readFile>) => {
+      rehearsalHooks.beforeRead?.(String(args[0]));
+      return original.readFile(...args);
+    },
     mkdtemp: async (...args: Parameters<typeof original.mkdtemp>) => {
       const directory = await original.mkdtemp(...args);
       if (String(args[0]).includes("ohmygame-minimax-rehearsal-")) rehearsalHooks.created?.(String(directory));
@@ -41,7 +50,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
   return { ...patched, default: patched };
 });
-afterEach(() => { rehearsalHooks.created = undefined; rehearsalHooks.beforeRename = undefined; rehearsalHooks.afterRename = undefined; rehearsalHooks.beforeRemove = undefined; });
+afterEach(() => { rehearsalHooks.beforeRead = undefined; rehearsalHooks.created = undefined; rehearsalHooks.beforeRename = undefined; rehearsalHooks.afterRename = undefined; rehearsalHooks.beforeRemove = undefined; });
 
 describe("Minimax settings", () => {
   it("persists the domestic and international API keys independently", async () => {
@@ -623,5 +632,147 @@ describe("MiniMax settings preservation", () => {
       await settings.update("minimax-video-cn", "cn");
       expect(settings.key("minimax-video-global")).toBe("keep");
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+});
+
+describe("application settings write ownership", () => {
+  function gate() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+  const entry = { id: "acme/keys", manifest: { capabilities: { secrets: true }, configuration: { cn: { type: "secret" }, global: { type: "secret" } } } } as unknown as PluginIndexEntry;
+  const folders: string[] = [];
+  afterEach(async () => { await Promise.all(folders.splice(0).map((folder) => rm(folder, { recursive: true, force: true }))); });
+  async function fixture() {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-settings-owner-"));
+    folders.push(directory);
+    const writes = new SettingsWrites();
+    const minimax = new MinimaxSettingsStore(directory, writes);
+    const models = new ProviderModelSettingsStore(directory, directory, writes);
+    const plugins = new PluginValues(path.join(directory, "configuration.json"), writes);
+    await Promise.all([minimax.load(), models.load(), plugins.load()]);
+    return { directory, writes, minimax, models, plugins };
+  }
+
+  it.each(["minimax", "models", "plugins"] as const)("orders %s reload between pending and subsequent saves", async (kind) => {
+    const { directory, minimax, models, plugins } = await fixture();
+    const store = { minimax, models, plugins }[kind];
+    const file = path.join(directory, { minimax: "minimax.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
+    const update = (second: boolean) => kind === "minimax" ? minimax.update(second ? "minimax-video-global" : "minimax-video-cn", "key")
+      : kind === "models" ? models.setEnabled(second ? "second" : "first", false)
+      : plugins.update(entry, second ? { global: "key" } : { cn: "key" });
+    const arrived = gate(), release = gate();
+    const events: string[] = [];
+    rehearsalHooks.beforeRename = async (target) => {
+      if (target !== file) return;
+      events.push("save");
+      if (events.length === 1) { arrived.resolve(); await release.promise; }
+    };
+    rehearsalHooks.beforeRead = (target) => { if (target === file) events.push("load"); };
+    const first = update(false);
+    const pending: Promise<unknown>[] = [first];
+    await arrived.promise;
+    try {
+      const loaded = store.load();
+      pending.push(loaded);
+      const second = update(true);
+      pending.push(second);
+      // No reload may start while the preceding atomic write is still pending.
+      expect(events).toEqual(["save"]);
+      release.resolve();
+      await Promise.all([first, loaded, second]);
+      expect(events).toEqual(["save", "load", "save"]);
+      if (kind === "minimax") {
+        expect(minimax.key("minimax-video-cn")).toBe("key");
+        expect(minimax.key("minimax-video-global")).toBe("key");
+      } else if (kind === "models") {
+        expect(models.isEnabled("first")).toBe(false);
+        expect(models.isEnabled("second")).toBe(false);
+      } else expect(plugins.forNative(entry)).toEqual({ cn: "key", global: "key" });
+      const before = await readFile(file, "utf8");
+      await store.load();
+      expect(await readFile(file, "utf8")).toBe(before);
+    } finally { release.resolve(); await Promise.allSettled(pending); }
+  });
+
+  it.each(["minimax", "models", "plugins"] as const)("refuses %s writes after a failed reload and accepts them after repair", async (kind) => {
+    const { directory, minimax, models, plugins } = await fixture();
+    const store = { minimax, models, plugins }[kind];
+    const file = path.join(directory, { minimax: "minimax.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
+    const update = () => kind === "minimax" ? minimax.update("minimax-video-cn", "key")
+      : kind === "models" ? models.setEnabled("first", false) : plugins.update(entry, { cn: "key" });
+    const future = JSON.stringify({ version: 2, future: "keep" });
+    await writeFile(file, future);
+    const failed = store.load().catch(() => {});
+    const refused = expect(update()).rejects.toThrow("unreadable");
+    await Promise.all([failed, refused]);
+    expect(await readFile(file, "utf8")).toBe(future);
+    const repaired = { version: 1, future: "keep", ...(kind === "models" ? { hidden: {} } : kind === "plugins" ? { plugins: {} } : {}) };
+    await writeFile(file, JSON.stringify(repaired));
+    // The write is requested before the repair load finishes; checks must use its result.
+    await Promise.all([store.load(), update()]);
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 1, future: "keep" });
+  });
+
+  it("holds all three stores while removing a provider and clears its credentials without deadlocking", async () => {
+    const { directory, minimax, models, plugins } = await fixture();
+    await minimax.update("minimax-video-cn", "old-key");
+    await models.setDefaultMediaModel("video", { provider: "minimax-video-cn", id: "old-model" });
+    const arrived = gate(), release = gate();
+    const events: string[] = [];
+    const removing = models.removeProviderSettings("minimax-video-cn", async () => {
+      arrived.resolve();
+      await release.promise;
+      await minimax.clear("minimax-video-cn");
+      events.push("removed");
+    });
+    await arrived.promise;
+    const saving = plugins.update(entry, { cn: "plugin-key" }).then(() => events.push("plugin"));
+    const reconnecting = minimax.update("minimax-video-cn", "replacement-key").then(() => events.push("reconnected"));
+    try {
+      expect(plugins.storedSecret(entry.id, "cn").occupied).toBe(false);
+      release.resolve();
+      await Promise.all([removing, saving, reconnecting]);
+      expect(events).toEqual(["removed", "plugin", "reconnected"]);
+      expect(models.defaultVideoModel()).toBeUndefined();
+      expect(JSON.parse(await readFile(path.join(directory, "minimax.json"), "utf8"))).toMatchObject({ cnApiKey: "replacement-key" });
+    } finally { release.resolve(); await removing; }
+  });
+
+  it("drains nested work after owner failure and rejects recursive access instead of hanging", async () => {
+    const writes = new SettingsWrites(), parent = {}, child = {};
+    const arrived = gate(), release = gate();
+    let finished = false;
+    let nested!: Promise<void>;
+    const failed = writes.run(parent, async () => {
+      await expect(writes.run(parent, async () => {})).rejects.toThrow("already active");
+      nested = writes.run(child, async () => { arrived.resolve(); await release.promise; finished = true; });
+      throw new Error("owner failed");
+    });
+    const rejected = expect(failed).rejects.toThrow("owner failed");
+    await arrived.promise;
+    let entered = false;
+    const after = writes.run(child, async () => { entered = true; expect(finished).toBe(true); });
+    expect(entered).toBe(false);
+    release.resolve();
+    await Promise.all([nested, rejected, after]);
+  });
+
+  it("queues callbacks that retain an expired owner's async context", async () => {
+    const writes = new SettingsWrites(), store = {};
+    const trigger = gate();
+    let later!: Promise<void>;
+    const order: string[] = [];
+    await writes.run(store, async () => {
+      later = trigger.promise.then(() => writes.run(store, async () => { order.push("later"); }));
+    });
+    const arrived = gate(), release = gate();
+    const current = writes.run(store, async () => { arrived.resolve(); await release.promise; order.push("current"); });
+    await arrived.promise;
+    trigger.resolve();
+    release.resolve();
+    await Promise.all([current, later]);
+    expect(order).toEqual(["current", "later"]);
   });
 });

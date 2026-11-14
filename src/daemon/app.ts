@@ -1,3 +1,4 @@
+import { SettingsWrites } from "./settings-writes.js";
 import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
@@ -734,10 +735,11 @@ export function createApp(options: AppOptions = {}) {
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
-  const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
+  const settingsWrites = new SettingsWrites();
+  const minimaxSettings = new MinimaxSettingsStore(dataDirectory, settingsWrites);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
   const elevenLabsSettings = new ElevenLabsSettingsStore(dataDirectory);
-  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
+  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory, settingsWrites);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
     const address = app.server.address();
@@ -938,6 +940,7 @@ export function createApp(options: AppOptions = {}) {
     dataDirectory,
   );
   const pluginServices = new PluginServices({
+    settingsWrites,
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,

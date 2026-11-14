@@ -44,6 +44,17 @@ async function connect(runtime: ModelRuntime, providerId: string) {
 }
 
 describe("provider deletion", () => {
+  it("removes MiniMax preferences and credentials through the shared settings owner", async () => {
+    const { app, directory } = await fixture({
+      "minimax.json": { version: 1, cnApiKey: "cn-key", globalApiKey: "global-key" },
+      "model-visibility.json": { version: 1, hidden: {}, defaultVideoModel: { provider: "minimax-video-cn", id: "MiniMax-H3" } },
+    });
+    const removed = await app.inject({ method: "DELETE", url: "/settings/models/providers/minimax-video-cn" });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect(JSON.parse(await readFile(path.join(directory, "minimax.json"), "utf8"))).toEqual({ version: 1, globalApiKey: "global-key" });
+    expect((await preferences(directory)).defaultVideoModel()).toBeUndefined();
+  });
+
   it("clears an official API-key connection and its settings, retaining other providers and allowing reconnection", async () => {
     const { app, runtime, directory, restart } = await fixture({
       "auth.json": { openai: { type: "api_key", key: "openai-test-key" }, anthropic: otherCredential },

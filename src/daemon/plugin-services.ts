@@ -1,3 +1,4 @@
+import type { SettingsWrites } from "./settings-writes.js";
 import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
 import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -133,6 +134,8 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
 ];
 
 export interface PluginServicesOptions {
+  /** Shared owner for app settings loads and writes. */
+  settingsWrites?: SettingsWrites;
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
   hosts?: ExtensionHostOptions;
@@ -233,6 +236,7 @@ export class PluginServices {
     this.hosts = new ExtensionHosts({ ...options.hosts, onLog: (plugin, entry) => this.logs.add(plugin, entry) });
     this.values = new PluginValues(
       path.join(options.directory, "configuration.json"),
+      options.settingsWrites,
     );
     this.packagesDirectory = path.join(options.directory, "packages");
     this.#bundledOff = new Set(options.bundledOff);

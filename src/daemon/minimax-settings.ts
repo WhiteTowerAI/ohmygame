@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { SettingsWrites } from "./settings-writes.js";
 import type { MinimaxProviderId } from "./minimax-models.js";
 
 interface StoredMinimaxSettings extends Record<string, unknown> {
@@ -17,14 +18,17 @@ const KEY_FIELDS = {
 export class MinimaxSettingsStore {
   readonly #filePath: string;
   #settings: StoredMinimaxSettings = { version: 1 };
-  #mutations: Promise<void> = Promise.resolve();
   #unreadable = false;
 
-  constructor(dataDirectory: string) {
+  constructor(dataDirectory: string, private readonly writes = new SettingsWrites()) {
     this.#filePath = path.join(dataDirectory, "minimax.json");
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.writes.run(this, () => this.#load());
+  }
+
+  async #load(): Promise<void> {
     this.#unreadable = true;
     try {
       const parsed: unknown = JSON.parse(await readFile(this.#filePath, "utf8"));
@@ -77,12 +81,10 @@ export class MinimaxSettingsStore {
   }
 
   async #mutate(operation: () => Promise<void>): Promise<void> {
-    const pending = this.#mutations.then(() => {
+    await this.writes.run(this, () => {
       if (this.#unreadable) throw new Error("MiniMax settings are unreadable; fix or update the file before changing settings");
       return operation();
     });
-    this.#mutations = pending.catch(() => undefined);
-    await pending;
   }
 
   async #persist(settings: StoredMinimaxSettings): Promise<void> {
