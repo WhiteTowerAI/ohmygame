@@ -2726,6 +2726,8 @@ const en = {
   api: {
     model3DRetiredProvider: "This 3D provider now runs through its plugin. Choose a plugin model; the built-in provider is no longer available.",
     seedanceRetiredProvider: "Seedream and Seedance now run through their plugin. Choose a Seedream or Seedance plugin model; the built-in provider is no longer available.",
+    doubaoRetiredProvider: "Doubao audio now runs through its plugin. Choose a Doubao plugin model; the built-in provider is no longer available.",
+    doubaoRetiredRetry: "This built-in Doubao audio task cannot be resumed. Check its result and billing in Volcengine before starting a new generation with the plugin.",
     elevenlabsRetiredProvider: "ElevenLabs now runs through its plugin. Choose an ElevenLabs plugin model; the built-in provider is no longer available.",
     elevenlabsRetiredRetry: "This built-in ElevenLabs task cannot be resumed. Check its result and billing in ElevenLabs before starting a new generation with the plugin.",
     seedanceRetiredRetry: "This built-in Seedream or Seedance task cannot be resumed. Check its result and billing in Ark or BytePlus before starting a new generation with the plugin.",
