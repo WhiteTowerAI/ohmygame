@@ -168,11 +168,29 @@ describe("game recorder", () => {
     expect(game.isRecording("project")).toBe(false);
   });
 
-  it("stops before the file outgrows the Library", async () => {
+  it.each([0, 1])("stops at the Library boundary with %i bytes of overshoot", async (overshoot) => {
+    // Exercise the production limit without writing 190 MiB to a CI runner's disk.
+    // The file-content and failed-write cases above still exercise disk ownership.
+    let written = 0;
+    state.sink = () => new Writable({ write: (chunk, _encoding, done) => { written += chunk.length; done(); } });
     const game = recorder(async (file) => ({ assetId: "asset-1", name: "game.mp4", duration: file.duration, bytes: file.bytes }));
     const { outcome } = await game.start("project", target() as never, options);
-    send("chunk", state.hosts[0]!.webContents.id, new Uint8Array(GAME_RECORDING_MAX_BYTES));
-    await expect(outcome).resolves.toMatchObject({ bytes: GAME_RECORDING_MAX_BYTES });
+    const host = state.hosts[0]!;
+    const chunk = new Uint8Array(1024 * 1024);
+    for (let remaining = GAME_RECORDING_MAX_BYTES - 1; remaining > 0;) {
+      const length = Math.min(remaining, chunk.length);
+      await send("chunk", host.webContents.id, chunk.subarray(0, length));
+      remaining -= length;
+    }
+    expect(written).toBe(GAME_RECORDING_MAX_BYTES - 1);
+    expect(game.isRecording("project")).toBe(true);
+    expect(host.webContents.executeJavaScript).not.toHaveBeenCalledWith("window.stopRecording()");
+    await send("chunk", host.webContents.id, chunk.subarray(0, 1 + overshoot));
+    await expect(outcome).resolves.toMatchObject({ bytes: GAME_RECORDING_MAX_BYTES + overshoot });
+    expect(written).toBe(GAME_RECORDING_MAX_BYTES + overshoot);
+    expect(host.webContents.executeJavaScript.mock.calls.filter(([script]) => script === "window.stopRecording()")).toHaveLength(1);
+    expect(game.isRecording("project")).toBe(false);
+    expect(host.destroyed).toBe(true);
   });
 
   it("keeps what was recorded when the game closes", async () => {

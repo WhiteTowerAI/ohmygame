@@ -1600,3 +1600,17 @@ It does not start a new ElevenLabs migration. Production activation, native
 catalog retirement and reference remapping remain held for local acceptance.
 Native files and paid task ownership remain unchanged. Remove this compatibility
 path no earlier than beta.7 and 2026-12-15 after retained obligations are resolved.
+
+### Prepared ElevenLabs application context
+
+The internal `elevenlabsSettingsMigrated` option is supplied only after a validated
+settings commit. It retires the native catalog and credential/settings routes,
+activates project/canvas/future tool reference mapping, and refuses historical
+native retries. The same state makes stale global default selections resolve to
+reviewed plugin identities. Unmigrated profiles keep their native provider.
+Native credential files remain untouched and are no longer loaded after commit.
+
+The actual installed Beta adapter supplies account voices and transcription as
+well as generation. Disabling or removing it cannot re-enable native fallback.
+Production startup still leaves this context unset pending local acceptance;
+this is application preparation, not an automatic provider switch.
