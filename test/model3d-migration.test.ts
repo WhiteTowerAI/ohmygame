@@ -30,6 +30,8 @@ import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
 import { migratedMediaBoard, migratedMediaModel, type MediaMigrationState } from "../src/daemon/media-model-migration.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
+import { createHash } from "node:crypto";
+import { model3DTransactionFiles, model3DSettingsTransaction, proposeModel3DTransaction } from "../src/daemon/model3d-settings-transaction.js";
 
 describe("prepared 3D model reference migration", () => {
   const state: MediaMigrationState = { model3D: [{ source: "meshy", target: "plugin.ohmygame.meshy.meshy", models: [{ id: "custom-version", operations: ["text", "image"] }], processing: { id: "connection", operations: ["remesh", "retexture", "animate"] } }] };
@@ -279,6 +281,115 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8"),
       ).contributes.providers[0].media["3d"].models;
     }
+
+    async function transactionPlan(directory: string, root: string) {
+      const media = JSON.parse(await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8")).contributes.providers[0].media["3d"];
+      const ownedFiles = model3DTransactionFiles(pin.provider);
+      const before = await settingsSnapshot(directory, ownedFiles);
+      const plan = await proposeModel3DTransaction(before, pin.provider, media);
+      expect(plan.report.blockers).toEqual([]);
+      const transaction = model3DSettingsTransaction(pin.provider);
+      return { before, plan, transaction, media, ownedFiles };
+    }
+
+    it("seals the exact custom/preset and processing identities independently of later settings or uninstall", async () => {
+      await fixture(async (directory, root) => {
+        await seed(directory);
+        const { before, plan, transaction, media, ownedFiles } = await transactionPlan(directory, root);
+        const expected = { source: pin.provider, target, models: [...media.models.map(({ id, operations }: { id: string; operations: string[] }) => ({ id, operations })), { id: custom.id, operations: ["text", "image"] }], processing: { id: media.processing.id, operations: media.processing.operations } };
+        expect(await transaction.committedReferences(directory)).toBeUndefined();
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        expect(await transaction.committedReferences(directory)).toBeUndefined();
+        await transaction.resumeSettingsTransaction(directory);
+        expect(await transaction.committedReferences(directory)).toBeUndefined();
+        const after = await settingsSnapshot(directory, ownedFiles);
+        expect((await proposeModel3DTransaction(after, pin.provider, media)).changes.size).toBe(0);
+        const metadata = after.get(ownedFiles[4]!)!.toString();
+        expect(metadata).not.toMatch(/private-canary|private-model-canary|other-private-canary/);
+        expect(JSON.parse(metadata).release).toEqual({ id: pin.id, version: pin.version, digest: pin.digest });
+        await transaction.commitSettingsTransaction(directory);
+        expect(await transaction.committedReferences(directory)).toEqual(expected);
+        expect(await readFile(path.join(directory, files[0]))).toEqual(before.get(files[0]));
+        // Users may change or clear keys, models and preferences, then uninstall the package.
+        await rm(path.join(directory, "plugin-store"), { recursive: true });
+        for (const file of ownedFiles.filter((file) => !file.startsWith("plugin-store/")))
+          await rm(path.join(directory, file), { force: true });
+        expect(await transaction.committedReferences(directory)).toEqual(expected);
+        const mapping = (await transaction.committedReferences(directory))!;
+        mapping.models[0]!.operations = [];
+        expect(await transaction.committedReferences(directory)).toEqual(expected);
+        expect(migratedMediaModel({ provider: pin.provider, id: custom.id }, "3d", { model3D: [mapping] })).toEqual({ provider: target, id: custom.id });
+        await expect(transaction.prepareSettingsTransaction(directory, await settingsSnapshot(directory, ownedFiles), new Map())).rejects.toThrow("already exists");
+      });
+    });
+
+    it.each([false, true])("restores settings and mapping together after an interrupted transaction (fully applied: %s)", async (fullyApplied) => {
+      await fixture(async (directory, root) => {
+        await seed(directory);
+        const { before, plan, transaction, ownedFiles } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        if (fullyApplied) await transaction.resumeSettingsTransaction(directory);
+        else {
+          // A crash can leave any prefix of writes, including the new sidecar, on disk.
+          for (const file of [files[1], ownedFiles[4]!])
+            await writeFile(path.join(directory, file), plan.changes.get(file)!);
+        }
+        expect(await transaction.committedReferences(directory)).toBeUndefined();
+        expect(await transaction.recoverInterruptedSettings(directory)).toBe(true);
+        expect(await settingsSnapshot(directory, ownedFiles)).toEqual(before);
+        expect(await transaction.committedReferences(directory)).toBeUndefined();
+        expect(await transaction.recoverInterruptedSettings(directory)).toBe(false);
+      });
+    });
+
+    it.each(["version", "operation", "source", "duplicate", "extra", "conflict"])("refuses an existing %s mapping without proposing partial settings", async (failure) => {
+      await fixture(async (directory, root) => {
+        await seed(directory);
+        const { before, plan, media, ownedFiles } = await transactionPlan(directory, root);
+        const file = ownedFiles[4]!;
+        const record = JSON.parse(plan.changes.get(file)!.toString());
+        if (failure === "version") record.version = 2;
+        if (failure === "operation") record.models[0].operations = ["animate"];
+        if (failure === "source") record.source = "hyper3d";
+        if (failure === "duplicate") record.models.push(record.models[0]);
+        if (failure === "extra") record.future = "keep";
+        if (failure === "conflict") record.models[0].id = "another-version";
+        await writeFile(path.join(directory, file), JSON.stringify(record));
+        const original = await settingsSnapshot(directory, ownedFiles);
+        const result = await proposeModel3DTransaction(original, pin.provider, media);
+        expect(result.report.blockers).toEqual([failure === "conflict" ? "reference-mapping-conflict" : "reference-mapping-unreadable"]);
+        expect(result.changes.size).toBe(0);
+        expect(await settingsSnapshot(directory, ownedFiles)).toEqual(original);
+        expect(original.get(files[0])).toEqual(before.get(files[0]));
+      });
+    });
+
+    it.each(["checksum", "phase", "missing", "version", "unknown-field"])("refuses a corrupt committed %s record rather than inferring native ownership", async (failure) => {
+      await fixture(async (directory, root) => {
+        await seed(directory);
+        const { before, plan, transaction, ownedFiles } = await transactionPlan(directory, root);
+        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
+        await transaction.resumeSettingsTransaction(directory);
+        await transaction.commitSettingsTransaction(directory);
+        const backup = path.join(directory, `.${pin.provider}-settings-committed-v1.json`);
+        const journal = JSON.parse(await readFile(backup, "utf8"));
+        const file = ownedFiles[4]!;
+        if (failure === "phase") journal.phase = "rolled-back";
+        if (failure === "missing") journal.files[file] = { before: null, after: null };
+        if (failure === "version" || failure === "unknown-field") {
+          const metadata = JSON.parse(Buffer.from(journal.files[file].after, "base64").toString());
+          if (failure === "version") metadata.version = 2;
+          else metadata.future = "preserve";
+          journal.files[file].after = Buffer.from(JSON.stringify(metadata)).toString("base64");
+        }
+        const { checksum: _, ...payload } = journal;
+        journal.checksum = failure === "checksum" ? "invalid" : createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+        const bytes = JSON.stringify(journal);
+        await writeFile(backup, bytes);
+        await expect(transaction.committedReferences(directory)).rejects.toThrow(/checksum|Invalid committed/);
+        expect(await readFile(backup, "utf8")).toBe(bytes);
+      });
+    });
 
     it("rehearses custom models, keys, visibility and defaults with source preservation and rollback", async () => {
       await fixture(async (directory, root) => {

@@ -175,6 +175,9 @@ export async function proposeModel3DSettings(
     const rawDefinitions: Json[] =
       preferenceData.nativeModels3D?.[provider] ?? [];
     const modelIds = new Set(models.map((model) => model.id));
+    const references = new Map(
+      models.map(({ id, operations }) => [id, { id, operations: [...operations] }]),
+    );
     stage = "unsupported-model-definition";
     for (const raw of rawDefinitions) {
       // Do not silently drop newer behavior fields while translating into a different contract.
@@ -235,6 +238,7 @@ export async function proposeModel3DSettings(
         counts.definitions++;
       }
       modelIds.add(converted.id);
+      references.set(converted.id, { id: converted.id, operations: [...converted.operations] });
     }
     const currentDefault = preferenceData.defaultModel3D;
     if (
@@ -303,7 +307,7 @@ export async function proposeModel3DSettings(
     if (configuration.readOnly) throw new Error("Invalid target configuration");
     await preferences.load();
     await new PluginMediaModelChoices(directory).get(target, "3d");
-    return { report, changes, counts };
+    return { report, changes, counts, references: [...references.values()] };
   } catch {
     report.blockers = [...new Set([...report.blockers, stage])];
     return { report, changes: new Map() as Snapshot<SettingsFile>, counts };
