@@ -556,8 +556,29 @@ power-loss durability of directory entries; machine/filesystem failure remains
 outside this increment's guarantee. There is no new CLI apply/resume switch and
 no application startup or route invokes this transaction.
 
-Production activation still needs exclusive ownership coordinated with all
-app-owned writers and cache reloads, installed-package verification, complete
+#### Application settings ownership
+
+The daemon gives MiniMax credentials, plugin configuration (through
+`PluginServices`) and model preferences one `SettingsWrites` owner. Each store's
+`load()` joins the same queue as its mutations: it waits for earlier saves and
+publishes its cache before later saves can read it. A failed or unsupported load
+keeps that store read-only until a successful reload. Plugin uninstall continues
+to preserve unreadable configuration, and unrelated stores can still be edited.
+Configuration URL checks and pairing expectations use the values at execution
+time. Custom-model edits and legacy model imports also read and modify their
+settings inside the owner, preserving intervening changes.
+
+Provider removal can await credential removal in the same operation. Calls into
+another store share the owner; re-entering an already active store is rejected
+rather than deadlocking. Nested writes drain before a failed operation releases
+the queue. A later callback carrying an expired async context queues normally.
+The owner is scoped to one daemon instance, with standalone store instances
+owning separate queues. It is not a cross-process lock or a transaction for
+synchronous readers; grouped reloads do not yet publish a single atomic snapshot.
+No production route or startup step invokes the rehearsal journal.
+
+Production activation still needs exclusive profile ownership and a coordinated
+recovery/read barrier, installed-package verification, complete
 project and unfinished-task disposition, and live acceptance. Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
 a plugin, or submit vendor requests. The built-in execution path remains in place

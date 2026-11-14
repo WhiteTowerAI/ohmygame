@@ -516,7 +516,7 @@ describe("project plugins", () => {
     try {
       await services.ready();
       const entry = services.index.get(UNREAL_PLUGIN)!;
-      expect(() => services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).toThrow("newer OhMyGame");
+      await expect(services.values.update(entry, { endpoint: "http://127.0.0.1:9000/mcp" })).rejects.toThrow("newer OhMyGame");
       await services.values.forget(UNREAL_PLUGIN);
       expect(await readFile(path.join(directory, "configuration.json"), "utf8")).toBe(saved);
     } finally {

@@ -1,3 +1,4 @@
+import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
   mkdir,
@@ -2107,6 +2108,29 @@ describe("plugin configuration preservation", () => {
       expect(restored.forNative(entry)).toEqual({});
       await restored.forget(entry.id);
       expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, future: { migration: "pending" }, plugins: { other } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("validates composed MCP URLs and pairing expectations against preceding queued changes", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-values-queued-validation-"));
+    try {
+      const values = new PluginValues(path.join(directory, "configuration.json"), new SettingsWrites());
+      const server = { id: "acme/server", manifest: {
+        capabilities: { network: ["example.com"] },
+        configuration: { scheme: { type: "text" }, host: { type: "text" } },
+        contributes: { mcpServers: [{ id: "server", url: "${config.scheme}://${config.host}/mcp" }] },
+      } } as unknown as PluginIndexEntry;
+      await values.load();
+      const scheme = values.update(server, { scheme: "http" });
+      const host = values.update(server, { host: "example.com" });
+      await Promise.all([scheme, expect(host).rejects.toThrow("must use https")]);
+      expect(values.forNative(server)).toEqual({ scheme: "http" });
+      await Promise.all([values.update(server, { scheme: "https" }), values.update(server, { host: "example.com" })]);
+      const before = values.forNative(server);
+      const changed = values.update(server, { host: "example.com:443" });
+      const stale = values.update(server, { scheme: "https" }, before);
+      await Promise.all([changed, expect(stale).rejects.toThrow("settings changed")]);
+      expect(values.forNative(server)).toEqual({ scheme: "https", host: "example.com:443" });
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
