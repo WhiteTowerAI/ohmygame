@@ -1451,7 +1451,7 @@
                             "maxReferenceImages": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 16
+                              "maximum": 30
                             },
                             "referenceModes": {
                               "type": "array",

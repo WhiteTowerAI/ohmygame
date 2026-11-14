@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.7.0";
+export const PLUGIN_HOST_API_VERSION = "2.8.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -547,8 +547,8 @@ const MediaVideoModel = Type.Object(
     durations: Type.Array(Type.Integer({ minimum: 1, maximum: 30 }), { minItems: 1, maxItems: 30, uniqueItems: true }),
     resolutions: Type.Array(Literals(VIDEO_RESOLUTIONS), { minItems: 1, uniqueItems: true }),
     aspectRatios: Type.Array(Literals(VIDEO_ASPECT_RATIOS), { minItems: 1, uniqueItems: true }),
-    /** How many pictures a request may pass along, 0 for none. */
-    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 16 })),
+    /** Up to 30 reference pictures (API 2.8), 0 for none; frame mode still takes at most two. */
+    maxReferenceImages: Type.Optional(Type.Integer({ minimum: 0, maximum: 30 })),
     /**
      * How it uses those pictures: `frame` as the first (and last) frame,
      * `reference` as a look to follow. The first is the default.
