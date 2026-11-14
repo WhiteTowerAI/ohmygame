@@ -1,6 +1,7 @@
 // Read-only settings preflight shared by media-provider migration inspectors.
 import { stat } from "node:fs/promises";
 import path from "node:path";
+import { AUDIO_KINDS, type AudioKind } from "../shared/audio.js";
 import { PluginValues } from "./plugin-values.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 
@@ -9,7 +10,8 @@ export interface MediaMigrationMapping<Source extends string> {
   target: string;
   field: string;
   imageModels?: readonly string[];
-  videoModels: readonly string[];
+  videoModels?: readonly string[];
+  audioModels?: readonly { id: string; kinds: readonly AudioKind[] }[];
 }
 
 /** Reads only these three stores. Never starts the app, loads projects or calls a vendor. */
@@ -44,8 +46,19 @@ export async function inspectMediaMigration<Source extends string>(
   if (!preferencesReadable) blockers.push("model-preferences-unreadable");
 
   const regions = mappings.map(
-    ({ source, target, field, imageModels = [], videoModels }) => {
-      const models = [...imageModels, ...videoModels];
+    ({
+      source,
+      target,
+      field,
+      imageModels = [],
+      videoModels = [],
+      audioModels = [],
+    }) => {
+      const models = [
+        ...imageModels,
+        ...videoModels,
+        ...audioModels.map((model) => model.id),
+      ];
       const stored = pluginReadable
         ? plugin.storedSecret(pluginId, field)
         : undefined;
@@ -107,17 +120,21 @@ export async function inspectMediaMigration<Source extends string>(
     },
   );
 
-  const inspectDefault = (kind: "image" | "video") => {
+  const inspectDefault = (kind: "image" | "video" | AudioKind) => {
     const current = preferencesReadable
-      ? kind === "image"
-        ? preferences.defaultImageModel()
-        : preferences.defaultVideoModel()
+      ? preferences.defaultMediaModel(kind)
       : undefined;
     const mapping =
       current && mappings.find(({ source }) => source === current.provider);
     const models =
       mapping &&
-      (kind === "image" ? (mapping.imageModels ?? []) : mapping.videoModels);
+      (kind === "image"
+        ? (mapping.imageModels ?? [])
+        : kind === "video"
+          ? (mapping.videoModels ?? [])
+          : (mapping.audioModels ?? [])
+              .filter((model) => model.kinds.includes(kind))
+              .map((model) => model.id));
     const result = !preferencesReadable
       ? { action: "blocked" }
       : !current
@@ -143,6 +160,14 @@ export async function inspectMediaMigration<Source extends string>(
     ? inspectDefault("image")
     : undefined;
 
+  const defaultAudioModels = mappings.some(
+    ({ audioModels }) => audioModels !== undefined,
+  )
+    ? (Object.fromEntries(
+        AUDIO_KINDS.map((kind) => [kind, inspectDefault(kind)]),
+      ) as Record<AudioKind, ReturnType<typeof inspectDefault>>)
+    : undefined;
+
   // Only fixed identifiers, booleans and counts leave this function. Never
   // return keys, key hashes, unknown metadata, parser errors or arbitrary IDs.
   return {
@@ -157,6 +182,7 @@ export async function inspectMediaMigration<Source extends string>(
     regions,
     defaultVideoModel,
     ...(defaultImageModel ? { defaultImageModel } : {}),
+    ...(defaultAudioModels ? { defaultAudioModels } : {}),
     blockers,
     remainingChecks: [
       "live-generation-and-restart-acceptance",

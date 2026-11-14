@@ -786,6 +786,33 @@ not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
 
+### ElevenLabs settings inspection
+
+The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
+sound effects, music, account voices and Scribe transcription. Publishing it
+and activating legacy-settings migration are separate steps. The native service
+is still available; this inspector does not switch it.
+
+```sh
+bun run inspect:elevenlabs-migration --data-dir /path/to/copied-app-data
+```
+
+This reads only `elevenlabs.json`, plugin configuration and model preferences.
+It reports whether the key can be copied, provider enabled/hidden choices agree,
+and speech, sound-effect and music defaults match the reviewed model kinds.
+Scribe is included in visibility checks but cannot become a generation default.
+Unknown models, conflicting target choices and unreadable/future stores block
+migration. The report contains no keys, hashes, arbitrary model IDs or parser
+input. Exit codes are 0 for no settings blockers, 1 for blockers and 2 for invalid
+arguments or an unavailable directory.
+
+Even a clear report remains `activation: "held"`: it does not verify installation,
+grants, the published package, live generation, saved canvas references or jobs.
+It writes no settings, never enables a plugin and sends no vendor requests.
+Native unfinished audio has no durable vendor task to poll; it must retain its
+owner and cannot be rewritten into an automatic plugin resubmission. Transaction,
+reference and old-task handling remain separate preparation work.
+
 ### Seedream / Seedance beta and settings inspection
 
 `@ohmygame/seedance@0.1.0` is an optional Beta published from
