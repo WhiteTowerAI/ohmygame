@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { fork, type ChildProcess } from "node:child_process";
+import { link, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -351,3 +352,111 @@ function isRunning(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
+
+
+describe("daemon profile ownership", () => {
+  const lockName = ".ohmygame-owner-v1.sqlite";
+  async function fixture(run: (root: string, start: (directories: string[]) => Promise<{ child: ChildProcess; result: { status: string; message?: string }; closed: Promise<number | null> }>) => Promise<void>) {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-profile-owner-"));
+    const children: { child: ChildProcess; closed: Promise<number | null> }[] = [];
+    const start = async (directories: string[]) => {
+      const child = fork(path.resolve("test/fixtures/profile-ownership-worker.cjs"), directories, {
+        execPath: "node", execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
+      });
+      const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
+      children.push({ child, closed });
+      const result = await new Promise<{ status: string; message?: string }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Profile owner worker did not respond")), 5000);
+        child.once("message", (value) => { clearTimeout(timer); resolve(value as { status: string; message?: string }); });
+        child.once("error", (error) => { clearTimeout(timer); reject(error); });
+        child.once("exit", () => { clearTimeout(timer); reject(new Error("Profile owner worker exited before replying")); });
+      });
+      return { child, result, closed };
+    };
+    try { await run(root, start); }
+    finally {
+      for (const { child } of children) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await Promise.all(children.map(({ closed }) => closed));
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it("allows exactly one simultaneous process and reacquires after clean shutdown and kill", async () => {
+    await fixture(async (root, start) => {
+      const folder = path.join(root, "data");
+      const pair = await Promise.all([start([folder]), start([folder])]);
+      expect(pair.map(({ result }) => result.status).sort()).toEqual(["owned", "rejected"]);
+      const winner = pair.find(({ result }) => result.status === "owned")!;
+      const loser = pair.find(({ result }) => result.status === "rejected")!;
+      expect(loser.result.message).toContain("already in use");
+      await loser.closed;
+      winner.child.send("close");
+      expect(await winner.closed).toBe(0);
+      const next = await start([folder]);
+      expect(next.result.status).toBe("owned");
+      const info = await lstat(path.join(folder, lockName));
+      expect(info.size).toBe(0);
+      if (process.platform !== "win32") expect(info.mode & 0o777).toBe(0o600);
+      next.child.kill("SIGKILL");
+      await next.closed;
+      expect((await start([folder])).result.status).toBe("owned");
+    });
+  });
+
+  it("excludes shared Pi settings and releases an earlier directory when a later acquisition fails", async () => {
+    await fixture(async (root, start) => {
+      const a = path.join(root, "a"), b = path.join(root, "b"), pi = path.join(root, "pi");
+      expect((await start([a, pi])).result.status).toBe("owned");
+      const blocked = await start([b, pi]);
+      expect(blocked.result.status).toBe("rejected");
+      await blocked.closed;
+      expect((await start([b, b])).result.status).toBe("owned");
+    });
+  });
+
+  it("canonicalizes directory aliases without unlinking the owner's lock", async () => {
+    await fixture(async (root, start) => {
+      const folder = path.join(root, "data"), alias = path.join(root, "alias");
+      await mkdir(folder);
+      await symlink(folder, alias, process.platform === "win32" ? "junction" : "dir");
+      expect((await start([folder, alias])).result.status).toBe("owned");
+      const before = await lstat(path.join(folder, lockName));
+      const blocked = await start([alias]);
+      expect(blocked.result.status).toBe("rejected");
+      await blocked.closed;
+      const after = await lstat(path.join(folder, lockName));
+      expect(after.ino).toBe(before.ino);
+      expect(after.size).toBe(0);
+      expect((await start([folder])).result.status).toBe("rejected");
+    });
+  });
+
+  it.skipIf(process.platform === "win32")("keeps ownership while the process is suspended", async () => {
+    await fixture(async (root, start) => {
+      const owner = await start([root]);
+      expect(owner.result.status).toBe("owned");
+      owner.child.kill("SIGSTOP");
+      try { expect((await start([root])).result.status).toBe("rejected"); }
+      finally { owner.child.kill("SIGCONT"); }
+    });
+  });
+
+  it("preserves unexpected ownership file contents instead of replacing them", async () => {
+    await fixture(async (root, start) => {
+      const file = path.join(root, lockName), contents = "future format: preserve me";
+      await writeFile(file, contents);
+      expect((await start([root])).result).toMatchObject({ status: "rejected", message: expect.stringContaining("Invalid profile ownership file") });
+      expect(await readFile(file, "utf8")).toBe(contents);
+    });
+  });
+
+  it("rejects hardlinked ownership files", async () => {
+    await fixture(async (root, start) => {
+      const target = path.join(root, "target");
+      await writeFile(target, "");
+      await link(target, path.join(root, lockName));
+      expect((await start([root])).result).toMatchObject({ status: "rejected", message: expect.stringContaining("Invalid profile ownership file") });
+      expect((await lstat(target)).nlink).toBe(2);
+    });
+  });
+});
