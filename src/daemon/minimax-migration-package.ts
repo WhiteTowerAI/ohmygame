@@ -32,6 +32,16 @@ export const MINIMAX_MIGRATION_PACKAGES = [{
   integrity:
     "sha512-d5LTSqE4i8RvYr3XmejUAdZKUxV/ZvJwTCMeSozO1T7t7Y+KXyJ06aNDRR6ac/sqyD2NxtFfa/3C6qJrMmV9Mw==",
   digest: "ec4e1b30f65d29d56d5b7914b84670028b58e7ca269d48b309c42a507893f966",
+}, {
+  type: "npm",
+  pluginId: "minimax-migration",
+  releaseId: "minimax-0.1.2",
+  id: "ohmygame/minimax",
+  package: "@ohmygame/minimax",
+  version: "0.1.2",
+  integrity:
+    "sha512-HMeXndwX90Zr5y8bEuWiGkws8uokTkOe6diGWvye1V3l1lY2mSevrZIc1qUpI4z/izcdizeQAng+OUq2hjrR3A==",
+  digest: "53a63277d50df1babe4ab2b70d2fb5633238d342eb107c9651e5a94122c6adcb",
 }] as const;
 
 /** Read-only: never construct PluginServices, whose startup may upgrade stores. */
