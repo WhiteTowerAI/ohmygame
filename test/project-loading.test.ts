@@ -26,6 +26,33 @@ async function dataDirectory(): Promise<string> {
   return directory;
 }
 
+describe.each(["meshy", "tripo", "hyper3d"] as const)("prepared %s project defaults", (source) => {
+  it("maps a committed custom 3D default on load and save while retaining unrelated metadata", async () => {
+    const directory = await dataDirectory(), writer = new ProjectManager(directory);
+    const project = await writer.create("3D migration", "general");
+    const legacy = { provider: source, id: "custom-version" }, target = `plugin.ohmygame.${source}.${source}`;
+    const defaults = { "3d": legacy, image: { provider: source, id: "leave-other-kind" } };
+    await writer.setMediaModelDefaults(project.id, defaults);
+    const file = path.join(project.workspacePath, ".ohmygame/settings.json");
+    const raw = { ...JSON.parse(await readFile(file, "utf8")), future: { keep: true } }; await writeFile(file, JSON.stringify(raw));
+    const original = await readFile(file, "utf8");
+    const unchanged = new ProjectManager(directory); await unchanged.load();
+    expect(await readFile(file, "utf8")).toBe(original);
+    const migrations = { model3D: [{ source, target, models: [{ id: "custom-version", operations: ["image", "text"] as const }] }] };
+    const manager = new ProjectManager(directory, undefined, undefined, migrations); await manager.load();
+    expect(manager.get(project.id)?.mediaModelDefaults).toEqual({ ...defaults, "3d": { ...legacy, provider: target } });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...raw, mediaModelDefaults: { ...defaults, "3d": { ...legacy, provider: target } } });
+    const bytes = await readFile(file, "utf8");
+    const restored = new ProjectManager(directory, undefined, undefined, migrations); await restored.load();
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    await restored.setMediaModelDefaults(project.id, defaults);
+    expect(restored.get(project.id)?.mediaModelDefaults?.["3d"]).toEqual({ ...legacy, provider: target });
+    await restored.setMediaModelDefaults(project.id, { "3d": { provider: source, id: "unknown-version" } });
+    expect(restored.get(project.id)?.mediaModelDefaults?.["3d"]).toEqual({ provider: source, id: "unknown-version" });
+    expect(JSON.parse(await readFile(file, "utf8")).future).toEqual({ keep: true });
+  });
+});
+
 describe("project loading", () => {
   it.each([
     { kind: "malformed JSON", value: "{" },
