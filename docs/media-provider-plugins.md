@@ -365,11 +365,39 @@ activation record. It remains optional and outside the preinstalled lock.
 Live generation, downloading and quit/reopen recovery still require acceptance
 before replacing the built-in provider. Follow the
 [plugin's local test instructions](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/minimax/README.md#local-testing--本地测试).
-A future migration must check this exact package identity and integrity before
-applying; a different version requires its contract and migration tests reviewed
-again.
+The startup settings migration checks the installed files against this exact
+release; a different version requires its contract and migration tests reviewed
+again. The build preparation downloads and verifies this archive into a separate
+disposable integration fixture. It is not added to the preinstalled index.
 
-### MiniMax settings inspection (preparation only)
+### MiniMax startup settings migration
+
+After profile ownership and recovery, before constructing the app, startup can
+migrate legacy MiniMax settings to an **already installed and enabled** optional
+`0.1.0` plugin. It reindexes the managed package files and compares their digest
+to the reviewed SHA-512-verified release. The cached index must agree with those
+files, its origin must be npmjs/npmmirror for `@ohmygame/minimax`, and its current
+grants must enable every-project use and include all declared capabilities.
+Safe mode, development/local sources, another release, edited files, incomplete
+grants or a disabled switch defer migration without changing settings. No plugin
+is installed or enabled by this migration.
+
+The shared preflight and proposal copy missing regional keys as secrets, preserve
+existing keys and unknown metadata, carry hidden/disabled provider preferences
+and map the saved default video model. Conflicts defer the entire migration.
+Startup writes the recovery receipt first, validates freshly loaded target stores
+and rechecks the package before committing the private backup. Failure restores
+the original settings; interrupted writes recover on the next start. After commit,
+normal edits, including clearing a plugin key, are never overwritten by another
+copy from legacy settings. Only fixed reason codes are logged for deferrals.
+
+This increment migrates settings. Canvas references and generation history keep
+their existing provider IDs; the builtin catalog, credentials and execution path
+remain available until the separate cutover. No job or vendor task journal is
+rewritten, resumed or submitted during settings migration. Runtime smoke uses
+the actual published package and temporary canary keys without vendor requests.
+
+### MiniMax settings inspection
 
 MiniMax is available as the optional `@ohmygame/minimax@0.1.0` beta (OhMyGame
 API 2.7). Publication does not enable migration or replace the built-in provider;
@@ -456,7 +484,7 @@ jobs have an explicit disposition. The report omits paths, prompts, task payload
 result URLs, arbitrary IDs and fingerprints. Linked canvas or journal files are
 rejected. Exit codes retain the settings inspection's meaning.
 
-Before enabling migration in the app, complete these separate gates:
+Before removing the built-in path, complete these separate gates:
 
 - Verify real generation, result download, stop and restart recovery in both
   regions with the optional adapter. Retrying a recovered request must not start
@@ -464,7 +492,8 @@ Before enabling migration in the app, complete these separate gates:
 - Verify the installed package against the exact beta artifact above, including
   its integrity and provider/model contract. Publication and artifact checks do
   not establish local installation, grants, enablement or live acceptance. The
-  inspector does not yet enforce this artifact baseline at an activation boundary.
+  settings migration enforces this baseline; the standalone inspector only reads
+  settings and selected workspaces.
 - Define the migration at each owning load boundary: keys in the key/configuration
   stores, switches and defaults in model preferences, saved references in canvas
   loading. Preserve unknown metadata and refuse unreadable files. Do not bulk-edit
@@ -570,8 +599,8 @@ retains the original and target bytes as a private backup; it is never overwritt
 by a new prepare or commit. A crash before that rename rolls back on startup; a
 crash after it keeps the committed settings. Committed configuration can then be
 edited normally: readers validate backup schema, phase and checksum, not equality
-to the historical target bytes. This commit boundary is available to the upcoming
-activation path; startup does not yet prepare or commit a new migration.
+to the historical target bytes. The startup settings migration uses this commit
+boundary only after installed-package and target-store validation.
 
 #### Application settings ownership
 
@@ -597,12 +626,10 @@ all read the restored or committed disk state. There is no live migration/reload
 endpoint; a future live endpoint would need a separate read barrier.
 
 The daemon entry point enforces [profile ownership](runtime-recovery.md#profile-ownership)
-and uncommitted settings recovery before loading the application. Production
-activation still needs installed-package verification and complete project and
-unfinished-task disposition; live acceptance is tracked separately in the rollout
-plan. Settings recovery
+and settings migration before loading the application. Full provider cutover
+still needs saved-reference migration and unfinished-task disposition; live
+acceptance is tracked separately in the rollout plan. Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
 a plugin, or submit vendor requests. The built-in execution path remains in place
-for outstanding jobs. A passing rehearsal does not release those gates. When the
-migration first runs on real profiles, record its compatibility removal release
-and date at the owning load boundaries.
+for outstanding jobs. A passing rehearsal does not release those gates. The startup
+migration records its compatibility removal release and date at its owning boundary.
