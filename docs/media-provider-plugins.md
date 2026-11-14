@@ -1140,6 +1140,13 @@ matching actual bytes and index metadata, complete permissions, and explicit
 every-project enablement. It never installs, enables or changes settings.
 Hyper3D has no reviewed migration package yet.
 
+Startup rolls back any interrupted Meshy, Tripo or Hyper3D settings transaction
+before MiniMax or Seedance can write the shared plugin configuration or model
+preferences. This also runs in safe mode and does not depend on a plugin being
+installed or approved. Corrupt/conflicting recovery records stop startup before
+new migration writes; committed backups remain untouched. This recovery step
+does not activate a 3D migration.
+
 Native 3D services remain active. Settings/model-definition migration, saved
 canvas/project references and historical task ownership are separate remaining
 steps; each vendor needs real generation and restart acceptance before cutover.

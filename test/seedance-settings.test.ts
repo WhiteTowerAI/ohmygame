@@ -1,3 +1,5 @@
+import { model3DSettingsTransaction, model3DTransactionFiles } from "../src/daemon/model3d-settings-transaction.js";
+import { snapshot as mediaSettingsSnapshot } from "../src/daemon/media-settings-snapshot.js";
 import { migrateSeedanceSettings } from "../src/daemon/seedance-settings-migration.js";
 import { migrateMediaSettingsAtStartup } from "../src/daemon/media-settings-startup.js";
 import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
@@ -428,7 +430,50 @@ describe("Seedance migration package verification", () => {
     });
   });
 
-  it("recovers Seedance before MiniMax writes the shared plugin settings at startup", async () => {
+  it.each((["meshy", "tripo", "hyper3d"] as const).flatMap((provider) =>
+    ["partial", "applied", "safe-mode", "corrupt"].map((boundary) => ({ provider, boundary })),
+  ))("recovers $provider $boundary state before another provider writes shared settings", async ({ provider, boundary }) => {
+    await fixture(async (directory) => {
+      const source = `${provider}.json`, journal = `.${provider}-settings-transaction.json`;
+      await writeFile(path.join(directory, source), JSON.stringify({ version: 1, apiKey: "native-canary", future: true }));
+      const before = await mediaSettingsSnapshot(directory, model3DTransactionFiles(provider));
+      const changes = new Map([
+        ["plugin-store/configuration.json", Buffer.from(JSON.stringify({ version: 1, plugins: { "pending/3d": { key: { type: "secret", value: "uncommitted-canary" } } } }))],
+        ["model-visibility.json", Buffer.from(JSON.stringify({ version: 1, hidden: {}, disabled: [provider] }))],
+      ]);
+      const transaction = model3DSettingsTransaction(provider);
+      await transaction.prepareSettingsTransaction(directory, before, changes);
+      if (boundary === "partial") await writeFile(path.join(directory, "plugin-store/configuration.json"), changes.get("plugin-store/configuration.json")!);
+      else await transaction.resumeSettingsTransaction(directory);
+      if (boundary === "corrupt") {
+        const file = path.join(directory, journal), receipt = JSON.parse(await readFile(file, "utf8"));
+        receipt.checksum = "invalid"; const bytes = JSON.stringify(receipt);
+        await writeFile(file, bytes);
+        const unchanged = await mediaSettingsSnapshot(directory, model3DTransactionFiles(provider));
+        await expect(migrateMediaSettingsAtStartup(directory)).rejects.toThrow("checksum");
+        expect(await mediaSettingsSnapshot(directory, model3DTransactionFiles(provider))).toEqual(unchanged);
+        expect(await readFile(file, "utf8")).toBe(bytes);
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+        return;
+      }
+      const result = await migrateMediaSettingsAtStartup(directory, boundary === "safe-mode");
+      expect(result.seedance.status).toBe(boundary === "safe-mode" ? "deferred" : "migrated");
+      if (boundary === "safe-mode") expect(await mediaSettingsSnapshot(directory, model3DTransactionFiles(provider))).toEqual(before);
+      else {
+        const configuration = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
+        expect(configuration.plugins).not.toHaveProperty("pending/3d");
+        expect(configuration.plugins[pin.id].arkApiKey.value).toBe("private-canary");
+        expect(configuration.plugins[pin.id].byteplusApiKey.value).toBe("other-private-canary");
+        expect((await mediaSettingsSnapshot(directory, ["model-visibility.json"])).get("model-visibility.json")).toEqual(before.get("model-visibility.json"));
+      }
+      expect(await readFile(path.join(directory, source))).toEqual(before.get(source));
+      await expect(access(path.join(directory, journal))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await transaction.hasCommittedSettingsTransaction(directory)).toBe(false);
+      expect(await transaction.recoverInterruptedSettings(directory)).toBe(false);
+    });
+  });
+
+  it.each(["seedance", "meshy", "tripo", "hyper3d"] as const)("recovers %s before MiniMax writes the shared plugin settings at startup", async (provider) => {
     await fixture(async (directory) => {
       const minimax = MINIMAX_MIGRATION_PACKAGES.at(-1)!;
       const root = path.join(directory, "plugin-store/packages", minimax.id, minimax.version);
@@ -443,12 +488,22 @@ describe("Seedance migration package verification", () => {
       grants.plugins[minimax.id] = { enabled: true, everyProject: true, allowed: capabilityGrants(added.entry.manifest) };
       await writeFile(grantsFile, JSON.stringify(grants));
       await writeFile(path.join(directory, "minimax.json"), JSON.stringify({ version: 1, globalApiKey: "minimax-canary" }));
-      const before = await settingsSnapshot(directory), inspected = await inspectSeedanceMigration(directory);
-      await prepareSettingsTransaction(directory, before, proposeSeedanceSettings(before, inspected).changes);
-      await resumeSettingsTransaction(directory);
+      if (provider === "seedance") {
+        const before = await settingsSnapshot(directory), inspected = await inspectSeedanceMigration(directory);
+        await prepareSettingsTransaction(directory, before, proposeSeedanceSettings(before, inspected).changes);
+        await resumeSettingsTransaction(directory);
+      } else {
+        const transaction = model3DSettingsTransaction(provider);
+        const before = await mediaSettingsSnapshot(directory, model3DTransactionFiles(provider));
+        await transaction.prepareSettingsTransaction(directory, before, new Map([
+          ["plugin-store/configuration.json", Buffer.from(JSON.stringify({ version: 1, plugins: { "pending/3d": { key: { type: "secret", value: "uncommitted-canary" } } } }))],
+        ]));
+        await transaction.resumeSettingsTransaction(directory);
+      }
       const result = await migrateMediaSettingsAtStartup(directory);
       expect(result).toEqual({ minimax: { status: "migrated", reasons: [] }, seedance: { status: "migrated", reasons: [] } });
       const configuration = JSON.parse(await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8"));
+      expect(configuration.plugins).not.toHaveProperty("pending/3d");
       expect(configuration.plugins[minimax.id].globalApiKey.value).toBe("minimax-canary");
       expect(configuration.plugins[pin.id].arkApiKey.value).toBe("private-canary");
       expect(configuration.plugins[pin.id].byteplusApiKey.value).toBe("other-private-canary");
