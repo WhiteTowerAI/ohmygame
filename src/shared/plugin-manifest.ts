@@ -2,7 +2,7 @@ import { isBrowserUrl } from "./browser.js";
 import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { AUDIO_KINDS, AUDIO_OUTPUT_FORMATS } from "./audio.js";
-import { CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { MODEL_3D_MIN_POLYCOUNT, CUSTOM_MODEL_APIS, IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_REFERENCE_MODES, VIDEO_RESOLUTIONS } from "./contracts.js";
 import { MAX_CAPTURE_FRAME, PLUGIN_GAME_USE_INPUT, PLUGIN_GAME_USE_OPERATIONS, type PluginGameUseInput, type PluginGameUseOperation, type PluginGameUseSpec } from "./playtest.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { PREVIEW_FILTER_COLOR_SPACES, PREVIEW_FILTER_MAX_COEFFICIENT } from "./preview-filter.js";
@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.14.0";
+export const PLUGIN_HOST_API_VERSION = "2.15.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -610,11 +610,11 @@ const Media3DModel = Type.Object(
     /** The triangle counts it takes; a model with one size sets min, max and default alike. */
     polycount: Type.Object(
       {
-        min: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
-        max: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
-        default: Type.Integer({ minimum: 100, maximum: 2_000_000 }),
+        min: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
+        max: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
+        default: Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }),
         /** The counts the canvas offers; the default alone when left out. */
-        presets: Type.Optional(Type.Array(Type.Integer({ minimum: 100, maximum: 2_000_000 }), { maxItems: 10, uniqueItems: true })),
+        presets: Type.Optional(Type.Array(Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2_000_000 }), { maxItems: 10, uniqueItems: true })),
       },
       { additionalProperties: false },
     ),

@@ -1844,24 +1844,24 @@
                             "properties": {
                               "min": {
                                 "type": "integer",
-                                "minimum": 100,
+                                "minimum": 48,
                                 "maximum": 2000000
                               },
                               "max": {
                                 "type": "integer",
-                                "minimum": 100,
+                                "minimum": 48,
                                 "maximum": 2000000
                               },
                               "default": {
                                 "type": "integer",
-                                "minimum": 100,
+                                "minimum": 48,
                                 "maximum": 2000000
                               },
                               "presets": {
                                 "type": "array",
                                 "items": {
                                   "type": "integer",
-                                  "minimum": 100,
+                                  "minimum": 48,
                                   "maximum": 2000000
                                 },
                                 "maxItems": 10,
@@ -2000,24 +2000,24 @@
                               "properties": {
                                 "min": {
                                   "type": "integer",
-                                  "minimum": 100,
+                                  "minimum": 48,
                                   "maximum": 2000000
                                 },
                                 "max": {
                                   "type": "integer",
-                                  "minimum": 100,
+                                  "minimum": 48,
                                   "maximum": 2000000
                                 },
                                 "default": {
                                   "type": "integer",
-                                  "minimum": 100,
+                                  "minimum": 48,
                                   "maximum": 2000000
                                 },
                                 "presets": {
                                   "type": "array",
                                   "items": {
                                     "type": "integer",
-                                    "minimum": 100,
+                                    "minimum": 48,
                                     "maximum": 2000000
                                   },
                                   "maxItems": 10,

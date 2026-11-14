@@ -6,7 +6,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
+import { MODEL_3D_MIN_POLYCOUNT, type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId, type ToolJob, type ToolRun } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -413,7 +413,7 @@ export function createAgentTools(
       imagePaths: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Multiple generation views, instead of imagePath" })),
       prompt: Type.Optional(Type.String({ description: "Object description for text generation, or material/style description for retexture" })),
       sourcePath: Type.Optional(Type.String({ description: "Source GLB path for retexture/remesh" })),
-      targetPolycount: Type.Optional(Type.Integer({ minimum: 48, maximum: 2000000 })),
+      targetPolycount: Type.Optional(Type.Integer({ minimum: MODEL_3D_MIN_POLYCOUNT, maximum: 2000000 })),
       texture: Type.Optional(Type.Boolean()), pbr: Type.Optional(Type.Boolean()),
       options: Type.Optional(Type.Object({ pose: Type.Optional(Type.Union([Type.Literal("a-pose"), Type.Literal("t-pose")])), textureModel: Type.Optional(Type.String()), textureQuality: Type.Optional(Type.Union([Type.Literal("fast"), Type.Literal("standard"), Type.Literal("detailed"), Type.Literal("extreme")])) })),
       model: Type.Optional(mediaModelParameter()),
