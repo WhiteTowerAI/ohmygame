@@ -13,3 +13,7 @@ export const ELEVENLABS_RETIRED_RETRY =
   "This built-in ElevenLabs task cannot be resumed. Check its result and billing in ElevenLabs before starting a new generation with the plugin.";
 export const ELEVENLABS_RETIRED_PROVIDER =
   "ElevenLabs now runs through its plugin. Choose an ElevenLabs plugin model; the built-in provider is no longer available.";
+export const DOUBAO_RETIRED_RETRY =
+  "This built-in Doubao audio task cannot be resumed. Check its result and billing in Volcengine before starting a new generation with the plugin.";
+export const DOUBAO_RETIRED_PROVIDER =
+  "Doubao audio now runs through its plugin. Choose a Doubao plugin model; the built-in provider is no longer available.";
