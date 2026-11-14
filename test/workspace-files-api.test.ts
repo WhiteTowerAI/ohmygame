@@ -1,14 +1,26 @@
-import { link, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { readAssetMetadata, writeAssetMetadata } from "../src/daemon/asset-metadata.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
 import type { LibraryAsset, ProjectState, WorkspaceFile } from "../src/shared/contracts.js";
 
+const realpathAlias = vi.hoisted(() => ({ from: "", to: "" }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  const patched = { ...original,
+    realpath: async (...args: Parameters<typeof original.realpath>) =>
+      String(args[0]) === realpathAlias.from ? realpathAlias.to : original.realpath(...args),
+  };
+  return { ...patched, default: patched };
+});
+
 const fixtures: { app: ReturnType<typeof createApp>; directory: string }[] = [];
 afterEach(async () => {
+  realpathAlias.from = "";
+  realpathAlias.to = "";
   for (const { app, directory } of fixtures.splice(0)) {
     await app.close();
     await rm(directory, { recursive: true, force: true });
@@ -92,6 +104,27 @@ describe("project file management", () => {
     expect((await app.inject({ method: "PATCH", url: `${base}?path=notes.md`, payload: { name: "README.md" } })).statusCode).toBe(caseInsensitive ? 409 : 200);
     expect(await readFile(file("readme.md"), "utf8")).toBe("readme");
     expect((await readdir(project.workspacePath)).filter((name) => name.endsWith(".md")).sort()).toEqual(caseInsensitive ? ["alias.md", "copy.md", "notes.md", "readme.md"] : ["README.md", "alias.md", "copy.md", "readme.md"]);
+  });
+
+  it("refuses distinct directory entries even when realpath aliases hard links", async () => {
+    const { app, project, base } = await setup();
+    const root = await realpath(project.workspacePath);
+    const source = path.join(root, "readme.md");
+    await writeFile(source, "readme");
+    const names = ["copy.md"];
+    // A case-sensitive filesystem can also hold two case-only hard-link names.
+    if (!await stat(path.join(root, "README.md")).then(() => true, () => false)) names.push("README.md");
+    for (const name of names) {
+      const target = path.join(root, name);
+      await link(source, target);
+      realpathAlias.from = target;
+      realpathAlias.to = source;
+      const result = await app.inject({ method: "PATCH", url: `${base}?path=readme.md`, payload: { name } });
+      expect(result.statusCode, name).toBe(409);
+      expect(await readdir(root)).toEqual(expect.arrayContaining(["readme.md", name]));
+      expect(await readFile(source, "utf8")).toBe("readme");
+      realpathAlias.from = "";
+    }
   });
 
   it("keeps provenance across folder renames and leaves Library copies intact after deletion", async () => {
