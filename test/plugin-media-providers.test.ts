@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
@@ -22,7 +22,7 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 type Media = NonNullable<NonNullable<NonNullable<PluginIndexEntry["manifest"]["contributes"]>["providers"]>[number]["media"]>;
 
-type Reply = (url: string) => Response | undefined | Promise<Response | undefined>;
+type Reply = (url: string, signal: AbortSignal | null | undefined) => Response | undefined | Promise<Response | undefined>;
 
 async function setup(adapter: string, options: { key?: string | undefined; media?: Partial<Media>; network?: string[]; allowed?: boolean; reply?: Reply; choices?: PluginMediaModelChoices } = {}) {
   await writeFile(path.join(root, "media.js"), adapter);
@@ -45,7 +45,7 @@ async function setup(adapter: string, options: { key?: string | undefined; media
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     requests.push({ url, method: init?.method ?? "GET", headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(typeof init?.body === "string" ? { body: init.body } : {}) });
-    const reply = await options.reply?.(url);
+    const reply = await options.reply?.(url, init?.signal);
     if (reply) return reply;
     if (url.startsWith("https://cdn.flow.example/") && url.endsWith(".mp4")) return new Response(MP4, { headers: { "content-type": "video/mp4" } });
     if (url.startsWith("https://cdn.flow.example/")) return new Response(PNG, { headers: { "content-type": "image/png" } });
@@ -90,6 +90,56 @@ describe("plugin media providers", () => {
     await media.generateImage(model, { prompt: "a fox" });
     expect(requests[0]!.url).toBe("https://api.flow.example/v1/images?key=sk-test");
     expect(requests[0]!.headers.authorization).toBeUndefined();
+  });
+
+  it.each(["complete", "deadline", "cancel"] as const)("keeps synchronous image requests within their three-minute budget: %s", async (ending) => {
+    let started!: (signal: AbortSignal) => void;
+    const requested = new Promise<AbortSignal>((resolve) => { started = resolve; });
+    let finish!: () => void;
+    const { media, requests } = await setup(IMAGE_START, { reply: (url, signal) => {
+      if (!url.endsWith("/images")) return undefined;
+      return new Promise<Response>((resolve, reject) => {
+        const abort = () => reject(signal!.reason);
+        finish = () => {
+          signal!.removeEventListener("abort", abort);
+          resolve(Response.json({ url: "https://cdn.flow.example/one.png" }));
+        };
+        signal!.addEventListener("abort", abort, { once: true });
+        started(signal!);
+      });
+    } });
+    const model = await firstModel(media);
+    const controller = new AbortController();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // Node's AbortSignal.timeout uses native timers; route them through the same test clock.
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const timed = new AbortController();
+      setTimeout(() => timed.abort(new DOMException("Timed out", "TimeoutError")), ms);
+      return timed.signal;
+    });
+    const result = media.generateImage(model, { prompt: "fox" }, controller.signal)
+      .then((value) => ({ value }), (error: unknown) => ({ error }));
+    try {
+      const requestSignal = await requested;
+      await vi.advanceTimersByTimeAsync(170_000);
+      expect(requestSignal.aborted).toBe(false);
+      if (ending === "complete") {
+        finish();
+        expect(await result).toEqual({ value: { bytes: PNG, mediaType: "image/png" } });
+      } else {
+        if (ending === "cancel") controller.abort(new Error("user stopped"));
+        else await vi.advanceTimersByTimeAsync(11_000);
+        expect(requestSignal.aborted).toBe(true);
+        expect(await result).toEqual({ error: expect.any(Error) });
+      }
+      expect(requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    } finally {
+      controller.abort(new Error("test cleanup"));
+      finish?.();
+      await result;
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("checks a task at the adapter's pace until it has the result", async () => {
