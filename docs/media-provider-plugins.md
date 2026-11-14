@@ -1146,3 +1146,31 @@ steps; each vendor needs real generation and restart acceptance before cutover.
 Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
+
+#### Rehearse 3D settings migration
+
+After `bun run prepare:preinstalled-plugins`, close the app and copy its data
+directory to a private folder. Rehearse one provider at a time:
+
+```bash
+bun run rehearse:3d-migration --provider meshy --data-dir /absolute/path/to/copied-app-data
+bun run rehearse:3d-migration --provider tripo --data-dir /absolute/path/to/copied-app-data
+```
+
+The command uses the reviewed package fixture and changes only a temporary
+settings copy. It checks the legacy key, plugin configuration, provider
+visibility/defaults, and plugin model choices through their owning stores.
+Native custom versions and preset overrides become plugin model definitions;
+Meshy image mode and topology, model names, face-count presets/defaults, texture
+and PBR defaults are retained. Hidden IDs (including absent versions), disabled
+providers, default-reference metadata and unrelated extension fields are kept.
+Existing matching target definitions retain their adapter data and metadata.
+Conflicting keys, model definitions or visibility choices hold the whole proposal;
+unreadable/newer stores and unsupported native model fields are not overwritten.
+
+The report contains fixed reason codes and counts, never keys, arbitrary model
+names or parser details. It verifies reload, idempotency and byte-exact rollback,
+then removes the temporary copy and checks that the supplied files are unchanged.
+There is no `--apply` option, startup hook, plugin installation, permission change
+or vendor request. Real package/enablement checks, local vendor acceptance,
+saved-reference migration and native task recovery remain required before cutover.
