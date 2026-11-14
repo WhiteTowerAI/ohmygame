@@ -21,9 +21,9 @@ import { getWorkspaceMedia } from "./workspace.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; minimaxSettingsMigrated?: boolean;
 }): CanvasStore {
-  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins);
+  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.minimaxSettingsMigrated);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {

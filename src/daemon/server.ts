@@ -59,6 +59,7 @@ try {
     console.warn("MiniMax settings migration deferred:", minimaxMigration.reasons.join(", "));
   else if (minimaxMigration.status === "migrated")
     console.info("MiniMax settings migrated to the verified Beta plugin");
+  const minimaxSettingsMigrated = minimaxMigration.status === "migrated" || minimaxMigration.status === "committed";
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,
@@ -73,6 +74,7 @@ try {
   }
   app = createApp({
     dataDirectory,
+    minimaxSettingsMigrated,
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,

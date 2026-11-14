@@ -627,9 +627,31 @@ endpoint; a future live endpoint would need a separate read barrier.
 
 The daemon entry point enforces [profile ownership](runtime-recovery.md#profile-ownership)
 and settings migration before loading the application. Full provider cutover
-still needs saved-reference migration and unfinished-task disposition; live
+still needs project-default migration and unfinished-task disposition; live
 acceptance is tracked separately in the rollout plan. Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
 a plugin, or submit vendor requests. The built-in execution path remains in place
 for outstanding jobs. A passing rehearsal does not release those gates. The startup
 migration records its compatibility removal release and date at its owning boundary.
+
+### MiniMax saved canvas selections
+
+After startup validates a committed MiniMax settings migration, the app moves
+saved video-node selections from `minimax-video-cn` / `minimax-video-global` to
+`plugin.ohmygame.minimax.cn` / `plugin.ohmygame.minimax.global` when their board
+loads. Only the reviewed `MiniMax-H3` and `MiniMax-H3-Max` identities move.
+Unrelated providers and unsupported model IDs remain unchanged. Incoming board
+saves use the same mapping so a successful save returns the persisted selection.
+
+Board reads and writes share the canvas workspace queue. Migration validates the
+whole board, changes its raw model references, and atomically replaces only that
+board file. It does not save normalized editor layout, touch the project order,
+start generation, or edit history and recovery journals. Unknown versions, unknown
+fields, invalid layouts and files that would exceed the size limit are refused
+without replacement. A stale editor revision is rejected after migration; reload
+before saving. Read-only inspectors and unopened boards do not initiate migration.
+
+A historical retry keeps its saved input, provider and recovery ID even if the
+node now selects the plugin. Its output can still attach to that node. Plugin
+removal or disablement does not reverse already migrated selections. Project
+media defaults and builtin catalog cutover remain separate migration steps.

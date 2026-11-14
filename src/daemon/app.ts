@@ -210,6 +210,8 @@ export interface AppOptions {
   cloudApiUrl?: string;
   cloudFetch?: typeof fetch;
   dataDirectory?: string;
+  /** Validated committed MiniMax settings migration, supplied by the startup owner. */
+  minimaxSettingsMigrated?: boolean;
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -1439,7 +1441,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, minimaxSettingsMigrated: options.minimaxSettingsMigrated, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
