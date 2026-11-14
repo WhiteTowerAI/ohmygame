@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
-import { GenerationShutdown, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
+import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import type { PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
@@ -291,6 +291,9 @@ describe("plugin media providers: video", () => {
     // The vendor isn't told to stop: the task is resumed.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos"]);
+    const storedTask = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("task-recorded");
+    expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(storedTask);
     const video = await media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt());
     expect(video.bytes).toEqual(MP4);
     expect(requests.map((request) => request.url)).toEqual(["https://api.flow.example/v1/videos", "https://api.flow.example/v1/videos/t1", "https://api.flow.example/v1/videos/t1", "https://cdn.flow.example/t1.mp4"]);
@@ -312,6 +315,7 @@ describe("plugin media providers: video", () => {
     const model = await firstVideo(media);
     await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).rejects.toThrow("api.flow.example could not be reached");
     fail = false;
+    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("unconfirmed");
     await expect(media.generateVideo(model, { prompt: "a fox" }, undefined, await journalAt())).rejects.toThrow("its answer was lost");
     expect(requests).toHaveLength(1);
     // A start the adapter refused before sending anything can be tried again.

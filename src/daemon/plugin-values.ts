@@ -41,35 +41,58 @@ export class PluginValues {
   #values: Stored = {};
   /** The file holds values in a form this version can't read, such as a newer version's, so writing would lose them. */
   #unreadable = false;
+  #metadata: Record<string, unknown> = {};
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly file: string) {}
 
+  /** Whether loading found data that an update would lose. */
+  get readOnly(): boolean { return this.#unreadable; }
+
+  /** App-owned migration inspection without an installed manifest. Never send this to a plugin or the renderer. */
+  storedSecret(id: string, name: string): { occupied: boolean; value?: string } {
+    const fields = this.#values[id] ?? {};
+    const stored = fields[name];
+    return {
+      occupied: Object.hasOwn(fields, name),
+      value: stored?.type === "secret" && typeof stored.value === "string" ? stored.value : undefined,
+    };
+  }
+
   async load(): Promise<void> {
+    this.#unreadable = true;
     let text: string;
     try {
       text = await readFile(this.file, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
-    const value = JSON.parse(text) as { version?: unknown; plugins?: unknown };
-    if (value.version !== 1 || !value.plugins || typeof value.plugins !== "object") {
-      this.#unreadable = true;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      this.#values = {};
+      this.#metadata = {};
+      this.#unreadable = false;
       return;
     }
-    const plugins: Stored = {};
-    for (const [id, fields] of Object.entries(value.plugins as Record<string, unknown>)) {
-      if (!fields || typeof fields !== "object") continue;
-      plugins[id] = Object.fromEntries(
-        Object.entries(fields as Record<string, Partial<StoredValue>>).filter(
-          (entry): entry is [string, StoredValue] =>
-            FIELD_TYPES.has(String(entry[1]?.type)) &&
-            (typeof entry[1]?.value === "string" || typeof entry[1]?.value === "boolean"),
-        ),
-      );
+    const value: unknown = JSON.parse(text);
+    if (!record(value) || value.version !== 1 || !record(value.plugins)) return;
+    const plugins: Stored = Object.create(null);
+    let unreadable = false;
+    for (const [id, fields] of Object.entries(value.plugins)) {
+      if (!record(fields)) { unreadable = true; continue; }
+      const entries: Record<string, StoredValue> = Object.create(null);
+      for (const [name, stored] of Object.entries(fields)) {
+        if (!record(stored) || !FIELD_TYPES.has(String(stored.type)) ||
+          (stored.type === "boolean" ? typeof stored.value !== "boolean" : typeof stored.value !== "string")) {
+          unreadable = true;
+          continue;
+        }
+        // Keep extension metadata, including fields this app does not interpret.
+        entries[name] = stored as unknown as StoredValue;
+      }
+      plugins[id] = entries;
     }
     this.#values = plugins;
+    const { plugins: _plugins, ...metadata } = value;
+    this.#metadata = metadata;
+    this.#unreadable = unreadable;
   }
 
   /** What a call to the plugin's native code carries, defaults filled in. */
@@ -160,6 +183,7 @@ export class PluginValues {
         if (value === null) delete next[name];
         else
           next[name] = {
+            ...next[name],
             type: fields[name]!.type,
             value: typeof value === "string" ? value.trim() : value,
           };
@@ -189,12 +213,13 @@ export class PluginValues {
 
   #write(change: (values: Stored) => Stored): Promise<void> {
     const next = this.#queue.catch(() => {}).then(async () => {
+      if (this.#unreadable) throw new PluginConfigurationError("Plugin settings are unreadable; fix or update the file before changing settings");
       const values = change(this.#values);
       await mkdir(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.${process.pid}.tmp`;
       await writeFile(
         temporary,
-        `${JSON.stringify({ version: 1, plugins: values }, null, 2)}\n`,
+        `${JSON.stringify({ ...this.#metadata, version: 1, plugins: values }, null, 2)}\n`,
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporary, this.file);
@@ -217,4 +242,8 @@ function invalid(field: Field, value: string | boolean): string | undefined {
   if (field.type === "path" && value.trim() && !path.isAbsolute(value.trim()))
     return "must be an absolute path";
   return undefined;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

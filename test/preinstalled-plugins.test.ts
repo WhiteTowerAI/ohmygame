@@ -652,7 +652,7 @@ describe("shipped npm preinstalls", () => {
   };
   const catalog = async (app: ReturnType<typeof createApp>) =>
     (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json<Array<{
-      id: string; version: string; bundled: boolean; preinstalled: boolean;
+      id: string; version: string; beta?: boolean; bundled: boolean; preinstalled: boolean;
       everyProject: boolean; grants: { enabled?: boolean; allowed?: string[] } | null;
       origin: { type: string; package: string };
     }>>();
@@ -666,7 +666,7 @@ describe("shipped npm preinstalls", () => {
     expect(entries.map((entry) => entry.id).sort()).toEqual(lock.plugins.map((entry: { id: string }) => entry.id).sort());
     expect(entries).toHaveLength(12);
     for (const entry of entries) {
-      expect(entry).toMatchObject({ bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
+      expect(entry).toMatchObject({ beta: true, bundled: false, preinstalled: true, origin: { type: "npm", package: entry.id.replace("ohmygame/", "@ohmygame/") } });
       expect(entry.grants?.allowed ?? [], entry.id).toEqual([]);
       const icon = await app.inject({ method: "GET", url: `/plugins/${encodeURIComponent(entry.id)}/icon` });
       expect(icon.statusCode, entry.id).toBe(200);
@@ -705,7 +705,8 @@ describe("shipped npm preinstalls", () => {
     }
     expect((await upgraded.inject({ url: configuration })).json()).toEqual(settings);
     expect(await readFile(projectFile, "utf8")).toBe(projectBefore);
-    expect((await upgraded.inject({ method: "DELETE", url: "/plugin-store/ohmygame/web-game-studio/0.1.0" })).statusCode).toBe(204);
+    const removedVersion = after.find((entry) => entry.id === "ohmygame/web-game-studio")!.version;
+    expect((await upgraded.inject({ method: "DELETE", url: `/plugin-store/ohmygame/web-game-studio/${removedVersion}` })).statusCode).toBe(204);
     await upgraded.close();
     apps.splice(apps.indexOf(upgraded), 1);
 

@@ -327,3 +327,240 @@ can't promise what the plugin doesn't do.
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
    saved keys moved to the plugin's settings.
+
+
+## Stored settings before vendor migration
+
+MiniMax's existing keys stay in `minimax.json` until activation is verified. The
+version-1 key store preserves unknown fields when either regional key changes or
+is cleared; clearing the last key removes the file only if no other data remains.
+Model preferences in `model-visibility.json` likewise retain unrelated fields and
+metadata on unchanged default model references. Invalid or newer files cannot be
+rewritten after a failed load; repair and reload them before editing.
+
+Plugin configuration retains unknown root and field metadata. A damaged record,
+unknown field type or future file version makes the store read-only instead of
+silently filtering that record out on the next save. Secrets remain typed and are
+not exposed to native plugin code without its secrets capability. These storage
+protections prepare the optional vendor migration; they do not copy keys, rename
+saved model references, enable a plugin, or replace a built-in provider.
+
+### Optional MiniMax beta artifact
+
+The migration preparation target is `@ohmygame/minimax@0.1.0`, published from
+[official plugins #17](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/17).
+Its exact npm tarball integrity is:
+
+```text
+sha512-Haq/K2D644uG1kTVX4ncU+hmDLPkeSq4IYRy0E86IICORoqLv6Ut15tq3ZOyjbqUPTFUCY6ZGHwMHzkX75eHOQ==
+```
+
+The published artifact passed npm signature/integrity checks and the app's plugin
+validator; its packaged files match the tested source. It declares `beta: true`,
+requires API `^2.7.0`, and provides regional `cn`/`global` video providers using
+`cnApiKey`/`globalApiKey`, with `MiniMax-H3` and `MiniMax-H3-Max` models. This is an
+artifact baseline for the migration mapping below, not an installation or
+activation record. It remains optional and outside the preinstalled lock.
+
+Live generation, downloading and quit/reopen recovery still require acceptance
+before replacing the built-in provider. Follow the
+[plugin's local test instructions](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/minimax/README.md#local-testing--本地测试).
+A future migration must check this exact package identity and integrity before
+applying; a different version requires its contract and migration tests reviewed
+again.
+
+### MiniMax settings inspection (preparation only)
+
+MiniMax is available as the optional `@ohmygame/minimax@0.1.0` beta (OhMyGame
+API 2.7). Publication does not enable migration or replace the built-in provider;
+live generation and restart acceptance remain required before cutover. To inspect
+migration inputs, close the app and copy its data directory to a private local
+folder, then run from this repository:
+
+```bash
+bun run inspect:minimax-migration --data-dir /absolute/path/to/copied-app-data
+```
+
+The command reads `minimax.json`, `plugin-store/configuration.json` and
+`model-visibility.json` through their existing stores. It does not start the app,
+execute plugins, contact MiniMax, write files or offer an apply option. Missing
+files are treated as unset; a missing data directory is an error. Use a consistent
+copy: reading a live app's files does not provide a transactional snapshot.
+
+The JSON report separates China and Global mappings:
+
+| Built-in provider | Plugin provider | Key field |
+| --- | --- | --- |
+| `minimax-video-cn` | `plugin.ohmygame.minimax.cn` | `cnApiKey` |
+| `minimax-video-global` | `plugin.ohmygame.minimax.global` | `globalApiKey` |
+
+Key decisions are `absent`, `copy`, `same`, `target-only`, `conflict`, `invalid`
+or `blocked`. Different existing keys require a decision; an occupied but
+incompatible target field is never treated as empty. Values that exceed the
+plugin's length limit or violate the legacy key format are flagged. The report
+contains no keys, hashes, arbitrary stored metadata or parser error text.
+
+Visibility reports retain each provider's on/off setting and hidden H3/H3 Max
+models. An explicitly saved target setting that differs is marked `review-target`;
+unknown hidden models or an unknown built-in video default require review. A
+known built-in default is shown with its proposed provider mapping. Unrelated
+defaults remain unchanged. None of these proposed actions are executed.
+
+Exit code `0` means no settings blockers were found, `1` means the report contains
+blockers, and `2` means invalid arguments or a data-directory error. Every report
+says `scope: settings-only` and `activation: held`, even when it exits with `0`.
+It does not check installation, plugin enablement, project overrides, saved canvas
+references, unfinished jobs or recovery journals, and cannot authorize a cutover.
+
+Add one or more copied project directories to inspect canvas references and
+history alongside the settings:
+
+```bash
+bun run inspect:minimax-migration --data-dir /absolute/path/to/copied-app-data \
+  --workspace /absolute/path/to/copied-project-one \
+  --workspace /absolute/path/to/copied-project-two
+```
+
+This produces report version `2`, with `scope: selected-workspaces` and
+`activation: held`. The settings-only invocation remains version `1`. Workspace
+numbers in the report follow argument order. Project registration and complete
+project coverage are not verified: it never loads or rewrites the app's project
+registry. Copy the app data and selected projects while the app is closed.
+
+- Canvas inspection reads the index and every `canvas/boards/*.json`, including
+  unindexed boards. Missing, unindexed, unreadable and future-format boards need
+  review. Counts distinguish built-in and plugin MiniMax references and unknown
+  model IDs. Existing schema and cross-node checks still apply; editor layout
+  files are read as part of board validation, without saving normalized data.
+- Job inspection reads `canvas/jobs.json` without creating a canvas, marking
+  running jobs interrupted, or saving history. The application's ordinary load
+  path still performs its existing interruption handling. Retry ownership comes
+  from saved `input.model`, not the current board or display model; disagreement,
+  unsupported input, mixed project histories and repeated recovery IDs require
+  review. Failed and cancelled MiniMax jobs are included with running jobs.
+- All `media-tasks/*.json` in the selected app data are counted as unconfirmed,
+  task-recorded, result-recorded or unreadable. Temporary writes are flagged.
+  Recovery-ID matches to selected histories are associations only: the journal
+  stores an opaque fingerprint, not a readable provider identity. Unattributed
+  records may belong to other projects or agent calls; shared IDs may be retry
+  history. None are deleted, claimed, rehashed or treated as safe to resubmit.
+  A recorded task/result is not proof that the provider can still resume it.
+
+Any unfinished MiniMax job or existing media journal keeps an ownership-review
+blocker, including journals that might belong to another provider. The legacy
+MiniMax generator has no persisted vendor-task recovery; a missing journal does
+not prove that no paid request was sent. Do not automatically retry it through
+the plugin. Preserve historical job inputs, recovery IDs and request fingerprints
+when planning board-reference migration, and retain the legacy path until those
+jobs have an explicit disposition. The report omits paths, prompts, task payloads,
+result URLs, arbitrary IDs and fingerprints. Linked canvas or journal files are
+rejected. Exit codes retain the settings inspection's meaning.
+
+Before enabling migration in the app, complete these separate gates:
+
+- Verify real generation, result download, stop and restart recovery in both
+  regions with the optional adapter. Retrying a recovered request must not start
+  a second paid generation. Local stop does not imply vendor cancellation.
+- Verify the installed package against the exact beta artifact above, including
+  its integrity and provider/model contract. Publication and artifact checks do
+  not establish local installation, grants, enablement or live acceptance. The
+  inspector does not yet enforce this artifact baseline at an activation boundary.
+- Define the migration at each owning load boundary: keys in the key/configuration
+  stores, switches and defaults in model preferences, saved references in canvas
+  loading. Preserve unknown metadata and refuse unreadable files. Do not bulk-edit
+  projects through startup helpers that also persist unrelated state.
+- Classify unfinished jobs and task journals before changing any model reference.
+  Keep recovery IDs, request fingerprints and provider ownership stable; retain
+  the legacy execution path for outstanding work rather than resubmit it.
+- Implement a resumable apply with conflict checks and rollback. Re-read settings
+  before applying, preserve independently configured plugin values and switches,
+  and keep legacy keys and providers usable until cutover succeeds. Specify the
+  compatibility removal release/date when that migration first ships.
+
+### Rehearse settings migration on a disposable copy
+
+With the app closed, use a private copy of its data directory:
+
+```bash
+bun run rehearse:minimax-migration --data-dir /absolute/path/to/copied-app-data
+```
+
+The rehearsal copies only `minimax.json`, `plugin-store/configuration.json` and
+`model-visibility.json` into a temporary directory. It refuses linked settings
+files or directories. On POSIX, the temporary directory is mode `0700` and files
+are `0600`; Windows uses the current user's temporary-directory permissions.
+There is no apply, output-directory or keep-copy option.
+
+After the existing settings inspector accepts the copied data, the rehearsal:
+
+- Saves a private, versioned transaction journal before changing settings. It
+  records byte-exact before/after snapshots and a checksum for corruption
+  detection. The legacy key file is a read-only guard.
+- Copies each regional key only into an empty compatible target. Existing
+  matching keys remain, while conflicts and independently changed target switches
+  block the proposal. Legacy keys and provider choices stay intact.
+- Copies explicit hidden-model and disabled-provider choices and remaps a known
+  built-in video default. It preserves unrelated data and extra metadata on the
+  default reference, changing only its provider field.
+- Reloads the staged files through the owning stores and verifies that a second
+  proposal makes no changes. It then rolls back changed files to their exact
+  original bytes, removing target files that were originally absent.
+- Refuses rollback over an unexpected edit in the temporary copy, reports partial
+  write/rollback failures, and removes the temporary directory on completion or
+  caught errors. A final byte comparison detects source settings that differ
+  from the initial snapshot; it never restores over a changed source file.
+
+The report contains fixed statuses and counts only, with
+`scope: temporary-settings-copy` and `activation: held`. Exit `0` means all
+attempted rehearsal checks passed, `1` means blocked/failed, and `2` means invalid
+arguments. Unattempted checks are `null`. It does not expose keys, file paths,
+raw exceptions or the staged documents. Empty or already mapped settings produce
+no proposed changes and still exercise reload and rollback verification.
+
+This is a settings rehearsal, not an application migration. Its transaction
+protocol is exercised only on an exclusively owned private copy. It neither scans nor rewrites projects, jobs, recovery
+journals, plugin grants or installation state. It does not validate the eventual
+published package, call MiniMax or activate a provider. Source comparison is not
+a transactional snapshot across files; use a consistent copy while the app is
+closed. Process termination or machine failure may leave a private
+`ohmygame-minimax-rehearsal-*` directory in the system temporary directory; remove
+that leftover copy locally. Cleanup failures are reported explicitly.
+
+#### Recoverable settings transaction
+
+The rehearsal uses `scripts/minimax-settings-transaction.ts` and keeps its receipt
+at `.minimax-settings-transaction.json` inside the temporary copy. The version-1
+receipt contains credentials (base64 is not encryption) and is written as `0600`
+on POSIX inside the `0700` copy. It has `applying`, `applied`, `rolling-back` and `rolled-back` phases. Settings
+writes use a flushed temporary file and atomic rename. Recovery reads the saved
+receipt and file bytes, so termination after a file rename but before the final
+receipt update does not repeat a completed change. A saved rollback intent is
+sticky: recovery continues rollback rather than applying again. Rollback restores
+exact original bytes and removes target files that were originally absent.
+
+Before the first change and each subsequent write, all three known files must
+match the recorded before or after bytes. Unexpected edits, linked files or
+journals, corrupt checksums, unknown receipt fields and unsupported versions block
+recovery without discarding the receipt. A completed receipt also requires its
+exact terminal state. A second prepare cannot replace a pending receipt. Only
+byte-exact completed rollback permits receipt removal; successful apply retains
+its backup. The enclosing disposable rehearsal still cleans up on caught failures.
+The checksum detects corruption; it does not authenticate a user-edited receipt.
+
+Calls for the same canonical directory serialize within one process. This is not
+an inter-process lock: one process must exclusively own the copy, and a recovery
+process may start only after the previous one has exited. Tests kill real Node
+workers at settings and receipt boundaries, including partial rollback, and
+recover from disk in a new owner. File flushing does not establish portable
+power-loss durability of directory entries; machine/filesystem failure remains
+outside this increment's guarantee. There is no new CLI apply/resume switch and
+no application startup or route invokes this transaction.
+
+Production activation still needs exclusive ownership coordinated with all
+app-owned writers and cache reloads, installed-package verification, complete
+project and unfinished-task disposition, and live acceptance. Settings recovery
+does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
+a plugin, or submit vendor requests. The built-in execution path remains in place
+for outstanding jobs. A passing rehearsal does not release those gates. When the
+migration first runs on real profiles, record its compatibility removal release
+and date at the owning load boundaries.

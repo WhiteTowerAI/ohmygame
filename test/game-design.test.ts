@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { CanvasStore, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
+import { CanvasStore, readCanvasJobHistory, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
@@ -772,6 +772,10 @@ describe("Markdown design workspace", () => {
   it("restores interrupted jobs as cancelled without another paid call", async () => {
     const { store, project, boardId, node } = await runtime();
     await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), JSON.stringify([{ id: "interrupted", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "running", createdAt: "now", input: { prompt: "Garden" } }]));
+    const before = await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8");
+    expect((await readCanvasJobHistory(project.workspacePath, project.id))[0].status).toBe("running");
+    await expect(readCanvasJobHistory(project.workspacePath, "wrong-project")).rejects.toThrow("Invalid generation history");
+    expect(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8")).toBe(before);
     expect((await store.jobs(project.id))[0]).toMatchObject({ status: "cancelled", error: expect.stringContaining("interrupted") });
   });
   it("keeps generation history usable in a duplicated project", async () => {

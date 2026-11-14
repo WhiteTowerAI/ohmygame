@@ -40,11 +40,11 @@
     {
       "type": "npm",
       "pluginId": "game-studio",
-      "releaseId": "game-studio-0.1.0",
+      "releaseId": "game-studio-0.1.1",
       "id": "ohmygame/game-studio",
       "package": "@ohmygame/game-studio",
-      "version": "0.1.0",
-      "integrity": "sha512-Yw5rnhxtrVEDuSJ+Ohgoz1TzuFNvTupW3Vaa8+1NxgqAyzupO7nDlwaSROk/mIxpU62X1q6bKGw+r7vPmyV7bA=="
+      "version": "0.1.1",
+      "integrity": "sha512-egewwj9GuXFMG1LfldkDI0OSWF0BceLf0TIoInFvuHRouL9xPB6mYZUWqMemy1r0Du3rD4+VrjdslHrKHSjaXw=="
     },
     {
       "type": "npm",
@@ -58,11 +58,11 @@
     {
       "type": "npm",
       "pluginId": "taptap-maker",
-      "releaseId": "taptap-maker-1.0.0",
+      "releaseId": "taptap-maker-1.0.1",
       "id": "ohmygame/taptap-maker",
       "package": "@ohmygame/taptap-maker",
-      "version": "1.0.0",
-      "integrity": "sha512-70iuzvaMTMx3buT+B0S1YxsRgNUmbSJT2WyfqZHeQE8OO8jMc7YnXxtVsTpJFEErc2f2yCSz3EmOekwVw6kAWA=="
+      "version": "1.0.1",
+      "integrity": "sha512-aDcB+tPKfKfj2yDyGl5XSL5lUQZTDTh5HzOwbYKFbBqe5XniVPCAb6QdXxdzxdCDZnc1C66o6SHWTPVYrF2H4g=="
     },
     {
       "type": "npm",
@@ -94,11 +94,11 @@
     {
       "type": "npm",
       "pluginId": "web-game-studio",
-      "releaseId": "web-game-studio-0.1.0",
+      "releaseId": "web-game-studio-0.1.1",
       "id": "ohmygame/web-game-studio",
       "package": "@ohmygame/web-game-studio",
-      "version": "0.1.0",
-      "integrity": "sha512-zs2niSv4bSZjJDEE9eOtARLdQ2JH0YiwcdhdiucoCbIrhK2CZzorKJQcfeuBBg+xZ3PjPnvFACXNlUHHNtXFxA=="
+      "version": "0.1.1",
+      "integrity": "sha512-FvsIe9X+r10FmXPG7SOhJkurDcQ2k6CXWRje4NwA8v83gaYmy0bnOixy0X28Jz0Z9/JlwaUJoyybdCtpMtVL1A=="
     },
     {
       "type": "npm",
