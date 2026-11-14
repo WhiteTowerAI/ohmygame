@@ -356,10 +356,10 @@ function isRunning(pid: number): boolean {
 
 describe("daemon profile ownership", () => {
   const lockName = ".ohmygame-owner-v1.sqlite";
-  async function fixture(run: (root: string, start: (directories: string[]) => Promise<{ child: ChildProcess; result: { status: string; message?: string }; closed: Promise<number | null> }>) => Promise<void>) {
+  async function fixture(run: (root: string, start: (directories: string[], onAttempt?: () => void) => Promise<{ child: ChildProcess; result: { status: string; message?: string }; closed: Promise<number | null> }>) => Promise<void>) {
     const root = await mkdtemp(path.join(tmpdir(), "ohmygame-profile-owner-"));
     const children: { child: ChildProcess; closed: Promise<number | null> }[] = [];
-    const start = async (directories: string[]) => {
+    const start = async (directories: string[], onAttempt?: () => void) => {
       const child = fork(path.resolve("test/fixtures/profile-ownership-worker.cjs"), directories, {
         execPath: "node", execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
       });
@@ -367,7 +367,11 @@ describe("daemon profile ownership", () => {
       children.push({ child, closed });
       const result = await new Promise<{ status: string; message?: string }>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Profile owner worker did not respond")), 5000);
-        child.once("message", (value) => { clearTimeout(timer); resolve(value as { status: string; message?: string }); });
+        child.on("message", (value) => {
+          const result = value as { status: string; message?: string };
+          if (result.status === "attempting") { onAttempt?.(); return; }
+          clearTimeout(timer); resolve(result);
+        });
         child.once("error", (error) => { clearTimeout(timer); reject(error); });
         child.once("exit", () => { clearTimeout(timer); reject(new Error("Profile owner worker exited before replying")); });
       });
@@ -385,7 +389,7 @@ describe("daemon profile ownership", () => {
     await fixture(async (root, start) => {
       const folder = path.join(root, "data");
       const pair = await Promise.all([start([folder]), start([folder])]);
-      expect(pair.map(({ result }) => result.status).sort()).toEqual(["owned", "rejected"]);
+      expect(pair.map(({ result }) => result.status).sort(), JSON.stringify(pair.map(({ result }) => result))).toEqual(["owned", "rejected"]);
       const winner = pair.find(({ result }) => result.status === "owned")!;
       const loser = pair.find(({ result }) => result.status === "rejected")!;
       expect(loser.result.message).toContain("already in use");
@@ -400,6 +404,25 @@ describe("daemon profile ownership", () => {
       next.child.kill("SIGKILL");
       await next.closed;
       expect((await start([folder])).result.status).toBe("owned");
+    });
+  });
+
+  it("waits for a competing acquisition's transient read lock", async () => {
+    await fixture(async (root, start) => {
+      const file = path.join(root, lockName);
+      await writeFile(file, "");
+      const reader = await start(["--reader", file]);
+      expect(reader.result.status).toBe("owned");
+      let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const owner = await start([root], () => {
+          // Release only after the other process actually attempts its exclusive
+          // transaction, independently of process startup or machine load.
+          releaseTimer = setTimeout(() => reader.child.send("close"), 100);
+        });
+        expect(owner.result, JSON.stringify(owner.result)).toMatchObject({ status: "owned" });
+        expect(await reader.closed).toBe(0);
+      } finally { clearTimeout(releaseTimer); }
     });
   });
 
