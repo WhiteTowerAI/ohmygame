@@ -453,7 +453,7 @@ export class CanvasStore {
   async #board(id: string, boardId: string): Promise<CanvasBoardDetail> {
     const workspace = this.#project(id).workspacePath;
     if (!(await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) throw new CanvasError("Canvas board not found", 404);
-    const detail = this.mediaMigrations.minimax || this.mediaMigrations.seedance || this.mediaMigrations.model3D?.length
+    const detail = this.mediaMigrations.elevenlabs || this.mediaMigrations.minimax || this.mediaMigrations.seedance || this.mediaMigrations.model3D?.length
       ? await this.#migrateMediaBoard(workspace, boardId)
       : await readCanvasBoard(workspace, boardId);
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);

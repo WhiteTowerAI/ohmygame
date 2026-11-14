@@ -2682,6 +2682,7 @@ const zhCN: typeof en = {
   api: {
     model3DRetiredProvider: "此 3D 服务已迁移到插件。请选择插件模型，旧内置服务已停用。",
     seedanceRetiredProvider: "Seedream 和 Seedance 已迁移到插件。请选择插件模型，旧内置服务已停用。",
+    elevenlabsRetiredRetry: "无法恢复这项旧内置 ElevenLabs 任务。请先在 ElevenLabs 确认结果和计费，再决定是否使用插件重新生成。",
     seedanceRetiredRetry: "无法恢复这项旧内置 Seedream 或 Seedance 任务。请先在火山方舟或 BytePlus 确认结果和计费，再决定是否使用插件重新生成。",
     minimaxRetiredProvider: "MiniMax 已迁移到插件。请选择 MiniMax 插件模型，旧内置服务已停用。",
     minimaxRetiredRetry: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。",

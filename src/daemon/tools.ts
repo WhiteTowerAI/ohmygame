@@ -1,4 +1,4 @@
-import { mediaJobNotice, retiredMediaRetry, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
+import { mediaJobNotice, retiredMediaRetry, migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -271,6 +271,11 @@ export class ToolRunner {
       // Only the app records what plugins changed.
       const { requestedPrompt: _, pluginChanges: __, ...asked } = input as RunImageToolRequest;
       input = projectId && this.#beforeImage ? await this.#beforeImage(asked as RunImageToolRequest, projectId) : asked as RunImageToolRequest;
+    }
+    if (!hooksApplied && toolId === "generate-audio" && input && typeof input === "object" && !Array.isArray(input)) {
+      const value = input as AudioGenerationRequest;
+      const model = migratedAudioSelection(value.model, value.kind, this.mediaMigrations);
+      if (model !== value.model) input = { ...value, model };
     }
     const resolved = this.resolveInput ? await this.resolveInput(toolId, input, projectId) : input;
     if (!hooksApplied && (toolId === "image-to-3d" || toolId === "animate-3d")) {
