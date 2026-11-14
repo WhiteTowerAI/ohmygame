@@ -183,6 +183,23 @@ export function createSettingsTransaction<File extends string>(options: {
     });
   }
 
+  /** Read one immutable applied value, not today's editable settings. No backup means uncommitted. */
+  function committedSettingsFile(
+    directory: string,
+    file: File,
+  ): Promise<{ bytes: Buffer | undefined } | undefined> {
+    return owned(directory, async () => {
+      if (!FILES.includes(file)) throw new Error("Unknown migration settings file");
+      if (!(await exists(path.join(directory, SETTINGS_TRANSACTION_BACKUP))))
+        return undefined;
+      const journal = await load(directory, SETTINGS_TRANSACTION_BACKUP);
+      if (journal.phase !== "applied")
+        throw new Error("Invalid committed migration phase");
+      const bytes = journal.files[file].after;
+      return { bytes: bytes === null ? undefined : Buffer.from(bytes, "base64") };
+    });
+  }
+
   /** The copy owner can discard the backup only after byte-exact restoration. */
   function forgetSettingsTransaction(directory: string): Promise<void> {
     return owned(directory, async () => {
@@ -362,6 +379,7 @@ export function createSettingsTransaction<File extends string>(options: {
     recoverInterruptedSettings,
     commitSettingsTransaction,
     hasCommittedSettingsTransaction,
+    committedSettingsFile,
     forgetSettingsTransaction,
   };
 }
