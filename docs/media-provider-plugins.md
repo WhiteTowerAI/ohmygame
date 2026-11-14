@@ -196,7 +196,10 @@ The adapter runs in QuickJS compiled to WebAssembly (`quickjs-wasi`, MIT,
 which the agent runtime already ships), inside the daemon:
 
 - each call gets 64 MB of memory and 2 seconds of its own CPU time (waiting on
-  `host.fetch` doesn't count), and 2 minutes in all;
+  `host.fetch` doesn't count), and 2 minutes in all. Image `start` gets 3 minutes,
+  including its HTTP request, so synchronous image generation can finish within
+  the built-in provider's budget. Other HTTP requests keep their 60-second limit;
+  cancellation and the kind's overall deadline still apply;
 - it has at most 4 `host.fetch` requests open at once, since their answers
   wait in the app, outside those 64 MB; a fifth fails until one is answered;
 - there is no `fetch`, `require`, `process`, file system or clock beyond
