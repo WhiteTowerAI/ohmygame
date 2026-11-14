@@ -28,7 +28,7 @@ interface ProviderModels3DOptions {
   defaultModel: () => Model3DModelRef | undefined;
   cloud?: CloudModelsClient;
   /** Plugins' model providers that make 3D models from a prompt or pictures. */
-  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D" | "animate3D" | "animationActions">;
+  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D" | "animate3D" | "animationActions" | "balance3D">;
 }
 
 export class ProviderModels3D implements Model3DGenerator {
@@ -174,6 +174,12 @@ export class ProviderModels3D implements Model3DGenerator {
     return connection.animations(signal, model, options);
   }
   async balance(model: Model3DModelRef, signal?: AbortSignal) {
+    if (!this.options.isEnabled(model.provider)) throw new Model3DGenerationError("The selected 3D provider is disabled", 409);
+    if (model.provider.startsWith("plugin.")) {
+      if (model.id !== MODEL3D_CONNECTION_ID) throw new Model3DGenerationError("Plugin balances use the provider connection", 400);
+      if (!this.options.plugins) throw new Model3DGenerationError("The selected 3D provider is unavailable", 503);
+      return this.options.plugins.balance3D(model.provider, signal);
+    }
     const selected = resolveModel3DConnection(model, await this.operationModels());
     if (!selected) throw new Model3DGenerationError("The selected 3D connection is unavailable", 503);
     return (await this.connection(selected, signal)).generator.accountBalance(signal);

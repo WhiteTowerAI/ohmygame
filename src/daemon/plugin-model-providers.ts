@@ -64,6 +64,7 @@ export class PluginModelProviders {
     const keyField = item.provider.apiKey ? item.entry.manifest.configuration?.[item.provider.apiKey] : undefined;
     return {
       id: item.entry.id,
+      ...(item.provider.media?.["3d"]?.balance ? { model3dBalance: true } : {}),
       name: localizePluginString(item.entry, item.entry.manifest.displayName, locale),
       ...(item.provider.baseUrl ? { baseUrl: item.provider.baseUrl } : {}),
       ...(item.provider.apiKey ? { keySetting: item.provider.apiKey } : {}),

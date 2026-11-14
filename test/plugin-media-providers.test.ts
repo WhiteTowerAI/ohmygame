@@ -1635,3 +1635,97 @@ describe("shared reusable media tasks", () => {
     } finally { await restarted.close(); }
   });
 });
+
+describe("plugin 3D account balance", () => {
+  const declared = { "3d": { ...MODEL3D_MEDIA["3d"]!, balance: true } };
+  const adapter = `export default { "3d": { async balance(_input, host) {
+    return await (await host.fetch("https://api.flow.example/balance", { auth: true })).json();
+  } } };`;
+
+  it.each(["undeclared", "missing-key", "permissions"])("refuses %s before network", async variant => {
+    const { media, requests } = await setup(adapter, { media: variant === "undeclared" ? MODEL3D_MEDIA : declared,
+      ...(variant === "missing-key" ? { key: undefined } : variant === "permissions" ? { allowed: false } : {}) });
+    await expect(media.balance3D("plugin.acme.flow.flow")).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it.each(['host.submit("paid", "https://api.flow.example/paid", { method: "POST" })',
+    'host.fetch("https://api.flow.example/paid", { method: "POST" })', 'host.reuse("rig")',
+    'host.fetch("https://api.flow.example/paid", { multipart: [] })', 'host.fetch("https://unapproved.example/balance")'])("rejects unsafe balance calls: %s", async call => {
+    const { media, requests } = await setup(`export default { "3d": { async balance(_input, host) { await ${call}; return { balance: 0 }; } } };`, { media: declared });
+    await expect(media.balance3D("plugin.acme.flow.flow")).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it.each([null, {}, { balance: "12" }, { balance: null }, { balance: 2, frozen: -1 }, { balance: 2, frozen: "1" }, { balance: 2, frozen: null }])("rejects malformed balance %j", async value => {
+    const { media } = await setup(adapter, { media: declared, reply: () => Response.json(value) });
+    await expect(media.balance3D("plugin.acme.flow.flow")).rejects.toThrow("invalid balance");
+  });
+
+  it("keeps finite negative account credits and zero frozen credits", async () => {
+    const { media } = await setup(adapter, { media: declared, reply: () => Response.json({ balance: -0.5, frozen: 0, unusedVendorField: "preserved by vendor" }) });
+    expect(await media.balance3D("plugin.acme.flow.flow")).toEqual({ balance: -0.5, frozen: 0 });
+  });
+
+  it("bounds vendor feedback and redacts the configured key", async () => {
+    const { media } = await setup(adapter, { media: declared, reply: () => Response.json({ error: "sk-test " + "x".repeat(2000) }) });
+    const error = await media.balance3D("plugin.acme.flow.flow").catch(cause => cause as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("sk-test");
+    expect((error as Error).message.length).toBeLessThanOrEqual(1006);
+  });
+
+  it("cancels an in-flight balance request without retrying", async () => {
+    let observed!: AbortSignal;
+    const { media, requests } = await setup(adapter, { media: declared, reply: (_url, signal) => new Promise((_, reject) => {
+      observed = signal!; signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
+    }) });
+    const controller = new AbortController(), result = media.balance3D("plugin.acme.flow.flow", controller.signal);
+    const rejected = expect(result).rejects.toThrow("balance cancelled");
+    await expect.poll(() => !!observed).toBe(true);
+    controller.abort(new Error("balance cancelled"));
+    await rejected;
+    expect(observed.aborted).toBe(true);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("bounds a stalled balance query to thirty seconds", async () => {
+    let started!: () => void;
+    const requested = new Promise<void>(resolve => { started = resolve; });
+    const { media, requests } = await setup(adapter, { media: declared, reply: (_url, signal) => new Promise((_, reject) => {
+      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }); started();
+    }) });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    const result = media.balance3D("plugin.acme.flow.flow");
+    const rejected = expect(result).rejects.toMatchObject({ statusCode: 504 });
+    try {
+      await requested;
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejected;
+      expect(requests).toHaveLength(1);
+    } finally { timeout.mockRestore(); vi.useRealTimers(); await media.close(); }
+  });
+
+  it("reads a declared generation-only provider's balance through the existing service without native dispatch", async () => {
+    const { media, requests } = await setup(`export default { "3d": { async balance(_input, host) {
+      return await (await host.fetch("https://api.flow.example/balance", { auth: true })).json();
+    } } };`, { media: declared,
+      reply: () => Response.json({ balance: 123.5, frozen: 4 }) });
+    const native = vi.fn(async () => { throw new Error("Unexpected native balance dispatch"); });
+    const service = new ProviderModels3D({ runtime: native, meshy: { generator: undefined as never, configured: () => false },
+      customProviders: async () => [], nativeModels: () => [], isEnabled: () => true, isVisible: () => false, defaultModel: () => undefined, plugins: media });
+    try {
+      expect(await service.balance({ provider: "plugin.acme.flow.flow", id: "connection" })).toEqual({ balance: 123.5, frozen: 4 });
+      expect(native).not.toHaveBeenCalled();
+      expect(requests).toMatchObject([{ method: "GET", url: "https://api.flow.example/balance", headers: { authorization: "Bearer sk-test" } }]);
+      expect(requests).toHaveLength(1);
+      await expect(service.balance({ provider: "plugin.acme.flow.flow", id: "wrong-model" })).rejects.toMatchObject({ statusCode: 400 });
+      expect(requests).toHaveLength(1);
+    } finally { await media.close(); }
+  });
+});

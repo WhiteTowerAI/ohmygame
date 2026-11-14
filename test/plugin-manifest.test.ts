@@ -243,6 +243,8 @@ describe("plugin manifest", () => {
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, balance: true } })).toEqual([]);
+    expect(mediaOf({ "3d": { ...model3D, balance: "yes" } }).length).toBeGreaterThan(0);
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true } })).toEqual([]);
     const processing = { ...model3D.models[0], id: "connection", operations: ["remesh", "retexture"], optionProfile: "meshy" };
     expect(mediaOf({ "3d": { ...model3D, inputFiles: true, processing } })).toEqual([]);

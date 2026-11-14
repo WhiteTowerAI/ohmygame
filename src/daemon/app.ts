@@ -861,7 +861,7 @@ export function createApp(options: AppOptions = {}) {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
-    plugins: { model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
+    plugins: { balance3D: (provider, signal) => pluginMediaProviders.balance3D(provider, signal), model3DProviders: () => pluginMediaProviders.model3DProviders(), animationActions: (model, options, signal) => pluginMediaProviders.animationActions(model, options, signal), animate3D: (model, input, signal) => pluginMediaProviders.animate3D(model, input, signal), generate3D: (model, input, signal, journal) => pluginMediaProviders.generate3D(model, input, signal, journal) },
   });
   const doubaoSpeechProvider = new DoubaoSpeechProvider({
     key: (service) => doubaoVoiceSettings.key(service),

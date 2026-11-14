@@ -314,6 +314,31 @@ The action call has a 30-second deadline. Only GET/HEAD requests are allowed;
 auth and redaction rules apply. Listing can therefore populate controls without
 creating paid jobs. An unavailable library reports an error and can be retried.
 
+### Account credits (API 2.14)
+
+Set `media["3d"].balance: true` and `engines.ohmygame-api: "^2.14.0"` to show
+the existing API balance section in the plugin's provider settings. The account
+query is independent of generation model visibility and does not require a
+processing connection. Settings shows it only while the provider is configured
+and enabled. Free cloud quotas remain separate.
+
+Implement `3d.balance(input, host)`, where `input` is an empty object. Return
+`{ balance: 123.5, frozen: 4 }`: `balance` must be finite and may be negative
+for an overdrawn account; optional `frozen` must be finite and nonnegative.
+Amounts are credits, with at most three decimal places displayed. Unknown
+response fields are ignored. Return `{ error: "..." }` or throw on failure;
+the UI provides a refresh control to retry.
+
+The hook has a 30-second deadline and can only use GET/HEAD on approved hosts.
+Authentication and response redaction follow `host.fetch`; `host.submit`,
+`host.reuse`, writes and uploads are refused before HTTP. This query must never
+generate media or incur a paid submission. Each refresh reads the current key;
+the UI discards obsolete responses after a key or provider change.
+
+The existing `/model3d-balance` route uses the plugin provider ID and
+`id=connection` for this provider-level query. A missing declaration, disabled
+provider, absent key or revoked plugin permission fails before network access.
+
 ### Shared animation prerequisites (API 2.13)
 
 Use `engines.ohmygame-api: "^2.13.0"` and `await host.reuse("rig")` from

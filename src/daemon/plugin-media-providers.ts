@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
-import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
@@ -392,6 +392,30 @@ export class PluginMediaProviders {
         ...(output.requestId ? { requestId: output.requestId } : {}),
       };
     });
+  }
+
+  /** Account credits belong to the provider, including generation-only connections. */
+  async balance3D(provider: string, signal?: AbortSignal): Promise<Model3DBalance> {
+    const item = (await this.providers()).find(candidate => candidate.id === provider);
+    if (!item) throw new Model3DGenerationError("The selected plugin provider is unavailable. Check its key and permissions.", 503);
+    if (!item.media["3d"]?.balance) throw new Model3DGenerationError("The selected plugin does not declare a balance query", 400);
+    const deadline = AbortSignal.timeout(30_000), stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const answer = await runMediaAdapter({
+      source: await this.#source(item, Model3DGenerationError), file: item.media.adapter, kind: "3d", step: "balance",
+      args: [{}], signal: stopped, callMs: 30_000,
+      fetch: (request, requestSignal) => {
+        if ("submission" in request || "reuse" in request || request.multipart !== undefined || !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) throw new Model3DGenerationError("Balance queries must be read-only", 400);
+        return this.#fetch(item, request, requestSignal, undefined, 30_000);
+      }, log: message => this.log(item.entry.id, message),
+    }).catch((cause: unknown) => {
+      if (signal?.aborted) throw signal.reason;
+      if (deadline.aborted) throw new Model3DGenerationError(`${this.#name(item)} balance query timed out`, 504);
+      throw new Model3DGenerationError(`${this.#name(item)} balance: ${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+    if (answer && typeof answer === "object" && "error" in answer && typeof answer.error === "string") throw new Model3DGenerationError(`${this.#name(item)}: ${answer.error.slice(0, 1000)}`);
+    if (!answer || typeof answer !== "object" || !("balance" in answer) || typeof answer.balance !== "number" || !Number.isFinite(answer.balance)
+      || "frozen" in answer && (typeof answer.frozen !== "number" || !Number.isFinite(answer.frozen) || answer.frozen < 0)) throw new Model3DGenerationError("The plugin returned an invalid balance");
+    return { balance: answer.balance, ...("frozen" in answer ? { frozen: answer.frozen as number } : {}) };
   }
 
   /** The action picker is read-only; listing cannot submit or upload anything. */

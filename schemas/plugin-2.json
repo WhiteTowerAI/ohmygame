@@ -1727,6 +1727,9 @@
                       "models"
                     ],
                     "properties": {
+                      "balance": {
+                        "type": "boolean"
+                      },
                       "inputFiles": {
                         "type": "boolean"
                       },
