@@ -1,3 +1,4 @@
+import { MINIMAX_MIGRATION_PACKAGES } from "../dist/daemon/minimax-migration-package.js";
 import { createAssetGenerationNode } from "../dist/shared/asset-canvas.js";
 import { canvasNodeContent } from "../dist/shared/canvas-node-layout.js";
 import { PluginIndex } from "../dist/daemon/plugin-index.js";
@@ -70,13 +71,14 @@ try {
   await daemon.stop();
   // An optional, explicitly enabled official package exists before startup.
   // No adapter is run and the canary keys never leave this temporary profile.
-  const packageRoot = path.join(daemonOptions.dataDirectory, "plugin-store/packages/ohmygame/minimax/0.1.0");
-  await cp(path.join(root, ".runtime/minimax-migration-package/source"), packageRoot, { recursive: true });
+  const minimaxPin = MINIMAX_MIGRATION_PACKAGES.at(-1);
+  const packageRoot = path.join(daemonOptions.dataDirectory, "plugin-store/packages/ohmygame/minimax", minimaxPin.version);
+  await cp(path.join(root, ".runtime/minimax-migration-packages", minimaxPin.version, "source"), packageRoot, { recursive: true });
   const pluginIndex = new PluginIndex(path.join(daemonOptions.dataDirectory, "plugin-store/index.json"));
   await pluginIndex.load();
   const indexed = await pluginIndex.add(packageRoot);
   assert(indexed.ok);
-  await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/origins.json"), JSON.stringify({ "ohmygame/minimax@0.1.0": { type: "npm", package: "@ohmygame/minimax", version: "0.1.0", registry: "npmjs" } }));
+  await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/origins.json"), JSON.stringify({ [`${minimaxPin.id}@${minimaxPin.version}`]: { type: "npm", package: minimaxPin.package, version: minimaxPin.version, registry: "npmjs" } }));
   await writeFile(path.join(daemonOptions.dataDirectory, "plugin-store/grants.json"), JSON.stringify({ schema: 2, plugins: { "ohmygame/minimax": { enabled: true, everyProject: true, allowed: capabilityGrants(indexed.entry.manifest) } }, projects: {} }));
   const legacyKeys = JSON.stringify({ version: 1, cnApiKey: "startup-cn-canary", globalApiKey: "startup-global-canary" });
   await writeFile(path.join(daemonOptions.dataDirectory, "minimax.json"), legacyKeys);

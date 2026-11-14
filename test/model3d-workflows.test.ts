@@ -297,11 +297,12 @@ describe("3D jobs and persistence failures", () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const job = runner.start("generate-image", { prompt: "Icon" });
-      await vi.waitFor(() => { expect(runner.jobs()[0]?.status).toBe("failed"); expect(report).toHaveBeenCalled(); });
+      await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
+      await expect.poll(() => report.mock.calls.length).toBeGreaterThan(0);
       expect(generate).not.toHaveBeenCalled();
       expect((await readdir(path.dirname(file))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
       await rm(file, { recursive: true }); runner.retryJob(job.id);
-      await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded"));
+      await expect.poll(() => runner.jobs()[0]?.status).toBe("succeeded");
       expect(generate).toHaveBeenCalledTimes(1);
     } finally { await runner.close(); report.mockRestore(); }
   });

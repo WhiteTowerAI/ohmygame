@@ -7,7 +7,7 @@ import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import { isLockedNpmPlugin, prepareNpmPlugin, unpackPinnedNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
-import { MINIMAX_MIGRATION_PACKAGE } from "../src/daemon/minimax-migration-package.js";
+import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedSkillsPlugin {
@@ -155,21 +155,24 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
 
 // A verified integration fixture for migration of an already-installed optional
 // plugin. It does not join the preinstalled index or grant/install anything.
-const migrationOutput = path.join(repositoryRoot, ".runtime", "minimax-migration-package");
-const migrationStage = await mkdtemp(path.join(repositoryRoot, ".runtime", "minimax-package-"));
-try {
-  const archive = path.join(migrationStage, "package.tgz");
-  try { await cp(path.join(migrationOutput, "package.tgz"), archive); }
-  catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-    const download = await mkdtemp(path.join(migrationStage, "download-"));
-    await writeFile(archive, await prepareNpmPlugin(MINIMAX_MIGRATION_PACKAGE, download));
-    await rm(download, { recursive: true, force: true });
-  }
-  const extraction = path.join(migrationStage, "verified");
-  await mkdir(extraction);
-  const root = await unpackPinnedNpmPlugin(MINIMAX_MIGRATION_PACKAGE, archive, extraction);
-  await rename(root, path.join(migrationStage, "source"));
-  await rm(extraction, { recursive: true, force: true });
-  await replaceDirectory(migrationStage, migrationOutput);
-} finally { await rm(migrationStage, { recursive: true, force: true }); }
+for (const pin of MINIMAX_MIGRATION_PACKAGES) {
+  const migrationOutput = path.join(repositoryRoot, ".runtime", "minimax-migration-packages", pin.version);
+  await mkdir(path.dirname(migrationOutput), { recursive: true });
+  const migrationStage = await mkdtemp(path.join(repositoryRoot, ".runtime", "minimax-package-"));
+  try {
+    const archive = path.join(migrationStage, "package.tgz");
+    try { await cp(path.join(migrationOutput, "package.tgz"), archive); }
+    catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      const download = await mkdtemp(path.join(migrationStage, "download-"));
+      await writeFile(archive, await prepareNpmPlugin(pin, download));
+      await rm(download, { recursive: true, force: true });
+    }
+    const extraction = path.join(migrationStage, "verified");
+    await mkdir(extraction);
+    const root = await unpackPinnedNpmPlugin(pin, archive, extraction);
+    await rename(root, path.join(migrationStage, "source"));
+    await rm(extraction, { recursive: true, force: true });
+    await replaceDirectory(migrationStage, migrationOutput);
+  } finally { await rm(migrationStage, { recursive: true, force: true }); }
+}

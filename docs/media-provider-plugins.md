@@ -353,38 +353,37 @@ saved model references, enable a plugin, or replace a built-in provider.
 
 ### Optional MiniMax beta artifact
 
-The migration preparation target is `@ohmygame/minimax@0.1.0`, published from
-[official plugins #17](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/17).
-Its exact npm tarball integrity is:
+The reviewed migration targets are `@ohmygame/minimax@0.1.0` and `0.1.1`, published
+from [official plugins #17](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/17)
+and [#18](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/18). Version `0.1.1`
+updates the English/Chinese migration guidance; its adapter, models and grants
+are unchanged. Exact npm SHA-512 integrity and indexed package digests are pinned
+in `src/daemon/minimax-migration-package.ts`.
 
-```text
-sha512-Haq/K2D644uG1kTVX4ncU+hmDLPkeSq4IYRy0E86IICORoqLv6Ut15tq3ZOyjbqUPTFUCY6ZGHwMHzkX75eHOQ==
-```
+Both published artifacts passed integrity checks and the app's plugin validator;
+their packaged files match the tested source. They declare `beta: true`, require
+API `^2.7.0`, and provide regional `cn`/`global` video providers using
+`cnApiKey`/`globalApiKey`, with `MiniMax-H3` and `MiniMax-H3-Max` models. They remain
+optional and outside the preinstalled lock.
 
-The published artifact passed npm signature/integrity checks and the app's plugin
-validator; its packaged files match the tested source. It declares `beta: true`,
-requires API `^2.7.0`, and provides regional `cn`/`global` video providers using
-`cnApiKey`/`globalApiKey`, with `MiniMax-H3` and `MiniMax-H3-Max` models. This is an
-artifact baseline for the migration mapping below, not an installation or
-activation record. It remains optional and outside the preinstalled lock.
-
-Live generation, downloading and quit/reopen recovery still require acceptance
-before replacing the built-in provider. Follow the
+Live generation, downloading and quit/reopen recovery acceptance has passed for
+the adapter shared by both releases. For subsequent adapter changes, repeat the
 [plugin's local test instructions](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/minimax/README.md#local-testing--本地测试).
-The startup settings migration checks the installed files against this exact
-release; a different version requires its contract and migration tests reviewed
-again. The build preparation downloads and verifies this archive into a separate
-disposable integration fixture. It is not added to the preinstalled index.
+Startup checks the single active installed version against its reviewed package;
+another release or ambiguous index defers migration. Build preparation verifies
+each archive into `.runtime/minimax-migration-packages/<version>/source` and tests
+startup migration and recovery against each release. These disposable fixtures
+are not added to the preinstalled index.
 
 ### MiniMax startup settings migration
 
 After profile ownership and recovery, before constructing the app, startup can
 migrate legacy MiniMax settings to an **already installed and enabled** optional
-`0.1.0` plugin. It reindexes the managed package files and compares their digest
+`0.1.0` or `0.1.1` plugin. It reindexes the managed package files and compares their digest
 to the reviewed SHA-512-verified release. The cached index must agree with those
 files, its origin must be npmjs/npmmirror for `@ohmygame/minimax`, and its current
 grants must enable every-project use and include all declared capabilities.
-Safe mode, development/local sources, another release, edited files, incomplete
+Safe mode, development/local sources, an unreviewed release, edited files, incomplete
 grants or a disabled switch defer migration without changing settings. No plugin
 is installed or enabled by this migration.
 
@@ -404,9 +403,9 @@ the actual published package and temporary canary keys without vendor requests.
 
 ### MiniMax settings inspection
 
-MiniMax is available as the optional `@ohmygame/minimax@0.1.0` beta (OhMyGame
-API 2.7). Publication does not enable migration or replace the built-in provider;
-live generation and restart acceptance remain required before cutover. To inspect
+MiniMax is available as the optional `@ohmygame/minimax@0.1.1` beta (OhMyGame
+API 2.7). Publication alone does not enable migration or replace the built-in
+provider; startup must commit the profile migration described above. To inspect
 migration inputs, close the app and copy its data directory to a private local
 folder, then run from this repository:
 
