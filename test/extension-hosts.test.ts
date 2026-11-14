@@ -323,9 +323,12 @@ describe("extension hosts", () => {
     `);
     const services = new PluginServices({ directory: path.join(data, "store"), hosts: { idleMs: 80, cancelGraceMs: 200 } });
     const cancelled: string[] = [];
+    let waiting = 0;
+    const waitForEvents = (count: number) => vi.waitFor(() => expect(waiting).toBe(count), { timeout: 8_000 });
     const handle = vi.fn(async (_plugin, request, signal, authorize) => {
       await authorize();
       if (request.operation === "events") return new Promise((_resolve, reject) => {
+        waiting++;
         const abort = () => { cancelled.push("waiter"); reject(signal.reason); };
         signal.addEventListener("abort", abort, { once: true });
         if (signal.aborted) abort();
@@ -354,12 +357,17 @@ describe("extension hosts", () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
       await services.native.closeProject(path.join(data, "project"));
       expect(services.hosts.generation("app")).toBe(generation);
+      // Activation records its start before the asynchronous event request arrives.
+      // Cancel only after this generation has registered the waiter being asserted.
+      await waitForEvents(1);
       await services.configure("acme/messenger", { label: "second" });
       expect((await starts()).at(-1)).toMatchObject({ label: "second" });
       expect(await services.native.runSettingsCommand("acme/messenger", "settings-status", "other")).toEqual({ message: "second:en", actions: ["pair"] });
+      await waitForEvents(2);
       await services.hosts.stop("app");
       await vi.waitFor(async () => expect((await starts()).length).toBe(3), { timeout: 8_000 });
       expect(services.hosts.generation("app")).not.toBe(generation);
+      await waitForEvents(3);
       await services.setEveryProject("acme/messenger", false);
       expect(services.hosts.active("app")).toEqual({});
       await expect(services.native.runSettingsCommand("acme/messenger", "settings-status", "en")).rejects.toThrow();
