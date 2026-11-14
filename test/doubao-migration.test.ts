@@ -1,3 +1,7 @@
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createApp } from "../src/daemon/app.js";
+import { DOUBAO_RETIRED_PROVIDER } from "../src/shared/media-migration-errors.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 import { migrateDoubaoSettings } from "../src/daemon/doubao-settings-migration.js";
 import {
   inspectDoubaoMigration,
@@ -827,6 +831,325 @@ describe("prepared Doubao settings activation", () => {
         "checksum",
       );
       expect(await bytes(directory)).toEqual(before);
+    });
+  });
+});
+
+describe("prepared Doubao application ownership", () => {
+  const nativeRef = { provider: "volcengine-tts", id: "seed-tts-2.0" };
+  const target = "plugin.ohmygame.doubao-voice.doubao-voice";
+  const nativeSettings = {
+    version: 1,
+    apiKey: "native-key-canary",
+    services: {},
+    defaultVoiceId: "saved-voice",
+  };
+  function runtime(directory: string) {
+    return ModelRuntime.create({
+      authPath: path.join(directory, "auth.json"),
+      modelsPath: path.join(directory, "models.json"),
+      modelsStorePath: path.join(directory, "catalog.json"),
+      allowModelNetwork: false,
+    });
+  }
+  async function activate(directory: string) {
+    await writeFile(
+      path.join(directory, "doubao-voice.json"),
+      JSON.stringify(nativeSettings),
+    );
+    await writeFile(
+      path.join(directory, "model-visibility.json"),
+      JSON.stringify({ version: 1, hidden: {}, defaultSpeechModel: nativeRef }),
+    );
+    expect(await migrateDoubaoSettings(directory)).toEqual({
+      status: "migrated",
+      reasons: [],
+    });
+  }
+  it("keeps native behavior until the startup owner supplies a committed context", async () => {
+    await installed(async (directory) => {
+      const file = path.join(directory, "doubao-voice.json"),
+        data = JSON.stringify(nativeSettings);
+      await writeFile(file, data);
+      const modelRuntime = await runtime(directory),
+        request = vi.fn<typeof fetch>();
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: request,
+        imageFetch: request,
+      });
+      try {
+        await app.ready();
+        expect(
+          (await app.inject("/audio-models/catalog"))
+            .json()
+            .models.filter(
+              (model: { provider: string }) =>
+                model.provider === nativeRef.provider,
+            ),
+        ).toHaveLength(2);
+        expect(
+          (
+            await app.inject("/settings/models/providers/volcengine-tts")
+          ).json(),
+        ).toMatchObject({ configured: true, defaultVoiceId: "saved-voice" });
+        expect(await readFile(file, "utf8")).toBe(data);
+        expect(request).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    });
+  });
+  it("uses the published Beta for both audio models and rejects native endpoints and paid retries", async () => {
+    await installed(async (directory) => {
+      await activate(directory);
+      const nativeFile = path.join(directory, "doubao-voice.json"),
+        original = await readFile(nativeFile);
+      const jobsFile = path.join(directory, "tools/jobs.json");
+      await mkdir(path.dirname(jobsFile), { recursive: true });
+      const oldJob = {
+        id: "native-paid",
+        recoveryId: "native-receipt",
+        toolId: "generate-audio",
+        title: "Old paid request",
+        createdAt: new Date().toISOString(),
+        status: "failed",
+        error: "Connection lost",
+        model: nativeRef,
+        input: { prompt: "Hello", model: nativeRef },
+        prepared: true,
+        metadata: {},
+      };
+      const oldBytes = JSON.stringify([oldJob]);
+      await writeFile(jobsFile, oldBytes);
+      const nativeRequest = vi.fn<typeof fetch>(async () => {
+        throw new Error("Native Doubao must not run");
+      });
+      const pluginRequest = vi.fn<typeof fetch>(async (url, init) => {
+        const headers = new Headers(init?.headers);
+        expect(headers.get("x-api-key")).toBe("native-key-canary");
+        expect(headers.get("x-api-request-id")).toMatch(/^[a-f0-9-]{36}$/);
+        const body = JSON.parse(String(init?.body));
+        if (String(url).endsWith("/unidirectional")) {
+          expect(headers.get("x-api-resource-id")).toBe("seed-tts-2.0");
+          expect(body.req_params).toMatchObject({
+            text: "你好",
+            speaker: "saved-voice",
+            audio_params: {
+              format: "mp3",
+              sample_rate: 24000,
+              speech_rate: 20,
+            },
+          });
+          expect(JSON.parse(body.req_params.additions).post_process).toEqual({
+            pitch: 2,
+          });
+          return new Response(
+            JSON.stringify({ code: 0, data: mp3Fixture().toString("base64") }) +
+              "\n" +
+              JSON.stringify({ code: 20000000, usage: { text_words: 2 } }) +
+              "\n",
+            {
+              headers: {
+                "content-type": "application/json",
+                "x-tt-logid": "plugin-tts-result",
+              },
+            },
+          );
+        }
+        expect(String(url)).toBe(
+          "https://openspeech.bytedance.com/api/v3/tts/create",
+        );
+        expect(body).toMatchObject({
+          model: "seed-audio-1.0",
+          text_prompt: "Wind through trees",
+          audio_config: { format: "mp3", sample_rate: 48000 },
+        });
+        expect(body).not.toHaveProperty("references");
+        return Response.json({
+          code: 20000000,
+          audio: mp3Fixture(48000).toString("base64"),
+          original_duration: 0.24,
+        });
+      });
+      const modelRuntime = await runtime(directory);
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: nativeRequest,
+        imageFetch: pluginRequest,
+        doubaoSettingsMigrated: true,
+      });
+      try {
+        await app.ready();
+        const catalog = (await app.inject("/audio-models/catalog")).json();
+        expect(
+          catalog.models.filter(
+            (model: { provider: string }) =>
+              model.provider === nativeRef.provider,
+          ),
+        ).toEqual([]);
+        expect(
+          catalog.models.filter(
+            (model: { provider: string }) => model.provider === target,
+          ),
+        ).toHaveLength(2);
+        expect(catalog.defaultModels.speech).toEqual({
+          ...nativeRef,
+          provider: target,
+        });
+        const summaries = (await app.inject("/settings/providers")).json();
+        expect(
+          summaries.some(
+            (item: { id: string }) => item.id === nativeRef.provider,
+          ),
+        ).toBe(false);
+        expect(
+          summaries.some((item: { id: string }) => item.id === target),
+        ).toBe(true);
+        for (const [method, suffix, payload] of [
+          ["GET", "", undefined],
+          ["PUT", "", { apiKey: "replacement", defaultVoiceId: "new-voice" }],
+          ["POST", "/preview", { text: "Hello" }],
+          ["DELETE", "/credential", undefined],
+          ["PATCH", "/enabled", { enabled: true }],
+          ["GET", "/models", undefined],
+        ] as const) {
+          const response = await app.inject({
+            method,
+            url: `/settings/models/providers/volcengine-tts${suffix}`,
+            ...(payload ? { payload } : {}),
+          });
+          expect(response.statusCode, response.body).toBe(409);
+          expect(response.json()).toEqual({ error: DOUBAO_RETIRED_PROVIDER });
+        }
+        const legacyRoute = await app.inject(
+          "/settings/models/providers/volcengine-seed-audio/models",
+        );
+        expect(legacyRoute.statusCode, legacyRoute.body).toBe(409);
+        const retry = await app.inject({
+          method: "POST",
+          url: "/tool-jobs/native-paid/retry",
+        });
+        expect(retry.statusCode, retry.body).toBe(409);
+        expect(retry.json().error).toBe(DOUBAO_RETIRED_RETRY);
+        expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
+        for (const payload of [
+          {
+            model: nativeRef,
+            prompt: "你好",
+            speed: 20,
+            pitch: 2,
+            output: { format: "mp3", sampleRate: 24000 },
+          },
+          {
+            model: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" },
+            prompt: "Wind through trees",
+            output: { format: "mp3", sampleRate: 48000 },
+          },
+        ]) {
+          const started = await app.inject({
+            method: "POST",
+            url: "/tools/generate-audio/jobs",
+            payload,
+          });
+          expect(started.statusCode, started.body).toBe(202);
+          let completed: any;
+          await expect
+            .poll(
+              async () => {
+                completed = (await app.inject("/tool-jobs"))
+                  .json()
+                  .find((job: { id: string }) => job.id === started.json().id);
+                return completed?.status;
+              },
+              { timeout: 10_000 },
+            )
+            .not.toBe("running");
+          expect(completed, JSON.stringify(completed)).toMatchObject({
+            status: "succeeded",
+            model: { provider: target, id: payload.model.id },
+          });
+          expect(completed.run.files[0].assetId).toBeTruthy();
+        }
+        expect(pluginRequest).toHaveBeenCalledTimes(2);
+        expect(nativeRequest).not.toHaveBeenCalled();
+        expect(await readFile(nativeFile)).toEqual(original);
+        expect(
+          JSON.parse(await readFile(jobsFile, "utf8")).find(
+            (job: { id: string }) => job.id === oldJob.id,
+          ),
+        ).toEqual(oldJob);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 20_000);
+  it("does not revive native settings when the plugin is disabled and retained native files are unreadable", async () => {
+    await installed(async (directory) => {
+      await activate(directory);
+      const file = path.join(directory, "plugin-store/grants.json"),
+        grants = JSON.parse(await readFile(file, "utf8"));
+      grants.plugins[pin.id].enabled = false;
+      await writeFile(file, JSON.stringify(grants));
+      for (const source of [
+        "doubao-voice.json",
+        "volcengine-tts.json",
+        "volcengine-seed-audio.json",
+      ])
+        await writeFile(
+          path.join(directory, source),
+          "retained unreadable data",
+        );
+      const original = await snapshot(directory),
+        modelRuntime = await runtime(directory);
+      const request = vi.fn<typeof fetch>(async () => {
+        throw new Error("No vendor calls allowed");
+      });
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: request,
+        imageFetch: request,
+        doubaoSettingsMigrated: true,
+      });
+      try {
+        await app.ready();
+        expect(
+          (await app.inject("/audio-models/catalog"))
+            .json()
+            .models.some(
+              (model: { provider: string }) =>
+                model.provider === target ||
+                model.provider === nativeRef.provider,
+            ),
+        ).toBe(false);
+        const result = await app.inject({
+          method: "POST",
+          url: "/tools/generate-audio/jobs",
+          payload: { model: nativeRef, prompt: "Hello" },
+        });
+        if (result.statusCode === 202)
+          await expect
+            .poll(
+              async () =>
+                (await app.inject("/tool-jobs"))
+                  .json()
+                  .find((job: { id: string }) => job.id === result.json().id)
+                  ?.status,
+              { timeout: 10_000 },
+            )
+            .toBe("failed");
+        else expect(result.statusCode).toBe(400);
+        expect(request).not.toHaveBeenCalled();
+        expect(await snapshot(directory)).toEqual(original);
+      } finally {
+        await app.close();
+      }
     });
   });
 });

@@ -220,6 +220,8 @@ export interface AppOptions {
   seedanceSettingsMigrated?: boolean;
   /** Validated committed ElevenLabs migration; production startup keeps this unset until acceptance. */
   elevenlabsSettingsMigrated?: boolean;
+  /** Validated committed Doubao migration; production startup keeps this unset until acceptance. */
+  doubaoSettingsMigrated?: boolean;
   /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
   model3DMigrations?: readonly CommittedModel3DMigration[];
   piAgentDirectory?: string;
@@ -668,6 +670,7 @@ export function createApp(options: AppOptions = {}) {
   const retiredNative3D = model3DMigrations.map(({ references }) => references.source);
   const mediaMigrations: MediaMigrationState = {
     elevenlabs: options.elevenlabsSettingsMigrated === true,
+    doubao: options.doubaoSettingsMigrated === true,
     minimax: options.minimaxSettingsMigrated === true,
     seedance: options.seedanceSettingsMigrated === true,
     model3D: model3DMigrations.map(({ references }) => references),
@@ -847,6 +850,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const providerEnabled = (id: string) => {
     if (mediaMigrations.elevenlabs && id === "elevenlabs") return false;
+    if (mediaMigrations.doubao && (id === DOUBAO_SPEECH_PROVIDER_ID || id === "volcengine-seed-audio")) return false;
     if (retiredNative3D.some((source) => source === id)) return false;
     if (!retiredNative3D.includes("hyper3d") && (id === "hyper3d" || id === "cloud-hyper3d"))
       return providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d");
@@ -896,7 +900,7 @@ export function createApp(options: AppOptions = {}) {
   const elevenLabsProvider = new ElevenLabsAudioProvider(
     () => elevenLabsSettings.key(), options.audioFetch, () => providerEnabled("elevenlabs"),
   );
-  const providerAudio = new ProviderAudio(async () => [doubaoSpeechProvider, ...(mediaMigrations.elevenlabs ? [] : [elevenLabsProvider]), ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
+  const providerAudio = new ProviderAudio(async () => [...(mediaMigrations.doubao ? [] : [doubaoSpeechProvider]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsProvider]), ...await pluginMediaProviders.audioAdapters(providerEnabled)], () => Object.fromEntries(AUDIO_KINDS.flatMap((kind) => {
     const model = providerModelSettings.defaultMediaModel(kind);
     return model ? [[kind, model]] : [];
   })));
@@ -1538,7 +1542,7 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => pluginMarket.setSources(pluginMarketSettings.sources()), (err) => app.log.warn({ err }, "Could not load the plugin market's sources")),
-      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+      connections.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), ...(mediaMigrations.doubao ? [] : [doubaoVoiceSettings.load()]), ...(mediaMigrations.elevenlabs ? [] : [elevenLabsSettings.load()]), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
@@ -3927,7 +3931,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: ["video"] as const,
       };
-    }), {
+    }), ...(mediaMigrations.doubao ? [] : [{
       id: DOUBAO_SPEECH_PROVIDER_ID,
       name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: doubaoVoiceSettings.get().configured,
@@ -3937,7 +3941,7 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
-    }, ...(mediaMigrations.elevenlabs ? [] : [{
+    }]), ...(mediaMigrations.elevenlabs ? [] : [{
       id: "elevenlabs",
       name: ELEVENLABS_PROVIDER_NAME,
       configured: Boolean(elevenLabsSettings.key()),
@@ -4041,6 +4045,7 @@ export function createApp(options: AppOptions = {}) {
     native3DProviders,
     retiredNative3D,
     elevenlabsSettingsMigrated: mediaMigrations.elevenlabs,
+    doubaoSettingsMigrated: mediaMigrations.doubao,
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,
