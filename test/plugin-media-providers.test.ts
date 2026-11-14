@@ -578,14 +578,14 @@ describe("plugin media providers: audio", () => {
     const first = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(bytes), { headers: { "content-type": "audio/wav" } }) });
     const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
     const input = { prompt: "hello" };
-    expect((await audio.generate(input, undefined, await journalAt())).bytes).toEqual(bytes);
+    expect(Buffer.from((await audio.generate(input, undefined, await journalAt())).bytes).equals(bytes)).toBe(true);
     const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
     expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
     expect(receipt).not.toContain(root);
     const restarted = await setup(source, { media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
     const next = new ProviderAudio(async () => restarted.media.audioAdapters(() => true));
     const journal = await journalAt();
-    expect((await next.generate(input, undefined, journal)).bytes).toEqual(bytes);
+    expect(Buffer.from((await next.generate(input, undefined, journal)).bytes).equals(bytes)).toBe(true);
     expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
     await journal.clear();
     expect(await readdir(path.join(root, "media-tasks"))).toEqual([]);
@@ -1361,7 +1361,7 @@ describe("media paid-step ownership", () => {
       if (boundary === "submitted" || boundary === "binary-saved") await expect(journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).rejects.toThrow("response was lost");
       else if (boundary === "binary-accepted") {
         const receipt = await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create) as { file: string };
-        expect(await journal.readOutput(receipt.file)).toEqual(Buffer.alloc(2 * 1024 * 1024, 0xa5));
+        expect((await journal.readOutput(receipt.file)).equals(Buffer.alloc(2 * 1024 * 1024, 0xa5))).toBe(true);
       } else expect(await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).toEqual({ id: "paid-preview" });
       expect(create).not.toHaveBeenCalled();
     } finally { journal.release(); }
