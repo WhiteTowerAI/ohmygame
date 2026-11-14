@@ -1,3 +1,5 @@
+import { proposeMediaSettings } from "./media-settings-proposal.js";
+import type { Snapshot } from "./seedance-settings-snapshot.js";
 import { inspectMediaMigration } from "./media-migration-inspection.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 
@@ -8,6 +10,7 @@ export const SEEDANCE_MIGRATION_REGIONS = [
     source: "volcengine-ark",
     target: "plugin.ohmygame.seedance.ark",
     field: "arkApiKey",
+    sourceField: "volcengineApiKey",
     imageModels: [
       "doubao-seedream-5-0-pro-260628",
       "doubao-seedream-5-0-flash-260915",
@@ -19,6 +22,7 @@ export const SEEDANCE_MIGRATION_REGIONS = [
     source: "byteplus-modelark",
     target: "plugin.ohmygame.seedance.byteplus",
     field: "byteplusApiKey",
+    sourceField: "byteplusApiKey",
     imageModels: [],
     videoModels: [
       "dreamina-seedance-2-5-260628",
@@ -35,4 +39,9 @@ export function inspectSeedanceMigration(dataDirectory: string) {
     new SeedanceSettingsStore(dataDirectory),
     SEEDANCE_MIGRATION_REGIONS,
   );
+}
+
+/** The legacy file remains untouched, including its shared Ark credential. */
+export function proposeSeedanceSettings(original: Snapshot, inspected: Awaited<ReturnType<typeof inspectSeedanceMigration>>) {
+  return proposeMediaSettings(original, inspected, "seedance.json", "ohmygame/seedance", SEEDANCE_MIGRATION_REGIONS);
 }

@@ -1,3 +1,11 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { killAt } from "./fixtures/settings-transaction-process.js";
+import { rehearseSeedanceMigration } from "../scripts/rehearse-seedance-migration.js";
+import { proposeSeedanceSettings } from "../src/daemon/seedance-migration-settings.js";
+import { snapshot as settingsSnapshot, same } from "../src/daemon/seedance-settings-snapshot.js";
+import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedSeedanceSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP } from "../src/daemon/seedance-settings-transaction.js";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -200,6 +208,123 @@ describe("Seedream/Seedance migration inspection", () => {
       expect(report.defaultImageModel?.action).toBe("absent");
       expect(report.defaultVideoModel.action).toBe("absent");
       await expect(inspectSeedanceMigration(path.join(directory, "missing"))).rejects.toThrow("existing");
+    });
+  });
+});
+
+
+describe("Seedance settings migration rehearsal", () => {
+  const secret = "seedance-private-rehearsal-canary";
+  const image = { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628", extra: { secret } };
+  const video = { provider: "byteplus-modelark", id: "dreamina-seedance-2-0-260128", extra: { secret } };
+  async function fixture(check: (directory: string) => Promise<void>) {
+    const directory = await mkdtemp(path.join(tmpdir(), "seedance-rehearsal-test-"));
+    try {
+      await mkdir(path.join(directory, "plugin-store"));
+      await writeFile(path.join(directory, "seedance.json"), JSON.stringify({ version: 1, volcengineApiKey: secret, byteplusApiKey: `${secret}-byteplus`, extra: { secret } }));
+      await writeFile(path.join(directory, "plugin-store/configuration.json"), JSON.stringify({ version: 1, plugins: { "ohmygame/seedance": { byteplusApiKey: { type: "secret", value: `${secret}-byteplus`, future: 42 }, other: { type: "text", value: secret } }, "other/plugin": { key: { type: "secret", value: secret } } }, extra: { secret } }));
+      await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: { "volcengine-ark": [image.id], "byteplus-modelark": [video.id], other: ["unknown"] }, disabled: ["volcengine-ark", "other"], defaultImageModel: image, defaultVideoModel: video, future: { secret } }));
+      await check(directory);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+  async function plan(directory: string) {
+    const before = await settingsSnapshot(directory), report = await inspectSeedanceMigration(directory);
+    expect(report.blockers).toEqual([]);
+    const proposal = proposeSeedanceSettings(before, report);
+    expect(proposal.counts).toEqual({ keys: 1, providerPreferences: 2, defaultImageModel: true, defaultVideoModel: true });
+    expect([...proposal.changes.keys()]).not.toContain("seedance.json");
+    return { before, ...proposal };
+  }
+
+  it("copies the Ark key once, preserves metadata and both defaults, reloads idempotently and rolls back exact bytes", async () => {
+    await fixture(async (directory) => {
+      const { before, changes } = await plan(directory);
+      await prepareSettingsTransaction(directory, before, changes);
+      expect(same(await settingsSnapshot(directory), before)).toBe(true);
+      await resumeSettingsTransaction(directory);
+      const expected = new Map([...before, ...changes]);
+      expect(await settingsSnapshot(directory)).toEqual(expected);
+      const configuration = JSON.parse((await readFile(path.join(directory, "plugin-store/configuration.json"), "utf8")));
+      expect(configuration.plugins["ohmygame/seedance"]).toEqual({ arkApiKey: { type: "secret", value: secret }, byteplusApiKey: { type: "secret", value: `${secret}-byteplus`, future: 42 }, other: { type: "text", value: secret } });
+      expect(configuration.extra).toEqual({ secret });
+      expect(configuration.plugins["other/plugin"]).toEqual({ key: { type: "secret", value: secret } });
+      const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+      expect(preferences.defaultImageModel).toEqual({ ...image, provider: "plugin.ohmygame.seedance.ark" });
+      expect(preferences.defaultVideoModel).toEqual({ ...video, provider: "plugin.ohmygame.seedance.byteplus" });
+      expect(preferences.hidden).toEqual({ "volcengine-ark": [image.id], "byteplus-modelark": [video.id], other: ["unknown"], "plugin.ohmygame.seedance.ark": [image.id], "plugin.ohmygame.seedance.byteplus": [video.id] });
+      expect(preferences.disabled).toEqual(["volcengine-ark", "other", "plugin.ohmygame.seedance.ark"]);
+      expect(preferences.future).toEqual({ secret });
+      const reloaded = await inspectSeedanceMigration(directory);
+      expect(reloaded.blockers).toEqual([]);
+      expect(proposeSeedanceSettings(expected, reloaded).changes.size).toBe(0);
+      await rollbackSettingsTransaction(directory);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      await forgetSettingsTransaction(directory);
+      await expect(access(path.join(directory, SETTINGS_TRANSACTION_FILE))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("runs only on a disposable copy and redacts failed inspection", async () => {
+    await fixture(async (directory) => {
+      const before = await settingsSnapshot(directory);
+      const report = await rehearseSeedanceMigration(directory);
+      expect(report).toMatchObject({ status: "passed", activation: "held", proposed: { keys: 1, defaultImageModel: true, defaultVideoModel: true }, checks: { reload: true, idempotent: true, rollback: true, sourceUnchanged: true, cleanup: true } });
+      expect(JSON.stringify(report)).not.toContain(secret);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      await writeFile(path.join(directory, "seedance.json"), `{"${secret}": broken`);
+      const invalid = await settingsSnapshot(directory), blocked = await rehearseSeedanceMigration(directory);
+      expect(blocked).toMatchObject({ status: "blocked", blockers: ["legacy-settings-unreadable"], checks: { sourceUnchanged: true, cleanup: true } });
+      expect(JSON.stringify(blocked)).not.toContain(secret);
+      expect(await settingsSnapshot(directory)).toEqual(invalid);
+    });
+  });
+
+  it("recovers process termination at each settings write and final receipt", async () => {
+    for (const boundary of ["plugin-store/configuration.json", "model-visibility.json", "applied"]) await fixture(async (directory) => {
+      const { before, changes } = await plan(directory);
+      await prepareSettingsTransaction(directory, before, changes);
+      await killAt(directory, "resume", boundary, "seedance");
+      await promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/media-settings-transaction-worker.cjs", directory, "startup", "none", "seedance"]);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await recoverInterruptedSeedanceSettings(directory)).toBe(false);
+      await prepareSettingsTransaction(directory, before, changes);
+      await resumeSettingsTransaction(directory);
+      await commitSettingsTransaction(directory);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      const receipt = JSON.parse(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP), "utf8"));
+      expect(receipt.files["seedance.json"].before).toBe(before.get("seedance.json")!.toString("base64"));
+      expect(receipt.files["seedance.json"].after).toBe(receipt.files["seedance.json"].before);
+      await expect(access(path.join(directory, ".minimax-settings-committed-v1.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("refuses a changed source and checksum-valid attempts to modify the legacy file", async () => {
+    for (const failure of ["source", "receipt"]) await fixture(async (directory) => {
+      const { before, changes } = await plan(directory);
+      await prepareSettingsTransaction(directory, before, changes);
+      if (failure === "source") await writeFile(path.join(directory, "seedance.json"), "changed source");
+      else {
+        const file = path.join(directory, SETTINGS_TRANSACTION_FILE), receipt = JSON.parse(await readFile(file, "utf8"));
+        receipt.files["seedance.json"].after = Buffer.from("changed source").toString("base64");
+        const { checksum: _, ...payload } = receipt;
+        receipt.checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+        await writeFile(file, JSON.stringify(receipt));
+      }
+      const unchanged = await settingsSnapshot(directory);
+      await expect(resumeSettingsTransaction(directory)).rejects.toThrow(failure === "source" ? "conflict" : "transition");
+      expect(await settingsSnapshot(directory)).toEqual(unchanged);
+    });
+  });
+
+  it("exercises Node rehearsal with no apply option or credential output", async () => {
+    await fixture(async (directory) => {
+      const before = await settingsSnapshot(directory);
+      const run = (args: string[]) => promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "scripts/rehearse-seedance-migration.ts", ...args]);
+      const { stdout, stderr } = await run(["--data-dir", directory]);
+      expect(JSON.parse(stdout)).toMatchObject({ status: "passed", checks: { rollback: true, sourceUnchanged: true } });
+      expect(stdout).not.toContain(secret); expect(stderr).toBe("");
+      await expect(run(["--data-dir", directory, "--apply", secret])).rejects.toMatchObject({ code: 2, stdout: "", stderr: expect.not.stringContaining(secret) });
+      expect(await settingsSnapshot(directory)).toEqual(before);
     });
   });
 });

@@ -395,6 +395,30 @@ and failed loads refuse later writes until a successful reload. The
 covers generation and restart acceptance. Legacy built-in video jobs do not
 persist vendor task IDs; their inputs must not be replayed as new plugin tasks.
 
+### Seedance settings rehearsal
+
+Run `bun run rehearse:seedance-migration --data-dir /path/to/copied-app-data`
+to exercise the proposed migration on an additional disposable private copy.
+It maps the shared Ark key to `arkApiKey`, retains the independent BytePlus key,
+copies provider visibility, and maps image and video defaults while preserving
+unknown metadata. The legacy file is never rewritten. Conflicting or unreadable
+settings stop the rehearsal before any staged write.
+
+The rehearsal verifies reloading, idempotence and byte-exact rollback, removes its
+temporary copy, and checks that the input files remain unchanged. Reports contain
+only counts and fixed statuses, never credentials. There is no `--apply` option.
+Success remains `activation: held`; package authorization, workspace references,
+historical task handling and application startup activation are separate checks.
+
+Seedance and MiniMax use the same settings transaction engine with separate
+vendor receipts. MiniMax's version-1 receipt filenames and schema remain
+unchanged. Seedance's `.seedance-settings-transaction.json` records complete
+before/after bytes before writes; uncommitted recovery restores the original
+settings, while `.seedance-settings-committed-v1.json` retains a committed
+backup. Neither recovery nor commit can rewrite the legacy credential file.
+The caller must own the profile and exclude live settings consumers; no Seedance
+activation is introduced by the rehearsal command.
+
 ### Optional MiniMax beta artifact
 
 The reviewed migration targets are `@ohmygame/minimax@0.1.0`, `0.1.1` and `0.1.2`,
