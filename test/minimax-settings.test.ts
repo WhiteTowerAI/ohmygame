@@ -16,8 +16,8 @@ import { canvasNodeContent } from "../src/shared/canvas-node-layout.js";
 import { rehearseMinimaxMigration } from "../scripts/rehearse-minimax-migration.js";
 import { inspectMinimaxMigration } from "../scripts/inspect-minimax-migration.js";
 
-import { snapshot as settingsSnapshot } from "../scripts/minimax-settings-snapshot.js";
-import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, SETTINGS_TRANSACTION_FILE } from "../scripts/minimax-settings-transaction.js";
+import { snapshot as settingsSnapshot } from "../src/daemon/minimax-settings-snapshot.js";
+import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedMinimaxSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_BACKUP, SETTINGS_TRANSACTION_FILE } from "../src/daemon/minimax-settings-transaction.js";
 
 const rehearsalHooks = vi.hoisted(() => ({
   beforeRead: undefined as ((target: string) => void) | undefined,
@@ -449,7 +449,7 @@ describe("MiniMax migration inspection", () => {
     });
   }
 
-  async function killAt(directory: string, action: "resume" | "rollback", boundary: string) {
+  async function killAt(directory: string, action: "resume" | "rollback" | "startup" | "commit", boundary: string) {
     const child = fork(path.resolve("test/fixtures/minimax-settings-transaction-worker.cjs"), [directory, action, boundary], {
       execPath: "node", execArgv: ["--conditions=ohmygame-source", "--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
     });
@@ -459,7 +459,7 @@ describe("MiniMax migration inspection", () => {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error("Worker did not reach checkpoint")), 10_000);
         child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error("Unexpected worker checkpoint")); });
-        child.once("exit", () => { clearTimeout(timeout); reject(new Error("Worker exited before checkpoint")); });
+        child.once("exit", () => { clearTimeout(timeout); reject(new Error(`Worker exited before checkpoint: ${boundary}`)); });
         child.once("error", (error) => { clearTimeout(timeout); reject(error); });
       });
       reached = true;
@@ -469,6 +469,98 @@ describe("MiniMax migration inspection", () => {
   const recoverInFreshProcess = (directory: string) => promisify(execFile)("node", [
     "--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "resume", "none",
   ]);
+
+  it("restores uncommitted settings before startup loads any cache", async () => {
+    for (const boundary of [pluginFile, "model-visibility.json", "applied"]) await transaction(async (directory, before) => {
+      await killAt(directory, "resume", boundary);
+      await promisify(execFile)("node", ["--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "startup", "none"]);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await recoverInterruptedMinimaxSettings(directory)).toBe(false);
+      const keys = new MinimaxSettingsStore(directory), plugins = new PluginValues(path.join(directory, pluginFile));
+      const preferences = new ProviderModelSettingsStore(directory, directory);
+      await Promise.all([keys.load(), plugins.load(), preferences.load()]);
+      expect(keys.key("minimax-video-cn")).toBe(secret);
+      expect(plugins.storedSecret("ohmygame/minimax", "cnApiKey").occupied).toBe(false);
+      expect(preferences.isEnabled("plugin.ohmygame.minimax.cn")).toBe(true);
+    });
+  });
+
+  it("resumes interrupted startup rollback through receipt removal", async () => {
+    for (const boundary of ["rolling-back", pluginFile, "model-visibility.json", "forgotten"]) await transaction(async (directory, before) => {
+      await resumeSettingsTransaction(directory);
+      await killAt(directory, "startup", boundary);
+      await recoverInterruptedMinimaxSettings(directory);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await recoverInterruptedMinimaxSettings(directory)).toBe(false);
+    });
+  });
+
+  it("keeps a committed backup after a crash and permits later user settings changes", async () => {
+    await transaction(async (directory, before, changes) => {
+      await resumeSettingsTransaction(directory);
+      const active = await readFile(path.join(directory, SETTINGS_TRANSACTION_FILE));
+      await killAt(directory, "commit", SETTINGS_TRANSACTION_BACKUP);
+      expect(await recoverInterruptedMinimaxSettings(directory)).toBe(false);
+      expect(await settingsSnapshot(directory)).toEqual(new Map([...before, ...changes]));
+      expect(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP))).toEqual(active);
+      const preferences = new ProviderModelSettingsStore(directory, directory);
+      await preferences.load();
+      await preferences.setEnabled("unrelated", false);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+      expect(await recoverInterruptedMinimaxSettings(directory)).toBe(false);
+      expect(JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8")).disabled).toContain("unrelated");
+      await expect(prepareSettingsTransaction(directory, await settingsSnapshot(directory), changes)).rejects.toThrow("committed backup");
+      expect(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP))).toEqual(active);
+    });
+  });
+
+  it("leaves an interrupted apply recoverable when committing fails", async () => {
+    await transaction(async (directory, before) => {
+      await expect(commitSettingsTransaction(directory)).rejects.toThrow("not completely applied");
+      await resumeSettingsTransaction(directory);
+      rehearsalHooks.beforeRename = async (target) => { if (target.endsWith(SETTINGS_TRANSACTION_BACKUP)) throw new Error("commit failed"); };
+      await expect(commitSettingsTransaction(directory)).rejects.toThrow("commit failed");
+      rehearsalHooks.beforeRename = undefined;
+      expect(await recoverInterruptedMinimaxSettings(directory)).toBe(true);
+      expect(await settingsSnapshot(directory)).toEqual(before);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+    });
+  });
+
+  it("blocks startup recovery on conflicting records or external edits without changing any bytes", async () => {
+    await transaction(async (directory) => {
+      await resumeSettingsTransaction(directory);
+      const journal = path.join(directory, SETTINGS_TRANSACTION_FILE), backup = path.join(directory, SETTINGS_TRANSACTION_BACKUP);
+      const bytes = await readFile(journal);
+      await writeFile(backup, bytes);
+      const target = await settingsSnapshot(directory);
+      await expect(recoverInterruptedMinimaxSettings(directory)).rejects.toThrow("Both active and committed");
+      expect(await settingsSnapshot(directory)).toEqual(target);
+      expect(await readFile(journal)).toEqual(bytes);
+      expect(await readFile(backup)).toEqual(bytes);
+      await rm(backup);
+      await writeFile(path.join(directory, "model-visibility.json"), "future-user-edit");
+      const edited = await settingsSnapshot(directory);
+      await expect(recoverInterruptedMinimaxSettings(directory)).rejects.toThrow("conflict");
+      expect(await settingsSnapshot(directory)).toEqual(edited);
+      expect(await readFile(journal)).toEqual(bytes);
+    });
+  });
+
+  it("validates committed backup schema and phase independently of its checksum", async () => {
+    await transaction(async (directory) => {
+      await resumeSettingsTransaction(directory);
+      await commitSettingsTransaction(directory);
+      const file = path.join(directory, SETTINGS_TRANSACTION_BACKUP), text = await readFile(file, "utf8");
+      for (const patch of [{ version: 2 }, { future: true }, { phase: "rolling-back" }]) {
+        const { checksum: _, ...payload } = { ...JSON.parse(text), ...patch };
+        const bytes = JSON.stringify({ ...payload, checksum: createHash("sha256").update(JSON.stringify(payload)).digest("hex") });
+        await writeFile(file, bytes);
+        await expect(hasCommittedSettingsTransaction(directory)).rejects.toThrow(/Unsupported|Invalid committed/);
+        expect(await readFile(file, "utf8")).toBe(bytes);
+      }
+    });
+  });
 
   it("recovers actual process termination after either settings write or the completion receipt", async () => {
     for (const boundary of [pluginFile, "model-visibility.json", "applied"]) await transaction(async (directory, before, changes) => {

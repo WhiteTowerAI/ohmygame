@@ -1,5 +1,7 @@
+import { prepareSettingsTransaction, resumeSettingsTransaction, SETTINGS_TRANSACTION_FILE } from "../dist/daemon/minimax-settings-transaction.js";
+import { snapshot as settingsSnapshot } from "../dist/daemon/minimax-settings-snapshot.js";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +24,36 @@ const daemonOptions = {
 };
 let daemon;
 try {
+  const blockedData = path.join(directory, "blocked-data"), blockedPi = path.join(directory, "blocked-pi");
+  await mkdir(blockedData);
+  const unknownReceipt = JSON.stringify({ version: 2, secret: "do-not-print-recovery-input" });
+  await writeFile(path.join(blockedData, SETTINGS_TRANSACTION_FILE), unknownReceipt);
+  let unexpected;
+  try {
+    await assert.rejects(async () => {
+      unexpected = await startDaemon({ ...daemonOptions, dataDirectory: blockedData, piAgentDirectory: blockedPi });
+    }, (error) => {
+      assert.match(error.message, /Unsupported migration journal/);
+      assert(!error.message.includes("do-not-print-recovery-input"));
+      return true;
+    });
+  } finally { await unexpected?.stop(); }
+  assert.equal(await readFile(path.join(blockedData, SETTINGS_TRANSACTION_FILE), "utf8"), unknownReceipt);
+  for (const file of [path.join(blockedPi, "skills"), path.join(blockedData, "plugin-store")])
+    await assert.rejects(access(file), { code: "ENOENT" });
+  // Simulate a killed migration before the real server loads its settings.
+  await mkdir(daemonOptions.dataDirectory, { recursive: true });
+  const originalPreferences = JSON.stringify({ version: 1, hidden: {}, future: "keep", disabled: ["minimax-video-cn"] });
+  await writeFile(path.join(daemonOptions.dataDirectory, "model-visibility.json"), originalPreferences);
+  await prepareSettingsTransaction(daemonOptions.dataDirectory, await settingsSnapshot(daemonOptions.dataDirectory), new Map([
+    ["model-visibility.json", Buffer.from(JSON.stringify({ version: 1, hidden: {}, disabled: ["plugin.ohmygame.minimax.cn"] }))],
+    ["plugin-store/configuration.json", Buffer.from(JSON.stringify({ version: 1, plugins: {} }))],
+  ]));
+  await resumeSettingsTransaction(daemonOptions.dataDirectory);
   daemon = await startDaemon(daemonOptions);
+  assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "model-visibility.json"), "utf8"), originalPreferences);
+  for (const file of [SETTINGS_TRANSACTION_FILE, "plugin-store/configuration.json"])
+    await assert.rejects(access(path.join(daemonOptions.dataDirectory, file)), { code: "ENOENT" });
   // Real server entry points must acquire ownership before loading any settings.
   for (const options of [daemonOptions, { ...daemonOptions, dataDirectory: path.join(directory, "other-data") }]) {
     let unexpected;
@@ -85,7 +116,7 @@ try {
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon profile exclusion/restart, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon settings recovery and profile exclusion/restart, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
 );
 
 // The built host runs plugins' native code, and its heap limit holds on Node.

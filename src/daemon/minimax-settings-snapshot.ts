@@ -11,7 +11,7 @@ export type Snapshot = Map<File, Buffer | undefined>;
 export async function snapshot(directory: string): Promise<Snapshot> {
   const info = await lstat(directory);
   if (!info.isDirectory() || info.isSymbolicLink())
-    throw new Error("Expected a copied data directory");
+    throw new Error("Expected an owned data directory");
   const result: Snapshot = new Map();
   for (const file of FILES) {
     try {

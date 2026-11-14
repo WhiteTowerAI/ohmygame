@@ -528,7 +528,7 @@ that leftover copy locally. Cleanup failures are reported explicitly.
 
 #### Recoverable settings transaction
 
-The rehearsal uses `scripts/minimax-settings-transaction.ts` and keeps its receipt
+The rehearsal uses `src/daemon/minimax-settings-transaction.ts` and keeps its receipt
 at `.minimax-settings-transaction.json` inside the temporary copy. The version-1
 receipt contains credentials (base64 is not encryption) and is written as `0600`
 on POSIX inside the `0700` copy. It has `applying`, `applied`, `rolling-back` and `rolled-back` phases. Settings
@@ -553,8 +553,25 @@ process may start only after the previous one has exited. Tests kill real Node
 workers at settings and receipt boundaries, including partial rollback, and
 recover from disk in a new owner. File flushing does not establish portable
 power-loss durability of directory entries; machine/filesystem failure remains
-outside this increment's guarantee. There is no new CLI apply/resume switch and
-no application startup or route invokes this transaction.
+outside this increment's guarantee. The rehearsal CLI still operates on a disposable
+copy and offers no apply/resume switch for real profiles.
+
+The daemon calls startup recovery after acquiring profile ownership and before
+creating the application. Any active receipt is **uncommitted**, including an
+`applied` receipt whose file writes finished: startup restores its exact original
+settings and removes the active receipt only after rollback completes. Interrupted
+rollback resumes from the same saved intent. Unknown receipts, conflicting edits,
+linked stores or simultaneous active and committed records stop startup before
+settings caches or plugin connections exist. No fallback serves partial settings.
+
+The activation owner can seal a validated `applied` transaction by atomically
+renaming its receipt to `.minimax-settings-committed-v1.json`. The committed receipt
+retains the original and target bytes as a private backup; it is never overwritten
+by a new prepare or commit. A crash before that rename rolls back on startup; a
+crash after it keeps the committed settings. Committed configuration can then be
+edited normally: readers validate backup schema, phase and checksum, not equality
+to the historical target bytes. This commit boundary is available to the upcoming
+activation path; startup does not yet prepare or commit a new migration.
 
 #### Application settings ownership
 
@@ -575,12 +592,15 @@ the queue. A later callback carrying an expired async context queues normally.
 The owner is scoped to one daemon instance, with standalone store instances
 owning separate queues. It is not a cross-process lock or a transaction for
 synchronous readers; grouped reloads do not yet publish a single atomic snapshot.
-No production route or startup step invokes the rehearsal journal.
+Startup recovery finishes before these stores are constructed, so initial caches
+all read the restored or committed disk state. There is no live migration/reload
+endpoint; a future live endpoint would need a separate read barrier.
 
-The daemon entry point now enforces [profile ownership](runtime-recovery.md#profile-ownership)
-before settings load. Production activation still needs a coordinated startup
-recovery/read barrier, installed-package verification, complete
-project and unfinished-task disposition, and live acceptance. Settings recovery
+The daemon entry point enforces [profile ownership](runtime-recovery.md#profile-ownership)
+and uncommitted settings recovery before loading the application. Production
+activation still needs installed-package verification and complete project and
+unfinished-task disposition; live acceptance is tracked separately in the rollout
+plan. Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
 a plugin, or submit vendor requests. The built-in execution path remains in place
 for outstanding jobs. A passing rehearsal does not release those gates. When the

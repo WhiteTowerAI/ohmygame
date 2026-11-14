@@ -1,3 +1,4 @@
+import { recoverInterruptedMinimaxSettings } from "./minimax-settings-transaction.js";
 import { acquireProfileOwnership } from "./profile-ownership.js";
 import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
@@ -52,6 +53,8 @@ try {
   // Keep ownership through asynchronous shutdown; crash/kill releases OS locks too.
   const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
   process.once("exit", releaseProfile);
+  // Before createApp's eager plugin indexing or any settings caches exist.
+  await recoverInterruptedMinimaxSettings(dataDirectory);
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,

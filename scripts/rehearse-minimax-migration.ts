@@ -15,13 +15,13 @@ import {
   same,
   type File,
   type Snapshot,
-} from "./minimax-settings-snapshot.js";
+} from "../src/daemon/minimax-settings-snapshot.js";
 import {
   prepareSettingsTransaction,
   resumeSettingsTransaction,
   rollbackSettingsTransaction,
   forgetSettingsTransaction,
-} from "./minimax-settings-transaction.js";
+} from "../src/daemon/minimax-settings-transaction.js";
 
 type Json = Record<string, unknown>;
 
