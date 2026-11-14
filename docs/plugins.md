@@ -856,6 +856,11 @@ the app stops bringing is listed in `RETIRED`: its seeded version is removed onc
 while independently installed versions remain. Explicit legacy bundled folders
 remain supported for migration tests and custom hosts; the app ships none.
 
+All current official plugins declare `beta: true`; the catalog, installed list
+and details use the existing Beta badge. Installed older versions gain that
+metadata through the normal plugin update flow. The app lock seeds beta versions
+for fresh installations without overriding existing version choices or switches.
+
 The lock activates all 12 former bundled plugins from published npm releases.
 Their source lives only in `ohmygame-plugins`; changes require a published version
 and a reviewed lock update. Preparation also reconstructs disposable sources at

@@ -505,7 +505,7 @@ describe("plugin catalog API", () => {
     expect(store.map(fields)).toEqual(expect.arrayContaining([
       { id: "ohmygame/aseprite", everyProject: false, beta: true, categories: ["art"], enabled: true },
       { id: "ohmygame/blender", everyProject: true, beta: true, categories: ["3d"], enabled: true },
-      { id: "ohmygame/game-studio", everyProject: true, beta: undefined, categories: ["workflow", "design"], enabled: true },
+      { id: "ohmygame/game-studio", everyProject: true, beta: true, categories: ["workflow", "design"], enabled: true },
       { id: "ohmygame/unity", everyProject: false, beta: true, categories: ["engine"], enabled: true },
       { id: "ohmygame/godot", everyProject: false, beta: true, categories: ["engine"], enabled: true },
     ]));
