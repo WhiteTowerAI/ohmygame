@@ -101,6 +101,13 @@ subscription credential stays in the private journal; it is not included in publ
 jobs or assets. Journal and standalone history files use owner-only permissions.
 Canvas history stays in the project's existing `canvas/jobs.json`.
 
+Native task journals use `{ version: 1, entries }`. Loading a valid older
+unversioned journal upgrades it under the submission lock, preserving every stage,
+fingerprint, task credential and unconfirmed submission. Malformed records, unknown
+versions or unsupported fields are left unchanged and block recovery before any
+new request. An invalid submission response also keeps the unconfirmed marker;
+retry cannot turn it into another paid task.
+
 Meshy reuses an available rig for the same source, height and orientation across jobs
 in the running daemon. The reused rig is also recorded in the new job's journal, so
 its retry can recover after restart. Custom connections reuse their adapter while

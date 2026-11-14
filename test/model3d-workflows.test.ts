@@ -1,7 +1,7 @@
 import { ProjectManager } from "../src/daemon/projects.js";
 import { CanvasStore } from "../src/daemon/canvas-workspace.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
-import { mkdir, mkdtemp, readdir, rm, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NodeIO } from "@gltf-transform/core";
@@ -211,11 +211,16 @@ describe("durable 3D tasks and asset preflight", () => {
     const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
     const model = { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, input = { model, images: [image] };
     await expect(provider.generate({ ...input, execution: await model3DJournal(location, "recovery") })).rejects.toThrow("download failed");
+    // Resume the same paid stages from the pre-versioning format after an upgrade.
+    const journalFile = path.join(location, "recovery.json");
+    const { entries } = JSON.parse(await readFile(journalFile, "utf8"));
+    await writeFile(journalFile, JSON.stringify(entries));
     const before = posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
     const result = await provider.generate({ ...input, execution: await model3DJournal(location, "recovery") });
     expect(result.bytes).toEqual(TEST_GLB);
     expect(posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download"))).toHaveLength(before);
     const content = await readFile(path.join(location, "recovery.json"), "utf8");
+    expect(JSON.parse(content)).toEqual({ version: 1, entries });
     expect(content).not.toContain('"key"');
     if (process.platform !== "win32")
       expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);
