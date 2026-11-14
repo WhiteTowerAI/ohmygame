@@ -67,8 +67,10 @@ export async function inspectAudio(
   }
 }
 
+export const AUDIO_REQUEST_TIMEOUT_MS = 300_000;
+
 export function audioRequestSignal(signal?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(300_000);
+  const timeout = AbortSignal.timeout(AUDIO_REQUEST_TIMEOUT_MS);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 

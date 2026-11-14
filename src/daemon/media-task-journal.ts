@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 // Keeps the task a plugin's media adapter left with its vendor, under the
@@ -27,6 +27,9 @@ const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const MAX_SUBMISSIONS = 128;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+/** Binary responses stay outside JSON receipts and the adapter VM. */
+export const MEDIA_TASK_FILE_MAX_BYTES = 64 * 1024 * 1024;
+type SaveTaskFile = (bytes: Uint8Array) => Promise<string>;
 
 function readEntry(value: unknown, inspection = false): Entry {
   if (!object(value) || !digest(value.fingerprint) || ("task" in value && "outputs" in value)) throw new Error("Invalid task record");
@@ -70,7 +73,9 @@ export interface MediaTaskJournal {
   /** Reads what an earlier run left, and marks a new start when it left nothing. */
   begin(request: unknown): Promise<MediaTaskStart>;
   /** Record and reuse one explicit paid step. An uncertain response must never be sent again. */
-  submit<T>(id: string, scope: string, request: unknown, create: () => Promise<T>): Promise<T>;
+  submit<T>(id: string, scope: string, request: unknown, create: (saveFile: SaveTaskFile) => Promise<T>): Promise<T>;
+  /** Read only a file saved under this generation's request identity. */
+  readOutput(file: string): Promise<Buffer>;
   /** Pin a reference whose paid work has its own durable owner; failed resolution is retryable. */
   reference<T>(id: string, scope: string, request: unknown, resolve: () => Promise<T>): Promise<T>;
   /** A raw start request cannot be safely replayed even if other steps have receipts. */
@@ -111,6 +116,7 @@ export async function inspectMediaTaskJournal(directory: string, id: string): Pr
 export async function mediaTaskJournal(directory: string, id: string): Promise<MediaTaskJournal> {
   if (!/^[a-zA-Z0-9-]{1,120}$/.test(id)) throw new Error("Invalid task recovery id");
   const file = path.resolve(directory, `${id}.json`);
+  const files = path.resolve(directory, `${id}.files`);
   let fingerprint: string | undefined;
   let entry: Entry | undefined;
   let held = false, closing = false, operations = 0;
@@ -155,7 +161,62 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     if (!held || !entry || entry.fingerprint !== fingerprint) throw new Error("Task ownership is required");
     return entry;
   };
-  const record = <T>(id: string, scope: string, request: unknown, create: () => Promise<T>, intent: boolean): Promise<T> => {
+  const checkFiles = async (create = false) => {
+    if ((await lstat(directory)).isSymbolicLink()) throw new Error("Linked task directory");
+    if (create) await mkdir(files, { recursive: true, mode: 0o700 });
+    const info = await lstat(files);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid task files directory");
+  };
+  const readOutputBytes = async (target: string) => {
+    const info = await lstat(target);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink > 1 || !info.size || info.size > MEDIA_TASK_FILE_MAX_BYTES)
+      throw new Error("Invalid task output file");
+    const handle = await open(target, "r");
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.nlink > 1 || opened.dev !== info.dev || opened.ino !== info.ino || opened.size !== info.size)
+        throw new Error("Task output changed");
+      // Read at most the checked size plus one, even if a file grows during the read.
+      const bytes = Buffer.alloc(info.size + 1);
+      let size = 0;
+      while (size < bytes.length) {
+        const part = await handle.read(bytes, size, bytes.length - size, size);
+        if (!part.bytesRead) break;
+        size += part.bytesRead;
+      }
+      if (size !== info.size) throw new Error("Task output changed");
+      return bytes.subarray(0, size);
+    } finally { await handle.close(); }
+  };
+  const saveFile: SaveTaskFile = async (value) => {
+    const owner = owned().fingerprint;
+    if (!value.byteLength || value.byteLength > MEDIA_TASK_FILE_MAX_BYTES) throw new Error("Task output must be between 1 byte and 64 MB");
+    const bytes = Buffer.from(value);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const token = `${owner}-${digest}`;
+    await checkFiles(true);
+    let size = 0;
+    for (const name of await readdir(files)) {
+      const info = await lstat(path.join(files, name));
+      if (!/^[a-f0-9]{64}-[a-f0-9]{64}$/.test(name) || !info.isFile() || info.isSymbolicLink() || info.nlink > 1 || info.size > MEDIA_TASK_FILE_MAX_BYTES)
+        throw new Error("Invalid task output file");
+      size += info.size;
+    }
+    const target = path.join(files, token);
+    try {
+      const old = await readOutputBytes(target);
+      if (!old.equals(bytes)) throw new Error("Task output changed");
+      return token;
+    } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+    if (size + bytes.length > MEDIA_TASK_FILE_MAX_BYTES) throw new Error("Task outputs exceed 64 MB");
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, bytes, { mode: 0o600, flag: "wx" });
+      await rename(temporary, target);
+    } catch (cause) { await rm(temporary, { force: true }).catch(() => undefined); throw cause; }
+    return token;
+  };
+  const record = <T>(id: string, scope: string, request: unknown, create: (saveFile: SaveTaskFile) => Promise<T>, intent: boolean): Promise<T> => {
     return enqueue(async () => {
       const current = owned();
       if (!(intent ? validId(id) : validReceiptId(id))) throw new Error("Invalid submission id");
@@ -169,7 +230,11 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       }
       if (Object.keys(current.submissions ?? {}).length >= MAX_SUBMISSIONS) throw new Error("Too many paid steps in this generation");
       if (intent) await write({ ...current, submissionScope, submissions: { ...current.submissions, [id]: { fingerprint } } });
-      const response = await create();
+      let accepting = true;
+      const response = await create(bytes => {
+        if (!intent || !accepting) throw new Error("Only an active paid step can save a task output");
+        return saveFile(bytes);
+      }).finally(() => { accepting = false; });
       const text = JSON.stringify(response);
       if (text === undefined || Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new Error("Paid step response cannot be recorded; check the provider before starting a new generation");
       const saved = JSON.parse(text) as T;
@@ -197,6 +262,14 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       return { state: "new" };
     },
     submit: (id, scope, request, create) => record(id, scope, request, create, true),
+    async readOutput(token) {
+      const owner = owned().fingerprint;
+      if (!/^[a-f0-9]{64}-[a-f0-9]{64}$/.test(token) || !token.startsWith(`${owner}-`)) throw new Error("Invalid task output reference");
+      await checkFiles();
+      const bytes = await readOutputBytes(path.join(files, token));
+      if (createHash("sha256").update(bytes).digest("hex") !== token.slice(65)) throw new Error("Task output changed");
+      return bytes;
+    },
     reference: (id, scope, request, resolve) => record(id, scope, request, resolve, false),
     unsafeStart() { return enqueue(async () => { await write({ ...owned(), unsafeStart: true }); }); },
     hasSubmissions() { return !!entry?.submissions && Object.keys(entry.submissions).length > 0; },
@@ -205,7 +278,21 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
     async clear() {
       if (active.has(file) && !held) throw new MediaTaskBusyError("This generation is still stopping. Try again in a moment.");
       // A caller clears after storing the result, often after releasing its lease.
-      const remove = async () => { await load(); await rm(file, { force: true }); entry = undefined; };
+      const remove = async () => {
+        await load();
+        let names: string[] = [];
+        try { await checkFiles(); names = await readdir(files); }
+        catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+        // Do not erase a future layout or unrelated data in this task's directory.
+        for (const name of names) {
+          const info = await lstat(path.join(files, name));
+          if (!/^[a-f0-9]{64}-[a-f0-9]{64}(?:\.[a-f0-9-]{36}\.tmp)?$/.test(name) || !(info.isFile() || info.isSymbolicLink()))
+            throw new Error("Unsupported task output layout");
+        }
+        await rm(file, { force: true });
+        await rm(files, { recursive: true, force: true });
+        entry = undefined;
+      };
       if (held && !closing) await enqueue(remove);
       else {
         if (operations) throw new MediaTaskBusyError("This generation is still stopping. Try again in a moment.");

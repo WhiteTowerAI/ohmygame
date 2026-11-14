@@ -22,6 +22,8 @@ export interface MediaFetchRequest {
   multipart?: unknown;
   /** Adds the provider's key as its manifest says. */
   auth?: boolean;
+  /** API 2.19: keep a paid audio response as a host-owned file. */
+  responseType?: "file";
   /** Internal bridge for host.submit: stable paid-step identity. */
   submission?: string;
   /** Internal bridge for a shared prerequisite. */
@@ -32,6 +34,7 @@ export interface MediaFetchResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
+  file?: string;
 }
 
 export interface MediaSandboxCall {
@@ -115,8 +118,12 @@ const PRELUDE = `(() => {
         status: answer.status,
         ok: answer.status >= 200 && answer.status < 300,
         headers: Object.freeze(answer.headers),
-        async text() { return body; },
-        async json() { return parse(body); },
+        async text() { if (answer.file !== undefined) throw new Error("This response is a host-owned file"); return body; },
+        async json() { if (answer.file !== undefined) throw new Error("This response is a host-owned file"); return parse(body); },
+        async file() {
+          if (typeof answer.file !== "string") throw new Error("This response has no host-owned file");
+          return { file: answer.file };
+        },
       });
     },
     log(message) { rawLog(String(message)); },

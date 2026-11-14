@@ -1,6 +1,6 @@
 import { fork } from "node:child_process";
 import { NodeIO } from "@gltf-transform/core";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -530,6 +530,129 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it.each(["complete", "cancel", "timeout"])("allows a slow binary audio response and handles %s without replay", async ending => {
+    let entered!: (signal: AbortSignal) => void, finish!: () => void;
+    const started = new Promise<AbortSignal>(resolve => { entered = resolve; });
+    const source = `export default { audio: { async start(input, host) {
+      return { outputs: [await (await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" })).file()] };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: (_url, signal) => new Promise<Response>((resolve, reject) => {
+      const abort = () => reject(signal!.reason);
+      finish = () => { signal!.removeEventListener("abort", abort); resolve(new Response(new Uint8Array(WAV))); };
+      signal!.addEventListener("abort", abort, { once: true }); entered(signal!);
+    }) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const controller = new AbortController(), journal = await journalAt();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const timed = new AbortController(); setTimeout(() => timed.abort(new DOMException("Timed out", "TimeoutError")), ms); return timed.signal;
+    });
+    const result = audio.generate({ prompt: "hello" }, controller.signal, journal).then(value => ({ value }), (error: unknown) => ({ error }));
+    try {
+      const signal = await started;
+      await vi.advanceTimersByTimeAsync(290_000);
+      expect(signal.aborted).toBe(false);
+      if (ending === "complete") {
+        finish(); expect(await result).toMatchObject({ value: { bytes: WAV } });
+      } else {
+        if (ending === "cancel") controller.abort(new Error("user stopped"));
+        else await vi.advanceTimersByTimeAsync(11_000);
+        expect(signal.aborted).toBe(true); expect(await result).toEqual({ error: expect.any(Error) });
+        await journal.settled();
+        await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("response was lost");
+      }
+      expect(requests).toHaveLength(1);
+    } finally {
+      controller.abort(new Error("test cleanup")); finish?.(); await result; await journal.settled();
+      timeout.mockRestore(); vi.useRealTimers();
+    }
+  });
+
+  it("stores binary audio outside the sandbox and resumes it without another paid request", async () => {
+    const bytes = Buffer.concat([WAV.subarray(0, 44), Buffer.alloc(2 * 1024 * 1024, 0xa5)]);
+    bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, json: input, responseType: "file" });
+      return { outputs: [await response.file()] };
+    } } };`;
+    const first = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(bytes), { headers: { "content-type": "audio/wav" } }) });
+    const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
+    const input = { prompt: "hello" };
+    expect(Buffer.from((await audio.generate(input, undefined, await journalAt())).bytes).equals(bytes)).toBe(true);
+    const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
+    expect(receipt).not.toContain(root);
+    const restarted = await setup(source, { media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
+    const next = new ProviderAudio(async () => restarted.media.audioAdapters(() => true));
+    const journal = await journalAt();
+    expect(Buffer.from((await next.generate(input, undefined, journal)).bytes).equals(bytes)).toBe(true);
+    expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
+    await journal.clear();
+    expect(await readdir(path.join(root, "media-tasks"))).toEqual([]);
+  });
+
+  it("keeps a missing or tampered binary result without paying again", async () => {
+    const source = `export default { audio: { async start(input, host) {
+      return { outputs: [await (await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" })).file()] };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV)) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const input = { prompt: "hello" };
+    await audio.generate(input, undefined, await journalAt());
+    const directory = path.join(root, "media-tasks/job-1.files"), [name] = await readdir(directory);
+    const file = path.join(directory, name!);
+    await writeFile(file, Buffer.alloc(WAV.length));
+    await expect(audio.generate(input, undefined, await journalAt())).rejects.toThrow("saved audio result is missing, changed or unreadable");
+    await rm(file);
+    await expect(audio.generate(input, undefined, await journalAt())).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+    await writeFile(file, WAV);
+    expect((await audio.generate(input, undefined, await journalAt())).bytes).toEqual(WAV);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("rejects binary fetches without a paid owner before dispatch and keeps oversized responses ambiguous", async () => {
+    const source = (method: string) => `export default { audio: { async start(input, host) {
+      const response = await host.${method}("https://api.flow.example/speech", { method: "POST", responseType: "file" });
+      return { outputs: [await response.file()] };
+    } } };`;
+    const raw = await setup(source("fetch"), { media: AUDIO_MEDIA });
+    const rawAudio = new ProviderAudio(async () => raw.media.audioAdapters(() => true));
+    await expect(rawAudio.generate({ prompt: "hello" })).rejects.toThrow("Binary responses require");
+    expect(raw.requests).toHaveLength(0);
+    const oversized = await setup(source('submit.bind(null, "speech")'), { media: AUDIO_MEDIA, reply: () => new Response("", { headers: { "content-length": String(64 * 1024 * 1024 + 1) } }) });
+    const audio = new ProviderAudio(async () => oversized.media.audioAdapters(() => true));
+    await expect(audio.generate({ prompt: "hello" })).rejects.toThrow("recoverable generation");
+    expect(oversized.requests).toHaveLength(0);
+    await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("more than 64 MB");
+    await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("response was lost");
+    expect(oversized.requests).toHaveLength(1);
+  });
+
+  it("keeps binary request errors readable without exposing successful file bytes to scripts", async () => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" });
+      if (!response.ok) return { error: (await response.json()).error };
+      await response.text();
+      return { outputs: [await response.file()] };
+    } } };`;
+    const rejected = await setup(source, { media: AUDIO_MEDIA, reply: () => Response.json({ error: "not available" }, { status: 400 }) });
+    const audio = new ProviderAudio(async () => rejected.media.audioAdapters(() => true));
+    await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("not available");
+    const success = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV)) });
+    const next = new ProviderAudio(async () => success.media.audioAdapters(() => true));
+    await expect(next.generate({ prompt: "hello" }, undefined, await journalAt("binary"))).rejects.toThrow("host-owned file");
+    await expect(next.generate({ prompt: "hello" }, undefined, await journalAt("binary"))).rejects.toThrow("host-owned file");
+    expect(success.requests).toHaveLength(1);
+  });
+
+  it("preserves URL outputs with an unrelated file field from older adapters", async () => {
+    const source = AUDIO_START.replace('outputs: [{ url:', 'outputs: [{ file: "vendor-name.wav", url:');
+    const { media } = await setup(source, { media: AUDIO_MEDIA, reply: url => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.generate({ prompt: "hello" })).bytes).toEqual(WAV);
+  });
+
   it("preserves declared speech limits and output settings through the sandbox", async () => {
     const speech = { id: "speech", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["wav"], maxTextCharacters: 40_000, speedRange: [-30, 20], languages: ["en", "zh"], sampleRatesByFormat: { wav: [8000, 24000] } };
     const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [speech] } } as unknown as Partial<Media>, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
@@ -1134,6 +1257,69 @@ describe("plugin media providers: listing the vendor's models", () => {
 });
 
 describe("media paid-step ownership", () => {
+  it("preserves unknown output layout data and its paid receipt when clearing", async () => {
+    const journal = await journalAt("future"); await journal.begin({ request: "one" });
+    try {
+      await journal.submit("audio", "fixture", {}, async save => ({ file: await save(WAV) }));
+      const extra = path.join(root, "media-tasks/future.files/future-index.json");
+      await writeFile(extra, '{"version":9}');
+      const receipt = await readFile(path.join(root, "media-tasks/future.json"), "utf8");
+      await expect(journal.clear()).rejects.toThrow("Unsupported task output layout");
+      expect(await readFile(extra, "utf8")).toBe('{"version":9}');
+      expect(await readFile(path.join(root, "media-tasks/future.json"), "utf8")).toBe(receipt);
+      await rm(extra); await journal.clear();
+    } finally { journal.release(); }
+  });
+
+  it("rejects linked task output directories and files without touching their targets", async () => {
+    const journal = await journalAt("linked"); await journal.begin({ request: "one" });
+    const outside = path.join(root, "outside"); await mkdir(outside);
+    const directory = path.join(root, "media-tasks/linked.files");
+    await symlink(outside, directory, process.platform === "win32" ? "junction" : "dir");
+    try {
+      await expect(journal.submit("binary", "fixture", {}, async save => save(WAV))).rejects.toThrow("Invalid task files directory");
+      await expect(journal.clear()).rejects.toThrow("Invalid task files directory");
+      expect(await readdir(outside)).toEqual([]);
+      await rm(directory);
+      const token = await journal.submit("second", "fixture", {}, async save => save(WAV));
+      const target = path.join(outside, "audio.wav");
+      await link(path.join(directory, token), target);
+      await expect(journal.readOutput(token)).rejects.toThrow("Invalid task output file");
+      await journal.clear();
+      expect(await readFile(target)).toEqual(WAV);
+    } finally { journal.release(); }
+  });
+
+  it("bounds total task output storage and closes a completed step's file writer", async () => {
+    const journal = await journalAt("bounded"); await journal.begin({ request: "one" });
+    let late!: (bytes: Uint8Array) => Promise<string>;
+    try {
+      await journal.submit("first", "fixture", {}, async save => { late = save; return { file: await save(WAV) }; });
+      expect(() => late(WAV)).toThrow("Only an active paid step");
+      await expect(journal.submit("empty", "fixture", {}, async save => save(Buffer.alloc(0)))).rejects.toThrow("between 1 byte and 64 MB");
+      await expect(journal.submit("large", "fixture", {}, async save => save(Buffer.alloc(64 * 1024 * 1024)))).rejects.toThrow("outputs exceed 64 MB");
+      expect(await readdir(path.join(root, "media-tasks/bounded.files"))).toHaveLength(1);
+    } finally { journal.release(); }
+  });
+
+  it("scopes output references to the generation and refuses traversal or changed ownership", async () => {
+    const journal = await journalAt("one"); await journal.begin({ request: "one" });
+    const token = await journal.submit("binary", "fixture", {}, async save => save(WAV));
+    expect(await journal.readOutput(token)).toEqual(WAV);
+    await expect(journal.readOutput("../outside")).rejects.toThrow("Invalid task output reference");
+    journal.release();
+    const other = await journalAt("two"); await other.begin({ request: "two" });
+    try { await expect(other.readOutput(token)).rejects.toThrow("Invalid task output reference"); }
+    finally { other.release(); }
+    const same = await journalAt("three"); await same.begin({ request: "one" });
+    try { await expect(same.readOutput(token)).rejects.toThrow(); }
+    finally { same.release(); }
+    const changed = await journalAt("one");
+    expect(await changed.begin({ request: "changed" })).toEqual({ state: "changed" });
+    try { await expect(changed.readOutput(token)).rejects.toThrow("Task ownership is required"); }
+    finally { changed.release(); }
+  });
+
   it("bounds the number of paid steps before another request can be sent", async () => {
     const journal = await journalAt(); await journal.begin({ fixture: "bound" });
     const create = vi.fn(async () => ({ id: "paid" }));
@@ -1154,7 +1340,7 @@ describe("media paid-step ownership", () => {
     } finally { journal.release(); }
   });
 
-  it.each(["submitted", "accepted"])("recovers after a process is killed at %s before saving the outer task", async (boundary) => {
+  it.each(["submitted", "accepted", "binary-saved", "binary-accepted"])("recovers after a process is killed at %s before saving the outer task", async (boundary) => {
     const directory = path.join(root, "journal");
     const child = fork(path.resolve("test/fixtures/media-submission-worker.mjs"), [directory, boundary], {
       execPath: "node", execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
@@ -1169,11 +1355,14 @@ describe("media paid-step ownership", () => {
         child.once("close", () => { clearTimeout(timeout); reject(new Error(`Worker exited: ${stderr}`)); });
       });
     } finally { child.kill("SIGKILL"); await exited; }
-    const journal = await mediaTaskJournal(directory, "interrupted"), create = vi.fn(async () => ({ id: "duplicate" }));
+    const journal = await mediaTaskJournal(directory, "interrupted"), create = vi.fn(async (): Promise<unknown> => ({ id: "duplicate" }));
     try {
       expect(await journal.begin({ provider: "fixture", request: "chair" })).toEqual({ state: "new" });
-      if (boundary === "submitted") await expect(journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).rejects.toThrow("response was lost");
-      else expect(await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).toEqual({ id: "paid-preview" });
+      if (boundary === "submitted" || boundary === "binary-saved") await expect(journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).rejects.toThrow("response was lost");
+      else if (boundary === "binary-accepted") {
+        const receipt = await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create) as { file: string };
+        expect((await journal.readOutput(receipt.file)).equals(Buffer.alloc(2 * 1024 * 1024, 0xa5))).toBe(true);
+      } else expect(await journal.submit("preview", "fixture-adapter", { prompt: "chair" }, create)).toEqual({ id: "paid-preview" });
       expect(create).not.toHaveBeenCalled();
     } finally { journal.release(); }
   });

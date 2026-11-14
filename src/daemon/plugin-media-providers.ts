@@ -9,11 +9,11 @@ import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
-import { inspectAudio } from "./audio-media.js";
+import { AUDIO_REQUEST_TIMEOUT_MS, inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
-import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
+import { GenerationShutdown, MediaTaskBusyError, MEDIA_TASK_FILE_MAX_BYTES, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
@@ -107,7 +107,7 @@ type Answer =
   | { outputs: Output[] }
   | { error: string }
   | { task: unknown; retryAfter?: number };
-type Output = ({ url: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown };
+type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown };
 
 interface RunOptions {
   /** All returned animation outputs must be valid and consumed. */
@@ -389,7 +389,7 @@ export class PluginMediaProviders {
       ...(kind === "speech" && input.speed !== undefined ? { speed: input.speed } : {}),
       ...modelData(declared),
     }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
-      const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped);
+      const bytes = await this.#output(item, outputs[0]!, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped, journal);
       const audio = await inspectAudio(bytes, asked, 502).catch((cause: unknown) => {
         throw asked ? cause : new AudioFailure(`${this.#name(item)} returned a file that isn't playable audio`);
       });
@@ -859,7 +859,8 @@ export class PluginMediaProviders {
     const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
       fetch: async (request, fetchSignal) => {
-        const timeout = kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+        const timeout = kind === "audio" && request.responseType === "file" ? AUDIO_REQUEST_TIMEOUT_MS
+          : kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
         if ("reuse" in request) {
           if (!journal || !this.#reuse || kind !== "3d" || !["start", "check"].includes(step) || !input || typeof input !== "object" || (input as { operation?: unknown }).operation !== "animate") throw new Error("host.reuse needs a recoverable 3D animation");
           if (typeof request.reuse !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(request.reuse) || Object.keys(request).some(key => !["reuse", "url"].includes(key))) throw new Error("Invalid shared prerequisite request");
@@ -906,15 +907,15 @@ export class PluginMediaProviders {
           if (typeof request.submission !== "string") throw new Error("host.submit needs a stable submission id");
           const { submission, ...fetchRequest } = request;
           submitted = true;
-          return journal.submit(submission, item.entry.digest, fetchRequest, () => {
+          return journal.submit(submission, item.entry.digest, fetchRequest, saveFile => {
             fetchSignal.throwIfAborted();
-            return this.#fetch(item, fetchRequest, fetchSignal, undefined, timeout, options.files);
+            return this.#fetch(item, fetchRequest, fetchSignal, undefined, timeout, options.files, kind === "audio" ? saveFile : undefined);
           });
         }
         if (journal && step === "start" && !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) await journal.unsafeStart();
         return this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined, timeout, options.files);
       },
-      ...(kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
+      ...(kind === "audio" ? { callMs: AUDIO_REQUEST_TIMEOUT_MS } : kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
       log: (message) => this.log(item.entry.id, message),
       signal: stepSignal,
     }).catch((cause: unknown) => {
@@ -1045,9 +1046,11 @@ export class PluginMediaProviders {
    * `host.fetch`: HTTPS to the plugin's approved hosts, with the key added
    * when asked. `writing` hears of a request sent that isn't a read.
    */
-  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS, files?: MediaInputFiles): Promise<MediaFetchResponse> {
+  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS, files?: MediaInputFiles, saveFile?: (bytes: Uint8Array) => Promise<string>): Promise<MediaFetchResponse> {
     if (request && "reuse" in request) throw new Error("host.reuse is only available during a recoverable 3D animation");
     if (request && "submission" in request) throw new Error("host.submit is only available during a recoverable generation");
+    if (request.responseType !== undefined && (request.responseType !== "file" || !saveFile))
+      throw new Error("Binary responses require host.submit in a recoverable audio generation");
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
     if (!METHODS.has(method)) throw new Error(`host.fetch can't send ${method}`);
@@ -1107,14 +1110,27 @@ export class PluginMediaProviders {
       const value = response.headers.get(name);
       if (value !== null) answer[name] = hide(value);
     }
+    if (request.responseType === "file" && response.ok) {
+      const bytes = await readCapped(response, url.host, MEDIA_TASK_FILE_MAX_BYTES);
+      return { status: response.status, headers: answer, body: "", file: await saveFile!(bytes) };
+    }
     return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8")) };
   }
 
   /** Downloads or decodes one output. */
-  async #output(item: PluginMediaProvider, output: Output, maxBytes: number, timeoutMs: number, Failure: Failure, signal: AbortSignal): Promise<Buffer> {
+  async #output(item: PluginMediaProvider, output: Output, maxBytes: number, timeoutMs: number, Failure: Failure, signal: AbortSignal, journal?: MediaTaskJournal): Promise<Buffer> {
     if ("base64" in output) {
       const bytes = Buffer.from(output.base64, "base64");
       if (!bytes.length || bytes.length > maxBytes) throw new Failure(`${this.#name(item)} returned an empty or oversized file`);
+      return bytes;
+    }
+    if (!("url" in output)) {
+      if (!journal) throw new Failure("A host-owned output needs its original generation");
+      signal.throwIfAborted();
+      const bytes = await journal.readOutput(output.file).catch(() => {
+        throw new Failure("The saved audio result is missing, changed or unreadable. Retry will not submit another paid request.");
+      });
+      if (bytes.length > maxBytes) throw new Failure("The host-owned output is too large");
       return bytes;
     }
     const url = this.#allowed(item, output.url, Failure);
@@ -1161,7 +1177,7 @@ function answerOf(value: unknown, task: unknown, Failure: Failure, outputLimit?:
   if (typeof answer.error === "string") return { error: answer.error.slice(0, 1000) };
   if (Array.isArray(answer.outputs)) {
     const outputs = answer.outputs.filter((output): output is Output => Boolean(output) && typeof output === "object"
-      && (typeof (output as { url?: unknown }).url === "string" || typeof (output as { base64?: unknown }).base64 === "string"));
+      && (typeof (output as { file?: unknown }).file === "string" || typeof (output as { url?: unknown }).url === "string" || typeof (output as { base64?: unknown }).base64 === "string"));
     if (outputLimit !== undefined && (outputs.length !== answer.outputs.length || outputs.length > outputLimit)) return fail("returned invalid or too many animation outputs");
     return outputs.length ? { outputs } : fail("returned no outputs");
   }
