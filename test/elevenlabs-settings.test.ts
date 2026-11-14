@@ -9,6 +9,20 @@ import {
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { snapshot, same } from "../src/daemon/elevenlabs-settings-snapshot.js";
+import { proposeElevenLabsSettings } from "../src/daemon/elevenlabs-migration-settings.js";
+import {
+  prepareSettingsTransaction,
+  resumeSettingsTransaction,
+  rollbackSettingsTransaction,
+  forgetSettingsTransaction,
+  recoverInterruptedElevenLabsSettings,
+  commitSettingsTransaction,
+  hasCommittedSettingsTransaction,
+  SETTINGS_TRANSACTION_BACKUP,
+} from "../src/daemon/elevenlabs-settings-transaction.js";
+import { rehearseElevenLabsMigration } from "../scripts/rehearse-elevenlabs-migration.js";
+import { killAt } from "./fixtures/settings-transaction-process.js";
 import { inspectElevenLabsMigration } from "../scripts/inspect-elevenlabs-migration.js";
 
 import { cp } from "node:fs/promises";
@@ -19,6 +33,10 @@ import {
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { ELEVENLABS_MIGRATION_MAPPINGS } from "../src/daemon/elevenlabs-migration-settings.js";
+
+import { migrateElevenLabsSettings } from "../src/daemon/elevenlabs-settings-migration.js";
+import { migrateMediaSettingsAtStartup } from "../src/daemon/media-settings-startup.js";
+import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
 
 const source = "elevenlabs",
   target = "plugin.ohmygame.elevenlabs.elevenlabs";
@@ -234,6 +252,204 @@ describe("ElevenLabs read-only migration inspection", () => {
   });
 });
 
+describe("ElevenLabs settings migration rehearsal", () => {
+  const speech = {
+    ...ref("eleven_flash_v2_5"),
+    voiceId: "saved-voice",
+    speed: 20,
+  };
+  async function staged(check: (directory: string) => Promise<void>) {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "elevenlabs-rehearsal-"),
+    );
+    try {
+      await mkdir(path.join(directory, "plugin-store"));
+      await writeFile(
+        path.join(directory, "elevenlabs.json"),
+        JSON.stringify({ version: 1, apiKey: secret, future: { secret } }),
+      );
+      await writeFile(
+        path.join(directory, configuration),
+        JSON.stringify({
+          version: 1,
+          plugins: {
+            "ohmygame/elevenlabs": {
+              unrelated: { type: "text", value: secret },
+            },
+            "other/plugin": { key: { type: "secret", value: secret } },
+          },
+          future: secret,
+        }),
+      );
+      await writeFile(
+        path.join(directory, "model-visibility.json"),
+        JSON.stringify({
+          version: 1,
+          hidden: { [source]: ["scribe_v2"], other: ["future-model"] },
+          disabled: [source, "other"],
+          defaultSpeechModel: speech,
+          defaultSoundEffectModel: ref("eleven_text_to_sound_v3"),
+          defaultMusicModel: ref("music_v2_5"),
+          future: secret,
+        }),
+      );
+      await writeFile(
+        path.join(directory, "plugin-store/settings.json"),
+        JSON.stringify({ version: 1, disabled: true, future: secret }),
+      );
+      await check(directory);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+  async function plan(directory: string) {
+    const original = await snapshot(directory),
+      report = await inspectElevenLabsMigration(directory);
+    expect(report.blockers).toEqual([]);
+    const proposal = proposeElevenLabsSettings(original, report);
+    expect(proposal.counts).toMatchObject({
+      keys: 1,
+      providerPreferences: 1,
+      defaultSpeechModel: true,
+      defaultSoundEffectModel: true,
+      defaultMusicModel: true,
+    });
+    expect([...proposal.changes.keys()]).not.toContain("elevenlabs.json");
+    return { original, ...proposal };
+  }
+
+  it("preserves unknown fields, saved audio options and switches, reloads idempotently and restores exact original bytes", async () => {
+    await staged(async (directory) => {
+      const allBefore = await bytes(directory),
+        { original, changes } = await plan(directory);
+      await prepareSettingsTransaction(directory, original, changes);
+      expect(same(await snapshot(directory), original)).toBe(true);
+      await resumeSettingsTransaction(directory);
+      const preferences = JSON.parse(
+        await readFile(path.join(directory, "model-visibility.json"), "utf8"),
+      );
+      expect(preferences.defaultSpeechModel).toEqual({
+        ...speech,
+        provider: target,
+      });
+      expect(preferences.defaultSoundEffectModel).toEqual({
+        ...ref("eleven_text_to_sound_v3"),
+        provider: target,
+      });
+      expect(preferences.defaultMusicModel).toEqual({
+        ...ref("music_v2_5"),
+        provider: target,
+      });
+      expect(preferences.hidden).toEqual({
+        [source]: ["scribe_v2"],
+        other: ["future-model"],
+        [target]: ["scribe_v2"],
+      });
+      expect(preferences.disabled).toEqual([source, "other", target]);
+      expect(preferences.future).toBe(secret);
+      const stored = JSON.parse(
+        await readFile(path.join(directory, configuration), "utf8"),
+      );
+      expect(stored.plugins["ohmygame/elevenlabs"]).toEqual({
+        apiKey: { type: "secret", value: secret },
+        unrelated: { type: "text", value: secret },
+      });
+      expect(stored.plugins["other/plugin"].key.value).toBe(secret);
+      expect(stored.future).toBe(secret);
+      expect(
+        proposeElevenLabsSettings(
+          await snapshot(directory),
+          await inspectElevenLabsMigration(directory),
+        ).changes.size,
+      ).toBe(0);
+      await rollbackSettingsTransaction(directory);
+      await forgetSettingsTransaction(directory);
+      expect(await bytes(directory)).toEqual(allBefore);
+    });
+  });
+
+  it("runs on a disposable copy, reports only counts and never changes the supplied profile", async () => {
+    await staged(async (directory) => {
+      const before = await bytes(directory);
+      const result = await rehearseElevenLabsMigration(directory);
+      expect(result).toMatchObject({
+        status: "passed",
+        activation: "held",
+        proposed: {
+          keys: 1,
+          defaultSpeechModel: true,
+          defaultSoundEffectModel: true,
+          defaultMusicModel: true,
+        },
+        checks: {
+          reload: true,
+          idempotent: true,
+          rollback: true,
+          sourceUnchanged: true,
+          cleanup: true,
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain(secret);
+      expect(await bytes(directory)).toEqual(before);
+      await writeFile(
+        path.join(directory, configuration),
+        JSON.stringify(plugin({ type: "secret", value: "conflicting-key" })),
+      );
+      const conflicted = await bytes(directory),
+        blocked = await rehearseElevenLabsMigration(directory);
+      expect(blocked.status).toBe("blocked");
+      expect(blocked.blockers).toContain("elevenlabs:key-conflict");
+      expect(await bytes(directory)).toEqual(conflicted);
+    });
+  });
+
+  it("recovers process termination at both writes and the applied receipt before committing independently", async () => {
+    for (const boundary of [configuration, "model-visibility.json", "applied"])
+      await staged(async (directory) => {
+        const { original, changes } = await plan(directory);
+        await prepareSettingsTransaction(directory, original, changes);
+        await killAt(directory, "resume", boundary, "elevenlabs");
+        expect(await recoverInterruptedElevenLabsSettings(directory)).toBe(
+          true,
+        );
+        expect(await snapshot(directory)).toEqual(original);
+        expect(await recoverInterruptedElevenLabsSettings(directory)).toBe(
+          false,
+        );
+        await prepareSettingsTransaction(directory, original, changes);
+        await resumeSettingsTransaction(directory);
+        await commitSettingsTransaction(directory);
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+        const receipt = JSON.parse(
+          await readFile(
+            path.join(directory, SETTINGS_TRANSACTION_BACKUP),
+            "utf8",
+          ),
+        );
+        expect(receipt.files["elevenlabs.json"].before).toBe(
+          original.get("elevenlabs.json")!.toString("base64"),
+        );
+        expect(receipt.files["elevenlabs.json"].after).toBe(
+          receipt.files["elevenlabs.json"].before,
+        );
+      });
+  });
+
+  it("refuses a changed credential guard instead of overwriting it", async () => {
+    await staged(async (directory) => {
+      const { original, changes } = await plan(directory);
+      await prepareSettingsTransaction(directory, original, changes);
+      await writeFile(
+        path.join(directory, "elevenlabs.json"),
+        JSON.stringify({ version: 1, apiKey: "new-key" }),
+      );
+      const before = await bytes(directory);
+      await expect(resumeSettingsTransaction(directory)).rejects.toThrow();
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
+});
+
 // Exercise the actual released archive; shared rejection coverage stays in
 // the existing MiniMax/Seedance suites.
 describe("reviewed ElevenLabs package", () => {
@@ -349,6 +565,268 @@ describe("reviewed ElevenLabs package", () => {
       const before = await bytes(directory);
       expect(await elevenlabsMigrationPackageIssue(directory)).toBe(
         "plugin-not-enabled",
+      );
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
+  async function seedNative(directory: string) {
+    await writeFile(
+      path.join(directory, "elevenlabs.json"),
+      JSON.stringify({ version: 1, apiKey: secret, future: { retain: true } }),
+    );
+    await writeFile(
+      path.join(directory, "model-visibility.json"),
+      JSON.stringify({
+        version: 1,
+        hidden: { elevenlabs: ["scribe_v2"] },
+        disabled: ["elevenlabs"],
+        defaultSpeechModel: {
+          ...ref("eleven_flash_v2_5"),
+          voiceId: "saved-voice",
+          speed: 20,
+        },
+        defaultSoundEffectModel: ref("eleven_text_to_sound_v3"),
+        defaultMusicModel: ref("music_v2_5"),
+      }),
+    );
+  }
+
+  it("commits all audio defaults once and never restores a credential removed after commit", async () => {
+    await installed(async (directory) => {
+      await seedNative(directory);
+      const original = await readFile(path.join(directory, "elevenlabs.json"));
+      const grants = await readFile(
+        path.join(directory, "plugin-store/grants.json"),
+      );
+      expect(await migrateElevenLabsSettings(directory)).toEqual({
+        status: "migrated",
+        reasons: [],
+      });
+      const report = await inspectElevenLabsMigration(directory);
+      expect(report.blockers).toEqual([]);
+      expect(
+        proposeElevenLabsSettings(await snapshot(directory), report).changes
+          .size,
+      ).toBe(0);
+      const settings = JSON.parse(
+        await readFile(path.join(directory, "model-visibility.json"), "utf8"),
+      );
+      expect(settings.defaultSpeechModel).toEqual({
+        ...ref("eleven_flash_v2_5"),
+        provider: target,
+        voiceId: "saved-voice",
+        speed: 20,
+      });
+      expect(settings.defaultSoundEffectModel.provider).toBe(target);
+      expect(settings.defaultMusicModel.provider).toBe(target);
+      expect(settings.hidden[target]).toEqual(["scribe_v2"]);
+      expect(settings.disabled).toContain(target);
+      expect(await readFile(path.join(directory, "elevenlabs.json"))).toEqual(
+        original,
+      );
+      expect(
+        await readFile(path.join(directory, "plugin-store/grants.json")),
+      ).toEqual(grants);
+      const file = path.join(directory, configuration),
+        config = JSON.parse(await readFile(file, "utf8"));
+      expect(config.plugins[pin.id].apiKey.value).toBe(secret);
+      delete config.plugins[pin.id].apiKey;
+      await writeFile(file, JSON.stringify(config));
+      const before = await bytes(directory);
+      expect(await migrateElevenLabsSettings(directory)).toEqual({
+        status: "committed",
+        reasons: [],
+      });
+      expect(await bytes(directory)).toEqual(before);
+    });
+  });
+
+  it.each(["safe-mode", "conflict", "permissions"])(
+    "defers %s without mutating any profile file",
+    async (failure) => {
+      await installed(async (directory) => {
+        await seedNative(directory);
+        if (failure === "conflict")
+          await writeFile(
+            path.join(directory, configuration),
+            JSON.stringify(plugin({ type: "secret", value: "different-key" })),
+          );
+        if (failure === "permissions") {
+          const file = path.join(directory, "plugin-store/grants.json"),
+            value = JSON.parse(await readFile(file, "utf8"));
+          value.plugins[pin.id].allowed = [];
+          await writeFile(file, JSON.stringify(value));
+        }
+        const before = await bytes(directory);
+        const result = await migrateElevenLabsSettings(
+          directory,
+          failure === "safe-mode",
+        );
+        expect(result).toEqual({
+          status: "deferred",
+          reasons: [
+            failure === "safe-mode"
+              ? "plugin-safe-mode"
+              : failure === "conflict"
+                ? "elevenlabs:key-conflict"
+                : "plugin-permissions-missing",
+          ],
+        });
+        expect(await bytes(directory)).toEqual(before);
+      });
+    },
+  );
+
+  it("recovers process death before and after the commit without changing native bytes", async () => {
+    for (const boundary of [
+      configuration,
+      "applied",
+      SETTINGS_TRANSACTION_BACKUP,
+    ])
+      await installed(async (directory) => {
+        await seedNative(directory);
+        const original = await readFile(
+          path.join(directory, "elevenlabs.json"),
+        );
+        await killAt(directory, "activate", boundary, "elevenlabs");
+        const result = await migrateElevenLabsSettings(directory);
+        expect(result.status).toBe(
+          boundary === SETTINGS_TRANSACTION_BACKUP ? "committed" : "migrated",
+        );
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
+        expect(await readFile(path.join(directory, "elevenlabs.json"))).toEqual(
+          original,
+        );
+        expect(
+          JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          ).plugins[pin.id].apiKey.value,
+        ).toBe(secret);
+      });
+  });
+
+  it("rolls back owned settings when grants change before the final package check", async () => {
+    await installed(async (directory) => {
+      await seedNative(directory);
+      const before = await snapshot(directory);
+      await expect(
+        killAt(directory, "activate", "revoke-grants", "elevenlabs"),
+      ).rejects.toThrow("original settings restored");
+      expect(await snapshot(directory)).toEqual(before);
+      expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+      expect(await elevenlabsMigrationPackageIssue(directory)).toBe(
+        "plugin-permissions-missing",
+      );
+    });
+  });
+
+  it.each([false, true])(
+    "recovers ElevenLabs before other shared settings writes, safe mode %s",
+    async (safeMode) => {
+      await installed(async (directory) => {
+        await seedNative(directory);
+        const minimax = MINIMAX_MIGRATION_PACKAGES.at(-1)!;
+        const root = path.join(
+          directory,
+          "plugin-store/packages",
+          minimax.id,
+          minimax.version,
+        );
+        await cp(
+          path.resolve(
+            ".runtime/minimax-migration-packages",
+            minimax.version,
+            "source",
+          ),
+          root,
+          { recursive: true },
+        );
+        const index = new PluginIndex(
+          path.join(directory, "plugin-store/index.json"),
+        );
+        await index.load();
+        const added = await index.add(root);
+        if (!added.ok) throw new Error("Invalid MiniMax fixture");
+        const originsFile = path.join(directory, "plugin-store/origins.json"),
+          origins = JSON.parse(await readFile(originsFile, "utf8"));
+        origins[`${minimax.id}@${minimax.version}`] = {
+          type: "npm",
+          package: minimax.package,
+          version: minimax.version,
+          registry: "npmjs",
+        };
+        await writeFile(originsFile, JSON.stringify(origins));
+        const grantsFile = path.join(directory, "plugin-store/grants.json"),
+          grants = JSON.parse(await readFile(grantsFile, "utf8"));
+        grants.plugins[minimax.id] = {
+          enabled: true,
+          everyProject: true,
+          allowed: capabilityGrants(added.entry.manifest),
+        };
+        await writeFile(grantsFile, JSON.stringify(grants));
+        await writeFile(
+          path.join(directory, "minimax.json"),
+          JSON.stringify({ version: 1, globalApiKey: "minimax-canary" }),
+        );
+        const original = await snapshot(directory);
+        const proposal = proposeElevenLabsSettings(
+          original,
+          await inspectElevenLabsMigration(directory),
+        );
+        await prepareSettingsTransaction(directory, original, proposal.changes);
+        await resumeSettingsTransaction(directory);
+        expect(
+          JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          ).plugins[pin.id].apiKey.value,
+        ).toBe(secret);
+        const result = await migrateMediaSettingsAtStartup(directory, safeMode);
+        expect(result.minimax.status).toBe(safeMode ? "deferred" : "migrated");
+        expect(await hasCommittedSettingsTransaction(directory)).toBe(false);
+        expect(await recoverInterruptedElevenLabsSettings(directory)).toBe(
+          false,
+        );
+        if (safeMode) expect(await snapshot(directory)).toEqual(original);
+        else {
+          const config = JSON.parse(
+            await readFile(path.join(directory, configuration), "utf8"),
+          );
+          expect(config.plugins).not.toHaveProperty(pin.id);
+          expect(config.plugins[minimax.id].globalApiKey.value).toBe(
+            "minimax-canary",
+          );
+        }
+        expect((await snapshot(directory)).get("elevenlabs.json")).toEqual(
+          original.get("elevenlabs.json"),
+        );
+        expect(
+          (await snapshot(directory)).get("model-visibility.json"),
+        ).toEqual(original.get("model-visibility.json"));
+      });
+    },
+  );
+  it("stops startup before shared writes when an ElevenLabs receipt is corrupt", async () => {
+    await installed(async (directory) => {
+      await seedNative(directory);
+      const original = await snapshot(directory);
+      await prepareSettingsTransaction(
+        directory,
+        original,
+        proposeElevenLabsSettings(
+          original,
+          await inspectElevenLabsMigration(directory),
+        ).changes,
+      );
+      const receipt = path.join(
+        directory,
+        ".elevenlabs-settings-transaction.json",
+      );
+      const data = JSON.parse(await readFile(receipt, "utf8"));
+      data.checksum = "invalid";
+      await writeFile(receipt, JSON.stringify(data));
+      const before = await bytes(directory);
+      await expect(migrateMediaSettingsAtStartup(directory)).rejects.toThrow(
+        "checksum",
       );
       expect(await bytes(directory)).toEqual(before);
     });
