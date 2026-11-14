@@ -1,6 +1,7 @@
+import { killAt } from "./fixtures/settings-transaction-process.js";
 import { createHash } from "node:crypto";
 import { cp, access, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { execFile, fork } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -454,13 +455,13 @@ describe("MiniMax migration inspection", () => {
   }
 
   const recoverInFreshProcess = (directory: string) => promisify(execFile)("node", [
-    "--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "resume", "none",
+    "--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/media-settings-transaction-worker.cjs", directory, "resume", "none",
   ]);
 
   it("restores uncommitted settings before startup loads any cache", async () => {
     for (const boundary of [pluginFile, "model-visibility.json", "applied"]) await transaction(async (directory, before) => {
       await killAt(directory, "resume", boundary);
-      await promisify(execFile)("node", ["--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "startup", "none"]);
+      await promisify(execFile)("node", ["--import", "tsx", "test/fixtures/media-settings-transaction-worker.cjs", directory, "startup", "none"]);
       expect(await settingsSnapshot(directory)).toEqual(before);
       expect(await recoverInterruptedMinimaxSettings(directory)).toBe(false);
       const keys = new MinimaxSettingsStore(directory), plugins = new PluginValues(path.join(directory, pluginFile));
@@ -935,7 +936,7 @@ describe.each(MINIMAX_MIGRATION_PACKAGES)("startup MiniMax settings migration ($
     for (const boundary of ["plugin-store/configuration.json", "applied", SETTINGS_TRANSACTION_BACKUP]) await fixture(async (directory) => {
       const before = await settingsSnapshot(directory);
       await killAt(directory, "activate", boundary);
-      await promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/minimax-settings-transaction-worker.cjs", directory, "activate", "none"]);
+      await promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "test/fixtures/media-settings-transaction-worker.cjs", directory, "activate", "none"]);
       expect(await hasCommittedSettingsTransaction(directory)).toBe(true);
       const receipt = JSON.parse(await readFile(path.join(directory, SETTINGS_TRANSACTION_BACKUP), "utf8"));
       for (const [file, bytes] of before) expect(receipt.files[file].before).toBe(bytes?.toString("base64") ?? null);
@@ -972,22 +973,3 @@ describe.each(MINIMAX_MIGRATION_PACKAGES)("startup MiniMax settings migration ($
     });
   });
 });
-
-async function killAt(directory: string, action: "resume" | "rollback" | "startup" | "commit" | "activate", boundary: string) {
-  const child = fork(path.resolve("test/fixtures/minimax-settings-transaction-worker.cjs"), [directory, action, boundary], {
-    execPath: "node", execArgv: ["--conditions=ohmygame-source", "--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
-  });
-  let stderr = "";
-  child.stderr?.on("data", (chunk) => { stderr = (stderr + String(chunk)).slice(-8000); });
-  const exited = new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code)));
-  let reached = false;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Worker did not reach checkpoint")), 10_000);
-      child.once("message", (message) => { clearTimeout(timeout); if ((message as { checkpoint?: string }).checkpoint === boundary) resolve(); else reject(new Error(`Unexpected worker checkpoint: ${JSON.stringify(message)}`)); });
-      child.once("close", (code, signal) => { clearTimeout(timeout); reject(new Error(`Worker exited before checkpoint: ${boundary} (code ${code}, signal ${signal})\n${stderr}`)); });
-      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
-    });
-    reached = true;
-  } finally { child.kill("SIGKILL"); const code = await exited; if (reached) expect(code).not.toBe(0); }
-}

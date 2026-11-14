@@ -38,6 +38,7 @@
     "prepare:preinstalled-plugins": "node --conditions=ohmygame-source --import tsx scripts/prepare-preinstalled-plugins.ts",
     "prepare:examples": "bun scripts/prepare-examples.ts",
     "rehearse:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/rehearse-minimax-migration.ts",
+    "rehearse:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/rehearse-seedance-migration.ts",
     "inspect:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-minimax-migration.ts",
     "inspect:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-seedance-migration.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
