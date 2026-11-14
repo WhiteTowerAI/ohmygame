@@ -2680,6 +2680,8 @@ const zhCN: typeof en = {
     },
   },
   api: {
+    minimaxRetiredProvider: "MiniMax 已迁移到插件。请选择 MiniMax 插件模型，旧内置服务已停用。",
+    minimaxRetiredRetry: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。",
     runtimeUnreachable: "无法连接本地运行时",
     requestFailed: "请求失败（{{status}}）",
     serviceUnavailable: "后台服务不可用",

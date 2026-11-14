@@ -1232,7 +1232,7 @@ describe("MiniMax canvas model migration", () => {
     expect(saved.board.nodes[0]!.title).toBe("A new edit after migration");
   });
 
-  it("keeps a historical retry's model and recovery ID after moving the node selection", async () => {
+  it("refuses retired MiniMax retry without changing history, while an uncut profile preserves retry ownership", async () => {
     const { store, migrating, tools, library, project, boardId, before } = await fixture();
     const video = before.board.nodes[1]!;
     const output = await library.add("continued.mp4", Buffer.from("video"));
@@ -1243,8 +1243,14 @@ describe("MiniMax canvas model migration", () => {
     expect((await waitForJob(store, project.id)).status).toBe("failed");
     await migrating.board(project.id, boardId);
     expect(run).toHaveBeenCalledOnce();
-    await migrating.retry(project.id, job.id);
-    expect((await waitForJob(migrating, project.id)).status).toBe("succeeded");
+    const historyFile = path.join(project.workspacePath, "canvas/jobs.json");
+    await migrating.jobs(project.id);
+    const historyBefore = await readFile(historyFile, "utf8");
+    await expect(migrating.retry(project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its status in MiniMax") });
+    expect(await readFile(historyFile, "utf8")).toBe(historyBefore);
+    expect(run).toHaveBeenCalledOnce();
+    await store.retry(project.id, job.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
     expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
     expect(run.mock.calls[1]![1]).toMatchObject({ model: { provider: "minimax-video-cn", id: "MiniMax-H3" } });

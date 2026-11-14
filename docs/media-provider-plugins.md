@@ -391,9 +391,8 @@ the original settings; interrupted writes recover on the next start. After commi
 normal edits, including clearing a plugin key, are never overwritten by another
 copy from legacy settings. Only fixed reason codes are logged for deferrals.
 
-This increment migrates settings. Canvas references and generation history keep
-their existing provider IDs; the builtin catalog, credentials and execution path
-remain available until the separate cutover. No job or vendor task journal is
+Committed migration also enables the project, canvas and provider cutover
+described below. Historical generation inputs keep their existing provider IDs. No job or vendor task journal is
 rewritten, resumed or submitted during settings migration. Runtime smoke uses
 the actual published package and temporary canary keys without vendor requests.
 
@@ -626,12 +625,12 @@ all read the restored or committed disk state. There is no live migration/reload
 endpoint; a future live endpoint would need a separate read barrier.
 
 The daemon entry point enforces [profile ownership](runtime-recovery.md#profile-ownership)
-and settings migration before loading the application. Full provider cutover
-still needs project-default migration and unfinished-task disposition; live
-acceptance is tracked separately in the rollout plan. Settings recovery
+and settings migration before loading the application. Committed profiles apply
+the cutover below; live acceptance is tracked separately in the rollout plan.
+Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
-a plugin, or submit vendor requests. The built-in execution path remains in place
-for outstanding jobs. A passing rehearsal does not release those gates. The startup
+a plugin, or submit vendor requests. Unmigrated profiles retain the built-in execution path; committed profiles
+refuse unsafe legacy retries. A passing rehearsal alone does not enable cutover. The startup
 migration records its compatibility removal release and date at its owning boundary.
 
 ### MiniMax saved canvas selections
@@ -651,10 +650,10 @@ fields, invalid layouts and files that would exceed the size limit are refused
 without replacement. A stale editor revision is rejected after migration; reload
 before saving. Read-only inspectors and unopened boards do not initiate migration.
 
-A historical retry keeps its saved input, provider and recovery ID even if the
-node now selects the plugin. Its output can still attach to that node. Plugin
-removal or disablement does not reverse already migrated selections. Project
-media defaults and builtin catalog cutover remain separate migration steps.
+Saved historical inputs, providers and recovery IDs remain unchanged even if
+the node now selects the plugin. After cutover, a built-in MiniMax task cannot
+be retried: it has no durable vendor task ID. Plugin removal or disablement
+does not reverse already migrated selections.
 
 ### MiniMax project video defaults
 
@@ -669,5 +668,24 @@ Portable settings and local records retain unknown fields; unreadable or newer
 settings and linked files are not replaced. Refreshes and edits share the
 project metadata queue. Migration preserves the project's modification time
 and does not rewrite job inputs, recovery IDs or canvas history. Read-only
-folder discovery does not initiate migration. This does not yet remove the
-built-in provider or transfer ownership of unfinished generation tasks.
+folder discovery does not initiate migration. Project default migration never
+transfers ownership of unfinished generation tasks.
+
+### MiniMax committed-profile cutover
+
+A profile with committed settings migration uses the Beta plugin for MiniMax.
+The built-in connection and models no longer appear, and their credential
+endpoints refuse changes. Original credentials remain on disk. An explicit
+request to the old provider is rejected instead of falling back or silently
+starting a request with a different owner. Profiles whose migration is deferred
+continue using the built-in provider until the verified plugin is ready.
+
+Old built-in MiniMax jobs retain their input and recovery identity. Retrying a
+failed or cancelled job is refused before replacing its record or contacting a
+vendor. Job lists explain this in the selected UI language while retaining the
+original error in stored history. Check that task in MiniMax before intentionally starting a new generation
+with the plugin; the old integration did not retain a vendor task ID, so it cannot
+safely resume it. The migration never automatically resubmits a task. Plugin jobs
+continue to use their own persisted recovery journal. Disabling or uninstalling
+the plugin does not reactivate the retired built-in provider.
+

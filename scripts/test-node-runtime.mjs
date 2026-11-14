@@ -90,6 +90,12 @@ try {
   const videos = await fetch(`${daemon.runtime.url}/video-models`, { headers: migrationHeaders }).then(r => r.json());
   assert(videos.some(model => model.provider === "plugin.ohmygame.minimax.global"));
   assert(!videos.some(model => model.provider === "plugin.ohmygame.minimax.cn"), "Old provider's disabled choice survives initial cache construction");
+  assert(!videos.some(model => model.provider.startsWith("minimax-video-")), "Cutover hides built-in video models");
+  const connections = await fetch(`${daemon.runtime.url}/settings/providers`, { headers: migrationHeaders }).then(r => r.json());
+  assert(!connections.some(provider => provider.id.startsWith("minimax-video-")), "Cutover hides built-in credential setup");
+  const retiredKey = await fetch(`${daemon.runtime.url}/settings/models/providers/minimax-video-global/minimax-key`, { method: "DELETE", headers: migrationHeaders });
+  assert.equal(retiredKey.status, 409);
+  assert.equal(await readFile(path.join(daemonOptions.dataDirectory, "minimax.json"), "utf8"), legacyKeys);
   const unauthorized = await fetch(`${daemon.runtime.url}/projects`);
   assert.equal(unauthorized.status, 401);
   for (const route of ["/health", "/projects"]) {

@@ -1,3 +1,4 @@
+import { MINIMAX_RETIRED_PROVIDER } from "../shared/media-migration-errors.js";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
@@ -77,6 +78,7 @@ export interface ProviderSettingsRouteOptions {
   openAIEndpoint: ModelEndpointSettingsStore;
   seedanceSettings: SeedanceSettingsStore;
   minimaxSettings: MinimaxSettingsStore;
+  minimaxSettingsMigrated?: boolean;
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
@@ -184,6 +186,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     const native = native3DProviders.find(([id]) => id === providerId);
     const seedance = isSeedanceProviderId(providerId);
     const minimax = isMinimaxProviderId(providerId);
+    if (minimax && options.minimaxSettingsMigrated) throw new ModelAuthError(MINIMAX_RETIRED_PROVIDER, 409);
     const doubaoSpeech = providerId === DOUBAO_SPEECH_PROVIDER_ID;
     if (!native && !seedance && !minimax && !doubaoSpeech && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
@@ -252,12 +255,14 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     { schema: apiKeySettingsSchema },
     async (request, reply) => {
       if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+      if (options.minimaxSettingsMigrated) return reply.code(409).send({ error: MINIMAX_RETIRED_PROVIDER });
       try { return await minimaxSettings.update(request.params.providerId, request.body.apiKey); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
     },
   );
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/minimax-key", async (request, reply) => {
     if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+    if (options.minimaxSettingsMigrated) return reply.code(409).send({ error: MINIMAX_RETIRED_PROVIDER });
     await minimaxSettings.clear(request.params.providerId);
     return reply.code(204).send();
   });

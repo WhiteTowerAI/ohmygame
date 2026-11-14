@@ -1,4 +1,5 @@
-import { migratedMinimaxBoard } from "./minimax-model-migration.js";
+import { MINIMAX_RETIRED_RETRY } from "../shared/media-migration-errors.js";
+import { migratedMinimaxBoard, legacyMinimaxJob, minimaxJobNotice } from "./minimax-model-migration.js";
 import { Compile } from "typebox/schema";
 import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
@@ -544,7 +545,7 @@ export class CanvasStore {
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
-  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(publicJob)); }
+  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(job => publicJob(minimaxJobNotice(job, this.minimaxSettingsMigrated)))); }
   async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
     const read = await this.board(id, boardId), reading = read.board.nodes.find((node) => node.id === nodeId);
@@ -865,6 +866,7 @@ export class CanvasStore {
     // A plugin node runs again from its current settings and inputs.
     if (job?.toolId === "plugin-node" && ["failed", "cancelled"].includes(job.status)) return this.#startPlugin(id, job.context!.boardId!, job.context!.nodeId, false);
     if (!job || !job.input || job.toolId === "plugin-node" || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
+    if (this.minimaxSettingsMigrated && legacyMinimaxJob(job)) throw new CanvasError(MINIMAX_RETIRED_RETRY, 409);
     return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }
