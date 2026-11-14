@@ -4,6 +4,10 @@ Changes to `@ohmygame/sdk` that games and their developers can notice. A
 maintainer adds a section, `## [version] - YYYY-MM-DD`, when preparing a
 release; publishing checks that the section for the package's version exists.
 See [publishing the SDK](../../docs/maintaining.md#publishing-the-sdk).
+## [0.0.3] - 2026-11-13
+
+- Add an AI-oriented SDK documentation index to the published package.
+
 Earlier versions, `0.0.0-stage` and `0.1.0` (published by mistake and
 deprecated; it holds the same code as 0.0.1), are listed only on npm.
 

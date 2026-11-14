@@ -1,6 +1,6 @@
 {
   "name": "@ohmygame/sdk",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Browser SDK for OhMyGame games.",
   "license": "Apache-2.0",
   "author": "WhiteTowerAI",
@@ -68,6 +68,7 @@
     "dist",
     "README.md",
     "AGENT_GUIDE.md",
+    "llms.txt",
     "CHANGELOG.md"
   ],
   "scripts": {

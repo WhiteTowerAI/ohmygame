@@ -1,0 +1,20 @@
+# @ohmygame/sdk
+
+> Browser SDK for OhMyGame games: local and cloud saves, sign-in, leaderboards,
+> and optional multiplayer rooms.
+
+Use `init()` once at browser startup, then use only the features it returns.
+The SDK is not for Node.js or native runtimes. Do not hand-author production
+`multiplayer`, `account`, or `cloud` manifest settings.
+
+## Start here
+
+- [SDK README](README.md): Installation, public import paths, and a quick overview.
+- [Agent guide](AGENT_GUIDE.md): Required lifecycle, manifest, error, rules, and multiplayer guidance.
+- [SDK starter example](https://github.com/WhiteTowerAI/ohmygame/tree/main/examples/sdk-starter): A complete local-only browser example using the published package.
+
+## Feature guides
+
+- [Multiplayer integration](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/multiplayer.md): Rooms, rules, local playtests, and publishing.
+- [Cloud saves and leaderboards](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/cloud-saves.md): Storage and leaderboard behavior.
+- [Game sign-in](https://github.com/WhiteTowerAI/ohmygame/blob/main/docs/game-sign-in.md): Player accounts and tokens.
