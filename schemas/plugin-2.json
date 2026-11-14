@@ -1594,6 +1594,11 @@
                       "listVoices": {
                         "type": "boolean"
                       },
+                      "defaultVoiceSetting": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-zA-Z0-9]*$",
+                        "maxLength": 64
+                      },
                       "models": {
                         "type": "array",
                         "items": {
