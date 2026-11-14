@@ -1,5 +1,6 @@
 import {
   MINIMAX_RETIRED_PROVIDER,
+  MODEL3D_RETIRED_PROVIDER,
   SEEDANCE_RETIRED_PROVIDER,
   SEEDANCE_RETIRED_RETRY,
   MINIMAX_RETIRED_RETRY,
@@ -13,5 +14,6 @@ export function mediaMigrationError(message: string): string {
   if (message === SEEDANCE_RETIRED_PROVIDER)
     return t("api.seedanceRetiredProvider");
   if (message === SEEDANCE_RETIRED_RETRY) return t("api.seedanceRetiredRetry");
+  if (message === MODEL3D_RETIRED_PROVIDER) return t("api.model3DRetiredProvider");
   return message;
 }

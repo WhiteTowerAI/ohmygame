@@ -1,3 +1,4 @@
+import type { MediaMigrationState } from "./media-model-migration.js";
 import { SettingsWrites } from "./settings-writes.js";
 import { PluginSessions } from "./plugin-sessions.js";
 import type { BrowserDriver } from "../shared/browser-use.js";
@@ -217,8 +218,8 @@ export interface AppOptions {
   minimaxSettingsMigrated?: boolean;
   /** Validated committed Seedance settings migration, supplied by the startup owner. */
   seedanceSettingsMigrated?: boolean;
-  /** Prepared committed native-task recovery contexts; startup activation is separate. */
-  model3DRecovery?: readonly CommittedModel3DMigration[];
+  /** Committed 3D ownership shared by catalogs, saved references and task recovery. */
+  model3DMigrations?: readonly CommittedModel3DMigration[];
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -600,6 +601,10 @@ const toolRunSchema = {
       instrumental: { type: "boolean" },
       kind: { enum: [...AUDIO_KINDS] },
       referenceMode: { enum: ["frame", "reference"] },
+      operation: { enum: ["image", "text", "retexture", "remesh"] },
+      sourceAssetId: { type: "string", minLength: 1, maxLength: 100 },
+      // ToolRunner validates option names and support for the selected operation.
+      options: { type: "object" },
       targetPolycount: { type: "integer", minimum: MODEL_3D_MIN_POLYCOUNT, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
@@ -657,6 +662,13 @@ const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_UPDATE_CHECK_REUSE_MS = 5 * 60 * 1000;
 
 export function createApp(options: AppOptions = {}) {
+  const model3DMigrations = structuredClone(options.model3DMigrations ?? []);
+  const retiredNative3D = model3DMigrations.map(({ references }) => references.source);
+  const mediaMigrations: MediaMigrationState = {
+    minimax: options.minimaxSettingsMigrated === true,
+    seedance: options.seedanceSettingsMigrated === true,
+    model3D: model3DMigrations.map(({ references }) => references),
+  };
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
@@ -675,7 +687,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true });
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, mediaMigrations);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -830,9 +842,12 @@ export function createApp(options: AppOptions = {}) {
       void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
     },
   });
-  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
-    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
-    : providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => {
+    if (retiredNative3D.some((source) => source === id)) return false;
+    if (!retiredNative3D.includes("hyper3d") && (id === "hyper3d" || id === "cloud-hyper3d"))
+      return providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d");
+    return providerModelSettings.isEnabled(id);
+  };
   const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
     seedanceSettingsMigrated: options.seedanceSettingsMigrated,
@@ -928,8 +943,8 @@ export function createApp(options: AppOptions = {}) {
       return { ...input, [key]: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
-    { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true },
-    new NativeModel3DRecovery(dataDirectory, options.model3DRecovery ?? [], async ({ references }, url) => {
+    mediaMigrations,
+    new NativeModel3DRecovery(dataDirectory, model3DMigrations, async ({ references }, url) => {
       const unavailable = () => new Model3DGenerationError("Enable the reviewed 3D plugin and configure its original API key to resume this task", 409);
       if (!providerEnabled(references.target) || await model3DMigrationPackageIssue(dataDirectory, references.source)) throw unavailable();
       const provider = (await pluginMediaProviders.providers()).find((item) => item.id === references.target);
@@ -1462,7 +1477,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations: { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true }, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -3873,7 +3888,7 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(item.id), custom: false, status: item.configured ? "connected" as const : "not_configured" as const,
         methods: [], capabilities: pluginModelProviders.capabilities(item.id), plugin: pluginModelProviders.info(item.id, locale)!,
       }));
-    const directProviders = [...pluginProviders, ...native3DProviders.map(([id, name, settings]) => ({
+    const directProviders = [...pluginProviders, ...native3DProviders.filter(([id]) => !retiredNative3D.includes(id)).map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
       status: settings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${name} API key` }],
@@ -4018,6 +4033,7 @@ export function createApp(options: AppOptions = {}) {
     agents,
     modelDiscoveryFetch: options.modelDiscoveryFetch,
     native3DProviders,
+    retiredNative3D,
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,

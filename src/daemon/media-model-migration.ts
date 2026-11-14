@@ -50,6 +50,26 @@ export function migratedMediaModel<T extends AgentModelRef>(
     : model;
 }
 
+/** A future selection, including the historical default animation connection. Never use on paid job inputs. */
+export function migratedModel3DSelection(
+  model: AgentModelRef | undefined,
+  operation: Model3DOperation,
+  state: MediaMigrationState,
+): AgentModelRef | undefined {
+  if (model !== undefined) {
+    // Request validation runs after selection mapping. Do not turn malformed
+    // selections into a default or a valid processing connection.
+    if (!model || typeof model !== "object" || Array.isArray(model)
+      || typeof model.provider !== "string" || typeof model.id !== "string") return model;
+    return migratedModel3DReference(model, state, operation);
+  }
+  if (operation !== "animate") return undefined;
+  const mapping = state.model3D?.find(
+    ({ source, processing }) => source === "meshy" && processing?.operations.includes("animate"),
+  );
+  return mapping ? { provider: mapping.target, id: mapping.processing!.id } : undefined;
+}
+
 // compat: since beta.5.8, remove from beta.7 and 2026-12-15. Only future
 // selections move after settings commit; native paid task inputs keep their owner.
 function migratedModel3DReference<T extends AgentModelRef>(
@@ -94,18 +114,7 @@ export function migratedMediaBoard(
         node.type === "animate-3d"
           ? "animate"
           : (node.data.operation ?? "image");
-      let model =
-        node.data.model &&
-        migratedModel3DReference(node.data.model, state, operation);
-      if (!node.data.model && node.type === "animate-3d") {
-        // The old implicit animation connection is Meshy, irrespective of generation defaults.
-        const mapping = state.model3D?.find(
-          ({ source, processing }) =>
-            source === "meshy" && processing?.operations.includes("animate"),
-        );
-        if (mapping)
-          model = { provider: mapping.target, id: mapping.processing!.id };
-      }
+      const model = migratedModel3DSelection(node.data.model, operation, state);
       if (model === node.data.model) return node;
       changed = true;
       return node.type === "model-3d"

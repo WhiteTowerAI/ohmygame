@@ -160,6 +160,13 @@ export async function proposeModel3DSettings(
     if (report.key === "invalid" || report.key === "conflict")
       report.blockers.push(`key-${report.key}`);
     const sourceVisibility = preferences.providerVisibility(provider);
+    if (provider === "hyper3d") {
+      // Native own-key and free-cloud requests previously shared both switches.
+      // Preserve their effective state before making the new switches independent.
+      const cloudEnabled = preferences.isEnabled("cloud-hyper3d");
+      sourceVisibility.enabled &&= cloudEnabled;
+      sourceVisibility.configured ||= !cloudEnabled;
+    }
     const targetVisibility = preferences.providerVisibility(target);
     const targetHidden = [...targetVisibility.hiddenModelIds, ...choice.hidden];
     const targetConfigured =
@@ -258,6 +265,10 @@ export async function proposeModel3DSettings(
         apiKey: { type: "secret", value: legacy.apiKey },
       };
       counts.keys++;
+    }
+    if (provider === "hyper3d" && !sourceVisibility.enabled && preferences.isEnabled("cloud-hyper3d")) {
+      preferenceData.disabled = [...(preferenceData.disabled ?? []), "cloud-hyper3d"];
+      counts.providerPreferences++;
     }
     if (!targetConfigured && sourceVisibility.configured) {
       if (!sourceVisibility.enabled)

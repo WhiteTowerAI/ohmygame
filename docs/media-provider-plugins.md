@@ -1147,9 +1147,9 @@ installed or approved. Corrupt/conflicting recovery records stop startup before
 new migration writes; committed backups remain untouched. This recovery step
 does not activate a 3D migration.
 
-Native 3D services remain active. Settings/model-definition migration, saved
-canvas/project references and historical task ownership are separate remaining
-steps; each vendor needs real generation and restart acceptance before cutover.
+Native 3D services remain active. The prepared settings, canvas/project reference
+and historical task recovery paths must activate together; each vendor needs
+real generation and restart acceptance before cutover.
 Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
@@ -1213,8 +1213,8 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup does not supply this 3D state yet: real vendor acceptance and native
-task recovery must be completed before activation.
+Startup does not supply this 3D state yet; activation remains held for real vendor
+acceptance and the production startup wiring.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes
@@ -1259,9 +1259,9 @@ stage's marker, so restoring authorization can continue. Once dispatch starts,
 transport failures remain ambiguous and never automatically resubmit a paid task.
 No recovery adapter is exposed as a selectable model.
 
-Startup does not yet supply these contexts. Transaction activation, removal of
-native catalogs/settings routes and vendor acceptance remain separate requirements
-before the actual cutover. These preparation checks use simulated vendor responses.
+The prepared application context below consumes these recovery records together
+with native retirement and future-reference mapping. Production startup activation
+and vendor acceptance remain held. Recovery tests use simulated vendor responses.
 
 #### Settings activation preparation
 
@@ -1282,4 +1282,24 @@ those actions cannot silently revive the native provider.
 Production startup does not call this entry point yet. Its caller must own the
 profile, recover all other provider transactions first, and construct model,
 reference and task-recovery consumers from the committed result. Real vendor
-acceptance and those application changes are still required before cutover.
+acceptance and production startup wiring are still required before cutover.
+
+#### Prepared application ownership
+
+The internal `model3DMigrations` application context is a cloned set of committed
+records. The same records retire the native catalog/settings entries, migrate
+project and future canvas selections, and authorize recovery of existing paid
+tasks. Retired native settings routes return a translated conflict response and
+cannot modify the retained native keys or model definitions. The own-key Hyper3D
+migration first preserves both old effective switch states in the settings proposal,
+then separates their controls so free-cloud changes cannot revive native access.
+
+New standalone or canvas requests map reviewed native model IDs to the plugin.
+Implicit new Meshy animation and its action catalog use the migrated processing
+connection. Prepared retries keep their original native inputs and receipt IDs;
+they are never rewritten as new plugin submissions. The standalone HTTP job
+schema preserves 3D operation, source asset and advanced options, with their
+strict operation-specific validation still owned by ToolRunner.
+
+Production startup still supplies no 3D migration contexts. This is tested
+application preparation; vendor acceptance and startup activation remain held.

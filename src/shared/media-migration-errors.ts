@@ -7,3 +7,5 @@ export const SEEDANCE_RETIRED_RETRY =
   "This built-in Seedream or Seedance task cannot be resumed. Check its result and billing in Ark or BytePlus before starting a new generation with the plugin.";
 export const SEEDANCE_RETIRED_PROVIDER =
   "Seedream and Seedance now run through their plugin. Choose a Seedream or Seedance plugin model; the built-in provider is no longer available.";
+export const MODEL3D_RETIRED_PROVIDER =
+  "This 3D provider now runs through its plugin. Choose a plugin model; the built-in provider is no longer available.";
