@@ -1,3 +1,7 @@
+import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
+import { SEEDANCE_MIGRATION_PACKAGES, seedanceMigrationPackageIssue } from "../src/daemon/seedance-migration-package.js";
+import { SEEDANCE_MIGRATION_REGIONS } from "../src/daemon/seedance-migration-settings.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
@@ -6,7 +10,7 @@ import { rehearseSeedanceMigration } from "../scripts/rehearse-seedance-migratio
 import { proposeSeedanceSettings } from "../src/daemon/seedance-migration-settings.js";
 import { snapshot as settingsSnapshot, same } from "../src/daemon/seedance-settings-snapshot.js";
 import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedSeedanceSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP } from "../src/daemon/seedance-settings-transaction.js";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -325,6 +329,93 @@ describe("Seedance settings migration rehearsal", () => {
       expect(stdout).not.toContain(secret); expect(stderr).toBe("");
       await expect(run(["--data-dir", directory, "--apply", secret])).rejects.toMatchObject({ code: 2, stdout: "", stderr: expect.not.stringContaining(secret) });
       expect(await settingsSnapshot(directory)).toEqual(before);
+    });
+  });
+});
+
+describe("Seedance migration package verification", () => {
+  const pin = SEEDANCE_MIGRATION_PACKAGES[0];
+  async function fixture(check: (directory: string, root: string, verify: (expected?: string) => Promise<void>) => Promise<void>) {
+    const directory = await mkdtemp(path.join(tmpdir(), "seedance-package-"));
+    const root = path.join(directory, "plugin-store/packages", pin.id, pin.version);
+    try {
+      await cp(path.resolve(".runtime/seedance-migration-packages", pin.version, "source"), root, { recursive: true });
+      const index = new PluginIndex(path.join(directory, "plugin-store/index.json"));
+      const result = await index.add(root);
+      if (!result.ok) throw new Error("Invalid prepared Seedance fixture");
+      expect(result.entry.digest).toBe(pin.digest);
+      await writeFile(path.join(directory, "plugin-store/origins.json"), JSON.stringify({ [`${pin.id}@${pin.version}`]: { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" } }));
+      await writeFile(path.join(directory, "plugin-store/grants.json"), JSON.stringify({ schema: 2, plugins: { [pin.id]: { enabled: true, everyProject: true, allowed: capabilityGrants(result.entry.manifest), future: true } }, projects: {} }));
+      await writeFile(path.join(directory, "seedance.json"), JSON.stringify({ version: 1, volcengineApiKey: "private-canary", byteplusApiKey: "other-private-canary" }));
+      const bytes = async () => {
+        const result: Record<string, string> = {};
+        for (const file of await readdir(directory, { recursive: true, withFileTypes: true }))
+          result[path.relative(directory, path.join(file.parentPath, file.name))] = file.isFile()
+            ? (await readFile(path.join(file.parentPath, file.name))).toString("base64") : file.isSymbolicLink() ? "link" : "directory";
+        return result;
+      };
+      await check(directory, root, async (expected) => {
+        const before = await bytes();
+        expect(await seedanceMigrationPackageIssue(directory)).toBe(expected);
+        expect(await bytes()).toEqual(before);
+      });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
+
+  it("verifies actual npm bytes and their shared-key/model mapping without installing or changing settings", async () => {
+    await fixture(async (_directory, root, verify) => {
+      const manifest = JSON.parse(await readFile(path.join(root, ".ohmygame-plugin/plugin.json"), "utf8"));
+      expect(manifest.beta).toBe(true);
+      for (const region of SEEDANCE_MIGRATION_REGIONS) {
+        const provider = manifest.contributes.providers.find((p: { id: string }) => `plugin.ohmygame.seedance.${p.id}` === region.target);
+        expect(provider.apiKey).toBe(region.field);
+        expect(manifest.configuration[region.field].type).toBe("secret");
+        expect(provider.media.image?.models.map((m: { id: string }) => m.id) ?? []).toEqual([...region.imageModels]);
+        expect(provider.media.video.models.map((m: { id: string }) => m.id)).toEqual([...region.videoModels]);
+      }
+      await verify();
+    });
+  });
+
+  it.each([
+    ["missing", "plugin-not-installed"], ["release", "plugin-release-not-reviewed"], ["ambiguous", "plugin-release-not-reviewed"],
+    ["index-version", "plugin-index-needs-refresh"], ["index-api", "plugin-index-needs-refresh"], ["index-entry", "plugin-index-unreadable"],
+    ["disabled", "plugin-not-enabled"], ["scope", "plugin-not-enabled"], ["permission", "plugin-permissions-missing"],
+    ["grants-version", "plugin-grants-needs-refresh"], ["development", "plugin-source-not-reviewed"], ["registry", "plugin-source-not-reviewed"],
+    ["root", "plugin-not-managed"], ["bytes", "plugin-package-mismatch"], ["metadata", "plugin-index-mismatch"], ["corrupt", "plugin-files-unreadable"],
+  ])("refuses %s without changing files", async (failure, expected) => {
+    await fixture(async (directory, root, verify) => {
+      const edit = async (file: string, change: (value: any) => void) => {
+        const location = path.join(directory, "plugin-store", file), data = JSON.parse(await readFile(location, "utf8"));
+        change(data); await writeFile(location, JSON.stringify(data));
+      };
+      if (failure === "missing") await rm(path.join(directory, "plugin-store/index.json"));
+      if (failure === "release") await edit("index.json", (v) => { v.entries[0].version = "0.2.0"; });
+      if (failure === "ambiguous") await edit("index.json", (v) => { v.entries.push({ ...v.entries[0], version: "0.2.0" }); });
+      if (failure === "index-version") await edit("index.json", (v) => { v.schema = 99; });
+      if (failure === "index-api") await edit("index.json", (v) => { v.api = "2.7.0"; });
+      if (failure === "index-entry") await edit("index.json", (v) => { v.entries.push(null); });
+      if (failure === "disabled") await edit("grants.json", (v) => { v.plugins[pin.id].enabled = false; });
+      if (failure === "scope") await edit("grants.json", (v) => { v.plugins[pin.id].everyProject = false; });
+      if (failure === "permission") await edit("grants.json", (v) => { v.plugins[pin.id].allowed = []; });
+      if (failure === "grants-version") await edit("grants.json", (v) => { v.schema = 99; });
+      if (failure === "development") await edit("origins.json", (v) => { v[`${pin.id}@${pin.version}`] = { type: "development", folder: root }; });
+      if (failure === "registry") await edit("origins.json", (v) => { v[`${pin.id}@${pin.version}`].registry = "unreviewed"; });
+      if (failure === "root") await edit("index.json", (v) => { v.entries[0].root = directory; });
+      if (failure === "bytes") await writeFile(path.join(root, "media/adapter.js"), "changed adapter");
+      if (failure === "metadata") await edit("index.json", (v) => { v.entries[0].manifest.description = "Changed cached description"; });
+      if (failure === "corrupt") await writeFile(path.join(directory, "plugin-store/index.json"), '{"private-canary": broken');
+      await verify(expected);
+    });
+  });
+
+  it("refuses linked managed packages without changing their targets", async () => {
+    await fixture(async (_directory, root, verify) => {
+      const outside = `${root}-outside`;
+      await cp(root, outside, { recursive: true });
+      await rm(root, { recursive: true });
+      await symlink(outside, root, process.platform === "win32" ? "junction" : "dir");
+      await verify("plugin-files-unreadable");
     });
   });
 });
