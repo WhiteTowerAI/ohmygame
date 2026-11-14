@@ -281,7 +281,10 @@ if (!response.ok) return { error: (await response.json()).message };
 return { outputs: [await response.file()] };
 ```
 
-This is available only in a recoverable audio `start` or `check` call. Plain
+Binary requests and audio adapter calls can wait up to five minutes, matching
+the built-in audio request limit; cancellation and the provider's overall
+`maxMinutes` deadline still apply. This is available only in a recoverable audio
+`start` or `check` call. Plain
 `host.fetch`, discovery and other media kinds reject `responseType: "file"`
 before dispatch. A successful response is saved by the host; `file()` returns
 an opaque `{ file }` reference, never a filesystem path or the audio bytes.

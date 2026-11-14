@@ -9,7 +9,7 @@ import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
-import { inspectAudio } from "./audio-media.js";
+import { AUDIO_REQUEST_TIMEOUT_MS, inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
@@ -859,7 +859,8 @@ export class PluginMediaProviders {
     const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
       fetch: async (request, fetchSignal) => {
-        const timeout = kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+        const timeout = kind === "audio" && request.responseType === "file" ? AUDIO_REQUEST_TIMEOUT_MS
+          : kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
         if ("reuse" in request) {
           if (!journal || !this.#reuse || kind !== "3d" || !["start", "check"].includes(step) || !input || typeof input !== "object" || (input as { operation?: unknown }).operation !== "animate") throw new Error("host.reuse needs a recoverable 3D animation");
           if (typeof request.reuse !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(request.reuse) || Object.keys(request).some(key => !["reuse", "url"].includes(key))) throw new Error("Invalid shared prerequisite request");
@@ -914,7 +915,7 @@ export class PluginMediaProviders {
         if (journal && step === "start" && !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) await journal.unsafeStart();
         return this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined, timeout, options.files);
       },
-      ...(kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
+      ...(kind === "audio" ? { callMs: AUDIO_REQUEST_TIMEOUT_MS } : kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
       log: (message) => this.log(item.entry.id, message),
       signal: stepSignal,
     }).catch((cause: unknown) => {

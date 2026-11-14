@@ -530,6 +530,44 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it.each(["complete", "cancel", "timeout"])("allows a slow binary audio response and handles %s without replay", async ending => {
+    let entered!: (signal: AbortSignal) => void, finish!: () => void;
+    const started = new Promise<AbortSignal>(resolve => { entered = resolve; });
+    const source = `export default { audio: { async start(input, host) {
+      return { outputs: [await (await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" })).file()] };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: (_url, signal) => new Promise<Response>((resolve, reject) => {
+      const abort = () => reject(signal!.reason);
+      finish = () => { signal!.removeEventListener("abort", abort); resolve(new Response(new Uint8Array(WAV))); };
+      signal!.addEventListener("abort", abort, { once: true }); entered(signal!);
+    }) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const controller = new AbortController(), journal = await journalAt();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const timed = new AbortController(); setTimeout(() => timed.abort(new DOMException("Timed out", "TimeoutError")), ms); return timed.signal;
+    });
+    const result = audio.generate({ prompt: "hello" }, controller.signal, journal).then(value => ({ value }), (error: unknown) => ({ error }));
+    try {
+      const signal = await started;
+      await vi.advanceTimersByTimeAsync(290_000);
+      expect(signal.aborted).toBe(false);
+      if (ending === "complete") {
+        finish(); expect(await result).toMatchObject({ value: { bytes: WAV } });
+      } else {
+        if (ending === "cancel") controller.abort(new Error("user stopped"));
+        else await vi.advanceTimersByTimeAsync(11_000);
+        expect(signal.aborted).toBe(true); expect(await result).toEqual({ error: expect.any(Error) });
+        await journal.settled();
+        await expect(audio.generate({ prompt: "hello" }, undefined, await journalAt())).rejects.toThrow("response was lost");
+      }
+      expect(requests).toHaveLength(1);
+    } finally {
+      controller.abort(new Error("test cleanup")); finish?.(); await result; await journal.settled();
+      timeout.mockRestore(); vi.useRealTimers();
+    }
+  });
+
   it("stores binary audio outside the sandbox and resumes it without another paid request", async () => {
     const bytes = Buffer.concat([WAV.subarray(0, 44), Buffer.alloc(2 * 1024 * 1024, 0xa5)]);
     bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);
