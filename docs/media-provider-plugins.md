@@ -411,7 +411,10 @@ JSON. `response.metadata` contains the latest top-level non-audio fields merged
 across successful events, with credentials redacted. Unknown metadata is bounded,
 not silently truncated. `text()` and `json()` still reject file responses.
 Adapters validate vendor-specific metadata and may set an output's
-`usageCharacters` to a nonnegative safe integer; it is retained in asset metadata.
+`usageCharacters` and `originalDurationMs` to nonnegative safe integers; both are
+retained in asset metadata. Original duration is the vendor-reported duration
+before processing, which can differ from the decoded file's inspected duration
+and may be the basis for billing. It never replaces the actual file duration.
 
 `requestIdHeader` asks the host to generate a UUID only when the paid request is
 actually sent. It must be a custom `X-` header, cannot replace a supplied header

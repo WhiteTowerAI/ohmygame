@@ -108,7 +108,7 @@ type Answer =
   | { outputs: Output[] }
   | { error: string }
   | { task: unknown; retryAfter?: number };
-type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown };
+type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown; originalDurationMs?: unknown };
 
 interface RunOptions {
   /** All returned animation outputs must be valid and consumed. */
@@ -449,6 +449,8 @@ export class PluginMediaProviders {
         throw new AudioFailure("The plugin returned an invalid request ID");
       if (output.usageCharacters !== undefined && (!Number.isSafeInteger(output.usageCharacters) || (output.usageCharacters as number) < 0))
         throw new AudioFailure("The plugin returned an invalid character usage");
+      if (output.originalDurationMs !== undefined && (!Number.isSafeInteger(output.originalDurationMs) || (output.originalDurationMs as number) < 0))
+        throw new AudioFailure("The plugin returned an invalid original duration");
       const bytes = await this.#output(item, output, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped, journal);
       const audio = await inspectAudio(bytes, asked, 502).catch((cause: unknown) => {
         throw asked ? cause : new AudioFailure(`${this.#name(item)} returned a file that isn't playable audio`);
@@ -461,7 +463,7 @@ export class PluginMediaProviders {
         bytes,
         mediaType: AUDIO_MEDIA_TYPES[made],
         model: { provider: model.provider, id: model.id },
-        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec, ...(typeof output.requestId === "string" ? { providerRequestId: output.requestId } : {}), ...(typeof output.usageCharacters === "number" ? { usageCharacters: output.usageCharacters } : {}) },
+        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec, ...(typeof output.requestId === "string" ? { providerRequestId: output.requestId } : {}), ...(typeof output.usageCharacters === "number" ? { usageCharacters: output.usageCharacters } : {}), ...(typeof output.originalDurationMs === "number" ? { originalDurationMs: output.originalDurationMs } : {}) },
       };
     });
   }
