@@ -312,6 +312,17 @@ unavailable. If a response is lost, another explicit attempt may incur another
 vendor charge. All network, credential-redaction and multipart input ownership
 checks still apply. This API does not activate a native-provider migration.
 
+### Audio request diagnostics (API 2.21)
+
+Audio outputs may include `requestId`, a nonblank string of at most 512
+characters, alongside a URL, base64 or host-owned file handle. The host stores it
+as `metadata.providerRequestId`, including after task recovery. Invalid IDs fail
+without discarding a confirmed paid receipt or sending another paid request.
+`host.fetch` and `host.submit` expose the `request-id` response header alongside
+`x-request-id`; both are key-redacted. Other headers remain limited to the
+existing allowlist. Require `engines.ohmygame-api: "^2.21.0"` when relying on this
+metadata. An absent ID remains valid.
+
 ### Binary audio responses (API 2.19)
 
 For speech, music or sound endpoints that return audio bytes directly, require
