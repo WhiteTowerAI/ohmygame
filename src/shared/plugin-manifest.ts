@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.21.0";
+export const PLUGIN_HOST_API_VERSION = "2.22.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -572,6 +572,15 @@ const MediaAudioModel = Type.Object(
     transcribes: Type.Optional(Type.Boolean()),
     /** Speaks the prompt word for word in a voice, rather than following a description. */
     readsText: Type.Optional(Type.Boolean()),
+    /** API 2.22: accepts a custom speaker, including for prompt-directed audio. */
+    speaker: Type.Optional(Type.Boolean()),
+    /** Shared controls; only declared options are passed to the adapter. */
+    pitch: Type.Optional(Type.Boolean()),
+    volume: Type.Optional(Type.Boolean()),
+    style: Type.Optional(Type.Boolean()),
+    ssml: Type.Optional(Type.Boolean()),
+    /** Shared TTS options: cloned voices, pronunciation, dialect, timing and bit rate. */
+    speechOptions: Type.Optional(Type.Boolean()),
     /** The voices it speaks in, the first by default. */
     voices: Type.Optional(
       Type.Array(
@@ -757,10 +766,12 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel 
     const audio = model as PluginMediaModels["audio"];
     if (!audio.kinds.length && !audio.transcribes) issues.push(["kinds", "needs an audio kind or transcribes: true"]);
     if (audio.voices && !audio.readsText) issues.push(["voices", "voices are for a model that reads text"]);
+    if (audio.ssml && !audio.readsText) issues.push(["ssml", "requires a model that reads text"]);
+    if (audio.speechOptions && !audio.readsText) issues.push(["speechOptions", "requires a model that reads text"]);
     if (audio.minDurationSeconds && audio.maxDurationSeconds && audio.minDurationSeconds > audio.maxDurationSeconds)
       issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
-    if (audio.speedRange && (!audio.readsText || audio.speedRange[0] > audio.speedRange[1]))
-      issues.push(["speedRange", "requires a model that reads text and min ≤ max"]);
+    if (audio.speedRange && (!audio.kinds.length || audio.speedRange[0] > audio.speedRange[1]))
+      issues.push(["speedRange", "requires a generation model and min ≤ max"]);
     if (audio.sampleRatesByFormat && Object.keys(audio.sampleRatesByFormat).some(format => !(audio.formats ?? ["mp3"]).includes(format as typeof AUDIO_OUTPUT_FORMATS[number])))
       issues.push(["sampleRatesByFormat", "rates must name a declared output format"]);
   }

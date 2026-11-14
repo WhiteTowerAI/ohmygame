@@ -227,7 +227,12 @@ export class PluginMediaProviders {
             produces: [...model.kinds],
             ...(model.transcribes ? { transcribes: true } : {}),
             ...(model.readsText ? { readsText: true } : {}),
-            ...(model.readsText && (model.voices || item.media.audio?.listVoices) ? { supportsSpeaker: true } : {}),
+            ...(model.speaker || model.readsText && (model.voices || item.media.audio?.listVoices) ? { supportsSpeaker: true } : {}),
+            ...(model.pitch ? { supportsPitch: true } : {}),
+            ...(model.volume ? { supportsVolume: true } : {}),
+            ...(model.style ? { supportsStyle: true } : {}),
+            ...(model.ssml ? { supportsSSML: true } : {}),
+            ...(model.speechOptions ? { supportsSpeechOptions: true } : {}),
             ...(model.readsText && item.media.audio?.listVoices ? { requiresVoice: true } : {}),
             formats: [...(model.formats ?? ["mp3" as const])],
             ...(model.languages ? { languages: [...model.languages] } : {}),
@@ -408,10 +413,12 @@ export class PluginMediaProviders {
     const accountVoices = item.media.audio.listVoices === true;
     if (accountVoices && declared.readsText && (typeof input.voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId) || input.voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
       throw new AudioGenerationError("Choose an account voice before generating speech", 400);
-    if (!accountVoices && input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
+    if (declared.speaker && input.voiceId !== undefined && (typeof input.voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId) || input.voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
+      throw new AudioGenerationError("Invalid speaker ID", 400);
+    if (!accountVoices && !declared.speaker && input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
       throw new AudioGenerationError("The selected voice isn't one this model speaks in", 400);
     const kind = input.kind && model.capabilities.produces.includes(input.kind) ? input.kind : model.capabilities.produces[0]!;
-    const voiceId = model.capabilities.readsText ? input.voiceId ?? (accountVoices ? undefined : voices[0]?.id) : undefined;
+    const voiceId = model.capabilities.readsText || declared.speaker ? input.voiceId ?? (accountVoices ? undefined : voices[0]?.id) : undefined;
     return this.#produce(item, "audio", {
       model: model.id,
       kind,
@@ -423,8 +430,17 @@ export class PluginMediaProviders {
       ...(input.instrumental && model.capabilities.supportsInstrumental ? { instrumental: true } : {}),
       ...(input.loop && model.capabilities.supportsLoop ? { loop: true } : {}),
       ...(input.language ? { language: input.language } : {}),
+      ...(declared.pitch && input.pitch !== undefined ? { pitch: input.pitch } : {}),
+      ...(declared.volume && input.volume !== undefined ? { volume: input.volume } : {}),
+      ...(declared.style && input.style !== undefined ? { style: input.style } : {}),
+      ...(declared.ssml && input.ssml !== undefined ? { ssml: input.ssml } : {}),
+      ...(declared.speechOptions ? Object.fromEntries(
+        (["voiceKind", "voiceModel", "autoLanguage", "dialect", "pronunciation", "silenceMs", "sectionId"] as const)
+          .flatMap(key => input[key] !== undefined ? [[key, input[key]]] : []),
+      ) : {}),
+      ...(declared.speechOptions && input.output?.bitRate !== undefined ? { bitRate: input.output.bitRate } : {}),
       // The canvas offers a speed for every speech model, on the shared -50…100 scale.
-      ...(kind === "speech" && input.speed !== undefined ? { speed: input.speed } : {}),
+      ...((kind === "speech" || declared.speedRange) && input.speed !== undefined ? { speed: input.speed } : {}),
       ...modelData(declared),
     }, { limitMs: item.media.audio.maxMinutes ? item.media.audio.maxMinutes * 60_000 : AUDIO_LIMIT_MS, signal, Failure: AudioFailure, journal }, async (outputs, stopped) => {
       const output = outputs[0]!;

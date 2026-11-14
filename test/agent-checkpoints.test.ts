@@ -815,18 +815,21 @@ describe("Agent checkpoints", () => {
   });
 
   it("takes a checkpoint for a message that was queued behind a running turn", async () => {
+    const firstReply = gate();
     const { userMessages, send, idle, file, restore } = await studio([
       { write: { "notes.txt": "first" } },
-      { say: "Wrote the notes.", delayMs: 400 },
+      { say: "Wrote the notes.", waitFor: firstReply.opened },
       { write: { "notes.txt": "second" } },
       { say: "Changed the notes." },
     ]);
+    cleanup.push(async () => firstReply.open());
     await send("Write the notes");
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("first"),
       { timeout: 15_000 },
     );
     expect((await send("Change the notes")).queued).toBe(true);
+    firstReply.open();
     await idle(2);
     expect(await file("notes.txt")).toBe("second");
 
@@ -840,12 +843,14 @@ describe("Agent checkpoints", () => {
   });
 
   it("takes a checkpoint for a message that was steered into a running turn", async () => {
+    const firstReply = gate();
     const { app, base, userMessages, send, file, restore } = await studio([
       { write: { "notes.txt": "first" } },
-      { say: "Wrote the notes.", delayMs: 400 },
+      { say: "Wrote the notes.", waitFor: firstReply.opened },
       { write: { "notes.txt": "second" } },
       { say: "Changed the notes." },
     ]);
+    cleanup.push(async () => firstReply.open());
     await send("Write the notes");
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("first"),
@@ -861,6 +866,7 @@ describe("Agent checkpoints", () => {
         })
       ).statusCode,
     ).toBe(204);
+    firstReply.open();
     await vi.waitFor(
       async () => expect(await file("notes.txt")).toBe("second"),
       { timeout: 15_000 },
@@ -2613,6 +2619,7 @@ describe("The end of a turn", () => {
   it.each(["restored to", "edited"] as const)(
     "keeps what the turn before a queued message changed when that message is %s",
     async (how) => {
+      const firstReply = gate();
       const {
         app,
         base,
@@ -2627,12 +2634,13 @@ describe("The end of a turn", () => {
         missing,
       } = await studio([
         { write: { "notes.txt": "first" } },
-        { say: "Wrote the notes.", delayMs: 400 },
+        { say: "Wrote the notes.", waitFor: firstReply.opened },
         { write: { "title.txt": "A title" } },
         { say: "Wrote a title." },
         { write: { "other.txt": "Another title" } },
         { say: "Wrote another title." },
       ]);
+      cleanup.push(async () => firstReply.open());
       // The second message is queued behind the first, so the ends of both turns are written when the run is over,
       // which is after the second message.
       await send("Write the notes");
@@ -2641,6 +2649,7 @@ describe("The end of a turn", () => {
         { timeout: 15_000 },
       );
       expect((await send("Write a title")).queued).toBe(true);
+      firstReply.open();
       await idle(2);
       const first = await ended("Write the notes");
       const second = await ended("Write a title");

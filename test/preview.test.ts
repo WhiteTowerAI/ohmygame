@@ -228,7 +228,8 @@ describe("PreviewManager", () => {
     managers.push(manager);
     const url = await manager.start(project);
     await fetch(`${url}/crash`).catch(() => {});
-    await vi.waitFor(() => expect(project.preview.status).toBe("error"));
+    // The npm wrapper may report the child's exit after the default 1s window on Windows.
+    await vi.waitFor(() => expect(project.preview.status).toBe("error"), { timeout: processReadiness.readinessTimeoutMs });
     // Let the log debounce expire: the failure snapshot must consume its pending flush.
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(project.preview.logs).toContain("preview is exiting");
