@@ -69,6 +69,8 @@ export interface AudioModelCapabilities {
   languages?: string[];
   formats: AudioOutputFormat[];
   sampleRates?: AudioSampleRate[];
+  /** Explicit channel counts a plugin accepts; absent means provider-chosen output. */
+  channels?: (1 | 2)[];
   maxTextCharacters?: number;
   maxDurationSeconds?: number;
   supportsSSML?: boolean;
