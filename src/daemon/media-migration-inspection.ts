@@ -169,7 +169,7 @@ export async function inspectMediaMigration<Source extends string>(
   };
 }
 
-function keyAction(
+export function keyAction(
   source: string | undefined,
   target: string | undefined,
   targetStored: boolean,
