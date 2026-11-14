@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { Model3DDefinition } from "../shared/contracts.js";
 import {
   model3DPreset,
+  MODEL_3D_PRESETS,
   type Native3DProviderId,
 } from "../shared/model3d-presets.js";
 import {
@@ -307,7 +308,10 @@ export async function proposeModel3DSettings(
     if (configuration.readOnly) throw new Error("Invalid target configuration");
     await preferences.load();
     await new PluginMediaModelChoices(directory).get(target, "3d");
-    return { report, changes, counts, references: [...references.values()] };
+    return { report, changes, counts, references: [...references.values()], recovery: {
+      models: sourceDefinitions.map(({ id, settings }) => ({ id, settings: structuredClone(settings) })),
+      processing: { id: "connection", settings: structuredClone(MODEL_3D_PRESETS[provider][0]!.settings) },
+    } };
   } catch {
     report.blockers = [...new Set([...report.blockers, stage])];
     return { report, changes: new Map() as Snapshot<SettingsFile>, counts };
