@@ -2859,6 +2859,44 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgPath",
+          "tagName": "omg-path",
+          "customElement": true,
+          "description": "`<omg-path path>`: a read-only path with a subdued directory and a prominent filename. Narrow rows truncate the start, keeping the filename in view. The full path remains selectable and available through the native title.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "path",
+              "description": "File or directory path, displayed as text; never opened or resolved.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "directory",
+              "description": "The directory prefix."
+            },
+            {
+              "name": "name",
+              "description": "The filename or last directory name."
+            },
+            {
+              "name": "path",
+              "description": "The full path, clipped at the start when needed."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -2939,6 +2977,14 @@
           "name": "omg-divider",
           "declaration": {
             "name": "OmgDivider",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-path",
+          "declaration": {
+            "name": "OmgPath",
             "module": "ui/1/layout.js"
           }
         }
@@ -3224,6 +3270,128 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgImagePreview",
+          "tagName": "omg-image-preview",
+          "customElement": true,
+          "description": "`<omg-image-preview src file alt>`: an image button that opens the whole picture in a modal. Reuses omg-image loading and omg-dialog focus/closing. It never changes a selection or uploads a file.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "alt",
+              "description": "Image description and default preview title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "checker",
+              "description": "Show transparency in both views.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "close-label",
+              "description": "Close button name; defaults to Close.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "file",
+              "description": "A project image; requires project.files and takes precedence over src.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "fit",
+              "description": "Thumbnail fit; contain by default. The modal always shows the whole image.",
+              "type": {
+                "text": "\"contain\" | \"cover\""
+              }
+            },
+            {
+              "name": "label",
+              "description": "Trigger's accessible name; defaults to alt or Preview image.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Show the preview modal.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "pixelated",
+              "description": "Preserve pixel-art edges in both views.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "ratio",
+              "description": "Thumbnail aspect ratio; image's own by default.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "src",
+              "description": "Same sources as omg-image.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open",
+              "description": "Preview visibility.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-close",
+              "description": "Cancelable close request, forwarded from omg-dialog.",
+              "type": {
+                "text": "CustomEvent<{ reason: \"escape\" | \"backdrop\" | \"button\" }>"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "dialog",
+              "description": "The omg-dialog holding the full image."
+            },
+            {
+              "name": "image",
+              "description": "The full omg-image, loaded only while open."
+            },
+            {
+              "name": "thumbnail",
+              "description": "The omg-image in the page."
+            },
+            {
+              "name": "trigger",
+              "description": "Image button."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -3240,6 +3408,14 @@
           "name": "omg-tile",
           "declaration": {
             "name": "OmgTile",
+            "module": "ui/1/media.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-image-preview",
+          "declaration": {
+            "name": "OmgImagePreview",
             "module": "ui/1/media.js"
           }
         }
@@ -3566,7 +3742,7 @@
           "name": "OmgTooltip",
           "tagName": "omg-tooltip",
           "customElement": true,
-          "description": "`<omg-tooltip content>` around a focusable control: a brief non-interactive hint after 350ms hover, or immediately on focus. Esc dismisses it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description.",
+          "description": "`<omg-tooltip content>` around a focusable control: a brief non-interactive hint immediately on hover or focus. Activation and Esc dismiss it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description.",
           "superclass": {
             "name": "HTMLElement",
             "package": "global:"

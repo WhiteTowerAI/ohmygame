@@ -171,14 +171,7 @@ export function Popover({
 
 // ---------- Tooltip ----------
 
-/** Shows `content` after a short hover or on keyboard focus. The child must accept a ref and event props. */
-// A tooltip waits before showing, so passing over a control shows nothing. Once
-// one has shown, the next shows at once while the pointer moves along a row of
-// controls; after a short rest away from them, the wait comes back.
-const TOOLTIP_DELAY = 350;
-const TOOLTIP_WARM = 300;
-let tooltipsWarmUntil = 0;
-
+/** Shows `content` immediately on hover or focus. The child must accept a ref and event props. */
 export function Tooltip({
   content,
   placement = "top",
@@ -191,26 +184,16 @@ export function Tooltip({
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLElement | null>(null);
   const tip = useRef<HTMLDivElement>(null);
-  const timer = useRef<number>(undefined);
   const id = useId();
   const style = useAnchoredPosition(open, anchor, tip, placement);
-  const show = () => {
-    window.clearTimeout(timer.current);
-    if (Date.now() < tooltipsWarmUntil) setOpen(true);
-    else timer.current = window.setTimeout(() => setOpen(true), TOOLTIP_DELAY);
-  };
-  const hide = () => {
-    window.clearTimeout(timer.current);
-    if (open) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
-    setOpen(false);
-  };
-  // A tooltip that goes away while showing, as when the page changes, warms the next too.
-  const shown = useRef(false);
-  shown.current = open;
-  useEffect(() => () => {
-    window.clearTimeout(timer.current);
-    if (shown.current) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
-  }, []);
+  const show = () => setOpen(true);
+  const hide = () => setOpen(false);
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", dismiss);
+    return () => document.removeEventListener("keydown", dismiss);
+  }, [open]);
   if (!isValidElement(children)) return children;
   return (
     <>
@@ -220,8 +203,12 @@ export function Tooltip({
         },
         onPointerEnter: show,
         onPointerLeave: hide,
-        onFocus: () => setOpen(true),
+        onFocus: show,
         onBlur: hide,
+        onClick: (event: React.MouseEvent) => {
+          hide();
+          (children.props.onClick as ((event: React.MouseEvent) => void) | undefined)?.(event);
+        },
         "aria-describedby": open ? id : undefined,
       })}
       {open

@@ -1591,6 +1591,8 @@ can go in the next major.
 | `omg-radio-group` | Visible vertical choices (API 2.7.0), from `<option>` children with optional `data-description`. `value`; native arrow/Space navigation, option/group `disabled`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-path` | Read-only `path`; subdues directories and preserves the filename when space is narrow. The full path stays selectable and is available through the native title. Does not open files. |
+| `omg-image-preview` | Image button with `src`/`file`, `alt`, thumbnail `ratio`/`fit`, `pixelated` and `checker`. Opens the whole picture in the shared dialog; `label` names the trigger and `close-label` localizes its close button. `open` controls visibility; cancelable `omg-close` is forwarded from the dialog. Project images use the existing file bridge; the full image is loaded only while open. |
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
@@ -1740,6 +1742,8 @@ artifact. Before a component changes, it can run on other plugins' folders too.
 For a plugin maintained outside this repository, `plugin-ui:regression` accepts
 `--scenarios <file>` before its plugin-folder arguments. The JSON uses the same
 plugin-ID → scenario-name → command-results structure as the built-in fixtures.
+
+The gallery opens on common examples; the remaining tabs retain the full state catalog. Tooltip hints appear immediately on hover or focus and dismiss on activation or Escape, matching the host controls.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and

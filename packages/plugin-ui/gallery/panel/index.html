@@ -9,8 +9,43 @@
     <script type="module" src="./main.js"></script>
   </head>
   <body>
-    <omg-page heading="Page components" description="Version 1. Each section shows one component in its states.">
+    <omg-page heading="Page components">
       <omg-tabs aria-label="Kinds of component">
+        <omg-tab name="overview" heading="Overview">
+          <omg-section heading="Actions">
+            <omg-stack direction="row" wrap>
+              <omg-button variant="primary" data-host="toast">Save changes</omg-button>
+              <omg-button>Cancel</omg-button>
+              <omg-tooltip content="Fetch remote status without changing the draft."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
+            </omg-stack>
+          </omg-section>
+          <omg-section heading="Project settings">
+            <omg-grid min="280">
+              <omg-input label="Game name" value="Moon Garden"></omg-input>
+              <omg-select label="Platform" value="web"><option value="web">Web</option><option value="desktop">Desktop</option></omg-select>
+            </omg-grid>
+            <omg-stack direction="row" wrap gap="6">
+              <omg-input label="Build number" type="number" min="1" step="1" value="12" style="width: 8rem"></omg-input>
+              <omg-input label="Frame rate" type="number" min="15" max="120" step="15" value="60" style="width: 8rem"></omg-input>
+            </omg-stack>
+            <omg-stack direction="row" wrap gap="6">
+              <omg-switch label="Live preview" checked></omg-switch>
+              <omg-checkbox label="Include source maps"></omg-checkbox>
+            </omg-stack>
+          </omg-section>
+          <omg-section heading="Build">
+            <omg-path path="/workspace/moon-garden/dist/index.html"></omg-path>
+            <omg-stack direction="row" wrap gap="6"><omg-status tone="good">Ready</omg-status><omg-badge tone="warning">In review</omg-badge></omg-stack>
+            <omg-disclosure heading="Build settings"><omg-input label="Output folder" value="dist"></omg-input><omg-slider label="Image quality" min="1" max="100" value="85"></omg-slider></omg-disclosure>
+          </omg-section>
+          <omg-section heading="Images">
+            <omg-grid min="240">
+              <omg-image-preview src="../assets/scene.svg" alt="Hills under a sun" label="Preview landscape" ratio="16/9" fit="cover"></omg-image-preview>
+              <omg-image-preview src="../assets/sprite.png" alt="A green slime" label="Preview sprite" ratio="16/9" pixelated checker></omg-image-preview>
+            </omg-grid>
+          </omg-section>
+          <omg-section><p>Other tabs show the full component catalog, including loading, error and disabled states.</p></omg-section>
+        </omg-tab>
         <omg-tab name="layout" heading="Layout">
           <omg-section heading="omg-grid" description="As many equal columns as fit, or a fixed number.">
             <omg-grid min="180">
@@ -225,6 +260,10 @@
           </omg-section>
         </omg-tab>
         <omg-tab name="media" heading="Media">
+          <omg-section heading="omg-path"><omg-path path="/workspace/a-long-project-name/assets/backgrounds/moon-garden.png" style="max-width: 20rem"></omg-path></omg-section>
+          <omg-section heading="omg-image-preview">
+            <omg-grid min="180"><omg-image-preview src="../assets/scene.svg" alt="Hills under a sun" ratio="16/9"></omg-image-preview><omg-image-preview src="../assets/missing.png" alt="Unavailable picture" ratio="16/9"></omg-image-preview></omg-grid>
+          </omg-section>
           <omg-section heading="omg-image" description="A picture: in a frame of a given shape, or at its own size.">
             <omg-grid min="140">
               <omg-image src="../assets/scene.svg" alt="Hills under a sun" ratio="16/9" fit="cover"></omg-image>

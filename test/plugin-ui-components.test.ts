@@ -64,6 +64,58 @@ const html = <T extends HTMLElement = HTMLElement>(markup: string): T => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe("page components", () => {
+  it("displays file and directory paths as text without interpreting markup", () => {
+    const view = html(`<omg-path></omg-path>`);
+    for (const [path, directory, name] of [
+      ["/assets/backgrounds/moon.png", "/assets/backgrounds/", "moon.png"],
+      ["C:\\game\\assets\\hero.png", "C:\\game\\assets\\", "hero.png"],
+      ["/assets/sprites/", "/assets/", "sprites/"],
+      ["<img onerror=alert(1)>", "", "<img onerror=alert(1)>"],
+    ]) {
+      view.setAttribute("path", path!);
+      expect(shadow(view, "directory").textContent).toBe(directory);
+      expect(shadow(view, "name").textContent).toBe(name);
+      expect(shadow(view, "path").title).toBe(path);
+      expect(view.shadowRoot!.querySelector("img")).toBeNull();
+    }
+    view.removeAttribute("path");
+    expect(shadow(view, "path").textContent).toBe("");
+  });
+
+  it("loads the full image only while previewing and respects canceled close requests", async () => {
+    const preview = html(`<omg-image-preview src="scene.png" alt="Landscape" label="Preview landscape" close-label="关闭" ratio="16/9" fit="cover"></omg-image-preview>`) as HTMLElement & { open: boolean };
+    const thumbnail = shadow(preview, "thumbnail");
+    const full = shadow(preview, "image");
+    const dialog = shadow(preview, "dialog") as HTMLElement & { open: boolean };
+    expect(full.hasAttribute("src")).toBe(false);
+    expect(thumbnail.getAttribute("src")).toBe("scene.png");
+    expect(shadow(preview, "trigger").getAttribute("aria-label")).toBe("Preview landscape");
+    shadow(preview, "trigger").focus();
+    shadow(preview, "trigger").click();
+    expect([preview.open, dialog.open, full.getAttribute("src")]).toEqual([true, true, "scene.png"]);
+    expect([full.getAttribute("fit"), full.getAttribute("ratio")]).toEqual([null, null]);
+    expect(shadow(dialog, "close").getAttribute("aria-label")).toBe("关闭");
+    const cancel = (event: Event) => event.preventDefault();
+    preview.addEventListener("omg-close", cancel, { once: true });
+    shadow(dialog, "close").click();
+    await settle();
+    expect(preview.open).toBe(true);
+    shadow(dialog, "close").click();
+    await settle();
+    expect([preview.open, dialog.open, full.hasAttribute("src")]).toEqual([false, false, false]);
+    expect(preview.shadowRoot!.activeElement).toBe(shadow(preview, "trigger"));
+    preview.open = true;
+    preview.setAttribute("src", "other.png");
+    expect(full.getAttribute("src")).toBe("other.png");
+    preview.remove();
+    expect((shadow(dialog, "panel") as HTMLDialogElement).open).toBe(false);
+    document.body.append(preview);
+    expect(dialog.open).toBe(true);
+    preview.open = false;
+    preview.removeAttribute("src");
+    expect((shadow(preview, "trigger") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("distinguishes pointer focus from keyboard navigation across form controls", async () => {
     const wrapper = html(`<div><omg-input label="Name"></omg-input><omg-textarea label="Description"></omg-textarea><omg-select label="Channel"><option>Draft</option></omg-select><omg-combobox label="Project"><option>Garden</option></omg-combobox><omg-file-picker label="File"></omg-file-picker><omg-slider label="Volume" value="50"></omg-slider><omg-radio-group label="Quality"><option>Draft</option></omg-radio-group><omg-checkbox label="Compress"></omg-checkbox><omg-switch label="Auto upload"></omg-switch><omg-segmented label="Target"><option value="web">Web</option><option value="pc">Desktop</option></omg-segmented><button>Outside</button></div>`);
     await settle();
@@ -256,7 +308,7 @@ describe("page components", () => {
     expect(selected).toEqual(["d"]);
   });
 
-  it("shows tooltip on focus and delayed hover, restoring existing descriptions on cleanup", async () => {
+  it("shows tooltip immediately on focus and hover, dismissing on activation and restoring descriptions", async () => {
     const tooltip = html(`<omg-tooltip content="Remote status"><omg-button>Refresh</omg-button></omg-tooltip>`);
     const button = shadow(tooltip.querySelector("omg-button")!, "button");
     button.setAttribute("aria-description", "Existing hint");
@@ -269,12 +321,12 @@ describe("page components", () => {
     expect(shadow(tooltip, "tooltip").hidden).toBe(true);
     tooltip.remove();
     expect(button.getAttribute("aria-description")).toBe("Existing hint");
-    await new Promise((resolve) => setTimeout(resolve, 310));
     document.body.append(tooltip);
     tooltip.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(shadow(tooltip, "tooltip").hidden).toBe(false);
+    button.click();
     expect(shadow(tooltip, "tooltip").hidden).toBe(true);
     tooltip.dispatchEvent(new PointerEvent("pointerleave"));
-    await new Promise((resolve) => setTimeout(resolve, 370));
     expect(shadow(tooltip, "tooltip").hidden).toBe(true);
   });
 
@@ -954,6 +1006,29 @@ describe("page components", () => {
         await settle();
         expect(calls.length, markup[0]).toBe(1);
       }
+
+      // Preview metadata and an inactive src don't reread the file; explicitly refreshing file does.
+      calls.length = 0;
+      const preview = html(`<omg-image-preview file="art/hero.png" src="fallback.png" alt="Hero"></omg-image-preview>`) as HTMLElement & { open: boolean };
+      await settle();
+      expect(calls.length).toBe(1);
+      preview.setAttribute("alt", "Updated hero");
+      preview.setAttribute("src", "other-fallback.png");
+      await settle();
+      expect(calls.length).toBe(1);
+      preview.open = true;
+      await settle();
+      expect(calls.length).toBe(2);
+      preview.setAttribute("src", "next-fallback.png");
+      await settle();
+      expect(calls.length).toBe(2);
+      preview.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.length).toBe(4);
+      preview.open = false;
+      expect(shadow(preview, "image").hasAttribute("file")).toBe(false);
+      preview.removeAttribute("file");
+      expect(shadow(shadow(preview, "thumbnail"), "image").getAttribute("src")).toBe("next-fallback.png");
 
       // A tile removed while loading and given another file reads only that one when it comes back.
       calls.length = 0;

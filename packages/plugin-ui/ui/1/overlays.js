@@ -254,10 +254,9 @@ class OmgMenu extends OmgOverlay {
   }
 }
 
-let warmUntil = 0;
 /**
  * `<omg-tooltip content>` around a focusable control: a brief non-interactive
- * hint after 350ms hover, or immediately on focus. Esc dismisses it. The text
+ * hint immediately on hover or focus. Activation and Esc dismiss it. The text
  * is also attached as aria-description to the actual focused control, across
  * custom-element shadow roots, preserving any existing description.
  *
@@ -276,12 +275,9 @@ class OmgTooltip extends OmgElement {
   `),
   ];
   static template = `<slot></slot><div class="floating" part="tooltip" role="tooltip" popover="manual" hidden></div>`;
-  #timer;
   #described;
   #previous;
   #description;
-  #hover = false;
-  #focused = false;
 
   constructor() {
     super();
@@ -293,29 +289,22 @@ class OmgTooltip extends OmgElement {
       () => this.getAttribute("placement") || "top",
     );
     this.addEventListener("pointerenter", () => {
-      this.#hover = true;
-      clearTimeout(this.#timer);
-      this.#timer = setTimeout(
-        () => this.#show(),
-        Date.now() < warmUntil ? 0 : 350,
-      );
+      this.#show();
     });
     this.addEventListener("pointerleave", () => {
-      this.#hover = false;
-      if (!this.#focused) this.#hide();
+      this.#hide();
     });
     this.addEventListener("focusin", (event) => {
-      this.#focused = true;
       this.#restore();
       this.#described = event.composedPath()[0];
       this.#previous = this.#described.getAttribute("aria-description");
       this.#describe();
       this.#show();
     });
+    this.addEventListener("click", () => this.#hide());
     this.addEventListener("focusout", () => {
-      this.#focused = false;
       this.#restore();
-      if (!this.#hover) this.#hide();
+      this.#hide();
     });
   }
 
@@ -338,19 +327,14 @@ class OmgTooltip extends OmgElement {
     this.#described = undefined;
   }
   #show() {
-    clearTimeout(this.#timer);
     if (this.isConnected && this.getAttribute("content")) this.floating.show();
   }
   #hide() {
-    clearTimeout(this.#timer);
-    if (!this.part("tooltip").hidden) warmUntil = Date.now() + 300;
     this.floating.hide();
   }
   disconnectedCallback() {
     this.#hide();
     this.#restore();
-    this.#hover = false;
-    this.#focused = false;
   }
   update() {
     this.part("tooltip").textContent = this.getAttribute("content") || "";

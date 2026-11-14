@@ -563,6 +563,15 @@ export interface OmgDividerAttributes {
   label?: string;
 }
 
+/** `<omg-path path>`: a read-only path with a subdued directory and a prominent filename. Narrow rows truncate the start, keeping the filename in view. The full path remains selectable and available through the native title. */
+export interface OmgPathElement extends HTMLElement {}
+
+/** The attributes of `<omg-path>`, as a page writes them. */
+export interface OmgPathAttributes {
+  /** File or directory path, displayed as text; never opened or resolved. */
+  path?: string;
+}
+
 /** `<omg-image src file alt ratio fit pixelated checker>`: a picture, on a raised surface until it loads and with a mark when it can't. With `ratio` it fills a frame of that shape; without, it is drawn at its own size, at most as wide as its place. */
 export interface OmgImageElement extends HTMLElement {
   /** It has loaded, or failed to. */
@@ -624,6 +633,36 @@ export interface OmgTileAttributes {
   /** It is the one picked. */
   selected?: boolean;
   /** The picture, as for `omg-image`. */
+  src?: string;
+}
+
+/** `<omg-image-preview src file alt>`: an image button that opens the whole picture in a modal. Reuses omg-image loading and omg-dialog focus/closing. It never changes a selection or uploads a file. */
+export interface OmgImagePreviewElement extends HTMLElement {
+  /** Preview visibility. */
+  open: boolean;
+}
+
+/** The attributes of `<omg-image-preview>`, as a page writes them. */
+export interface OmgImagePreviewAttributes {
+  /** Image description and default preview title. */
+  alt?: string;
+  /** Show transparency in both views. */
+  checker?: boolean;
+  /** Close button name; defaults to Close. */
+  "close-label"?: string;
+  /** A project image; requires project.files and takes precedence over src. */
+  file?: string;
+  /** Thumbnail fit; contain by default. The modal always shows the whole image. */
+  fit?: "contain" | "cover";
+  /** Trigger's accessible name; defaults to alt or Preview image. */
+  label?: string;
+  /** Show the preview modal. */
+  open?: boolean;
+  /** Preserve pixel-art edges in both views. */
+  pixelated?: boolean;
+  /** Thumbnail aspect ratio; image's own by default. */
+  ratio?: string;
+  /** Same sources as omg-image. */
   src?: string;
 }
 
@@ -692,7 +731,7 @@ export interface OmgMenuAttributes {
   placement?: "bottom-start" | "bottom-end" | "top-start" | "top" | "bottom";
 }
 
-/** `<omg-tooltip content>` around a focusable control: a brief non-interactive hint after 350ms hover, or immediately on focus. Esc dismisses it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description. */
+/** `<omg-tooltip content>` around a focusable control: a brief non-interactive hint immediately on hover or focus. Activation and Esc dismiss it. The text is also attached as aria-description to the actual focused control, across custom-element shadow roots, preserving any existing description. */
 export interface OmgTooltipElement extends HTMLElement {}
 
 /** The attributes of `<omg-tooltip>`, as a page writes them. */
@@ -755,8 +794,10 @@ declare global {
     "omg-list": OmgListElement;
     "omg-list-item": OmgListItemElement;
     "omg-divider": OmgDividerElement;
+    "omg-path": OmgPathElement;
     "omg-image": OmgImageElement;
     "omg-tile": OmgTileElement;
+    "omg-image-preview": OmgImagePreviewElement;
     "omg-tabs": OmgTabsElement;
     "omg-tab": OmgTabElement;
     "omg-popover": OmgPopoverElement;
@@ -765,7 +806,7 @@ declare global {
     "omg-dialog": OmgDialogElement;
   }
   interface HTMLElementEventMap {
-    /** Cancelable user close request; preventDefault keeps the dialog open. */
+    /** Cancelable close request, forwarded from omg-dialog. */
     "omg-close": CustomEvent<{ reason: "escape" | "backdrop" | "button" }>;
     /** The command failed; cancel it to show the failure yourself. */
     "omg-command-error": CustomEvent<{ command: string; error: string }>;

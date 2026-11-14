@@ -407,6 +407,35 @@ class OmgDivider extends OmgElement {
   }
 }
 
+/**
+ * `<omg-path path>`: a read-only path with a subdued directory and a prominent
+ * filename. Narrow rows truncate the start, keeping the filename in view.
+ * The full path remains selectable and available through the native title.
+ *
+ * @attr {string} path - File or directory path, displayed as text; never opened or resolved.
+ * @part path - The full path, clipped at the start when needed.
+ * @part directory - The directory prefix.
+ * @part name - The filename or last directory name.
+ */
+class OmgPath extends OmgElement {
+  static observedAttributes = ["path"];
+  static styles = [css(`
+    :host { display: block; min-width: 0; max-width: 100%; }
+    .path { display: block; direction: rtl; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .parts { direction: ltr; unicode-bidi: isolate; }
+    .directory { color: var(--color-text-tertiary); }
+  `)];
+  static template = `<span class="path" part="path"><span class="parts"><span class="directory" part="directory"></span><span part="name"></span></span></span>`;
+  update() {
+    const path = this.getAttribute("path") || "";
+    const end = path.replace(/[\\/]+$/, "").length;
+    const split = Math.max(path.lastIndexOf("/", end - 1), path.lastIndexOf("\\", end - 1)) + 1;
+    this.part("path").title = path;
+    text(this.part("directory"), path.slice(0, split));
+    text(this.part("name"), path.slice(split));
+  }
+}
+
 define("omg-page", OmgPage);
 define("omg-section", OmgSection);
 define("omg-stack", OmgStack);
@@ -417,3 +446,4 @@ define("omg-card", OmgCard);
 define("omg-list", OmgList);
 define("omg-list-item", OmgListItem);
 define("omg-divider", OmgDivider);
+define("omg-path", OmgPath);
