@@ -1,11 +1,40 @@
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MinimaxSettingsStore } from "../src/daemon/minimax-settings.js";
+import { rehearseMinimaxMigration } from "../scripts/rehearse-minimax-migration.js";
 import { inspectMinimaxMigration } from "../scripts/inspect-minimax-migration.js";
+
+const rehearsalHooks = vi.hoisted(() => ({
+  created: undefined as ((directory: string) => void) | undefined,
+  beforeRename: undefined as ((target: string) => Promise<void>) | undefined,
+  afterRename: undefined as ((target: string) => Promise<void>) | undefined,
+  beforeRemove: undefined as ((target: string) => Promise<void>) | undefined,
+}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  const patched = { ...original,
+    mkdtemp: async (...args: Parameters<typeof original.mkdtemp>) => {
+      const directory = await original.mkdtemp(...args);
+      if (String(args[0]).includes("ohmygame-minimax-rehearsal-")) rehearsalHooks.created?.(String(directory));
+      return directory;
+    },
+    rename: async (...args: Parameters<typeof original.rename>) => {
+      await rehearsalHooks.beforeRename?.(String(args[1]));
+      await original.rename(...args);
+      await rehearsalHooks.afterRename?.(String(args[1]));
+    },
+    rm: async (...args: Parameters<typeof original.rm>) => {
+      await rehearsalHooks.beforeRemove?.(String(args[0]));
+      await original.rm(...args);
+    },
+  };
+  return { ...patched, default: patched };
+});
+afterEach(() => { rehearsalHooks.created = undefined; rehearsalHooks.beforeRename = undefined; rehearsalHooks.afterRename = undefined; rehearsalHooks.beforeRemove = undefined; });
 
 describe("Minimax settings", () => {
   it("persists the domestic and international API keys independently", async () => {
@@ -152,6 +181,134 @@ describe("MiniMax migration inspection", () => {
       expect(report.regions.map((region) => region.key)).toEqual(["absent", "absent"]);
       expect(report.defaultVideoModel.action).toBe("absent");
       await expect(inspectMinimaxMigration(path.join(directory, "missing"))).rejects.toThrow("existing");
+    });
+  });
+
+
+  it("rehearses key and preference migration, retains metadata and restores exact staged bytes", async () => {
+    const settings = { version: 1, cnApiKey: secret, globalApiKey: "global-key", future: { keep: true } };
+    const preferences = { version: 1, hidden: { "minimax-video-cn": ["MiniMax-H3-Max"], unrelated: ["custom"] }, disabled: ["unrelated", "minimax-video-cn"], defaultVideoModel: { provider: "minimax-video-cn", id: "MiniMax-H3", future: { keep: secret } }, future: ["keep"] };
+    await fixture({ "minimax.json": settings, "model-visibility.json": preferences, [pluginFile]: { ...plugin({ globalApiKey: value("global-key"), extra: { type: "text", value: "keep", future: true } }), future: true } }, async (directory) => {
+      let staged = "", copiedConfig: unknown, copiedPreferences: unknown, restored: Record<string, string> | undefined;
+      rehearsalHooks.created = (location) => { staged = location; };
+      rehearsalHooks.afterRename = async (target) => {
+        if (!target.startsWith(staged + path.sep)) return;
+        if (process.platform !== "win32") {
+          expect((await lstat(staged)).mode & 0o777).toBe(0o700);
+          expect((await lstat(target)).mode & 0o777).toBe(0o600);
+        }
+        const stored = JSON.parse(await readFile(target, "utf8"));
+        if (target.endsWith("configuration.json") && stored.plugins["ohmygame/minimax"].cnApiKey) copiedConfig = stored;
+        if (target.endsWith("model-visibility.json") && stored.defaultVideoModel.provider === "plugin.ohmygame.minimax.cn") copiedPreferences = stored;
+      };
+      rehearsalHooks.beforeRemove = async (target) => { if (target === staged) restored = await snapshot(staged); };
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "passed", activation: "held", proposed: { keys: 1, providerPreferences: 1, defaultVideoModel: true }, checks: { reload: true, idempotent: true, rollback: true, sourceUnchanged: true, cleanup: true } });
+      expect(copiedConfig).toEqual({ ...plugin({ globalApiKey: value("global-key"), cnApiKey: value(secret), extra: { type: "text", value: "keep", future: true } }), future: true });
+      expect(copiedPreferences).toEqual({ ...preferences, hidden: { ...preferences.hidden, "plugin.ohmygame.minimax.cn": ["MiniMax-H3-Max"] }, disabled: [...preferences.disabled, "plugin.ohmygame.minimax.cn"], defaultVideoModel: { ...preferences.defaultVideoModel, provider: "plugin.ohmygame.minimax.cn" } });
+      expect(restored).toEqual(await snapshot(directory));
+      expect(JSON.stringify(report)).not.toContain(secret);
+      await expect(access(staged)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("blocks conflicts and future stores without applying a proposal", async () => {
+    for (const files of [
+      { "minimax.json": { version: 1, cnApiKey: secret }, [pluginFile]: plugin({ cnApiKey: value("independent-key") }) },
+      { "minimax.json": { version: 2, cnApiKey: secret } },
+    ]) await fixture(files, async (directory) => {
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "blocked", checks: { reload: null, rollback: null, sourceUnchanged: true, cleanup: true } });
+      expect(report.blockers.length).toBeGreaterThan(0);
+      expect(JSON.stringify(report)).not.toContain(secret);
+    });
+  });
+
+  it("restores an absent target after a partial write failure and reports rollback failure honestly", async () => {
+    for (const failRollback of [false, true]) await fixture({ "minimax.json": { version: 1, cnApiKey: secret }, "model-visibility.json": { version: 1, hidden: {}, defaultVideoModel: { provider: "minimax-video-cn", id: "MiniMax-H3" } } }, async (directory) => {
+      let staged = "", preferenceWrites = 0, restored: Record<string, string> | undefined;
+      rehearsalHooks.created = (location) => { staged = location; };
+      rehearsalHooks.beforeRename = async (target) => {
+        if (target.startsWith(staged + path.sep) && target.endsWith("model-visibility.json") && ++preferenceWrites === 2) throw new Error(secret);
+      };
+      rehearsalHooks.beforeRemove = async (target) => {
+        if (target === path.join(staged, pluginFile) && failRollback) throw new Error(secret);
+        if (target === staged) restored = await snapshot(staged);
+      };
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "failed", checks: { rollback: !failRollback, sourceUnchanged: true, cleanup: true } });
+      expect(report.blockers).toContain("apply-copy-failed");
+      if (!failRollback) {
+        // The staging directory may remain, but an originally absent target file must not.
+        expect(restored?.[path.normalize(pluginFile)]).toBeUndefined();
+        expect(restored?.["minimax.json"]).toBe(await readFile(path.join(directory, "minimax.json"), "utf8"));
+        expect(restored?.["model-visibility.json"]).toBe(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
+      } else expect(report.blockers).toContain("rollback-copy-failed");
+      expect(JSON.stringify(report)).not.toContain(secret);
+      await expect(access(staged)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("does not overwrite unexpected staged edits during rollback", async () => {
+    await fixture({ "minimax.json": { version: 1, cnApiKey: secret } }, async (directory) => {
+      let staged = "", preserved = false;
+      rehearsalHooks.created = (location) => { staged = location; };
+      rehearsalHooks.afterRename = async (target) => {
+        if (target === path.join(staged, pluginFile)) await writeFile(target, JSON.stringify(plugin({ cnApiKey: value("intervening-key") })));
+      };
+      rehearsalHooks.beforeRemove = async (target) => {
+        if (target === staged) preserved = (await readFile(path.join(staged, pluginFile), "utf8")).includes("intervening-key");
+      };
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "failed", checks: { rollback: false, sourceUnchanged: true, cleanup: true } });
+      expect(preserved).toBe(true);
+    });
+  });
+
+  it("detects source changes without restoring over them", async () => {
+    await fixture({ "minimax.json": { version: 1, cnApiKey: secret } }, async (directory) => {
+      const source = path.join(directory, "minimax.json"), before = await readFile(source, "utf8");
+      rehearsalHooks.afterRename = async (target) => {
+        if (target.endsWith("configuration.json")) await writeFile(source, JSON.stringify({ version: 1, cnApiKey: "user-changed-key" }));
+      };
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "failed", checks: { rollback: true, sourceUnchanged: false, cleanup: true } });
+      expect(report.blockers).toContain("source-settings-changed");
+      expect(JSON.parse(await readFile(source, "utf8")).cnApiKey).toBe("user-changed-key");
+      await writeFile(source, before);
+    });
+  });
+
+  it("rehearses empty or already mapped settings without proposing changes", async () => {
+    for (const files of [{}, { "minimax.json": { version: 1, cnApiKey: secret }, [pluginFile]: plugin({ cnApiKey: value(secret) }), "model-visibility.json": { version: 1, hidden: {}, defaultVideoModel: { provider: "plugin.ohmygame.minimax.cn", id: "MiniMax-H3" } } }]) await fixture(files, async (directory) => {
+      const report = await rehearseMinimaxMigration(directory);
+      expect(report).toMatchObject({ status: "passed", proposed: { keys: 0, providerPreferences: 0, defaultVideoModel: false }, checks: { idempotent: true, rollback: true, sourceUnchanged: true, cleanup: true } });
+    });
+  });
+
+  it("reports cleanup failure instead of claiming that temporary secrets were removed", async () => {
+    await fixture({ "minimax.json": { version: 1, cnApiKey: secret } }, async (directory) => {
+      let staged = "";
+      rehearsalHooks.created = (location) => { staged = location; };
+      rehearsalHooks.beforeRemove = async (target) => { if (target === staged) throw new Error(secret); };
+      try {
+        const report = await rehearseMinimaxMigration(directory);
+        expect(report).toMatchObject({ status: "failed", checks: { rollback: true, sourceUnchanged: true, cleanup: false } });
+        expect(report.blockers).toContain("temporary-cleanup-failed");
+        expect(JSON.stringify(report)).not.toContain(secret);
+        await expect(access(staged)).resolves.toBeUndefined();
+      } finally { rehearsalHooks.beforeRemove = undefined; await rm(staged, { recursive: true, force: true }); }
+    });
+  });
+
+  it("runs the rehearsal through Node without exposing secrets or offering an apply mode", async () => {
+    const run = (args: string[]) => promisify(execFile)("node", ["--conditions=ohmygame-source", "--import", "tsx", "scripts/rehearse-minimax-migration.ts", ...args]);
+    await fixture({ "minimax.json": { version: 1, cnApiKey: secret } }, async (directory) => {
+      const { stdout, stderr } = await run(["--data-dir", directory]);
+      expect(JSON.parse(stdout)).toMatchObject({ status: "passed", activation: "held", checks: { rollback: true, cleanup: true } });
+      expect(stdout).not.toContain(secret);
+      expect(stderr).toBe("");
+      await expect(run(["--data-dir", directory, "--apply", secret])).rejects.toMatchObject({ code: 2, stdout: "", stderr: expect.not.stringContaining(secret) });
     });
   });
 

@@ -9,7 +9,7 @@ import { ProviderModelSettingsStore } from "../src/daemon/provider-model-setting
 
 // The optional, unpublished adapter's current contract. Recheck against the
 // integrity-pinned package before implementing activation; this is not a lock.
-const REGIONS = [
+export const MINIMAX_MIGRATION_REGIONS = [
   {
     source: "minimax-video-cn",
     target: "plugin.ohmygame.minimax.cn",
@@ -50,7 +50,7 @@ export async function inspectMinimaxMigration(dataDirectory: string) {
   if (!pluginReadable) blockers.push("plugin-settings-unreadable");
   if (!preferencesReadable) blockers.push("model-preferences-unreadable");
 
-  const regions = REGIONS.map(({ source, target, field }) => {
+  const regions = MINIMAX_MIGRATION_REGIONS.map(({ source, target, field }) => {
     const stored = pluginReadable
       ? plugin.storedSecret("ohmygame/minimax", field)
       : undefined;
@@ -112,7 +112,7 @@ export async function inspectMinimaxMigration(dataDirectory: string) {
     ? preferences.defaultVideoModel()
     : undefined;
   const region =
-    current && REGIONS.find(({ source }) => source === current.provider);
+    current && MINIMAX_MIGRATION_REGIONS.find(({ source }) => source === current.provider);
   const defaultVideoModel = !preferencesReadable
     ? { action: "blocked" }
     : !current
