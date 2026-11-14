@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cp, access, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile, fork } from "node:child_process";
 import { promisify } from "node:util";
@@ -488,22 +489,31 @@ describe("MiniMax migration inspection", () => {
   });
 
   it("refuses corruption, future journals and changed settings before any recovery write", async () => {
-    for (const change of ["checksum", "version", "unknown", "legacy", "target", "terminal"]) await transaction(async (directory) => {
+    for (const change of ["checksum", "version", "unknown", "phase", "legacy", "target", "terminal"]) await transaction(async (directory, beforeSettings) => {
       const file = path.join(directory, SETTINGS_TRANSACTION_FILE);
-      if (["checksum", "version", "unknown"].includes(change)) {
+      if (["checksum", "version", "unknown", "phase"].includes(change)) {
         const receipt = JSON.parse(await readFile(file, "utf8"));
         if (change === "checksum") receipt.files[pluginFile].after = Buffer.from("changed").toString("base64");
         if (change === "version") receipt.version = 2;
         if (change === "unknown") receipt.future = true;
+        if (change === "phase") receipt.phase = "future-phase";
+        // Prove schema/version rejection independently of checksum rejection.
+        if (change !== "checksum") {
+          const { checksum: _, ...payload } = receipt;
+          receipt.checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+        }
         await writeFile(file, JSON.stringify(receipt));
       } else {
         if (change === "terminal") await resumeSettingsTransaction(directory);
         const target = change === "legacy" ? "minimax.json" : "model-visibility.json";
-        await writeFile(path.join(directory, target), JSON.stringify({ version: 1, hidden: {}, independent: secret }));
+        await writeFile(path.join(directory, target), change === "terminal"
+          ? beforeSettings.get("model-visibility.json")!
+          : JSON.stringify({ version: 1, hidden: {}, independent: secret }));
       }
       const before = await snapshot(directory);
-      await expect(resumeSettingsTransaction(directory)).rejects.toThrow();
-      await expect(rollbackSettingsTransaction(directory)).rejects.toThrow();
+      const reason = change === "checksum" ? "checksum" : ["version", "unknown", "phase"].includes(change) ? "Unsupported" : change === "terminal" ? "Completed" : "conflict";
+      await expect(resumeSettingsTransaction(directory)).rejects.toThrow(reason);
+      if (change !== "terminal") await expect(rollbackSettingsTransaction(directory)).rejects.toThrow(reason);
       expect(await snapshot(directory)).toEqual(before);
     });
   });
