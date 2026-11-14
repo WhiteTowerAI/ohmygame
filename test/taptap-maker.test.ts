@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -163,6 +165,17 @@ describe("TapTap Maker project setup", () => {
     await maker.create(context(), { name: "Pixel garden" });
     expect(await inits()).toHaveLength(1);
     expect(await maker.ready(context())).toEqual({ ready: true });
+  });
+
+  it("waits for the identity receipt before returning a failed checkout", async () => {
+    await writeFile(path.join(directory, "fail-init"), "");
+    const result = await promisify(execFile)("node", [
+      "test/fixtures/maker-initialization-worker.mjs",
+      directory,
+      workspace,
+      path.resolve(".runtime/preinstalled-plugin-sources/taptap-maker/native/maker.mjs"),
+    ], { timeout: 15_000 });
+    expect(result.stdout).toContain("Failed checkout waited for its identity receipt");
   });
 
   it("resumes a failed checkout using the created identity and keeps local files", async () => {
