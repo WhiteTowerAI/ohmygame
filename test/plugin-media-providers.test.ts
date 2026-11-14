@@ -1257,6 +1257,20 @@ describe("plugin media providers: listing the vendor's models", () => {
 });
 
 describe("media paid-step ownership", () => {
+  it("preserves unknown output layout data and its paid receipt when clearing", async () => {
+    const journal = await journalAt("future"); await journal.begin({ request: "one" });
+    try {
+      await journal.submit("audio", "fixture", {}, async save => ({ file: await save(WAV) }));
+      const extra = path.join(root, "media-tasks/future.files/future-index.json");
+      await writeFile(extra, '{"version":9}');
+      const receipt = await readFile(path.join(root, "media-tasks/future.json"), "utf8");
+      await expect(journal.clear()).rejects.toThrow("Unsupported task output layout");
+      expect(await readFile(extra, "utf8")).toBe('{"version":9}');
+      expect(await readFile(path.join(root, "media-tasks/future.json"), "utf8")).toBe(receipt);
+      await rm(extra); await journal.clear();
+    } finally { journal.release(); }
+  });
+
   it("rejects linked task output directories and files without touching their targets", async () => {
     const journal = await journalAt("linked"); await journal.begin({ request: "one" });
     const outside = path.join(root, "outside"); await mkdir(outside);

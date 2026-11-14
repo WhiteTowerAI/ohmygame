@@ -300,6 +300,8 @@ cannot read another task's directory or accept arbitrary local paths. Current
 plugin permissions, account and request checks still apply before recovery.
 
 Files stay until the caller stores the generated asset and clears the journal.
+Cleanup refuses unknown filenames or directory layouts and retains the receipt,
+rather than deleting data it cannot recognize.
 An interrupted request that saved bytes but did not save its paid receipt remains
 unconfirmed: retry refuses another submission. A confirmed receipt survives
 process termination even before the adapter returns its outer result. This is

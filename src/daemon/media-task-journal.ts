@@ -280,7 +280,15 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       // A caller clears after storing the result, often after releasing its lease.
       const remove = async () => {
         await load();
-        try { await checkFiles(); } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+        let names: string[] = [];
+        try { await checkFiles(); names = await readdir(files); }
+        catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+        // Do not erase a future layout or unrelated data in this task's directory.
+        for (const name of names) {
+          const info = await lstat(path.join(files, name));
+          if (!/^[a-f0-9]{64}-[a-f0-9]{64}(?:\.[a-f0-9-]{36}\.tmp)?$/.test(name) || !(info.isFile() || info.isSymbolicLink()))
+            throw new Error("Unsupported task output layout");
+        }
         await rm(file, { force: true });
         await rm(files, { recursive: true, force: true });
         entry = undefined;
