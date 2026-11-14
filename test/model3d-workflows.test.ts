@@ -407,6 +407,8 @@ describe("canvas 3D recovery", () => {
     const blocked = new Promise<void>((resolve) => { unblock = resolve; });
     let originalPolling = false, previewPolls = 0;
     request.mockImplementation(async (url, init) => {
+      // A paid submission may take longer than waitFor's one-second default.
+      if (String(url).endsWith("/text-to-3d") && init?.method === "POST") await new Promise(resolve => setTimeout(resolve, 1250));
       if (String(url).endsWith("/text-to-3d/meshy-1") && ++previewPolls === 1) {
         originalPolling = true;
         await blocked;
@@ -425,17 +427,17 @@ describe("canvas 3D recovery", () => {
       board.board.editorLayout.nodes.model = { x: 0, y: 0 };
       await store.saveBoard(source.id, board.board, board.revision);
       const original = await store.generateNode(source.id, boardId, "model");
-      await vi.waitFor(() => expect(originalPolling).toBe(true));
+      await expect.poll(() => originalPolling, { timeout: 10_000 }).toBe(true);
       const copy = await projects.duplicate(source.id);
       expect((await store.jobs(copy.id))[0]?.status).toBe("cancelled");
       const sourceHistory = JSON.parse(await readFile(path.join(source.workspacePath, "canvas/jobs.json"), "utf8"));
       const copyHistory = JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"));
       expect(copyHistory[0].recoveryId).toBe(sourceHistory[0].recoveryId);
       await store.retry(copy.id, original.id);
-      await vi.waitFor(async () => expect((await store.jobs(copy.id))[0]?.status).toBe("succeeded"));
+      await expect.poll(async () => (await store.jobs(copy.id))[0]?.status, { timeout: 10_000 }).toBe("succeeded");
       expect(phases()).toEqual(["preview", "refine"]);
       unblock();
-      await vi.waitFor(async () => expect((await store.jobs(source.id))[0]?.status).toBe("succeeded"));
+      await expect.poll(async () => (await store.jobs(source.id))[0]?.status, { timeout: 10_000 }).toBe("succeeded");
       expect(phases()).toEqual(["preview", "refine"]);
     } finally {
       unblock();
