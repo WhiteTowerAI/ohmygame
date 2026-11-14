@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrateMinimaxSettings } from "../src/daemon/minimax-settings-migration.js";
 import { MINIMAX_MIGRATION_PACKAGES, minimaxMigrationPackageIssue } from "../src/daemon/minimax-migration-package.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
+import { SeedanceSettingsStore } from "../src/daemon/seedance-settings.js";
 import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { PluginValues } from "../src/daemon/plugin-values.js";
@@ -727,17 +728,19 @@ describe("application settings write ownership", () => {
     folders.push(directory);
     const writes = new SettingsWrites();
     const minimax = new MinimaxSettingsStore(directory, writes);
+    const seedance = new SeedanceSettingsStore(directory, writes);
     const models = new ProviderModelSettingsStore(directory, directory, writes);
     const plugins = new PluginValues(path.join(directory, "configuration.json"), writes);
-    await Promise.all([minimax.load(), models.load(), plugins.load()]);
-    return { directory, writes, minimax, models, plugins };
+    await Promise.all([minimax.load(), seedance.load(), models.load(), plugins.load()]);
+    return { directory, writes, minimax, seedance, models, plugins };
   }
 
-  it.each(["minimax", "models", "plugins"] as const)("orders %s reload between pending and subsequent saves", async (kind) => {
-    const { directory, minimax, models, plugins } = await fixture();
-    const store = { minimax, models, plugins }[kind];
-    const file = path.join(directory, { minimax: "minimax.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
+  it.each(["minimax", "seedance", "models", "plugins"] as const)("orders %s reload between pending and subsequent saves", async (kind) => {
+    const { directory, minimax, seedance, models, plugins } = await fixture();
+    const store = { minimax, seedance, models, plugins }[kind];
+    const file = path.join(directory, { minimax: "minimax.json", seedance: "seedance.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
     const update = (second: boolean) => kind === "minimax" ? minimax.update(second ? "minimax-video-global" : "minimax-video-cn", "key")
+      : kind === "seedance" ? seedance.update(second ? "byteplus-modelark" : "volcengine-ark", "key")
       : kind === "models" ? models.setEnabled(second ? "second" : "first", false)
       : plugins.update(entry, second ? { global: "key" } : { cn: "key" });
     const arrived = gate(), release = gate();
@@ -764,6 +767,9 @@ describe("application settings write ownership", () => {
       if (kind === "minimax") {
         expect(minimax.key("minimax-video-cn")).toBe("key");
         expect(minimax.key("minimax-video-global")).toBe("key");
+      } else if (kind === "seedance") {
+        expect(seedance.key("volcengine-ark")).toBe("key");
+        expect(seedance.key("byteplus-modelark")).toBe("key");
       } else if (kind === "models") {
         expect(models.isEnabled("first")).toBe(false);
         expect(models.isEnabled("second")).toBe(false);
@@ -774,11 +780,12 @@ describe("application settings write ownership", () => {
     } finally { release.resolve(); await Promise.allSettled(pending); }
   });
 
-  it.each(["minimax", "models", "plugins"] as const)("refuses %s writes after a failed reload and accepts them after repair", async (kind) => {
-    const { directory, minimax, models, plugins } = await fixture();
-    const store = { minimax, models, plugins }[kind];
-    const file = path.join(directory, { minimax: "minimax.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
+  it.each(["minimax", "seedance", "models", "plugins"] as const)("refuses %s writes after a failed reload and accepts them after repair", async (kind) => {
+    const { directory, minimax, seedance, models, plugins } = await fixture();
+    const store = { minimax, seedance, models, plugins }[kind];
+    const file = path.join(directory, { minimax: "minimax.json", seedance: "seedance.json", models: "model-visibility.json", plugins: "configuration.json" }[kind]);
     const update = () => kind === "minimax" ? minimax.update("minimax-video-cn", "key")
+      : kind === "seedance" ? seedance.update("volcengine-ark", "key")
       : kind === "models" ? models.setEnabled("first", false) : plugins.update(entry, { cn: "key" });
     const future = JSON.stringify({ version: 2, future: "keep" });
     await writeFile(file, future);

@@ -622,7 +622,7 @@ boundary only after installed-package and target-store validation.
 
 #### Application settings ownership
 
-The daemon gives MiniMax credentials, plugin configuration (through
+The daemon gives MiniMax and Seedance credentials, plugin configuration (through
 `PluginServices`) and model preferences one `SettingsWrites` owner. Each store's
 `load()` joins the same queue as its mutations: it waits for earlier saves and
 publishes its cache before later saves can read it. A failed or unsupported load
