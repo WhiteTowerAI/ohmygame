@@ -29,6 +29,12 @@ async function checkpointFor(target) {
     }
   }
   lastCheckpoint = checkpoint;
+  if (boundary === "revoke-grants" && checkpoint === "applied") {
+    const file = path.join(directory, "plugin-store/grants.json");
+    const grants = JSON.parse(await fs.readFile(file, "utf8"));
+    grants.plugins[`ohmygame/${vendor}`].allowed = [];
+    await fs.writeFile(file, JSON.stringify(grants));
+  }
   if (checkpoint === boundary) {
     setInterval(() => {}, 1000);
     process.send({ checkpoint });
@@ -45,15 +51,19 @@ fs.rm = async (...args) => {
 };
 syncBuiltinESMExports();
 (async () => {
-  const migration =
-    vendor === "seedance"
+  const native3d = ["meshy", "tripo", "hyper3d"].includes(vendor);
+  const migration = native3d
+    ? (await import("../../src/daemon/model3d-settings-transaction.ts")).model3DSettingsTransaction(vendor)
+    : vendor === "seedance"
       ? await import("../../src/daemon/seedance-settings-transaction.ts")
       : await import("../../src/daemon/minimax-settings-transaction.ts");
   if (action === "activate") {
     const { acquireProfileOwnership } =
       await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
-    const activate = vendor === "seedance"
+    const activate = native3d
+      ? (directory) => import("../../src/daemon/model3d-settings-migration.ts").then(({ migrateModel3DSettings }) => migrateModel3DSettings(directory, vendor))
+      : vendor === "seedance"
       ? (await import("../../src/daemon/seedance-settings-migration.ts")).migrateSeedanceSettings
       : (await import("../../src/daemon/minimax-settings-migration.ts")).migrateMinimaxSettings;
     const result = await activate(directory);
@@ -63,7 +73,8 @@ syncBuiltinESMExports();
       );
   } else if (action === "startup")
     await (
-      vendor === "seedance"
+      native3d ? migration.recoverInterruptedSettings
+      : vendor === "seedance"
         ? migration.recoverInterruptedSeedanceSettings
         : migration.recoverInterruptedMinimaxSettings
     )(directory);
