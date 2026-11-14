@@ -166,7 +166,7 @@ export async function inspectMinimaxWorkspaces(
             try {
               if (
                 (await inspectMediaTaskJournal(
-                  path.join(dataDirectory, "media-tasks"),
+                  await mediaTaskDirectory(dataDirectory),
                   recoveryId,
                 )) === "missing"
               )
@@ -205,7 +205,7 @@ export async function inspectMinimaxWorkspaces(
     unattributed: 0,
   };
   try {
-    const directory = path.join(dataDirectory, "media-tasks"),
+    const directory = await mediaTaskDirectory(dataDirectory),
       info = await lstat(directory);
     if (!info.isDirectory() || info.isSymbolicLink())
       throw new Error("Invalid task directory");
@@ -247,4 +247,15 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function missing(cause: unknown): boolean {
   return (cause as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+async function mediaTaskDirectory(dataDirectory: string): Promise<string> {
+  const tools = path.join(dataDirectory, "tools");
+  const info = await lstat(tools).catch((cause: unknown) => {
+    if (!missing(cause)) throw cause;
+    return undefined;
+  });
+  if (info && (!info.isDirectory() || info.isSymbolicLink()))
+    throw new Error("Invalid tool data directory");
+  return path.join(tools, "media-tasks");
 }
