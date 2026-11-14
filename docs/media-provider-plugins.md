@@ -1505,3 +1505,19 @@ strict operation-specific validation still owned by ToolRunner.
 
 Production startup still supplies no 3D migration contexts. This is tested
 application preparation; vendor acceptance and startup activation remain held.
+
+### Prepared ElevenLabs startup transaction
+
+The dormant `migrateElevenLabsSettings` entry point composes the reviewed-package
+gate, read-only inspector and guarded settings transaction. It requires exclusive
+profile ownership before any settings consumers are constructed. A first commit
+copies compatible settings once; later calls honor the committed receipt rather
+than restoring credentials the user subsequently removes. Safe mode, conflicts,
+unknown data, missing grants and modified packages defer without settings writes.
+
+Startup recovers any interrupted ElevenLabs transaction before MiniMax or
+Seedance can write shared configuration/preferences, including in safe mode.
+It does not start a new ElevenLabs migration. Production activation, native
+catalog retirement and reference remapping remain held for local acceptance.
+Native files and paid task ownership remain unchanged. Remove this compatibility
+path no earlier than beta.7 and 2026-12-15 after retained obligations are resolved.
