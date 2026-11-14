@@ -1,4 +1,4 @@
-import { migratedMinimaxModel } from "./minimax-model-migration.js";
+import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { mapConcurrent } from "./map-concurrent.js";
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -123,7 +123,7 @@ export class ProjectManager {
   /** Told when a generated asset is saved in a project, or one from the Library is added to it. */
   onAssetAdded?: (project: ProjectState, asset: { path: string; origin: "generated" | "imported"; prompt?: string }) => void;
 
-  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void, private readonly minimaxSettingsMigrated = false) {
+  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void, private readonly mediaMigrations: MediaMigrationState = {}) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
     this.#locationFile = path.join(dataDirectory, "project-location.json");
     this.#removedDirectory = path.join(dataDirectory, "removed-projects");
@@ -1042,12 +1042,16 @@ export class ProjectManager {
   // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Project defaults
   // follow committed settings migration; task inputs and recovery IDs do not.
   #migrateMediaDefaults(metadata: ProjectMetadata): boolean {
-    const current = metadata.mediaModelDefaults?.video;
-    if (!this.minimaxSettingsMigrated || !current) return false;
-    const model = migratedMinimaxModel(current);
-    if (model === current) return false;
-    metadata.mediaModelDefaults = { ...metadata.mediaModelDefaults, video: model };
-    return true;
+    let changed = false;
+    for (const kind of ["image", "video"] as const) {
+      const current = metadata.mediaModelDefaults?.[kind];
+      if (!current) continue;
+      const model = migratedMediaModel(current, kind, this.mediaMigrations);
+      if (model === current) continue;
+      metadata.mediaModelDefaults = { ...metadata.mediaModelDefaults, [kind]: model };
+      changed = true;
+    }
+    return changed;
   }
 
   #writeProject(...args: Parameters<typeof writeProject>) {

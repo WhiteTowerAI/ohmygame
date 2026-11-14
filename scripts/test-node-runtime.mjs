@@ -157,19 +157,28 @@ try {
   const video = createAssetGenerationNode("video", { x: 200, y: 100 });
   video.data.model = { provider: "minimax-video-global", id: "MiniMax-H3" };
   video.data.prompt = "No generation: migrate this saved selection only";
-  board.nodes.push(canvasNodeContent(video));
+  const seedream = createAssetGenerationNode("image", { x: 400, y: 100 });
+  seedream.data.model = { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628" };
+  const seedance = createAssetGenerationNode("video", { x: 600, y: 100 });
+  seedance.data.model = { provider: "byteplus-modelark", id: "dreamina-seedance-2-0-260128" };
+  board.nodes.push(canvasNodeContent(video), canvasNodeContent(seedream), canvasNodeContent(seedance));
   await writeFile(boardFile, JSON.stringify(board));
   const migratedBoardResponse = await fetch(`${canvasBase}/boards/${boardId}`, { headers });
   assert.equal(migratedBoardResponse.status, 200);
   const migratedBoard = await migratedBoardResponse.json();
   assert.equal(migratedBoard.board.nodes.find(node => node.id === video.id).data.model.provider, "plugin.ohmygame.minimax.global");
   assert.equal(JSON.parse(await readFile(boardFile, "utf8")).nodes.find(node => node.id === video.id).data.model.provider, "plugin.ohmygame.minimax.global");
+  for (const [node, provider] of [[seedream, "plugin.ohmygame.seedance.ark"], [seedance, "plugin.ohmygame.seedance.byteplus"]]) {
+    assert.equal(migratedBoard.board.nodes.find(item => item.id === node.id).data.model.provider, provider);
+    assert.equal(JSON.parse(await readFile(boardFile, "utf8")).nodes.find(item => item.id === node.id).data.model.provider, provider);
+  }
   assert.equal(await readFile(layoutFile, "utf8"), layoutBefore);
 
   const projectSettingsFile = path.join(story.workspacePath, ".ohmygame/settings.json");
   const projectSettings = JSON.parse(await readFile(projectSettingsFile, "utf8"));
   const videoDefault = { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" };
-  await writeFile(projectSettingsFile, JSON.stringify({ ...projectSettings, future: { keep: "portable" }, mediaModelDefaults: { video: { ...videoDefault, provider: "minimax-video-global" } } }));
+  const imageDefault = { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedream-5-0-pro-260628" };
+  await writeFile(projectSettingsFile, JSON.stringify({ ...projectSettings, future: { keep: "portable" }, mediaModelDefaults: { video: { ...videoDefault, provider: "minimax-video-global" }, image: { ...imageDefault, provider: "volcengine-ark" } } }));
   // Export refreshes owned settings and must persist migration before creating the archive.
   const exported = await fetch(`${daemon.runtime.url}/projects/${story.id}/export`, {
     method: "POST", headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(10_000),
@@ -185,8 +194,8 @@ try {
   assert.notEqual(copy.id, story.id);
   assert.equal(copy.type, story.type);
   assert.equal(copy.name, story.name);
-  assert.deepEqual(copy.mediaModelDefaults, { video: videoDefault });
-  assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).mediaModelDefaults, { video: videoDefault });
+  assert.deepEqual(copy.mediaModelDefaults, { video: videoDefault, image: imageDefault });
+  assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).mediaModelDefaults, { video: videoDefault, image: imageDefault });
   assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).future, { keep: "portable" });
   const createdResponse = await fetch(`${daemon.runtime.url}/connections`, {
     method: "POST", headers, body: JSON.stringify({ displayName: "Node runtime fixture", definition: {

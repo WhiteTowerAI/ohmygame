@@ -1,3 +1,4 @@
+import type { MediaMigrationState } from "./media-model-migration.js";
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -21,9 +22,9 @@ import { getWorkspaceMedia } from "./workspace.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; minimaxSettingsMigrated?: boolean;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; mediaMigrations?: MediaMigrationState;
 }): CanvasStore {
-  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.minimaxSettingsMigrated);
+  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.mediaMigrations);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {

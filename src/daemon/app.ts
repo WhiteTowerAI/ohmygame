@@ -212,6 +212,8 @@ export interface AppOptions {
   dataDirectory?: string;
   /** Validated committed MiniMax settings migration, supplied by the startup owner. */
   minimaxSettingsMigrated?: boolean;
+  /** Validated committed Seedance settings migration, supplied by the startup owner. */
+  seedanceSettingsMigrated?: boolean;
   piAgentDirectory?: string;
   logger?: boolean;
   /** Where the desktop app writes the logs a diagnostics export includes. */
@@ -668,7 +670,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, options.minimaxSettingsMigrated);
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true });
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -1443,7 +1445,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, minimaxSettingsMigrated: options.minimaxSettingsMigrated, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations: { minimax: options.minimaxSettingsMigrated === true, seedance: options.seedanceSettingsMigrated === true }, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),

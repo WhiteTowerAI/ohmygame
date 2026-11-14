@@ -1,5 +1,4 @@
 import { MINIMAX_RETIRED_RETRY } from "../shared/media-migration-errors.js";
-import type { CanvasBoard } from "../shared/canvas-workspace.js";
 import type { AgentModelRef, RunToolRequest, ToolJob } from "../shared/contracts.js";
 
 /** Only the model identities supported by the reviewed MiniMax Beta adapter. */
@@ -13,18 +12,6 @@ export function migratedMinimaxModel<T extends AgentModelRef>(model: T): T {
   if (!provider || !["MiniMax-H3", "MiniMax-H3-Max"].includes(model.id))
     return model;
   return { ...model, provider };
-}
-
-export function migratedMinimaxBoard(board: CanvasBoard): CanvasBoard {
-  let changed = false;
-  const nodes = board.nodes.map((node) => {
-    if (node.type !== "video" || !node.data.model) return node;
-    const model = migratedMinimaxModel(node.data.model);
-    if (model === node.data.model) return node;
-    changed = true;
-    return { ...node, data: { ...node.data, model } };
-  });
-  return changed ? { ...board, nodes } : board;
 }
 
 /** An old built-in job has no durable vendor task ID; retry could pay twice. */

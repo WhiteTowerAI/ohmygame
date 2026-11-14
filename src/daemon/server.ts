@@ -79,6 +79,7 @@ try {
   app = createApp({
     dataDirectory,
     minimaxSettingsMigrated,
+    seedanceSettingsMigrated: seedanceMigration.status === "migrated" || seedanceMigration.status === "committed",
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
