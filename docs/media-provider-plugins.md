@@ -493,6 +493,9 @@ There is no apply, output-directory or keep-copy option.
 
 After the existing settings inspector accepts the copied data, the rehearsal:
 
+- Saves a private, versioned transaction journal before changing settings. It
+  records byte-exact before/after snapshots and a checksum for corruption
+  detection. The legacy key file is a read-only guard.
 - Copies each regional key only into an empty compatible target. Existing
   matching keys remain, while conflicts and independently changed target switches
   block the proposal. Legacy keys and provider choices stay intact.
@@ -514,8 +517,8 @@ arguments. Unattempted checks are `null`. It does not expose keys, file paths,
 raw exceptions or the staged documents. Empty or already mapped settings produce
 no proposed changes and still exercise reload and rollback verification.
 
-This is a settings rehearsal, not an application migration or a production
-transaction protocol. It neither scans nor rewrites projects, jobs, recovery
+This is a settings rehearsal, not an application migration. Its transaction
+protocol is exercised only on an exclusively owned private copy. It neither scans nor rewrites projects, jobs, recovery
 journals, plugin grants or installation state. It does not validate the eventual
 published package, call MiniMax or activate a provider. Source comparison is not
 a transactional snapshot across files; use a consistent copy while the app is
@@ -523,7 +526,41 @@ closed. Process termination or machine failure may leave a private
 `ohmygame-minimax-rehearsal-*` directory in the system temporary directory; remove
 that leftover copy locally. Cleanup failures are reported explicitly.
 
-Production activation still needs a durable resume/rollback protocol coordinated
-with app-owned writes, complete project and unfinished-task disposition, a pinned
-published artifact, and live acceptance. A passing rehearsal does not release any
-of those gates or authorize publication.
+#### Recoverable settings transaction
+
+The rehearsal uses `scripts/minimax-settings-transaction.ts` and keeps its receipt
+at `.minimax-settings-transaction.json` inside the temporary copy. The version-1
+receipt contains credentials (base64 is not encryption) and is written as `0600`
+on POSIX inside the `0700` copy. It has `applying`, `applied`, `rolling-back` and `rolled-back` phases. Settings
+writes use a flushed temporary file and atomic rename. Recovery reads the saved
+receipt and file bytes, so termination after a file rename but before the final
+receipt update does not repeat a completed change. A saved rollback intent is
+sticky: recovery continues rollback rather than applying again. Rollback restores
+exact original bytes and removes target files that were originally absent.
+
+Before the first change and each subsequent write, all three known files must
+match the recorded before or after bytes. Unexpected edits, linked files or
+journals, corrupt checksums, unknown receipt fields and unsupported versions block
+recovery without discarding the receipt. A completed receipt also requires its
+exact terminal state. A second prepare cannot replace a pending receipt. Only
+byte-exact completed rollback permits receipt removal; successful apply retains
+its backup. The enclosing disposable rehearsal still cleans up on caught failures.
+The checksum detects corruption; it does not authenticate a user-edited receipt.
+
+Calls for the same canonical directory serialize within one process. This is not
+an inter-process lock: one process must exclusively own the copy, and a recovery
+process may start only after the previous one has exited. Tests kill real Node
+workers at settings and receipt boundaries, including partial rollback, and
+recover from disk in a new owner. File flushing does not establish portable
+power-loss durability of directory entries; machine/filesystem failure remains
+outside this increment's guarantee. There is no new CLI apply/resume switch and
+no application startup or route invokes this transaction.
+
+Production activation still needs exclusive ownership coordinated with all
+app-owned writers and cache reloads, installed-package verification, complete
+project and unfinished-task disposition, and live acceptance. Settings recovery
+does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable
+a plugin, or submit vendor requests. The built-in execution path remains in place
+for outstanding jobs. A passing rehearsal does not release those gates. When the
+migration first runs on real profiles, record its compatibility removal release
+and date at the owning load boundaries.

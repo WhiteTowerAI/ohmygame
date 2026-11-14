@@ -1,14 +1,6 @@
 // Exercises settings migration on a disposable copy, never on the supplied data.
 import { randomUUID } from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,13 +10,19 @@ import {
   MINIMAX_MIGRATION_REGIONS,
 } from "./inspect-minimax-migration.js";
 
-const FILES = [
-  "minimax.json",
-  "plugin-store/configuration.json",
-  "model-visibility.json",
-] as const;
-type File = (typeof FILES)[number];
-type Snapshot = Map<File, Buffer | undefined>;
+import {
+  snapshot,
+  same,
+  type File,
+  type Snapshot,
+} from "./minimax-settings-snapshot.js";
+import {
+  prepareSettingsTransaction,
+  resumeSettingsTransaction,
+  rollbackSettingsTransaction,
+  forgetSettingsTransaction,
+} from "./minimax-settings-transaction.js";
+
 type Json = Record<string, unknown>;
 
 export async function rehearseMinimaxMigration(dataDirectory: string) {
@@ -64,7 +62,8 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
       changes = plan.changes;
       report.proposed = plan.counts;
       stage = "apply-copy";
-      for (const [file, bytes] of changes) await write(staged, file, bytes!);
+      await prepareSettingsTransaction(staged, original, changes);
+      await resumeSettingsTransaction(staged);
       stage = "reload-copy";
       const after = await inspectMinimaxMigration(staged);
       report.checks.reload = after.blockers.length === 0;
@@ -83,19 +82,8 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
   // All operational failures above are converted to report state before cleanup.
   if (staged && original && changes) {
     try {
-      // Do not overwrite an unexpected staged edit, even in this disposable copy.
-      const current = await snapshot(staged);
-      for (const [file, bytes] of current) {
-        if (equal(bytes, original.get(file))) continue;
-        if (!changes.has(file) || !equal(bytes, changes.get(file)))
-          throw new Error("Staged settings changed");
-      }
-      for (const [file, bytes] of original) {
-        if (equal(current.get(file), bytes)) continue;
-        if (bytes === undefined)
-          await rm(path.join(staged, file), { force: true });
-        else await write(staged, file, bytes);
-      }
+      await rollbackSettingsTransaction(staged);
+      await forgetSettingsTransaction(staged);
       report.checks.rollback = same(await snapshot(staged), original);
       if (!report.checks.rollback) throw new Error("Rollback differs");
     } catch {
@@ -205,31 +193,6 @@ function propose(
   return { changes, counts };
 }
 
-async function snapshot(directory: string): Promise<Snapshot> {
-  const info = await lstat(directory);
-  if (!info.isDirectory() || info.isSymbolicLink())
-    throw new Error("Expected a copied data directory");
-  const result: Snapshot = new Map();
-  for (const file of FILES) {
-    try {
-      if (file.includes("/")) {
-        const parent = await lstat(path.join(directory, path.dirname(file)));
-        if (!parent.isDirectory() || parent.isSymbolicLink())
-          throw new Error("Linked settings directory");
-      }
-      const location = path.join(directory, file),
-        entry = await lstat(location);
-      if (!entry.isFile() || entry.isSymbolicLink())
-        throw new Error("Invalid settings file");
-      result.set(file, await readFile(location));
-    } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-      result.set(file, undefined);
-    }
-  }
-  return result;
-}
-
 async function write(
   directory: string,
   file: File,
@@ -244,13 +207,6 @@ async function write(
   } finally {
     await rm(temporary, { force: true });
   }
-}
-
-function equal(a: Buffer | undefined, b: Buffer | undefined): boolean {
-  return a === undefined || b === undefined ? a === b : a.equals(b);
-}
-function same(a: Snapshot, b: Snapshot): boolean {
-  return FILES.every((file) => equal(a.get(file), b.get(file)));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
