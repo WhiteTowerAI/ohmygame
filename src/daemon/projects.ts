@@ -1043,7 +1043,7 @@ export class ProjectManager {
   // follow committed settings migration; task inputs and recovery IDs do not.
   #migrateMediaDefaults(metadata: ProjectMetadata): boolean {
     let changed = false;
-    for (const kind of ["image", "video", "3d"] as const) {
+    for (const kind of ["image", "video", "3d", "speech", "sound-effect", "music"] as const) {
       const current = metadata.mediaModelDefaults?.[kind];
       if (!current) continue;
       const model = migratedMediaModel(current, kind, this.mediaMigrations);

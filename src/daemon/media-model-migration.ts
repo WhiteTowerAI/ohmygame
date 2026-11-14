@@ -1,5 +1,6 @@
 import type { CanvasBoard } from "../shared/canvas-workspace.js";
 import {
+  ELEVENLABS_RETIRED_RETRY,
   MINIMAX_RETIRED_RETRY,
   SEEDANCE_RETIRED_RETRY,
 } from "../shared/media-migration-errors.js";
@@ -11,6 +12,8 @@ import type {
 } from "../shared/contracts.js";
 import { migratedMinimaxModel } from "./minimax-model-migration.js";
 import { SEEDANCE_MIGRATION_REGIONS } from "./seedance-migration-settings.js";
+import { ELEVENLABS_MIGRATION_MAPPINGS } from "./elevenlabs-migration-settings.js";
+import type { AudioKind } from "../shared/audio.js";
 import type { Native3DProviderId } from "../shared/model3d-presets.js";
 
 /** Reviewed identities from a committed settings migration, including custom versions. */
@@ -22,6 +25,7 @@ export interface Model3DReferenceMigration {
 }
 
 export interface MediaMigrationState {
+  elevenlabs?: boolean;
   minimax?: boolean;
   seedance?: boolean;
   model3D?: readonly Model3DReferenceMigration[];
@@ -30,10 +34,16 @@ export interface MediaMigrationState {
 /** Map only reviewed identities of the selected media kind in committed profiles. */
 export function migratedMediaModel<T extends AgentModelRef>(
   model: T,
-  kind: "image" | "video" | "3d",
+  kind: "image" | "video" | "3d" | "audio" | AudioKind,
   state: MediaMigrationState,
 ): T {
   if (kind === "3d") return migratedModel3DReference(model, state);
+  if (kind === "audio" || kind === "speech" || kind === "sound-effect" || kind === "music") {
+    const mapping = ELEVENLABS_MIGRATION_MAPPINGS[0];
+    return state.elevenlabs && model.provider === mapping.source && mapping.audioModels.some(
+      (entry) => entry.id === model.id && (entry.kinds as readonly AudioKind[]).some((value) => kind === "audio" || value === kind),
+    ) ? { ...model, provider: mapping.target } : model;
+  }
   if (kind === "video" && state.minimax) {
     const mapped = migratedMinimaxModel(model);
     if (mapped !== model) return mapped;
@@ -48,6 +58,18 @@ export function migratedMediaModel<T extends AgentModelRef>(
   return models.includes(model.id)
     ? { ...model, provider: region.target }
     : model;
+}
+
+/** Preserve invalid selections for normal validation, and never choose a new default. */
+export function migratedAudioSelection(
+  model: AgentModelRef | undefined,
+  kind: AudioKind | undefined,
+  state: MediaMigrationState,
+): AgentModelRef | undefined {
+  if (!model || typeof model !== "object" || Array.isArray(model)
+    || typeof model.provider !== "string" || typeof model.id !== "string") return model;
+  if (kind !== undefined && kind !== "speech" && kind !== "sound-effect" && kind !== "music") return model;
+  return migratedMediaModel(model, kind ?? "audio", state);
 }
 
 /** A future selection, including the historical default animation connection. Never use on paid job inputs. */
@@ -109,6 +131,16 @@ export function migratedMediaBoard(
 ): CanvasBoard {
   let changed = false;
   const nodes = board.nodes.map((node) => {
+    // Stored boards can still use pre-beta.5.6 audio node types. Change only
+    // the raw model reference; the existing reader owns their normalization.
+    const audioNode = node as { type: string; data?: { model?: AgentModelRef } };
+    if (["audio", "speech", "sound-effect", "music", "audio-scene"].includes(audioNode.type)) {
+      const kind = audioNode.type === "speech" || audioNode.type === "sound-effect" || audioNode.type === "music" ? audioNode.type : undefined;
+      const model = migratedAudioSelection(audioNode.data?.model, kind, state);
+      if (model === audioNode.data?.model) return node;
+      changed = true;
+      return { ...node, data: { ...node.data, model } } as typeof node;
+    }
     if (node.type === "model-3d" || node.type === "animate-3d") {
       const operation =
         node.type === "animate-3d"
@@ -150,6 +182,8 @@ export function retiredMediaRetry(
       : job.input && "model" in job.input
         ? job.input.model
         : job.model;
+  if (state.elevenlabs && job.toolId === "generate-audio" && model?.provider === "elevenlabs")
+    return ELEVENLABS_RETIRED_RETRY;
   if (
     state.minimax &&
     job.toolId === "generate-video" &&
