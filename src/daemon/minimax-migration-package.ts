@@ -12,7 +12,7 @@ import {
 import { capabilityGrants, missingGrants } from "./project-plugins.js";
 
 /** Reviewed npm bytes, not a preinstallation or permission grant. */
-export const MINIMAX_MIGRATION_PACKAGE = {
+export const MINIMAX_MIGRATION_PACKAGES = [{
   type: "npm",
   pluginId: "minimax-migration",
   releaseId: "minimax-0.1.0",
@@ -22,13 +22,22 @@ export const MINIMAX_MIGRATION_PACKAGE = {
   integrity:
     "sha512-Haq/K2D644uG1kTVX4ncU+hmDLPkeSq4IYRy0E86IICORoqLv6Ut15tq3ZOyjbqUPTFUCY6ZGHwMHzkX75eHOQ==",
   digest: "79dd1d119f829242a995ef37b9060ced2355b839f1c748264d441612836bb240",
-} as const;
+}, {
+  type: "npm",
+  pluginId: "minimax-migration",
+  releaseId: "minimax-0.1.1",
+  id: "ohmygame/minimax",
+  package: "@ohmygame/minimax",
+  version: "0.1.1",
+  integrity:
+    "sha512-d5LTSqE4i8RvYr3XmejUAdZKUxV/ZvJwTCMeSozO1T7t7Y+KXyJ06aNDRR6ac/sqyD2NxtFfa/3C6qJrMmV9Mw==",
+  digest: "ec4e1b30f65d29d56d5b7914b84670028b58e7ca269d48b309c42a507893f966",
+}] as const;
 
 /** Read-only: never construct PluginServices, whose startup may upgrade stores. */
 export async function minimaxMigrationPackageIssue(
   directory: string,
 ): Promise<string | undefined> {
-  const pin = MINIMAX_MIGRATION_PACKAGE;
   try {
     const index = await readRecord(directory, "plugin-store/index.json");
     if (!index) return "plugin-not-installed";
@@ -40,12 +49,13 @@ export async function minimaxMigrationPackageIssue(
       return "plugin-index-needs-refresh";
     if (index.entries.some((entry) => !record(entry)))
       return "plugin-index-unreadable";
-    const entries = index.entries.filter((entry) => entry.id === pin.id);
+    const entries = index.entries.filter((entry) => entry.id === "ohmygame/minimax");
     if (!entries.length) return "plugin-not-installed";
     // Do not migrate to an older pinned package while a different version runs.
-    if (entries.length !== 1 || entries[0].version !== pin.version)
-      return "plugin-release-not-reviewed";
+    if (entries.length !== 1) return "plugin-release-not-reviewed";
     const cached = entries[0];
+    const pin = MINIMAX_MIGRATION_PACKAGES.find((release) => release.version === cached.version);
+    if (!pin) return "plugin-release-not-reviewed";
     const root = path.join(
       directory,
       "plugin-store/packages/ohmygame/minimax",

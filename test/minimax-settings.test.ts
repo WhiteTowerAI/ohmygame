@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrateMinimaxSettings } from "../src/daemon/minimax-settings-migration.js";
-import { MINIMAX_MIGRATION_PACKAGE, minimaxMigrationPackageIssue } from "../src/daemon/minimax-migration-package.js";
+import { MINIMAX_MIGRATION_PACKAGES, minimaxMigrationPackageIssue } from "../src/daemon/minimax-migration-package.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
@@ -856,17 +856,17 @@ describe("application settings write ownership", () => {
 });
 
 
-describe("startup MiniMax settings migration", () => {
+describe.each(MINIMAX_MIGRATION_PACKAGES)("startup MiniMax settings migration ($version)", (pin) => {
   async function fixture(run: (directory: string, root: string) => Promise<void>) {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-minimax-startup-"));
-    const root = path.join(directory, "plugin-store/packages/ohmygame/minimax/0.1.0");
+    const root = path.join(directory, "plugin-store/packages/ohmygame/minimax", pin.version);
     try {
-      await cp(path.resolve(".runtime/minimax-migration-package/source"), root, { recursive: true });
+      await cp(path.resolve(".runtime/minimax-migration-packages", pin.version, "source"), root, { recursive: true });
       const index = new PluginIndex(path.join(directory, "plugin-store/index.json"));
       const result = await index.add(root);
       if (!result.ok) throw new Error("Invalid prepared MiniMax fixture");
-      expect(result.entry.digest).toBe(MINIMAX_MIGRATION_PACKAGE.digest);
-      await writeFile(path.join(directory, "plugin-store/origins.json"), JSON.stringify({ "ohmygame/minimax@0.1.0": { type: "npm", package: "@ohmygame/minimax", version: "0.1.0", registry: "npmjs" } }));
+      expect(result.entry.digest).toBe(pin.digest);
+      await writeFile(path.join(directory, "plugin-store/origins.json"), JSON.stringify({ [`${pin.id}@${pin.version}`]: { type: "npm", package: pin.package, version: pin.version, registry: "npmjs" } }));
       await writeFile(path.join(directory, "plugin-store/grants.json"), JSON.stringify({ schema: 2, plugins: { "ohmygame/minimax": { enabled: true, everyProject: true, allowed: capabilityGrants(result.entry.manifest), future: "keep" } }, projects: {} }));
       await writeFile(path.join(directory, "minimax.json"), JSON.stringify({ version: 1, cnApiKey: "old-cn-secret", globalApiKey: "old-global-secret", future: { keep: true } }));
       await run(directory, root);
@@ -897,7 +897,7 @@ describe("startup MiniMax settings migration", () => {
     });
   });
 
-  it.each(["disabled", "scope", "permission", "development", "bytes", "metadata", "version", "missing", "release", "safe-mode", "conflict"])("preserves every settings byte when preflight refuses %s", async (failure) => {
+  it.each(["disabled", "scope", "permission", "development", "bytes", "metadata", "version", "missing", "release", "ambiguous-release", "safe-mode", "conflict"])("preserves every settings byte when preflight refuses %s", async (failure) => {
     await fixture(async (directory, root) => {
       const edit = async (file: string, change: (value: any) => void) => {
         const location = path.join(directory, file), value = JSON.parse(await readFile(location, "utf8"));
@@ -905,10 +905,11 @@ describe("startup MiniMax settings migration", () => {
       };
       if (failure === "missing") await rm(path.join(directory, "plugin-store/index.json"));
       if (failure === "release") await edit("plugin-store/index.json", (v) => { v.entries[0].version = "0.2.0"; });
+      if (failure === "ambiguous-release") await edit("plugin-store/index.json", (v) => { v.entries.push({ ...v.entries[0], version: MINIMAX_MIGRATION_PACKAGES.find((release) => release.version !== pin.version)!.version }); });
       if (failure === "disabled") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].enabled = false; });
       if (failure === "scope") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].everyProject = false; });
       if (failure === "permission") await edit("plugin-store/grants.json", (v) => { v.plugins["ohmygame/minimax"].allowed = []; });
-      if (failure === "development") await edit("plugin-store/origins.json", (v) => { v["ohmygame/minimax@0.1.0"] = { type: "development", folder: root }; });
+      if (failure === "development") await edit("plugin-store/origins.json", (v) => { v[`${pin.id}@${pin.version}`] = { type: "development", folder: root }; });
       if (failure === "bytes") await writeFile(path.join(root, "media/adapter.js"), "changed adapter");
       if (failure === "metadata") await edit("plugin-store/index.json", (v) => { v.entries[0].manifest.description = "Changed cached description"; });
       if (failure === "version") await edit("plugin-store/grants.json", (v) => { v.schema = 99; });
