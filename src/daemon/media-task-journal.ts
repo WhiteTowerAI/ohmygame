@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 // Keeps the task a plugin's media adapter left with its vendor, under the
@@ -48,6 +48,24 @@ export interface MediaTaskJournal {
 const active = new Set<string>();
 
 export class MediaTaskBusyError extends Error {}
+
+/** Structural inspection only: no claim, fingerprint match, vendor call or write.
+ * A recorded task/result is opaque and does not prove it can be resumed.
+ */
+export async function inspectMediaTaskJournal(directory: string, id: string): Promise<"missing" | "unconfirmed" | "task-recorded" | "result-recorded"> {
+  if (!/^[a-zA-Z0-9-]{1,120}$/.test(id)) throw new Error("Invalid task recovery id");
+  try {
+    if ((await lstat(directory)).isSymbolicLink()) throw new Error("Linked task directory");
+    const file = path.join(directory, `${id}.json`), info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("Invalid task file");
+    const entry: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Invalid task record");
+    const value = entry as Record<string, unknown>;
+    if ("version" in value || typeof value.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.fingerprint) ||
+      ("task" in value && "outputs" in value)) throw new Error("Unsupported task record");
+    return "outputs" in value ? "result-recorded" : "task" in value ? "task-recorded" : "unconfirmed";
+  } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw cause; }
+}
 
 export async function mediaTaskJournal(directory: string, id: string): Promise<MediaTaskJournal> {
   if (!/^[a-zA-Z0-9-]{1,120}$/.test(id)) throw new Error("Invalid task recovery id");

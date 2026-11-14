@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["packages/*/src/**/*.ts", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "scripts/prepare-*.ts", "scripts/plugin-schema.ts", "scripts/inspect-minimax-migration.ts", "scripts/plugin-ui-contract.ts", "scripts/plugin-check.ts", "scripts/build-plugin-packages.ts", "scripts/plugin-ui-regression.ts", "packages/plugin-ui/**/*.d.ts", "scripts/test-agent-runtime-live.ts", "vite.config.ts", "vitest.windows.config.ts"]
+  "include": ["packages/*/src/**/*.ts", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "scripts/prepare-*.ts", "scripts/plugin-schema.ts", "scripts/inspect-minimax-migration.ts", "scripts/inspect-minimax-workspaces.ts", "scripts/plugin-ui-contract.ts", "scripts/plugin-check.ts", "scripts/build-plugin-packages.ts", "scripts/plugin-ui-regression.ts", "packages/plugin-ui/**/*.d.ts", "scripts/test-agent-runtime-live.ts", "vite.config.ts", "vitest.windows.config.ts"]
 }

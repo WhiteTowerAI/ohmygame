@@ -24,7 +24,10 @@ const REGIONS = [
 const MODELS = ["MiniMax-H3", "MiniMax-H3-Max"];
 
 /** Reads only these three stores. Never starts the app, loads projects or calls a vendor. */
-export async function inspectMinimaxMigration(dataDirectory: string) {
+export async function inspectMinimaxMigration(
+  dataDirectory: string,
+  workspaces: readonly string[] = [],
+) {
   const directory = await stat(dataDirectory).catch(() => undefined);
   if (!directory?.isDirectory())
     throw new Error("An existing app data directory is required");
@@ -130,11 +133,19 @@ export async function inspectMinimaxMigration(dataDirectory: string) {
   if (defaultVideoModel.action === "unsupported-model")
     blockers.push("default-video-model-unsupported");
 
+  const canvas = workspaces.length
+    ? await (
+        await import("./inspect-minimax-workspaces.js")
+      ).inspectMinimaxWorkspaces(dataDirectory, workspaces, REGIONS, MODELS)
+    : undefined;
+  if (canvas) blockers.push(...canvas.blockers);
+
   // Only fixed identifiers, booleans and counts leave this function. Never
   // return keys, key hashes, unknown metadata, parser errors or arbitrary IDs.
   return {
-    version: 1,
-    scope: "settings-only",
+    version: canvas ? 2 : 1,
+    scope: canvas ? "selected-workspaces" : "settings-only",
+    ...(canvas ? { canvas } : {}),
     activation: "held",
     stores: {
       legacy: legacyReadable,
@@ -185,18 +196,25 @@ async function readable(load: () => Promise<void>): Promise<boolean> {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const { values } = parseArgs({
-      options: { "data-dir": { type: "string" }, help: { type: "boolean" } },
+      options: {
+        "data-dir": { type: "string" },
+        workspace: { type: "string", multiple: true },
+        help: { type: "boolean" },
+      },
     });
     if (values.help) {
       console.log(
-        "Usage: bun run inspect:minimax-migration --data-dir <copied-app-data-directory>",
+        "Usage: bun run inspect:minimax-migration --data-dir <copied-app-data-directory> [--workspace <copied-project-directory>]...",
       );
     } else if (!values["data-dir"]) {
-      console.error("Required: --data-dir <copied-app-data-directory>");
+      console.error(
+        "Required: --data-dir <copied-app-data-directory> [--workspace <copied-project-directory>]...",
+      );
       process.exitCode = 2;
     } else {
       const report = await inspectMinimaxMigration(
         path.resolve(values["data-dir"]),
+        values.workspace?.map((workspace) => path.resolve(workspace)),
       );
       console.log(JSON.stringify(report, null, 2));
       process.exitCode = report.blockers.length ? 1 : 0;
