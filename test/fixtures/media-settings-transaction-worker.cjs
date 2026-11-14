@@ -54,10 +54,13 @@ syncBuiltinESMExports();
   const native3d = ["meshy", "tripo", "hyper3d"].includes(vendor);
   const migration = native3d
     ? (await import("../../src/daemon/model3d-settings-transaction.ts")).model3DSettingsTransaction(vendor)
-    : vendor === "seedance"
+    : vendor === "elevenlabs"
+      ? await import("../../src/daemon/elevenlabs-settings-transaction.ts")
+      : vendor === "seedance"
       ? await import("../../src/daemon/seedance-settings-transaction.ts")
       : await import("../../src/daemon/minimax-settings-transaction.ts");
   if (action === "activate") {
+    if (vendor === "elevenlabs") throw new Error("ElevenLabs activation is held");
     const { acquireProfileOwnership } =
       await import("../../src/daemon/profile-ownership.ts");
     process.once("exit", acquireProfileOwnership([directory]));
@@ -74,6 +77,7 @@ syncBuiltinESMExports();
   } else if (action === "startup")
     await (
       native3d ? migration.recoverInterruptedSettings
+      : vendor === "elevenlabs" ? migration.recoverInterruptedElevenLabsSettings
       : vendor === "seedance"
         ? migration.recoverInterruptedSeedanceSettings
         : migration.recoverInterruptedMinimaxSettings
