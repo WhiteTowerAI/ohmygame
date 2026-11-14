@@ -854,8 +854,12 @@ export class ProjectManager {
       if (source.absolutePath === destination) return source.relativePath;
       try {
         const existing = await lstat(destination);
-        // On a case-insensitive file system a name that differs only in letter case is the source entry itself.
-        if (existing.isSymbolicLink() || await realpath(destination) !== source.absolutePath) throw new ProjectAssetError("A file or folder with that name already exists", 409);
+        // realpath may alias hard links on some runtimes. Only a case change
+        // without a separate directory entry may resolve to the source itself.
+        const entries = await readdir(path.dirname(source.absolutePath));
+        const caseOnly = normalizedName.toLowerCase() === path.basename(source.absolutePath).toLowerCase()
+          && !entries.includes(normalizedName);
+        if (!caseOnly || existing.isSymbolicLink() || await realpath(destination) !== source.absolutePath) throw new ProjectAssetError("A file or folder with that name already exists", 409);
       } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
       await rename(source.absolutePath, destination);
       try {
