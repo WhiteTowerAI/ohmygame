@@ -786,6 +786,25 @@ not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
 
+### ElevenLabs Beta package verification
+
+`@ohmygame/elevenlabs@0.1.0` was published from
+[official plugins #25](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/25).
+The npm registry signature, tarball SHA-512, all nine packaged files against the
+reviewed source, and the host package digest were verified. It requires API 2.21
+and declares `beta: true`. The market record, index checksum and served logo
+also match the verified release. Provenance is published by the release workflow;
+the local verification here validates the registry signature, not SLSA provenance.
+
+`ELEVENLABS_MIGRATION_PACKAGES` locks those actual published bytes. Preparation
+extracts them as disposable integration fixtures; they do not enter the
+preinstalled plugin index. The read-only package gate requires one matching
+managed npm installation, current verified index metadata and all existing
+app-wide permission grants. Changed files, unreviewed versions, disabled or
+project-only installations and missing grants hold migration. The gate never
+installs/enables a plugin or changes settings. Native cutover still requires
+real-account acceptance and the remaining startup migration work.
+
 ### ElevenLabs settings inspection
 
 The optional ElevenLabs Beta adapter requires API 2.21 and includes speech,
