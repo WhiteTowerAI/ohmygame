@@ -1174,3 +1174,25 @@ then removes the temporary copy and checks that the supplied files are unchanged
 There is no `--apply` option, startup hook, plugin installation, permission change
 or vendor request. Real package/enablement checks, local vendor acceptance,
 saved-reference migration and native task recovery remain required before cutover.
+
+#### Prepared 3D reference migration
+
+The shared migration state accepts reviewed per-provider model IDs, generation
+operations and processing connections after a settings transaction commits.
+Startup does not supply this 3D state yet: real vendor acceptance and native
+task recovery must be completed before activation.
+
+With that committed state, project 3D defaults and future canvas selections move
+to the matching plugin. Known custom versions retain their IDs. Generation nodes
+map only supported text/image selections; unknown IDs stay unchanged. Remesh,
+retexture and animation nodes map old native geometry IDs to the plugin processing
+connection, matching the native resolver's existing behavior. An animation node
+without an explicit model retains its implicit Meshy connection when Meshy moves;
+a Tripo-only migration does not change that default.
+
+Canvas loads reuse the existing validation, lock, size limit and conflict checks;
+saves normalize old client references too. Options, prompts, action order, sources,
+outputs and layout remain intact. Project metadata keeps unrelated fields, while
+unsupported board data is refused unchanged. Job inputs, recovery IDs and native
+paid-stage journals are never mapped by this step, and their retry routing remains
+a separate cutover requirement.

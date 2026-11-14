@@ -5,23 +5,35 @@ import {
 } from "../shared/media-migration-errors.js";
 import type {
   AgentModelRef,
+  Model3DOperation,
   RunToolRequest,
   ToolJob,
 } from "../shared/contracts.js";
 import { migratedMinimaxModel } from "./minimax-model-migration.js";
 import { SEEDANCE_MIGRATION_REGIONS } from "./seedance-migration-settings.js";
+import type { Native3DProviderId } from "../shared/model3d-presets.js";
+
+/** Reviewed identities from a committed settings migration, including custom versions. */
+export interface Model3DReferenceMigration {
+  source: Native3DProviderId;
+  target: string;
+  models: readonly { id: string; operations: readonly Model3DOperation[] }[];
+  processing?: { id: string; operations: readonly Model3DOperation[] };
+}
 
 export interface MediaMigrationState {
   minimax?: boolean;
   seedance?: boolean;
+  model3D?: readonly Model3DReferenceMigration[];
 }
 
 /** Map only reviewed identities of the selected media kind in committed profiles. */
 export function migratedMediaModel<T extends AgentModelRef>(
   model: T,
-  kind: "image" | "video",
+  kind: "image" | "video" | "3d",
   state: MediaMigrationState,
 ): T {
+  if (kind === "3d") return migratedModel3DReference(model, state);
   if (kind === "video" && state.minimax) {
     const mapped = migratedMinimaxModel(model);
     if (mapped !== model) return mapped;
@@ -38,6 +50,38 @@ export function migratedMediaModel<T extends AgentModelRef>(
     : model;
 }
 
+// compat: since beta.5.8, remove from beta.7 and 2026-12-15. Only future
+// selections move after settings commit; native paid task inputs keep their owner.
+function migratedModel3DReference<T extends AgentModelRef>(
+  model: T,
+  state: MediaMigrationState,
+  operation?: Model3DOperation,
+): T {
+  const mapping = state.model3D?.find(
+    ({ source }) => source === model.provider,
+  );
+  if (!mapping) return model;
+  if (
+    operation === "remesh" ||
+    operation === "retexture" ||
+    operation === "animate"
+  ) {
+    // Native processing already resolves old geometry IDs to its connection.
+    const processing = mapping.processing;
+    return processing?.operations.includes(operation)
+      ? { ...model, provider: mapping.target, id: processing.id }
+      : model;
+  }
+  const supported = mapping.models.some(
+    ({ id, operations }) =>
+      id === model.id &&
+      (operation
+        ? operations.includes(operation)
+        : operations.some((value) => value === "image" || value === "text")),
+  );
+  return supported ? { ...model, provider: mapping.target } : model;
+}
+
 /** Only future selections move; preserve outputs, jobs, references and raw board metadata. */
 export function migratedMediaBoard(
   board: CanvasBoard,
@@ -45,6 +89,29 @@ export function migratedMediaBoard(
 ): CanvasBoard {
   let changed = false;
   const nodes = board.nodes.map((node) => {
+    if (node.type === "model-3d" || node.type === "animate-3d") {
+      const operation =
+        node.type === "animate-3d"
+          ? "animate"
+          : (node.data.operation ?? "image");
+      let model =
+        node.data.model &&
+        migratedModel3DReference(node.data.model, state, operation);
+      if (!node.data.model && node.type === "animate-3d") {
+        // The old implicit animation connection is Meshy, irrespective of generation defaults.
+        const mapping = state.model3D?.find(
+          ({ source, processing }) =>
+            source === "meshy" && processing?.operations.includes("animate"),
+        );
+        if (mapping)
+          model = { provider: mapping.target, id: mapping.processing!.id };
+      }
+      if (model === node.data.model) return node;
+      changed = true;
+      return node.type === "model-3d"
+        ? { ...node, data: { ...node.data, model } }
+        : { ...node, data: { ...node.data, model } };
+    }
     if ((node.type !== "image" && node.type !== "video") || !node.data.model)
       return node;
     const model = migratedMediaModel(node.data.model, node.type, state);

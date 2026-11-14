@@ -28,6 +28,54 @@ import { rehearseModel3DMigration } from "../scripts/rehearse-model3d-migration.
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { PluginMediaProviders } from "../src/daemon/plugin-media-providers.js";
 import { PluginMediaModelChoices } from "../src/daemon/plugin-media-models.js";
+import { migratedMediaBoard, migratedMediaModel, type MediaMigrationState } from "../src/daemon/media-model-migration.js";
+import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
+
+describe("prepared 3D model reference migration", () => {
+  const state: MediaMigrationState = { model3D: [{ source: "meshy", target: "plugin.ohmygame.meshy.meshy", models: [{ id: "custom-version", operations: ["text", "image"] }], processing: { id: "connection", operations: ["remesh", "retexture", "animate"] } }] };
+  it("maps a known custom generation selection without changing its settings", () => {
+    const board = createCanvasBoard();
+    board.nodes.push({ id: "model", type: "model-3d", position: { x: 10, y: 20 }, data: { model: { provider: "meshy", id: "custom-version" }, operation: "text", prompt: "Keep this direction", images: [], targetPolycount: 2000, texture: false, pbr: false } });
+    const expected = structuredClone(board);
+    (expected.nodes[0]!.data as { model: { provider: string } }).model.provider = "plugin.ohmygame.meshy.meshy";
+    expect(migratedMediaBoard(board, state)).toEqual(expected);
+    expect((board.nodes[0]!.data as { model: { provider: string } }).model.provider).toBe("meshy");
+  });
+  it.each(["image", "text", "remesh", "retexture", "animate"] as const)("maps only the selected %s capability and retains reference metadata", (operation) => {
+    const board = createCanvasBoard();
+    const model = { provider: "meshy", id: operation === "text" || operation === "image" ? "custom-version" : "old-geometry-version", label: "My choice" };
+    board.nodes.push(operation === "animate"
+      ? { id: "node", type: "animate-3d", position: { x: 0, y: 0 }, data: { model, heightMeters: 1.8, actionIds: [3, 1], options: { animateInPlace: true } } }
+      : { id: "node", type: "model-3d", position: { x: 0, y: 0 }, data: { model, operation, images: [], targetPolycount: 2000, texture: false, pbr: false } });
+    const expected = structuredClone(board);
+    const node = expected.nodes[0]!;
+    if (node.type !== "model-3d" && node.type !== "animate-3d") throw new Error("Expected 3D node");
+    node.data.model = { ...model, provider: "plugin.ohmygame.meshy.meshy", id: ["image", "text"].includes(operation) ? model.id : "connection" };
+    const migrated = migratedMediaBoard(board, state);
+    expect(migrated).toEqual(expected);
+    expect(migratedMediaBoard(migrated, state)).toBe(migrated);
+    expect(migratedMediaBoard(board, {})).toBe(board);
+    const unsupported: MediaMigrationState = { model3D: [{ ...state.model3D![0]!, models: [], processing: undefined }] };
+    expect(migratedMediaBoard(board, unsupported)).toBe(board);
+  });
+  it("keeps unknown generation IDs, unrelated kinds and providers, and already mapped selections", () => {
+    for (const ref of [{ provider: "meshy", id: "unknown" }, { provider: "cloud-hyper3d", id: "custom-version" }, { provider: "relay", id: "custom-version" }, { provider: "plugin.ohmygame.meshy.meshy", id: "custom-version" }])
+      expect(migratedMediaModel(ref, "3d", state)).toBe(ref);
+    const ref = { provider: "meshy", id: "custom-version", label: "Named" };
+    expect(migratedMediaModel(ref, "image", state)).toBe(ref);
+    expect(migratedMediaModel(ref, "video", state)).toBe(ref);
+    expect(migratedMediaModel(ref, "3d", state)).toEqual({ ...ref, provider: "plugin.ohmygame.meshy.meshy" });
+  });
+  it("retains the implicit Meshy animation connection without changing implicit generation defaults", () => {
+    const board = createCanvasBoard();
+    board.nodes.push({ id: "animate", type: "animate-3d", position: { x: 0, y: 0 }, data: { actionIds: [0], heightMeters: 1.7 } });
+    board.nodes.push({ id: "generate", type: "model-3d", position: { x: 0, y: 0 }, data: { images: [], targetPolycount: 4000, texture: true, pbr: false } });
+    const migrated = migratedMediaBoard(board, state);
+    expect(migrated.nodes[0]).toMatchObject({ data: { model: { provider: "plugin.ohmygame.meshy.meshy", id: "connection" } } });
+    expect(migrated.nodes[1]).toBe(board.nodes[1]);
+    expect(migratedMediaBoard(board, { model3D: [{ ...state.model3D![0]!, source: "tripo", target: "plugin.ohmygame.tripo.tripo" }] })).toBe(board);
+  });
+});
 
 describe.each(MODEL3D_MIGRATION_PACKAGES)(
   "$provider reviewed Beta migration package",
