@@ -1556,6 +1556,12 @@ instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
 attribute must stay in `observedAttributes` so setting it later warns too. It
 can go in the next major.
 
+Choose by responsibility: **Basics** provide layout, controls and feedback; **Composites** combine them for recurring tasks; **Plugin integration** connects controls to OhMyGame commands. These are usage groups, not separate packages. The gallery uses the same groups after its Overview.
+
+#### Basics
+
+Use these to build a panel's layout and interactions. Keep controls on host tokens; choose Section for content grouping and Card when a separate surface helps.
+
 | Component | What it is |
 | --- | --- |
 | `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
@@ -1564,37 +1570,66 @@ can go in the next major.
 | `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
 | `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
 | `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
-| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
 | `omg-divider` | A line between groups. `label`. |
 | `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
-| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
 | `omg-badge` | A short label. `tone`: `neutral`, `info`, `good`, `warning`, `bad`. |
 | `omg-progress` | A bar, or a moving one without `value`. `value`, `max`, `label`. |
 | `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
-| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
 | `omg-popover` | Non-modal floating content (API 2.7.0). `label`, `open`, `disabled`, `placement`; optional `trigger` text/icon slot, default content slot. User changes fire `omg-toggle`. |
 | `omg-menu` | Action menu (API 2.7.0). Same trigger attributes; `items` property with unique `value`, `label`, optional `description`, `disabled`, `danger`, `checked`; fires `omg-select` with `detail.value`. |
-| `omg-tooltip` | Wrap one focusable control (API 2.7.0). Plain `content`, optional `placement`; delayed hover, immediate keyboard focus and Esc dismissal. Never hide essential instructions here. |
+| `omg-tooltip` | Wrap one focusable control (API 2.7.0). Plain `content`, optional `placement`; immediate hover and keyboard focus; activation or Esc dismisses it. Never hide essential instructions here. |
 | `omg-combobox` | Searchable `<option>` choice (API 2.7.0). Same field attributes as select, plus `placeholder`, `loading`, `loading-label`, `empty-label`, `manual-filter`. Read-only `query`; `omg-query` reports search text, `input`/`change` report committed choices. |
-| `omg-table` | Semantic data table (API 2.7.0). `label`, `loading`, `empty-label`; `columns` and `rows` properties, stable unique keys. Text cells are escaped; Node cells stay mounted through unchanged updates. |
-| `omg-pagination` | Controlled page navigation (API 2.7.0). `page`, `pages`, `disabled`, `label`, `previous-label`, `next-label`; `omg-page-change` requests `detail.page`, caller updates only after success. |
 | `omg-disclosure` | Collapsible content (API 2.7.0). `heading`, `open`, `disabled`; default content slot. A transparent title row with a leading arrow, native Enter/Space activation, and indented content. Closing hides content without removing it and returns focus from inside to the trigger. `omg-toggle` fires for user activation with `detail.open`; setting `open` in code is silent. Parts: `button`, `heading`, `icon`, `body`. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
-| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
 | `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. Numeric inputs accept `min`, `max`, `step` and expose `checkValidity()` (API 2.7.0). |
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
-| `omg-file-picker` | Local file chooser and drop zone (API 2.7.0). `accept`, `multiple`, shared field attributes and localized `choose-label`, `drop-label`, `clear-label`, `rejected-label`. Read-only `files`, silent `clear()`, user `input`/`change` and `omg-reject` events. |
 | `omg-dialog` | Custom modal content within the plugin iframe (API 2.7.0). `heading`, `description`, `open`, `close-label`; default and `footer` slots. Cancelable `omg-close` reports user dismissal; setting `open` is silent. |
 | `omg-slider` | Native range and numeric readout (API 2.7.0). `min` (0), `max` (100), `step` (1), numeric `value`; `input` while adjusting, `change` when committed. |
 | `omg-radio-group` | Visible vertical choices (API 2.7.0), from `<option>` children with optional `data-description`. `value`; native arrow/Space navigation, option/group `disabled`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
 | `omg-path` | Read-only `path`; subdues directories and preserves the filename when space is narrow. The full path stays selectable and is available through the native title. Does not open files. |
-| `omg-image-preview` | Image button with `src`/`file`, `alt`, thumbnail `ratio`/`fit`, `pixelated` and `checker`. Opens the whole picture in the shared dialog; `label` names the trigger and `close-label` localizes its close button. `open` controls visibility; cancelable `omg-close` is forwarded from the dialog. Project images use the existing file bridge; the full image is loaded only while open. |
 | `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+
+#### Composites
+
+Use these for asset selection and inspection, record browsing, setup flows or build output. The plugin owns data loading and business transitions; file selection alone does not upload.
+
+| Component | What it is |
+| --- | --- |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
+| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
+| `omg-table` | Semantic data table (API 2.7.0). `label`, `loading`, `empty-label`; `columns` and `rows` properties, stable unique keys. Text cells are escaped; Node cells stay mounted through unchanged updates. |
+| `omg-pagination` | Controlled page navigation (API 2.7.0). `page`, `pages`, `disabled`, `label`, `previous-label`, `next-label`; `omg-page-change` requests `detail.page`, caller updates only after success. |
+| `omg-file-picker` | Local file chooser and drop zone (API 2.7.0). `accept`, `multiple`, shared field attributes and localized `choose-label`, `drop-label`, `clear-label`, `rejected-label`. Read-only `files`, silent `clear()`, user `input`/`change` and `omg-reject` events. |
+| `omg-image-preview` | Image button with `src`/`file`, `alt`, thumbnail `ratio`/`fit`, `pixelated` and `checker`. Opens the whole picture in the shared dialog; `label` names the trigger and `close-label` localizes its close button. `open` controls visibility; cancelable `omg-close` is forwarded from the dialog. Project images use the existing file bridge; the full image is loaded only while open. |
 | `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
+
+#### Plugin integration
+
+Use CommandButton when a manifest command owns the action and its progress/error handling. Use Button with caller-managed state for custom orchestration. Host toasts and confirmations are bridge APIs, not page components.
+
+| Component | What it is |
+| --- | --- |
+| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
+
+#### Shared style and panel design
+
+Keep host typography, spacing, surfaces and control interactions. Express a plugin's
+identity through its icon, content, brand accent and task-specific layout or visuals.
+Group related fields, keep short values compact and make the primary action clear;
+use cards only when a separate surface helps. Tools and panel actions should share
+domain operations, with business state independent of panel visibility.
+
+The Plugin Builder and game conversations receive these conventions in the generated
+plugin-creator Skill's `references/panels.md` (`src/daemon/plugin-authoring.ts`),
+alongside the current component declarations. Before handover, inspect light/dark
+themes, a narrow panel (about 400px), the intended workspace size, the primary flow,
+failure recovery and keyboard focus. Package validation checks contracts; rendered
+inspection is still needed to assess layout and usability.
 
 Warning feedback components share [Radix Amber](https://github.com/radix-ui/colors):
 step 11 for banner headings, badge text and status dots in each host color scheme;
@@ -1743,7 +1778,7 @@ For a plugin maintained outside this repository, `plugin-ui:regression` accepts
 `--scenarios <file>` before its plugin-folder arguments. The JSON uses the same
 plugin-ID → scenario-name → command-results structure as the built-in fixtures.
 
-The gallery opens on common examples; the remaining tabs retain the full state catalog. Tooltip hints appear immediately on hover or focus and dismiss on activation or Escape, matching the host controls.
+The gallery opens on common examples; Basics, Composites and Plugin integration retain the full state catalog. Tooltip hints appear immediately on hover or focus and dismiss on activation or Escape, matching the host controls.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
