@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -126,4 +126,59 @@ describe("Doubao Voice settings", () => {
     expect(seedOnly.key("volcengine-seed-audio")).toBe("seed-only");
     expect(seedOnly.key("volcengine-tts")).toBeUndefined();
   });
+});
+
+
+it("refuses unknown or malformed current/legacy settings before any merge, deletion or later update", async () => {
+  for (const [file, value] of [
+    ["volcengine-tts.json", { version: 2, apiKey: "private-secret" }],
+    ["doubao-voice.json", { version: 2, services: {} }],
+    ["doubao-voice.json", { version: 1, services: [] }],
+    ["doubao-voice.json", { version: 1, services: { "volcengine-tts": 1 } }],
+    ["doubao-voice.json", { version: 1, services: { "future-service": "private-secret" } }],
+    ["doubao-voice.json", { version: 1, services: {}, apiKey: 1 }],
+    ["volcengine-seed-audio.json", { version: 2, apiKey: "private-secret" }],
+    ["volcengine-tts.json", { version: 1, apiKey: "private-secret", future: "keep" }],
+    ["volcengine-seed-audio.json", { version: 1, apiKey: "private-secret", future: "keep" }],
+    ["volcengine-tts.json", { version: 1, apiKey: "private-secret", defaultVoiceId: 1 }],
+    ["volcengine-tts.json", "malformed-private-secret"],
+  ] as const) {
+    const root = await directory("invalid-legacy");
+    const files = ["doubao-voice.json", "volcengine-tts.json", "volcengine-seed-audio.json"];
+    try {
+      await writeFile(path.join(root, files[0]!), JSON.stringify({ version: 1, apiKey: "current", services: { "volcengine-tts": null }, defaultVoiceId: "saved-voice" }));
+      for (const name of files.slice(1)) await writeFile(path.join(root, name), JSON.stringify({ version: 1, apiKey: "old" }));
+      await writeFile(path.join(root, file), typeof value === "string" ? value : JSON.stringify(value));
+      const before = await Promise.all(files.map(name => readFile(path.join(root, name))));
+      const settings = new DoubaoVoiceSettingsStore(root);
+      const failure = await settings.load().catch(error => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure.message).toMatch(/Doubao Voice settings/);
+      expect(failure.message).not.toContain("private-secret");
+      await expect(settings.update("replacement")).rejects.toThrow("cannot be overwritten");
+      await expect(settings.clear()).rejects.toThrow("cannot be overwritten");
+      expect(await Promise.all(files.map(name => readFile(path.join(root, name))))).toEqual(before);
+      await writeFile(path.join(root, file), JSON.stringify(file === "doubao-voice.json" ? { version: 1, services: {} } : { version: 1 }));
+      await settings.load();
+      await settings.update("repaired-key");
+      expect(settings.key("volcengine-tts")).toBe("repaired-key");
+      expect(settings.key("volcengine-seed-audio")).toBe("repaired-key");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
+it("keeps current disconnection overrides and unknown current metadata when validated legacy files are merged", async () => {
+  const root = await directory("current-precedence");
+  try {
+    await writeFile(path.join(root, "doubao-voice.json"), JSON.stringify({ version: 1, apiKey: "current", services: { "volcengine-tts": null }, future: { keep: true } }));
+    await writeFile(path.join(root, "volcengine-tts.json"), JSON.stringify({ version: 1, apiKey: "old", defaultVoiceId: "saved-voice" }));
+    const settings = new DoubaoVoiceSettingsStore(root);
+    await settings.load();
+    expect(settings.key("volcengine-tts")).toBeUndefined();
+    expect(settings.key("volcengine-seed-audio")).toBe("current");
+    expect(settings.defaultVoiceId()).toBe("saved-voice");
+    await settings.clear();
+    await settings.update("next");
+    expect(JSON.parse(await readFile(path.join(root, "doubao-voice.json"), "utf8"))).toEqual({ version: 1, apiKey: "next", services: {}, defaultVoiceId: "saved-voice", future: { keep: true } });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

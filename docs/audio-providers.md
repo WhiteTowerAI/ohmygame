@@ -55,6 +55,13 @@ says when they still differ. Credentials remain in the daemon's settings
 directory with restricted file permissions and are never returned by settings
 or catalog endpoints.
 
+Before merging either earlier settings file, the loader validates its version
+and known fields. Future/malformed legacy files or unknown legacy metadata are
+left untouched and loading fails before any settings write or deletion. A failed
+load also refuses later mutations until a readable load succeeds. Current
+settings retain unknown top-level metadata, explicit service disconnections take
+precedence over old keys, and the default voice survives disconnect/reconnect.
+
 The provider ID is `volcengine-tts`, from before Seed Audio joined it, so saved
 speech choices still match. Seed Audio used to have its own ID,
 `volcengine-seed-audio`; boards, drafts, copied nodes, plugin presets,
