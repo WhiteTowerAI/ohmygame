@@ -50,7 +50,7 @@ export async function rehearseMinimaxMigration(dataDirectory: string) {
   try {
     original = await snapshot(dataDirectory);
     stage = "copy-settings";
-    // mkdtemp creates a private (0700) directory; every copied/written file is 0600.
+    // POSIX: mkdtemp creates a 0700 directory and every written file is 0600.
     staged = await mkdtemp(path.join(tmpdir(), "ohmygame-minimax-rehearsal-"));
     for (const [file, bytes] of original)
       if (bytes !== undefined) await write(staged, file, bytes);

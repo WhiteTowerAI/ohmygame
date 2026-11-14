@@ -400,8 +400,23 @@ describe("MiniMax migration inspection", () => {
         expect(report).toMatchObject({ status: "failed", checks: { rollback: true, sourceUnchanged: true, cleanup: false } });
         expect(report.blockers).toContain("temporary-cleanup-failed");
         expect(JSON.stringify(report)).not.toContain(secret);
-        await expect(access(staged)).resolves.toBeUndefined();
+        expect((await lstat(staged)).isDirectory()).toBe(true);
       } finally { rehearsalHooks.beforeRemove = undefined; await rm(staged, { recursive: true, force: true }); }
+    });
+  });
+
+  it.skipIf(process.platform === "win32")("refuses linked source settings before making a temporary copy", async () => {
+    await fixture({ "outside.json": { version: 1, cnApiKey: secret } }, async (directory) => {
+      const link = path.join(directory, "minimax.json");
+      let created = false;
+      rehearsalHooks.created = () => { created = true; };
+      await symlink(path.join(directory, "outside.json"), link);
+      try {
+        const report = await rehearseMinimaxMigration(directory);
+        expect(report).toMatchObject({ status: "failed", blockers: ["read-source-failed"], checks: { cleanup: null } });
+        expect(created).toBe(false);
+        expect(JSON.stringify(report)).not.toContain(secret);
+      } finally { await rm(link); }
     });
   });
 
