@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginMediaModels } from "../src/shared/plugin-manifest.js";
 import type { ImageModel, VideoModel } from "../src/shared/contracts.js";
 import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { MediaTaskReuse } from "../src/daemon/media-task-reuse.js";
@@ -831,6 +832,63 @@ describe("plugin media providers: listing the vendor's models", () => {
   it("says why the adapter couldn't list its models", async () => {
     const { media } = await setup(`export default { image: { async models() { return { error: "no access" }; }, async start() { return { error: "x" }; } } };`, { media: discovering });
     await expect(media.listModels("plugin.acme.flow.flow", "image", true)).rejects.toThrow("Flow couldn't list its models: no access");
+  });
+
+  it("preserves store extensions and absent model preferences across updates and restart", async () => {
+    const provider = "plugin.acme.flow.flow", file = path.join(root, "plugin-media-models.json");
+    const stored = { version: 1, future: { enabled: true }, providers: {
+      [provider]: { futureKind: { models: ["future"] }, image: { added: [], hidden: ["temporarily-absent"], future: { keep: true } } },
+      "plugin.other.future": { futureKind: { opaque: [1, 2] } },
+    } };
+    await writeFile(file, JSON.stringify(stored));
+    const { media } = await setup(LISTING, { choices: new PluginMediaModelChoices(root) });
+    await media.setModelsShown(provider, "image", ["kolors"], false);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...stored, providers: { ...stored.providers,
+      [provider]: { ...stored.providers[provider], image: { ...stored.providers[provider].image, hidden: ["temporarily-absent", "kolors"] } },
+    } });
+    const again = await setup(LISTING, { choices: new PluginMediaModelChoices(root) });
+    expect(await ids(again.media)).toEqual([]);
+    await again.media.setModelsShown(provider, "image", ["kolors"], true);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(stored);
+  });
+
+  it.each([
+    { version: 2, providers: {} },
+    { version: 1, providers: { other: null } },
+    { version: 1, providers: { other: { image: { added: [{ id: "unreadable" }], hidden: [] } } } },
+    { version: 1, providers: { other: { image: { added: [], hidden: [7] } } } },
+  ])("refuses writes when a saved choice cannot be understood: %j", async (stored) => {
+    const file = path.join(root, "plugin-media-models.json"), text = JSON.stringify(stored, null, 4);
+    await writeFile(file, text);
+    const { media } = await setup(LISTING, { choices: new PluginMediaModelChoices(root) });
+    await expect(media.setModelsShown("plugin.acme.flow.flow", "image", ["kolors"], false)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await readFile(file, "utf8")).toBe(text);
+  });
+
+  it("isolates nested snapshots and failed changes while serializing valid updates", async () => {
+    const choices = new PluginMediaModelChoices(root), provider = "plugin.acme.flow.flow";
+    const model = { id: "flux", title: "FLUX", resolutions: ["1K"], aspectRatios: ["1:1"], data: { nested: { keep: true } } };
+    await choices.update(provider, "image", () => ({ added: [model as unknown as PluginMediaModels["image"]], hidden: [] }));
+    model.data.nested.keep = false;
+    const snapshot = await choices.get(provider, "image");
+    snapshot.added[0]!.resolutions.length = 0;
+    expect((await choices.get(provider, "image")).added[0]).toMatchObject({ resolutions: ["1K"], data: { nested: { keep: true } } });
+    const file = path.join(root, "plugin-media-models.json"), before = await readFile(file, "utf8");
+    await expect(choices.update(provider, "image", choice => {
+      choice.added[0]!.resolutions.length = 0;
+      throw new Error("cancel change");
+    })).rejects.toThrow("cancel change");
+    await expect(choices.update(provider, "image", choice => {
+      choice.added[0]!.resolutions.length = 0;
+      return choice;
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect((await choices.get(provider, "image")).added[0]!.resolutions).toEqual(["1K"]);
+    await Promise.all([
+      choices.update(provider, "image", choice => ({ ...choice, hidden: [...choice.hidden, "first"] })),
+      choices.update(provider, "image", choice => ({ ...choice, hidden: [...choice.hidden, "second"] })),
+    ]);
+    expect((await new PluginMediaModelChoices(root).get(provider, "image")).hidden).toEqual(["first", "second"]);
   });
 
   it("never writes over a choices file it can't read", async () => {

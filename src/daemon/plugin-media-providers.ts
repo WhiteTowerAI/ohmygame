@@ -617,8 +617,8 @@ export class PluginMediaProviders {
           added.set(id, model);
         }
       }
-      // Ids of models the manifest no longer lists are dropped, so a stale one isn't kept forever.
-      return { added: [...added.values()], hidden: [...hidden].filter((id) => defaults.has(id)) };
+      // Keep preferences for models an older or temporarily changed manifest does not list.
+      return { added: [...added.values()], hidden: [...hidden] };
     });
     return this.listModels(providerId, kind);
   }

@@ -15,6 +15,7 @@ export interface PluginMediaModelChoice<K extends PluginMediaKind = PluginMediaK
 }
 
 interface Stored {
+  [key: string]: unknown;
   version: 1;
   providers: Record<string, Partial<Record<PluginMediaKind, PluginMediaModelChoice>>>;
 }
@@ -43,7 +44,7 @@ export class PluginMediaModelChoices {
   async get<K extends PluginMediaKind>(providerId: string, kind: K): Promise<PluginMediaModelChoice<K>> {
     await this.#load();
     const choice = this.#state.providers[providerId]?.[kind];
-    return { added: [...(choice?.added ?? [])] as Array<PluginMediaModels[K]>, hidden: [...(choice?.hidden ?? [])] };
+    return structuredClone({ added: (choice?.added ?? []) as Array<PluginMediaModels[K]>, hidden: choice?.hidden ?? [] });
   }
 
   /** Changes one provider's choice of one kind, one change at a time. */
@@ -52,12 +53,15 @@ export class PluginMediaModelChoices {
       await this.#load();
       if (this.#unreadable) throw new PluginMediaModelChoiceError(`${this.#unreadable} Fix or remove the file to change which models are on.`, 409);
       const next = change(await this.get(providerId, kind));
-      const providers = { ...this.#state.providers, [providerId]: { ...this.#state.providers[providerId], [kind]: next } };
-      const state: Stored = { version: 1, providers };
+      const previous = this.#state.providers[providerId];
+      const providers = { ...this.#state.providers, [providerId]: { ...previous, [kind]: { ...previous?.[kind], added: next.added, hidden: next.hidden } } };
+      const text = JSON.stringify({ ...this.#state, providers }, null, 2);
+      const state = parseStored(text);
+      if (!state) throw new PluginMediaModelChoiceError("The updated model choices are invalid.");
       if (this.#file) {
         await mkdir(path.dirname(this.#file), { recursive: true });
         const temporary = `${this.#file}.${process.pid}.tmp`;
-        await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`);
+        await writeFile(temporary, `${text}\n`);
         await rename(temporary, this.#file);
       }
       this.#state = state;
@@ -85,7 +89,7 @@ export class PluginMediaModelChoices {
   }
 }
 
-/** The stored choices, with any model that no longer passes the checks left out; undefined when it isn't such a file. */
+/** Preserve extensions verbatim; reject the whole store if any known choice cannot be read. */
 function parseStored(text: string): Stored | undefined {
   let value: unknown;
   try {
@@ -94,22 +98,16 @@ function parseStored(text: string): Stored | undefined {
     return undefined;
   }
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.providers)) return undefined;
-  const providers: Stored["providers"] = {};
-  for (const [providerId, kinds] of Object.entries(value.providers)) {
+  for (const kinds of Object.values(value.providers)) {
     if (!isRecord(kinds)) return undefined;
-    const choices: Partial<Record<PluginMediaKind, PluginMediaModelChoice>> = {};
     for (const kind of PLUGIN_MEDIA_KINDS) {
       const choice = kinds[kind];
       if (choice === undefined) continue;
       if (!isRecord(choice) || !Array.isArray(choice.added) || !Array.isArray(choice.hidden) || !choice.hidden.every((id) => typeof id === "string")) return undefined;
-      choices[kind] = {
-        added: choice.added.filter((model) => pluginMediaModelProblem(kind, model) === undefined) as PluginMediaModelChoice["added"],
-        hidden: choice.hidden as string[],
-      };
+      if (!choice.added.every((model) => pluginMediaModelProblem(kind, model) === undefined)) return undefined;
     }
-    providers[providerId] = choices;
   }
-  return { version: 1, providers };
+  return value as unknown as Stored;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
