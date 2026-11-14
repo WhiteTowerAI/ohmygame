@@ -1732,3 +1732,18 @@ Volcengine result and billing; retry is refused before generation. Native audio
 has no durable vendor receipt that a plugin can safely resume. Production
 startup does not set this flag yet. Remove compatibility no earlier than beta.7
 and 2026-12-15, after retained native-task obligations are resolved.
+
+### Prepared Doubao activation and startup recovery
+
+The dormant `migrateDoubaoSettings` coordinator requires the exact reviewed
+Beta package, its existing enabled grants, and a conflict-free proposal. It
+supports the current shared settings and profiles containing only the two old
+service files. It copies credentials, the default voice and compatible model
+preferences in one recoverable transaction; all three native source files remain
+byte-for-byte unchanged. A durable commit prevents a later startup from restoring
+credentials the user removed from the plugin.
+
+Startup recovers an interrupted Doubao transaction before any new shared settings
+migration, including in safe mode. An invalid receipt stops startup before those
+writes. Production does not begin a new Doubao migration yet: real-account
+acceptance and application ownership remain separate cutover requirements.

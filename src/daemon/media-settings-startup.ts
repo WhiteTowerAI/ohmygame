@@ -1,3 +1,4 @@
+import { recoverInterruptedDoubaoSettings } from "./doubao-settings-transaction.js";
 import { recoverInterruptedElevenLabsSettings } from "./elevenlabs-settings-transaction.js";
 import { model3DSettingsTransaction } from "./model3d-settings-transaction.js";
 import { migrateMinimaxSettings } from "./minimax-settings-migration.js";
@@ -12,8 +13,9 @@ export async function migrateMediaSettingsAtStartup(
 ) {
   await recoverInterruptedMinimaxSettings(directory);
   await recoverInterruptedSeedanceSettings(directory);
-  // Recover the shared stores even while new ElevenLabs activation is held.
+  // Recover shared stores even while new ElevenLabs/Doubao activation is held.
   await recoverInterruptedElevenLabsSettings(directory);
+  await recoverInterruptedDoubaoSettings(directory);
   // These transactions share configuration and preferences with image/video.
   // Recover even in safe mode or before a 3D package is approved for activation.
   for (const provider of ["meshy", "tripo", "hyper3d"] as const)

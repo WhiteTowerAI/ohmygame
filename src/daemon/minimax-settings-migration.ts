@@ -21,7 +21,8 @@ import {
  */
 export function migrateMinimaxSettings(directory: string, safeMode = false) {
   return migrateMediaSettings(directory, safeMode, {
-    sourceFile: "minimax.json", label: "MiniMax", snapshot,
+    sourceFiles: ["minimax.json"],
+    hasConfiguration: report => report.regions.some(region => ["copy", "same", "target-only"].includes(region.key)), label: "MiniMax", snapshot,
     inspect: inspectMinimaxMigration, propose: proposeMinimaxSettings,
     packageIssue: minimaxMigrationPackageIssue,
     transaction: {
