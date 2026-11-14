@@ -18,6 +18,64 @@ async function journals() {
 }
 
 describe("shared 3D recovery journals", () => {
+  it.each([undefined, "{}", '{"version":1}', JSON.stringify({ version: 1, other: { fingerprint: "a".repeat(64), credentials: { taskId: "other-task" } } })])("refuses recovery without the first requested stage (%#)", async (raw) => {
+    const { directory } = await journals();
+    const file = path.join(directory, "shared.json");
+    if (raw !== undefined) await writeFile(file, raw);
+    const recovery = await model3DJournal(directory, "shared", { requireExistingStage: true });
+    const create = vi.fn().mockResolvedValue({ taskId: "new-paid-task" });
+    await expect(recovery.submitted("generate", "connection", {}, create)).rejects.toMatchObject({ statusCode: 409 });
+    expect(create).not.toHaveBeenCalled();
+    if (raw === undefined) expect(await readdir(directory)).toEqual([]);
+    else expect(await readFile(file, "utf8")).toBe(raw);
+  });
+
+  it("resumes the first owned stage before allowing later stages, once across concurrent recoveries", async () => {
+    const { directory, first } = await journals();
+    const preview = vi.fn().mockResolvedValue({ taskId: "paid-preview" });
+    await first.submitted("generate", "original", { prompt: "Tower" }, preview);
+    const recover = async () => {
+      const journal = await model3DJournal(directory, "shared", { requireExistingStage: true });
+      await journal.submitted("generate", "original", { prompt: "Tower" }, preview);
+      return journal.submitted("refine", "original", { preview: "paid-preview" }, refine);
+    };
+    const refine = vi.fn().mockResolvedValue({ taskId: "paid-refine" });
+    expect(await Promise.all([recover(), recover()])).toEqual([{ taskId: "paid-refine" }, { taskId: "paid-refine" }]);
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(refine).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["scope", "input", "ambiguous"])("does not unlock later stages after a %s mismatch", async (failure) => {
+    const { directory, first } = await journals();
+    const initial = first.submitted("generate", "original", { prompt: "Tower" }, async () => {
+      if (failure === "ambiguous") throw new Error("lost response");
+      return { taskId: "paid-preview" };
+    });
+    if (failure === "ambiguous") await expect(initial).rejects.toThrow("lost response");
+    else await initial;
+    const file = path.join(directory, "shared.json"), before = await readFile(file);
+    const recovery = await model3DJournal(directory, "shared", { requireExistingStage: true });
+    const create = vi.fn().mockResolvedValue({ taskId: "new-paid-task" });
+    await expect(recovery.submitted("generate", failure === "scope" ? "changed" : "original", { prompt: failure === "input" ? "Castle" : "Tower" }, create)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(recovery.submitted("refine", "original", {}, create)).rejects.toMatchObject({ statusCode: 409 });
+    expect(create).not.toHaveBeenCalled();
+    expect(await readFile(file)).toEqual(before);
+  });
+
+  it("keeps an ambiguous later stage after a confirmed recovery without paying twice", async () => {
+    const { directory, first } = await journals();
+    await first.submitted("generate", "original", {}, async () => ({ taskId: "paid-preview" }));
+    const refine = vi.fn().mockRejectedValue(new Error("lost refine response"));
+    const run = async () => {
+      const journal = await model3DJournal(directory, "shared", { requireExistingStage: true });
+      await journal.submitted("generate", "original", {}, async () => { throw new Error("duplicate preview"); });
+      return journal.submitted("refine", "original", {}, refine);
+    };
+    await expect(run()).rejects.toThrow("lost refine response");
+    await expect(run()).rejects.toThrow("could not be confirmed");
+    expect(refine).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses stages saved by another instance after both journals were opened", async () => {
     const { directory, first, second } = await journals();
     const create = vi.fn().mockResolvedValue({ taskId: "paid-preview" });
@@ -37,14 +95,15 @@ describe("shared 3D recovery journals", () => {
   });
 
   it("waits for an in-flight paid submission and reuses its confirmed credentials", async () => {
-    const { directory, first, second } = await journals();
+    const { directory, first } = await journals();
     let release!: (value: { taskId: string }) => void;
     const response = new Promise<{ taskId: string }>((resolve) => { release = resolve; });
     const create = vi.fn(() => response);
     const original = first.submitted("preview", "connection", {}, create);
     try {
       await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-      const copy = second.submitted("preview", "connection", {}, create);
+      const recovery = await model3DJournal(directory, "shared", { requireExistingStage: true });
+      const copy = recovery.submitted("preview", "connection", {}, create);
       // A separate recovery ID must remain free to submit while this one waits.
       const independent = await model3DJournal(directory, "independent");
       await expect(independent.submitted("preview", "connection", {}, async () => ({ taskId: "other" }))).resolves.toEqual({ taskId: "other" });
