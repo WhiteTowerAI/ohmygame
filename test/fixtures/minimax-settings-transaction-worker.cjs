@@ -4,18 +4,16 @@ const path = require("node:path");
 const { realpathSync } = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
 const [directory, action, boundary] = process.argv.slice(2);
-// Pending source-loader promises and the initially unreferenced IPC channel
-// do not keep Node alive. Own the harness lifetime until completion or a kill.
-setInterval(() => {}, 1000);
-if (process.connected) process.once("disconnect", () => process.exit(1));
 let lastCheckpoint = "starting";
 const rename = fs.rename,
   rm = fs.rm;
 async function checkpointFor(target) {
   let checkpoint = path
     .relative(
-      realpathSync(directory),
-      path.join(realpathSync(path.dirname(target)), path.basename(target)),
+      // Activation uses fs.promises.realpath (native). Match it for Windows
+      // 8.3 temporary-directory aliases as well as macOS /var aliases.
+      realpathSync.native(directory),
+      path.join(realpathSync.native(path.dirname(target)), path.basename(target)),
     )
     .split(path.sep)
     .join("/");
@@ -29,6 +27,7 @@ async function checkpointFor(target) {
   }
   lastCheckpoint = checkpoint;
   if (checkpoint === boundary) {
+    setInterval(() => {}, 1000);
     process.send({ checkpoint });
     await new Promise(() => {});
   }
