@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -321,4 +321,134 @@ describe("project loading", () => {
     );
     expect(await readFile(metadataFile, "utf8")).toBe(contents);
   });
+});
+
+describe("committed MiniMax project defaults", () => {
+  const legacy = { provider: "minimax-video-global", id: "MiniMax-H3" };
+  const plugin = { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" };
+  const image = { provider: "another-provider", id: "keep-image" };
+  async function fixture() {
+    const directory = await dataDirectory(), writer = new ProjectManager(directory);
+    const project = await writer.create("Migration garden", "general");
+    await writer.setMediaModelDefaults(project.id, { video: legacy, image });
+    const file = path.join(project.workspacePath, ".ohmygame/settings.json");
+    const recordFile = path.join(directory, "projects", project.id, "project.json");
+    const settings = { ...JSON.parse(await readFile(file, "utf8")), future: { nested: "keep portable" } };
+    const record = { ...JSON.parse(await readFile(recordFile, "utf8")), extension: { keep: "local" } };
+    await writeFile(file, JSON.stringify(settings)); await writeFile(recordFile, JSON.stringify(record));
+    return { directory, writer, project, file, recordFile, settings, record };
+  }
+
+  it.each([false, true])("migrates only committed profiles and preserves unknown data and order (%s)", async (committed) => {
+    const { directory, project, file, recordFile, settings, record } = await fixture();
+    const settingsBefore = await readFile(file, "utf8"), recordBefore = await readFile(recordFile, "utf8");
+    const jobsFile = path.join(project.workspacePath, "canvas/jobs.json");
+    await mkdir(path.dirname(jobsFile), { recursive: true }); await writeFile(jobsFile, "opaque jobs and recovery IDs");
+    const manager = new ProjectManager(directory, undefined, undefined, committed), error = vi.fn();
+    await manager.load(error);
+    expect(error).not.toHaveBeenCalled();
+    expect(manager.get(project.id)).toMatchObject({ updatedAt: project.updatedAt, mediaModelDefaults: { video: committed ? plugin : legacy, image } });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...settings, mediaModelDefaults: { video: committed ? plugin : legacy, image } });
+    expect(JSON.parse(await readFile(recordFile, "utf8"))).toEqual(record);
+    expect(await readFile(jobsFile, "utf8")).toBe("opaque jobs and recovery IDs");
+    if (!committed) {
+      expect(await readFile(file, "utf8")).toBe(settingsBefore);
+      expect(await readFile(recordFile, "utf8")).toBe(recordBefore);
+    }
+    const after = await readFile(file, "utf8");
+    const reopened = new ProjectManager(directory, undefined, undefined, committed); await reopened.load();
+    expect(await readFile(file, "utf8")).toBe(after);
+  });
+
+  it("keeps pending defaults and unknown fields while the folder is unavailable, then carries them into the restored folder", async () => {
+    const directory = await dataDirectory(), writer = new ProjectManager(directory);
+    const project = await writer.create("Pending garden", "general");
+    const recordFile = path.join(directory, "projects", project.id, "project.json");
+    const record = JSON.parse(await readFile(recordFile, "utf8"));
+    record.extension = { keep: true };
+    record.settings = { ...record.settings, mediaModelDefaults: { video: legacy, image }, future: { keep: true } };
+    await writeFile(recordFile, JSON.stringify(record));
+    const moved = `${project.workspacePath}-offline`; await rename(project.workspacePath, moved);
+    const offline = new ProjectManager(directory, undefined, undefined, true); await offline.load();
+    expect(offline.get(project.id)).toMatchObject({ workspaceAvailable: false, mediaModelDefaults: { video: plugin, image } });
+    expect(JSON.parse(await readFile(recordFile, "utf8"))).toMatchObject({ extension: { keep: true }, settings: { future: { keep: true }, mediaModelDefaults: { video: plugin, image } } });
+    await rename(moved, project.workspacePath);
+    const restored = new ProjectManager(directory, undefined, undefined, true); await restored.load();
+    expect(restored.get(project.id)).toMatchObject({ workspaceAvailable: true, mediaModelDefaults: { video: plugin, image } });
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/settings.json"), "utf8"))).toMatchObject({ future: { keep: true }, mediaModelDefaults: { video: plugin, image } });
+    const savedRecord = JSON.parse(await readFile(recordFile, "utf8"));
+    expect(savedRecord.extension).toEqual({ keep: true }); expect(savedRecord).not.toHaveProperty("settings");
+  });
+
+  it("maps old record defaults while preserving unknown record fields through layout upgrade", async () => {
+    const directory = await dataDirectory(), id = randomUUID(), root = path.join(directory, "projects", id);
+    await mkdir(path.join(root, "workspace"), { recursive: true });
+    await writeFile(path.join(root, "project.json"), JSON.stringify({ version: 1, id, name: "Legacy", type: "general", updatedAt: "2026-10-01T00:00:00.000Z", mediaModelDefaults: { video: legacy }, extension: { preserve: true } }));
+    const manager = new ProjectManager(directory, undefined, undefined, true); await manager.load();
+    expect(manager.get(id)?.mediaModelDefaults?.video).toEqual(plugin);
+    expect(JSON.parse(await readFile(path.join(root, "project.json"), "utf8"))).toMatchObject({ version: 2, extension: { preserve: true } });
+    expect(JSON.parse(await readFile(path.join(root, "workspace/.ohmygame/settings.json"), "utf8"))).toMatchObject({ mediaModelDefaults: { video: plugin } });
+  });
+
+  it("shares mapping across external-folder registration, imported settings, duplication and saves", async () => {
+    const { project, settings } = await fixture();
+    const directory = await dataDirectory(), manager = new ProjectManager(directory, undefined, undefined, true);
+    const opened = await manager.create(undefined, "general", project.workspacePath);
+    expect(opened.mediaModelDefaults).toEqual({ video: plugin, image });
+    const copied = await manager.duplicate(opened.id);
+    expect(copied.mediaModelDefaults).toEqual({ video: plugin, image });
+    expect(JSON.parse(await readFile(path.join(copied.workspacePath, ".ohmygame/settings.json"), "utf8"))).toMatchObject({ future: settings.future });
+    const staged = path.join(await dataDirectory(), "workspace"); await mkdir(staged);
+    const imported = await manager.import(staged, { name: "Imported", type: "general", mediaModelDefaults: { video: legacy, image } });
+    expect(imported.mediaModelDefaults).toEqual({ video: plugin, image });
+    expect((await manager.setMediaModelDefaults(imported.id, { video: { provider: "minimax-video-cn", id: "MiniMax-H3-Max" }, image })).mediaModelDefaults).toEqual({ video: { provider: "plugin.ohmygame.minimax.cn", id: "MiniMax-H3-Max" }, image });
+  });
+
+  it("serializes refreshed defaults with edits, preserves extensions, and does not restore a cleared choice", async () => {
+    const { directory, project, file, settings } = await fixture();
+    const manager = new ProjectManager(directory, undefined, undefined, true); await manager.load();
+    await writeFile(file, JSON.stringify({ ...settings, name: "External title", mediaModelDefaults: { video: legacy, image } }));
+    await Promise.all([manager.readySettings(project.id), manager.rename(project.id, "Edited title"), manager.readySettings(project.id)]);
+    expect(manager.get(project.id)).toMatchObject({ name: "Edited title", mediaModelDefaults: { video: plugin, image } });
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ name: "Edited title", future: settings.future });
+    await manager.setMediaModelDefaults(project.id, {});
+    await manager.readySettings(project.id);
+    const restored = new ProjectManager(directory, undefined, undefined, true); await restored.load();
+    expect(restored.get(project.id)?.mediaModelDefaults).toBeUndefined();
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("mediaModelDefaults");
+    expect(JSON.parse(await readFile(file, "utf8"))).toHaveProperty("future", settings.future);
+  });
+
+  it.each(["future", "broken", "unknown-reference-data"])("refuses %s portable settings without replacing them", async (kind) => {
+    const { directory, project, file, settings } = await fixture();
+    const value = structuredClone(settings);
+    if (kind === "future") value.version = 2;
+    if (kind === "unknown-reference-data") value.mediaModelDefaults.video.future = "keep";
+    const bytes = kind === "broken" ? "{invalid" : JSON.stringify(value); await writeFile(file, bytes);
+    const manager = new ProjectManager(directory, undefined, undefined, true); await manager.load();
+    await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
+    expect(await readFile(file, "utf8")).toBe(bytes);
+  });
+
+  it("refuses a newly unreadable record before changing portable settings", async () => {
+    const { directory, project, file, recordFile } = await fixture();
+    const manager = new ProjectManager(directory, undefined, undefined, true); await manager.load();
+    const before = await readFile(file, "utf8"), record = JSON.stringify({ version: 3, id: project.id, future: "keep" });
+    await writeFile(recordFile, record);
+    await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await readFile(recordFile, "utf8")).toBe(record);
+  });
+
+  it("refuses hard-linked portable settings without modifying either name", async () => {
+    const { directory, project, file } = await fixture();
+    const alias = path.join(directory, "settings-alias.json");
+    await link(file, alias);
+    const before = await readFile(alias, "utf8");
+    const manager = new ProjectManager(directory, undefined, undefined, true); await manager.load();
+    await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await readFile(alias, "utf8")).toBe(before);
+  });
+
 });
