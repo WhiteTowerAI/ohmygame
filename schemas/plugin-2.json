@@ -1650,6 +1650,24 @@
                             "readsText": {
                               "type": "boolean"
                             },
+                            "speaker": {
+                              "type": "boolean"
+                            },
+                            "pitch": {
+                              "type": "boolean"
+                            },
+                            "volume": {
+                              "type": "boolean"
+                            },
+                            "style": {
+                              "type": "boolean"
+                            },
+                            "ssml": {
+                              "type": "boolean"
+                            },
+                            "speechOptions": {
+                              "type": "boolean"
+                            },
                             "voices": {
                               "type": "array",
                               "items": {
