@@ -13,6 +13,7 @@ import { Hyper3DProvider } from "../src/daemon/hyper3d-provider.js";
 import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
 import { model3DJournal } from "../src/daemon/model3d-journal.js";
 import { inspectModel3D, modelFacingPositiveZ } from "../src/daemon/model3d-inspect.js";
+import { mergeAnimationClips } from "../src/daemon/merge-animations.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
@@ -22,6 +23,19 @@ import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 import { resolveModel3DConnection } from "../src/shared/generation-config.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
+
+describe("animation skeleton compatibility", () => {
+  it.each(["transform", "parent", "duplicate-name", "bind-pose"])("rejects clips with incompatible %s despite matching bone names", async variant => {
+    const first = await model3DFixture({ rigged: true, clips: ["Idle"] });
+    const io = new NodeIO(), second = await io.readBinary(await model3DFixture({ rigged: true, clips: ["Walk"] }));
+    const root = second.getRoot(), joint = root.listNodes().find(node => node.getName() === "Root")!;
+    if (variant === "transform") joint.setTranslation([0, 2, 0]);
+    if (variant === "parent") root.listScenes()[0]!.addChild(second.createNode("Different parent").addChild(joint));
+    if (variant === "duplicate-name") root.listScenes()[0]!.addChild(second.createNode("Root"));
+    if (variant === "bind-pose") root.listSkins()[0]!.setInverseBindMatrices(second.createAccessor().setType("MAT4").setArray(new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,5,0,0,1])).setBuffer(root.listBuffers()[0]!));
+    await expect(mergeAnimationClips([first, Buffer.from(await io.writeBinary(second))])).rejects.toThrow("incompatible skeleton");
+  });
+});
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });

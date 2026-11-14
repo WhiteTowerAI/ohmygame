@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.11.0";
+export const PLUGIN_HOST_API_VERSION = "2.12.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -628,7 +628,8 @@ const Media3DModel = Type.Object(
 
 /** Processing stays available independently of generation-model visibility. API 2.11. */
 const Media3DProcessing = Type.Object(
-  { ...Media3DModel.properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh")]), { minItems: 1, uniqueItems: true }) },
+  { ...Media3DModel.properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")]), { minItems: 1, uniqueItems: true }),
+    animationSourceAxis: Type.Optional(Type.Literal("+Z")) },
   { additionalProperties: false },
 );
 export type PluginMediaProcessingModel = Static<typeof Media3DProcessing>;
@@ -1474,6 +1475,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       const processing = media["3d"]?.processing;
       if (processing) {
         if (!media["3d"]?.inputFiles) issue(`${path}/media/3d/processing`, "processing requires inputFiles");
+        if (processing.animationSourceAxis && !processing.operations.includes("animate")) issue(`${path}/media/3d/processing/animationSourceAxis`, "requires animate");
         if (media["3d"]?.models.some(model => model.id === processing.id)) issue(`${path}/media/3d/processing/id`, "must differ from generation model IDs");
         for (const [field, message] of mediaModelIssues("3d", processing)) issue(`${path}/media/3d/processing/${field}`, message);
       }

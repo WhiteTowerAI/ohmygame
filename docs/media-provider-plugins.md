@@ -1,7 +1,8 @@
 # Media provider plugins
 
 Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps and
-2.10 adds host-owned input files; 2.11 adds 3D retexture and remesh. Built: the sandbox, `host.fetch`, images, videos, audio
+2.10 adds host-owned input files; 2.11 adds 3D retexture and remesh;
+2.12 adds animation and its action library. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
 `ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
@@ -184,7 +185,8 @@ host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
 a video MP4 of at most 500 MB, audio a playable file of the format the
 person picked, or when they picked none, any of MP3, WAV and Ogg Opus, since
 some vendors don't say which file a model makes, and a 3D model a binary glTF (GLB) of at most 100 MB) and writes it to the
-project, as a built-in provider's result is. A request takes the first output.
+project, as a built-in provider's result is. A request takes the first output,
+except animation, which combines every output into one GLB.
 
 `host` holds:
 
@@ -267,12 +269,50 @@ durable task identity, so retrying a saved output does not submit another paid j
 Generation models and processing may choose `optionProfile` (`meshy`, `tripo`,
 `hyper3d`) to reuse existing operation controls and option validation. This only
 selects controls; all vendor requests still go through the plugin adapter.
-Without a profile the generic controls apply. Animation, account balances and
-cross-job rig reuse are not part of this contract yet.
+Without a profile the generic controls apply. Animation is described below;
+account balances and cross-job rig reuse are not part of this contract yet.
 
 A 3D output may include `forwardAxis: "+X" | "+Z"` and `requestId` (a nonempty
 string up to 512 characters). They survive task recovery; the axis is stored in
 Library model metadata so later processing knows the result's orientation.
+
+### 3D animation and action lists (API 2.12)
+
+With `engines.ohmygame-api: "^2.12.0"`, a processing connection can include
+`"animate"` in `operations`. It receives the same `3d.start`/`check`/`cancel`
+calls, with `operation: "animate"`, `source` (a GLB file handle), `actionIds`
+(1–30 distinct numeric or string IDs), optional `heightMeters`, `options`,
+`forwardAxis` and `modelData`. Use `host.submit` for every paid rig/batch;
+the ToolRunner retains the journal through download or Library-storage failure
+and clears it only once the final asset is stored. Native historical tasks keep
+their existing journal and provider ownership.
+
+Set `processing.animationSourceAxis: "+Z"` when rigging requires that orientation.
+The host rotates a known +X source before making its file handle, preserving
+geometry, skins and animation transforms. Unknown orientation is treated as +Z,
+as for native Meshy. The adapter sees the resulting `forwardAxis` and immutable
+bytes; a changed source or request cannot resume a different paid task.
+
+An animation response returns all batch GLBs in `outputs`. Up to 30 outputs are
+accepted, each up to 100 MB, at most 200 MB in total, and a merged result up to
+100 MB. Each must have a skin and animation clips; output axes must agree.
+The host matches unique bone names, hierarchy, transforms and inverse bind poses
+before merging. Duplicate clip names from later batches get suffixes. Missing/invalid outputs,
+incompatible skeletons, and fewer clips than requested fail the operation;
+paid results remain recoverable. Other kinds still use their first output.
+
+Implement `3d.actions(input, host)` for the existing animation picker. It receives
+`{ model, options?, modelData? }` and returns `{ actions: [...] }`. An action is
+`{ id, name, category?, subCategory?, previewUrl? }`; IDs are distinct nonnegative
+safe integers or nonempty strings up to 120 characters. Names/categories are
+nonempty strings up to 256 characters; omitted categories use `Other`.
+The library may be empty and is capped at 5,000 actions. Preview URLs must use
+HTTP(S) on an approved network host and contain no URL credentials.
+
+The action call has a 30-second deadline. Only GET/HEAD requests are allowed;
+`host.submit`, writes and uploads are refused before HTTP. Existing network,
+auth and redaction rules apply. Listing can therefore populate controls without
+creating paid jobs. An unavailable library reports an error and can be retried.
 
 ### Host-owned input files (API 2.10)
 
@@ -464,7 +504,8 @@ can't promise what the plugin doesn't do.
    reference-ratio contract above. Existing builtin keys and model references
    remain until a separate migration is verified against a published package.
    Follow [#809](https://github.com/WhiteTowerAI/ohmygame/issues/809).
-7. 3D retexture and remesh are available in API 2.11. Still needed: animation,
+7. 3D retexture and remesh are available in API 2.11; animation and its
+   action library in API 2.12. Still needed: cross-job rig reuse, balances,
    transcription, and voices
    listed from the vendor's account; then moving the built-in media providers
    (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their

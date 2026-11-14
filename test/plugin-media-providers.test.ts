@@ -1,4 +1,5 @@
 import { fork } from "node:child_process";
+import { NodeIO } from "@gltf-transform/core";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,7 +15,7 @@ import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { ProviderAudio } from "../src/daemon/audio-generation.js";
-import { TEST_GLB } from "./model3d-fixture.js";
+import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
@@ -1235,5 +1236,111 @@ describe("plugin 3D processing", () => {
     await expect(media.setModelsShown(provider, "3d", ["connection"], true)).rejects.toMatchObject({ statusCode: 409 });
     expect(await readFile(path.join(root, "plugin-media-models.json"), "utf8")).toBe(before);
     expect(await router(media).operationModels()).toMatchObject([{ id: "connection", operations: ["remesh", "retexture"] }]);
+  });
+});
+
+describe("plugin 3D animation", () => {
+  const animationMedia = { "3d": { ...MODEL3D_MEDIA["3d"]!, inputFiles: true, processing: {
+    id: "connection", operations: ["animate"], optionProfile: "meshy",
+    polycount: { min: 100, max: 300000, default: 30000 }, texture: true,
+  } } } as unknown as Partial<Media>;
+  const router = (media: PluginMediaProviders, enabled = () => true) => new ProviderModels3D({
+    runtime: async () => { throw new Error("No native fallback"); }, meshy: { generator: undefined as never, configured: () => false },
+    customProviders: async () => [], nativeModels: () => [], isEnabled: enabled, isVisible: () => false, defaultModel: () => undefined, plugins: media,
+  });
+
+  it("lists actions with scoped auth and rig options while generation models are hidden", async () => {
+    const { media, requests } = await setup(`export default { "3d": { async actions(input, host) {
+      const response = await host.fetch("https://api.flow.example/actions?rig=" + input.options.rigModel, { auth: true });
+      return { actions: await response.json() };
+    } } };`, { media: animationMedia, reply: () => Response.json([{ id: "walk", name: "Walk", previewUrl: "https://cdn.flow.example/walk.mp4" }]) });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    expect(await service.animations(undefined, model, { rigModel: "v3.0-20260909" })).toEqual([{ id: "walk", name: "Walk", category: "Other", subCategory: "Other", previewUrl: "https://cdn.flow.example/walk.mp4" }]);
+    expect(requests).toMatchObject([{ method: "GET", url: "https://api.flow.example/actions?rig=v3.0-20260909", headers: { authorization: "Bearer sk-test" } }]);
+  });
+
+  it.each(["submit", "post"])("blocks %s from the animation picker before HTTP", async method => {
+    const { media, requests } = await setup(`export default { "3d": { async actions(input, host) {
+      await host.${method === "submit" ? 'submit("rig", ' : 'fetch('}"https://api.flow.example/rig", { method: "POST" });
+      return { actions: [] };
+    } } };`, { media: animationMedia });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    await expect(service.animations(undefined, model)).rejects.toThrow("read-only");
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["duplicate", "bad-id", "bad-preview", "bad-name", "too-many"])("rejects malformed action lists: %s", async variant => {
+    const valid = { id: 0, name: "Idle" };
+    const actions = variant === "duplicate" ? [valid, valid] : variant === "bad-id" ? [{ ...valid, id: -1 }]
+      : variant === "bad-preview" ? [{ ...valid, previewUrl: "https://unapproved.example/preview" }]
+      : variant === "bad-name" ? [{ ...valid, name: "" }] : Array.from({ length: 5001 }, (_, id) => ({ ...valid, id }));
+    const { media } = await setup(`export default { "3d": { async actions() { return { actions: ${JSON.stringify(actions)} }; } } };`, { media: animationMedia });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    await expect(service.animations(undefined, model)).rejects.toThrow();
+  });
+
+  it("normalizes a +X source in the host and passes animation controls without exposing its bytes to the VM", async () => {
+    const resultBytes = await model3DFixture({ rigged: true, clips: ["Walk"] });
+    const { media, requests } = await setup(`export default { "3d": { async start(input, host) {
+      if (input.source.base64 || input.source.byteLength < 12) throw new Error("Expected host file");
+      await host.submit("rig", "https://api.flow.example/rig", { method: "POST", json: { ...input, source: { $mediaFile: input.source.file } } });
+      return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z" }] };
+    } } };`, { media: { "3d": { ...animationMedia["3d"]!, processing: { ...animationMedia["3d"]!.processing!, animationSourceAxis: "+Z" } } }, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(resultBytes)) : undefined });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    const result = await service.animate({ model: TEST_GLB, providerModel: model, actionIds: [30], heightMeters: 1.6, forwardAxis: "+X", journal: await journalAt() });
+    const body = JSON.parse(requests[0]!.body!);
+    expect(body).toMatchObject({ operation: "animate", actionIds: [30], heightMeters: 1.6, forwardAxis: "+Z" });
+    const doc = await new NodeIO().readBinary(Buffer.from(body.source.split(",")[1], "base64"));
+    expect(doc.getRoot().listNodes().find(node => node.getName() === "Forward axis +Z")?.getRotation()[1]).toBeCloseTo(-Math.SQRT1_2);
+    expect(result.metadata?.forwardAxis).toBe("+Z");
+  });
+
+  it.each(["bad-record", "too-many", "axis", "unrigged", "no-clips", "few-clips", "oversized"])("refuses incomplete or invalid animation outputs: %s", async variant => {
+    const output = { url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z" };
+    const outputs = variant === "bad-record" ? [output, null] : variant === "too-many" ? Array.from({ length: 31 }, () => output)
+      : variant === "axis" ? [output, { ...output, forwardAxis: "+X" }] : [output];
+    const bytes = await model3DFixture({ rigged: variant !== "unrigged", clips: variant === "no-clips" ? [] : ["Walk"] });
+    const { media } = await setup(`export default { "3d": { async start() { return { outputs: ${JSON.stringify(outputs)} }; } } };`, {
+      media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(bytes), { headers: variant === "oversized" ? { "content-length": String(101 * 1024 * 1024) } : {} }) : undefined,
+    });
+    const service = router(media), model = (await service.operationModels())[0]!;
+    await expect(service.animate({ model: TEST_GLB, providerModel: model, actionIds: variant === "few-clips" ? [0, 1] : [0] })).rejects.toThrow();
+  });
+
+  it.each(["duplicate-actions", "invalid-source", "height", "disabled"])("rejects invalid animation before HTTP: %s", async variant => {
+    const { media, requests } = await setup(MODEL3D_TASK, { media: animationMedia });
+    let enabled = true;
+    const service = router(media, () => enabled), model = (await service.operationModels())[0]!;
+    if (variant === "disabled") enabled = false;
+    await expect(service.animate({ model: variant === "invalid-source" ? Buffer.from("invalid") : TEST_GLB, providerModel: model,
+      actionIds: variant === "duplicate-actions" ? [0, 0] : [0], ...(variant === "height" ? { heightMeters: 0 } : {}) })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  });
+
+  it("recovers every animation clip through the Library without submitting the rig or batches again", async () => {
+    const adapter = `export default { "3d": { async start(input, host) {
+      if (input.operation !== "animate") throw new Error("Expected animation");
+      await host.submit("rig", "https://api.flow.example/rig", { method: "POST", auth: true,
+        json: { model: { $mediaFile: input.source.file }, height: input.heightMeters } });
+      for (const id of input.actionIds) await host.submit("animation-" + id, "https://api.flow.example/animate", { method: "POST", auth: true, json: { action: id } });
+      return { outputs: input.actionIds.map(id => ({ url: "https://cdn.flow.example/" + id + ".glb", forwardAxis: "+Z" })) };
+    } } };`;
+    const clips = [await model3DFixture({ rigged: true, clips: ["Idle"] }), await model3DFixture({ rigged: true, clips: ["Walk"] })];
+    const first = await setup(adapter, { media: animationMedia, reply: url => { if (url.endsWith(".glb")) throw new TypeError("offline"); return undefined; } });
+    const library = new AssetLibrary(root); await library.load();
+    const source = await library.add("hero.glb", TEST_GLB);
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(first.media), undefined, library); await runner.load();
+    const job = runner.start("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
+    await expect.poll(() => runner.jobs()[0]?.status).toBe("failed"); await runner.close();
+    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(3);
+    const restored = await setup(adapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
+    const restarted = new ToolRunner(root, { generate: vi.fn() }, router(restored.media), undefined, library); await restarted.load();
+    try {
+      const retry = restarted.retryJob(job.id);
+      await expect.poll(() => restarted.jobs().find(job => job.id === retry.id)?.status).toBe("succeeded");
+      const result = restarted.jobs().find(job => job.id === retry.id)!;
+      expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
+      expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
+    } finally { await restarted.close(); }
   });
 });
