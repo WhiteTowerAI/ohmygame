@@ -8,6 +8,7 @@ import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import { isLockedNpmPlugin, prepareNpmPlugin, unpackPinnedNpmPlugin, type LockedNpmPlugin } from "./preinstalled-npm.js";
 import { SEEDANCE_MIGRATION_PACKAGES } from "../src/daemon/seedance-migration-package.js";
+import { MODEL3D_MIGRATION_PACKAGES } from "../src/daemon/model3d-migration-package.js";
 import { MINIMAX_MIGRATION_PACKAGES } from "../src/daemon/minimax-migration-package.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
@@ -156,7 +157,7 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
 
 // A verified integration fixture for migration of an already-installed optional
 // plugin. It does not join the preinstalled index or grant/install anything.
-for (const pin of [...MINIMAX_MIGRATION_PACKAGES, ...SEEDANCE_MIGRATION_PACKAGES]) {
+for (const pin of [...MINIMAX_MIGRATION_PACKAGES, ...SEEDANCE_MIGRATION_PACKAGES, ...MODEL3D_MIGRATION_PACKAGES]) {
   const migrationOutput = path.join(repositoryRoot, ".runtime", `${pin.pluginId}-packages`, pin.version);
   await mkdir(path.dirname(migrationOutput), { recursive: true });
   const migrationStage = await mkdtemp(path.join(repositoryRoot, ".runtime", `${pin.pluginId}-package-`));
