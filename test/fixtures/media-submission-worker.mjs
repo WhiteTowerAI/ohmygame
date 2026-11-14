@@ -11,8 +11,13 @@ await journal.submit(
   "preview",
   "fixture-adapter",
   { prompt: "chair" },
-  async () => {
+  async saveFile => {
     if (boundary === "submitted") await checkpoint();
+    if (boundary.startsWith("binary-")) {
+      const file = await saveFile(Buffer.alloc(2 * 1024 * 1024, 0xa5));
+      if (boundary === "binary-saved") await checkpoint();
+      return { file };
+    }
     return { id: "paid-preview" };
   },
 );

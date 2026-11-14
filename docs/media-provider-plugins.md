@@ -212,7 +212,8 @@ plugin API. Every kind's input also has `modelData` when the model has
   defaults to its capability, `pbr` to false). Processing inputs are below.
 
 `outputs` are `{ url }`, which the app downloads without the key, or
-`{ base64, mediaType }`. A `url` must be on a `capabilities.network` host too,
+`{ base64, mediaType }`; API 2.19 also supports the host-owned audio file
+reference described below. A `url` must be on a `capabilities.network` host too,
 so list the host the vendor's results are on (SiliconFlow's are on
 `sc-maas.oss-cn-shanghai.aliyuncs.com`); a download elsewhere fails with the
 host's name. The app checks what it got (an image must be PNG, JPEG or WebP,
@@ -266,6 +267,45 @@ Task journals now write version 1. Older unversioned records migrate when their
 owner loads them, retaining task IDs/results and ambiguous-start refusal.
 Unknown fields or future versions are refused before mutation; read-only
 inspection may count an opaque task without claiming it is resumable.
+
+### Binary audio responses (API 2.19)
+
+For speech, music or sound endpoints that return audio bytes directly, require
+`engines.ohmygame-api: "^2.19.0"` and use a stable paid step:
+
+```js
+const response = await host.submit("speech", "https://api.example.com/speech", {
+  method: "POST", auth: true, json: request, responseType: "file",
+});
+if (!response.ok) return { error: (await response.json()).message };
+return { outputs: [await response.file()] };
+```
+
+This is available only in a recoverable audio `start` or `check` call. Plain
+`host.fetch`, discovery and other media kinds reject `responseType: "file"`
+before dispatch. A successful response is saved by the host; `file()` returns
+an opaque `{ file }` reference, never a filesystem path or the audio bytes.
+`text()` and `json()` reject successful binary responses. Non-success responses
+retain the existing bounded, key-redacted text/JSON interface. The host inspects
+the resulting audio and still enforces the requested format and sample rate.
+
+Files and their total per generation are limited to 64 MiB. They are private
+files alongside the task receipt, bound to its request identity and content
+SHA-256. A replay reads and checks the same file, without another paid request;
+missing, changed or linked files fail and keep the paid receipt. References
+cannot read another task's directory or accept arbitrary local paths. Current
+plugin permissions, account and request checks still apply before recovery.
+
+Files stay until the caller stores the generated asset and clears the journal.
+An interrupted request that saved bytes but did not save its paid receipt remains
+unconfirmed: retry refuses another submission. A confirmed receipt survives
+process termination even before the adapter returns its outer result. This is
+process-restart recovery, not a guarantee against storage-device failure.
+Existing JSON task receipts and URL/base64 outputs keep their format; binary
+responses add an opaque output reference and a task-owned `.files` directory.
+Older hosts cannot load plugins requiring API 2.19. No native audio service is
+switched by this API addition.
+
 
 ### 3D processing and controls (API 2.11)
 
