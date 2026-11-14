@@ -243,6 +243,8 @@ describe("plugin manifest", () => {
     const model3D = { maxMinutes: 30, models: [{ id: "mesh", operations: ["text", "image"], maxReferenceImages: 4, polycount: { min: 1000, max: 50000, default: 10000, presets: [5000, 10000] }, texture: true, pbr: true }] };
     const mediaOf = (extra: object) => messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", ...extra } }] } });
     expect(mediaOf({ audio, "3d": model3D })).toEqual([]);
+    expect(mediaOf({ audio: { ...audio, listVoices: true } })).toEqual([]);
+    expect(mediaOf({ audio: { ...audio, listVoices: "yes" } }).length).toBeGreaterThan(0);
     for (const count of [48, 50]) {
       expect(mediaOf({ "3d": { models: [{ ...model3D.models[0], polycount: { min: count, max: count, default: count, presets: [count] } }] } })).toEqual([]);
     }
@@ -620,6 +622,8 @@ describe("plugin manifest", () => {
       message: expect.stringContaining("author"),
     });
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.0.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.18.0" } }, "2.17.0")?.fix).toBe("update-app");
     expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.2.0" } }, "2.1.0")?.fix).toBe("update-app");
   });
 

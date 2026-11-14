@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.16.0";
+export const PLUGIN_HOST_API_VERSION = "2.18.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -681,7 +681,7 @@ const ProviderMedia = Type.Object(
     /** Speech, sound effects and music; 10 minutes a request when `maxMinutes` is left out. */
     audio: Type.Optional(
       Type.Object(
-        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
+        { maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, listVoices: Type.Optional(Type.Boolean()), models: Type.Array(MediaAudioModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),

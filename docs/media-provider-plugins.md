@@ -72,6 +72,23 @@ every provider, such as a first and last frame for video.
   for (`mp3`, `wav`, `ogg_opus`; `mp3` when left out), and the limits they take:
   `maxTextCharacters`, `minDurationSeconds`, `maxDurationSeconds`,
   `instrumental` and `loop`.
+  With API 2.18, `media.audio.listVoices: true` uses the adapter's
+  `audio.voices({ search?, pageToken? }, host)` instead of the static list.
+  It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
+  Search is at most 200 characters and page tokens at most 2,000. Each page
+  has at most 100 distinct voices; IDs follow the app's voice ID rules
+  (letters, digits, `_`, `-`, at most 256 characters), names are at most 200
+  characters, and labels have at most 20 entries (80-character keys and
+  200-character values). Omit the next token on the last page; returning
+  the requested token is invalid. Previews must be HTTPS URLs on an approved
+  network host, without URL credentials and at most 2,048 characters.
+  Queries have a 30-second deadline and allow only `GET`/`HEAD`; uploads,
+  submissions and shared paid steps are unavailable. No queries run just
+  to build the model catalog. Text-reading models require an explicit voice;
+  the first static or returned voice is never chosen automatically. Saved
+  IDs outside the current page remain valid selections. Declare
+  `engines.ohmygame-api: "^2.18.0"`. Existing static voice lists keep their
+  defaults when `listVoices` is absent.
 - **3D** models (`media["3d"].models`) say the `operations` they make from
   (`text`, a prompt; `image`, pictures of the object), how many pictures they
   take (`maxReferenceImages`, 1 when left out), their `polycount` range and
