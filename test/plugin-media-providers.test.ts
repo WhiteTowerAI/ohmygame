@@ -1043,6 +1043,34 @@ describe("plugin media providers: audio", () => {
     expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
   }, 15_000);
 
+  it("checks explicit output channels before payment and against the returned audio without resubmitting", async () => {
+    const options = { media: { audio: { models: [{ id: "speech", kinds: ["speech"], readsText: true, formats: ["wav"], channels: [1, 2] }] } } as unknown as Partial<Media>,
+      reply: (url: string) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined };
+    const { media, requests } = await setup(AUDIO_START, options);
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    expect((await audio.catalog()).models[0]!.capabilities.channels).toEqual([1, 2]);
+    const input = { prompt: "hello", output: { channels: 1 as const } };
+    const saved = structuredClone(input);
+    expect((await audio.generate(input)).metadata?.channels).toBe(1);
+    expect(JSON.parse(requests[0]!.body!)).toMatchObject({ channels: 1 });
+    expect(input).toEqual(saved);
+    requests.length = 0;
+    for (const channels of [0, 3, 1.5, "1", null])
+      await expect(audio.generate({ prompt: "hello", output: { channels: channels as 1 } })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toHaveLength(0);
+    for (let retry = 0; retry < 2; retry++)
+      await expect(audio.generate({ prompt: "hello", output: { channels: 2 } }, undefined, await journalAt("stereo"))).rejects.toThrow("different channel count");
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+    for (const channels of [undefined, [1]]) {
+      const next = await setup(AUDIO_START, { ...options, media: { audio: { models: [{ id: "speech", kinds: ["speech"], formats: ["wav"], ...(channels ? { channels } : {}) }] } } as unknown as Partial<Media> });
+      const provider = new ProviderAudio(async () => next.media.audioAdapters(() => true));
+      await expect(provider.generate({ prompt: "hello", output: { channels: 2 } })).rejects.toMatchObject({ statusCode: 400 });
+      expect(next.requests).toHaveLength(0);
+      expect((await provider.generate({ prompt: "hello" })).metadata?.channels).toBe(1);
+      expect(JSON.parse(next.requests[0]!.body!)).not.toHaveProperty("channels");
+    }
+  });
+
   it("accepts fractional sound lengths and rejects non-finite or out-of-range lengths before dispatch", async () => {
     const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [{ id: "sfx", kinds: ["sound-effect"], formats: ["wav"], minDurationSeconds: 0.5, maxDurationSeconds: 30 }] } } as Partial<Media>, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
     const audio = new ProviderAudio(async () => media.audioAdapters(() => true));

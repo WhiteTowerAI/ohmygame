@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.24.0";
+export const PLUGIN_HOST_API_VERSION = "2.25.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -593,6 +593,8 @@ const MediaAudioModel = Type.Object(
     ),
     /** The files it can make; `mp3` when left out. */
     formats: Type.Optional(Type.Array(Literals(AUDIO_OUTPUT_FORMATS), { minItems: 1, uniqueItems: true })),
+    /** API 2.25: explicit channel counts accepted by this model; unset means provider-chosen only. */
+    channels: Type.Optional(Type.Array(Type.Union([Type.Literal(1), Type.Literal(2)]), { minItems: 1, uniqueItems: true })),
     /** API 2.17: language choices and speech rate on the shared -50…100 scale. */
     languages: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 40 }), { minItems: 1, maxItems: 200, uniqueItems: true })),
     speedRange: Type.Optional(Type.Tuple([Type.Integer({ minimum: -50, maximum: 100 }), Type.Integer({ minimum: -50, maximum: 100 })])),

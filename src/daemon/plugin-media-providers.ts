@@ -238,6 +238,7 @@ export class PluginMediaProviders {
             ...(model.speechOptions ? { supportsSpeechOptions: true } : {}),
             ...(model.readsText && item.media.audio?.listVoices ? { requiresVoice: true } : {}),
             formats: [...(model.formats ?? ["mp3" as const])],
+            ...(model.channels ? { channels: [...model.channels] } : {}),
             ...(model.languages ? { languages: [...model.languages] } : {}),
             ...(model.speedRange ? { speedRange: [...model.speedRange] as [number, number] } : {}),
             ...(model.sampleRatesByFormat ? { sampleRatesByFormat: structuredClone(model.sampleRatesByFormat) } : {}),
@@ -422,6 +423,9 @@ export class PluginMediaProviders {
     const sampleRate = model.capabilities.sampleRatesByFormat ? input.output?.sampleRate : undefined;
     if (sampleRate !== undefined && !rates?.includes(sampleRate))
       throw new AudioGenerationError("The selected audio model doesn't support this sample rate", 400);
+    const channels = input.output?.channels;
+    if (channels !== undefined && !declared.channels?.includes(channels))
+      throw new AudioGenerationError("The selected audio model does not support this channel count", 400);
     const voices = declared.voices ?? [];
     const accountVoices = item.media.audio.listVoices === true;
     const configuredVoice = declared.readsText ? this.#defaultVoice(item) : undefined;
@@ -439,6 +443,7 @@ export class PluginMediaProviders {
       prompt: input.prompt,
       format,
       ...(sampleRate !== undefined ? { sampleRate } : {}),
+      ...(channels !== undefined ? { channels } : {}),
       ...(voiceId ? { voiceId } : {}),
       ...(input.durationSeconds !== undefined ? { durationSeconds: input.durationSeconds } : {}),
       ...(input.instrumental && model.capabilities.supportsInstrumental ? { instrumental: true } : {}),
@@ -472,6 +477,8 @@ export class PluginMediaProviders {
       if (!made) throw new AudioFailure(`${this.#name(item)} returned ${audio.mime} audio, which isn't MP3, WAV or Ogg Opus`);
       if (sampleRate !== undefined && audio.sampleRate !== sampleRate)
         throw new AudioFailure(`${this.#name(item)} returned a different sample rate than requested`);
+      if (channels !== undefined && audio.channels !== channels)
+        throw new AudioFailure(`${this.#name(item)} returned a different channel count than requested`);
       return {
         bytes,
         mediaType: AUDIO_MEDIA_TYPES[made],

@@ -240,6 +240,12 @@ describe("plugin manifest", () => {
     ]);
     // Audio and 3D: what each model makes and takes.
     const audio = { models: [{ id: "voice", kinds: ["speech"], readsText: true, voices: [{ id: "amy", name: "Amy" }], formats: ["mp3", "wav"] }, { id: "sfx", kinds: ["sound-effect"], minDurationSeconds: 1, maxDurationSeconds: 20 }] };
+    for (const channels of [[1], [2], [1, 2], [], [0], [3], [1, 1], ["1"]]) {
+      const issues = messages({ ...minimal, capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { models: [{ id: "speech", kinds: ["speech"], channels }] } } }] } });
+      if (channels.length && channels.every(value => value === 1 || value === 2) && new Set(channels).size === channels.length)
+        expect(issues).toEqual([]);
+      else expect(issues.some(issue => issue.includes("channels"))).toBe(true);
+    }
     const voiceSettings = (type: string, listVoices = false) => messages({ ...minimal,
       configuration: { speaker: { type, title: "Default voice", ...(type === "select" ? { options: ["amy"] } : {}) } },
       capabilities: { network: ["api.flow.example"] }, contributes: { providers: [{ id: "flow", title: "Flow", media: { adapter: "./media.js", audio: { ...audio, defaultVoiceSetting: "speaker", listVoices } } }] },

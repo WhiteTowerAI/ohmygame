@@ -229,7 +229,12 @@ plugin API. Every kind's input also has `modelData` when the model has
   another model. With `sampleRatesByFormat`, a requested `sampleRate` is checked
   against the chosen format, passed to the adapter, and verified against
   the downloaded audio. A mismatch fails without accepting the file or
-  discarding the saved paid result. Languages remain provider-owned codes;
+  discarding the saved paid result. API 2.25 models may declare `channels: [1]`,
+  `[2]` or `[1, 2]`. An explicit `output.channels` is rejected before HTTP unless
+  declared, passed to the adapter as `channels`, and checked against the decoded
+  file. Omit it to leave the choice to the provider. Previously ignored explicit
+  channel selections now fail instead of accepting an unintended output; saved
+  settings and paid receipts are retained. Languages remain provider-owned codes;
   the app exposes declared choices and passes the selected code unchanged.
 - **3D:** `model`, `operation` (`text`, `image`, `retexture` or `remesh`), `prompt` for `text`,
   `references` (`[{ mediaType, base64 }]`, the first the front) for `image`,
