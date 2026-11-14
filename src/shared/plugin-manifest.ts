@@ -20,7 +20,7 @@ import { PLUGIN_HOOKS, PLUGIN_INSTRUCTIONS_MAX_CHARS } from "./plugin-hooks.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://www.ohmygame.ai/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.10.0";
+export const PLUGIN_HOST_API_VERSION = "2.11.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -600,6 +600,11 @@ const Media3DModel = Type.Object(
     ...MEDIA_MODEL_COMMON,
     /** `text`: from a prompt; `image`: from pictures of the object. */
     operations: Type.Array(Literals(PLUGIN_3D_OPERATIONS), { minItems: 1, uniqueItems: true }),
+    /** Existing operation controls and validation; the plugin still owns all vendor HTTP. */
+    optionProfile: Type.Optional(Type.Union([Type.Literal("meshy"), Type.Literal("tripo"), Type.Literal("hyper3d")])),
+    referenceImageLabels: Type.Optional(Type.Array(Text(), { minItems: 1, maxItems: 8 })),
+    estimatedCredits: Type.Optional(Type.Number({ minimum: 0 })),
+    defaults: Type.Optional(Type.Object({ texture: Type.Boolean(), pbr: Type.Boolean() }, { additionalProperties: false })),
     /** Views of one object an `image` request may pass, the first the front; 1 when left out. */
     maxReferenceImages: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
     /** The triangle counts it takes; a model with one size sets min, max and default alike. */
@@ -620,6 +625,13 @@ const Media3DModel = Type.Object(
   },
   { additionalProperties: false },
 );
+
+/** Processing stays available independently of generation-model visibility. API 2.11. */
+const Media3DProcessing = Type.Object(
+  { ...Media3DModel.properties, operations: Type.Array(Type.Union([Type.Literal("retexture"), Type.Literal("remesh")]), { minItems: 1, uniqueItems: true }) },
+  { additionalProperties: false },
+);
+export type PluginMediaProcessingModel = Static<typeof Media3DProcessing>;
 
 /**
  * The adapter's `models` step lists more of the vendor's models, which the
@@ -669,7 +681,7 @@ const ProviderMedia = Type.Object(
     /** 3D models as GLB; 15 minutes a request when `maxMinutes` is left out. */
     "3d": Type.Optional(
       Type.Object(
-        { inputFiles: Type.Optional(Type.Boolean()), maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
+        { inputFiles: Type.Optional(Type.Boolean()), processing: Type.Optional(Media3DProcessing), maxMinutes: Type.Optional(MaxMinutes), discoverModels: DiscoverModels, models: Type.Array(Media3DModel, { minItems: 1, maxItems: 100 }) },
         { additionalProperties: false },
       ),
     ),
@@ -703,7 +715,7 @@ export interface PluginMediaModelList {
 }
 
 /** What's wrong with a model of a kind beyond its schema, as [field, message]. */
-export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel): Array<[string, string]> {
+export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel | PluginMediaProcessingModel): Array<[string, string]> {
   const issues: Array<[string, string]> = [];
   if (model.data !== undefined && JSON.stringify(model.data).length > PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS)
     issues.push(["data", `must be at most ${PLUGIN_MEDIA_MODEL_DATA_MAX_CHARACTERS / 1024} KB as JSON`]);
@@ -721,7 +733,10 @@ export function mediaModelIssues(kind: PluginMediaKind, model: PluginMediaModel)
       issues.push(["minDurationSeconds", "must not be more than maxDurationSeconds"]);
   }
   if (kind === "3d") {
-    const range = (model as PluginMediaModels["3d"]).polycount;
+    const value = model as PluginMediaModels["3d"] | PluginMediaProcessingModel;
+    const range = value.polycount;
+    if (value.defaults?.texture && !value.texture || value.defaults?.pbr && (!value.pbr || !value.defaults.texture)) issues.push(["defaults", "defaults must be supported by texture and pbr capabilities"]);
+    if (value.referenceImageLabels && value.referenceImageLabels.length > (value.maxReferenceImages ?? 1)) issues.push(["referenceImageLabels", "must not exceed maxReferenceImages"]);
     if (!(range.min <= range.default && range.default <= range.max) || range.presets?.some((count) => count < range.min || count > range.max))
       issues.push(["polycount", "needs min ≤ default and presets ≤ max"]);
   }
@@ -1455,6 +1470,12 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
         media[kind]?.models.forEach((model, modelIndex) => {
           for (const [field, message] of mediaModelIssues(kind, model)) issue(`${path}/media/${kind}/models/${modelIndex}/${field}`, message);
         });
+      }
+      const processing = media["3d"]?.processing;
+      if (processing) {
+        if (!media["3d"]?.inputFiles) issue(`${path}/media/3d/processing`, "processing requires inputFiles");
+        if (media["3d"]?.models.some(model => model.id === processing.id)) issue(`${path}/media/3d/processing/id`, "must differ from generation model IDs");
+        for (const [field, message] of mediaModelIssues("3d", processing)) issue(`${path}/media/3d/processing/${field}`, message);
       }
       if (!capabilities.network?.length)
         issue(`${path}/media`, "media needs capabilities.network, the hosts its adapter reaches");

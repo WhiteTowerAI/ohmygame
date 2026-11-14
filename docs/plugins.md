@@ -196,6 +196,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.8.0 | Media video models can declare up to 30 reference images; frame mode remains limited to two. |
 | 2.9.0 | Media adapters can use `host.submit(id, url, init)` for durable paid-step submissions across checks and restarts. |
 | 2.10.0 | 3D providers can opt into host-owned input files, multipart uploads and JSON data-URL placeholders. |
+| 2.11.0 | 3D processing connections support retexture and remesh, declared controls and defaults, and result orientation. |
 
 ## Agent instructions
 

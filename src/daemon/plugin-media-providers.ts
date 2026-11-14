@@ -3,11 +3,12 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
 import type { ImageModel, Model3DModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
 import { inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput } from "./model3d.js";
-import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels } from "../shared/plugin-manifest.js";
+import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
@@ -93,7 +94,7 @@ function audioFormat(audio: { codec: string; mime: string }): AudioOutputFormat 
 }
 
 /** A model's `data`, given back to the adapter. */
-function modelData(model: PluginMediaModel | undefined): { modelData?: Record<string, unknown> } {
+function modelData(model: { data?: Record<string, unknown> } | undefined): { modelData?: Record<string, unknown> } {
   return model?.data ? { modelData: model.data } : {};
 }
 
@@ -102,7 +103,7 @@ type Answer =
   | { outputs: Output[] }
   | { error: string }
   | { task: unknown; retryAfter?: number };
-type Output = { url: string } | { base64: string; mediaType?: string };
+type Output = ({ url: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown };
 
 interface RunOptions {
   files?: MediaInputFiles;
@@ -248,26 +249,28 @@ export class PluginMediaProviders {
   }
 
   /** The 3D models of each provider that makes them, as the 3D catalog lists them. */
-  async model3DProviders(): Promise<Array<{ id: string; name: string; models: Model3DModel[] }>> {
-    return Promise.all((await this.providers()).filter((item) => item.media["3d"]).map(async (item) => {
-      const name = this.#name(item);
-      return {
-        id: item.id,
-        name,
-        models: (await this.#models(item, "3d")).map((model): Model3DModel => ({
-          provider: item.id,
-          providerName: name,
-          id: model.id,
-          name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id,
-          operations: [...model.operations],
-          maxReferenceImages: (model.operations as readonly string[]).includes("image") ? model.maxReferenceImages ?? 1 : 0,
-          polycount: { min: model.polycount.min, max: model.polycount.max, default: model.polycount.default, presets: model.polycount.presets ?? [model.polycount.default] },
-          supportsTexture: model.texture === true,
-          supportsPbr: model.pbr === true,
-          defaults: { texture: model.texture === true, pbr: false },
-        })),
-      };
-    }));
+  async model3DProviders(): Promise<Array<{ id: string; name: string; models: Model3DModel[]; processing?: Model3DModel }>> {
+    return Promise.all((await this.providers()).filter((item) => item.media["3d"]).map(async (item) => ({
+      id: item.id, name: this.#name(item),
+      models: (await this.#models(item, "3d")).map(model => this.#model3D(item, model)),
+      ...(item.media["3d"]?.processing ? { processing: this.#model3D(item, item.media["3d"].processing, true) } : {}),
+    })));
+  }
+
+  #model3D(item: PluginMediaProvider, model: PluginMediaModels["3d"] | PluginMediaProcessingModel, processing = false): Model3DModel {
+    return {
+      provider: item.id, providerName: this.#name(item), id: model.id,
+      name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id,
+      operations: [...model.operations],
+      ...(model.optionProfile ? { protocol: model.optionProfile } : {}),
+      ...(model.referenceImageLabels ? { referenceImageLabels: model.referenceImageLabels.map(label => localizePluginString(item.entry, label, "en")) } : {}),
+      ...(model.estimatedCredits !== undefined ? { estimatedCredits: model.estimatedCredits } : {}),
+      maxReferenceImages: (model.operations as readonly string[]).some(operation => operation === "image" || operation === "retexture") ? model.maxReferenceImages ?? 1 : 0,
+      polycount: { ...model.polycount, presets: model.polycount.presets ?? [model.polycount.default] },
+      ...(processing ? { remeshPolycount: { ...model.polycount, presets: model.polycount.presets ?? [model.polycount.default] } } : {}),
+      supportsTexture: model.texture === true, supportsPbr: model.pbr === true,
+      defaults: model.defaults ?? { texture: model.texture === true, pbr: false },
+    };
   }
 
   /** Makes one audio file with a provider's adapter. */
@@ -329,15 +332,22 @@ export class PluginMediaProviders {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     if (!item?.media["3d"]) throw new Model3DGenerationError("The selected 3D provider is unavailable. Check its plugin and key.", 503);
     const operation = input.operation ?? "image";
-    if (operation !== "text" && operation !== "image" || !(model.operations ?? []).includes(operation))
+    if (!(model.operations ?? []).includes(operation))
       throw new Model3DGenerationError("The selected 3D model does not support this operation", 400);
-    const images = operation === "image" ? input.images : [];
+    const processing = operation === "retexture" || operation === "remesh";
+    const declared = processing ? item.media["3d"].processing : (await this.#models(item, "3d")).find(candidate => candidate.id === model.id);
+    if (!declared || declared.id !== model.id) throw new Model3DGenerationError("The selected 3D model is unavailable", 400);
+    const images = input.images;
+    if (operation === "text" && images.length || operation === "remesh" && (images.length || input.prompt?.trim())) throw new Model3DGenerationError("The selected 3D operation does not accept these references", 400);
+    if (operation === "retexture" && (images.length > 1 || !images.length && !input.prompt?.trim())) throw new Model3DGenerationError("Retexture needs a prompt or one reference image", 400);
+    if (processing && (!item.media["3d"].inputFiles || !input.source?.length)) throw new Model3DGenerationError("Processing needs a source GLB and inputFiles", 400);
+    if (!processing && input.source) throw new Model3DGenerationError("Generation does not take a source GLB", 400);
     if (operation === "image" && (!images.length || images.length > model.maxReferenceImages)) throw new Model3DGenerationError(`The selected 3D model takes 1 to ${model.maxReferenceImages} pictures`, 400);
     if (operation === "text" && !input.prompt?.trim()) throw new Model3DGenerationError("Text-to-3D needs a prompt", 400);
-    const polycount = input.targetPolycount ?? model.polycount.default;
-    if (polycount < model.polycount.min || polycount > model.polycount.max) throw new Model3DGenerationError(`3D poly count must be between ${model.polycount.min} and ${model.polycount.max}`, 400);
+    const range = operation === "remesh" ? remeshPolycountFor(model) : model.polycount;
+    const polycount = input.targetPolycount ?? range.default;
+    if (operation !== "retexture" && (!Number.isInteger(polycount) || polycount < range.min || polycount > range.max)) throw new Model3DGenerationError(`3D poly count must be between ${range.min} and ${range.max}`, 400);
     const texture = (input.texture ?? model.defaults?.texture ?? false) && model.supportsTexture === true;
-    const declared = (await this.#models(item, "3d")).find((candidate) => candidate.id === model.id);
     const files = item.media["3d"].inputFiles ? new MediaInputFiles() : undefined;
     const references = images.map((image, index) => {
       if (!files) return { mediaType: image.mediaType, base64: image.data };
@@ -346,20 +356,31 @@ export class PluginMediaProviders {
       if (bytes.length > 20 * 1024 * 1024 || sniffImageType(bytes) !== image.mediaType) throw new Model3DGenerationError("3D reference must be a PNG, JPEG or WebP image up to 20 MB", 400);
       return files.add(bytes, image.mediaType, `reference-${index}.${image.mediaType === "image/jpeg" ? "jpg" : image.mediaType === "image/png" ? "png" : "webp"}`);
     });
+    if (input.source && (input.source.length < 12 || input.source.subarray(0, 4).toString("latin1") !== "glTF" || input.source.readUInt32LE(4) !== 2)) throw new Model3DGenerationError("The source must be a GLB model", 400);
+    if (input.source && input.source.length > MODEL3D_MAX_BYTES) throw new Model3DGenerationError("The source GLB must be at most 100 MB", 413);
+    const source = input.source && files ? files.add(input.source, "model/gltf-binary", "source.glb") : undefined;
     return this.#produce(item, "3d", {
       model: model.id,
       operation,
-      ...(operation === "text" ? { prompt: input.prompt!.trim() } : {}),
+      ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
+      ...(source ? { source } : {}),
+      ...(input.options ? { options: input.options } : {}),
       references,
       targetPolycount: polycount,
       texture,
-      pbr: texture && input.pbr === true && model.supportsPbr === true,
+      pbr: texture && (input.pbr ?? model.defaults?.pbr ?? false) && model.supportsPbr === true,
       ...modelData(declared),
     }, { limitMs: item.media["3d"].maxMinutes ? item.media["3d"].maxMinutes * 60_000 : MODEL3D_LIMIT_MS, signal, Failure: Model3DGenerationError, journal, ...(files ? { files } : {}) }, async (outputs, stopped) => {
       const bytes = await this.#output(item, outputs[0]!, MODEL3D_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, Model3DGenerationError, stopped);
       if (bytes.length < 12 || bytes.subarray(0, 4).toString("latin1") !== "glTF" || bytes.readUInt32LE(4) !== 2)
         throw new Model3DGenerationError(`${this.#name(item)} returned a file that isn't a GLB model`);
-      return { bytes, mediaType: "model/gltf-binary" as const };
+      const output = outputs[0]!;
+      if (output.forwardAxis !== undefined && output.forwardAxis !== "+X" && output.forwardAxis !== "+Z") throw new Model3DGenerationError("The plugin returned an invalid model axis");
+      if (output.requestId !== undefined && (typeof output.requestId !== "string" || !output.requestId || output.requestId.length > 512)) throw new Model3DGenerationError("The plugin returned an invalid request ID");
+      return { bytes, mediaType: "model/gltf-binary" as const,
+        ...(output.forwardAxis ? { metadata: { forwardAxis: output.forwardAxis } } : {}),
+        ...(output.requestId ? { requestId: output.requestId } : {}),
+      };
     });
   }
 
@@ -442,7 +463,7 @@ export class PluginMediaProviders {
       default: isDefault,
       shown,
     });
-    const seen = new Set<string>();
+    const seen = new Set<string>(kind === "3d" && item.media["3d"]?.processing ? [item.media["3d"].processing.id] : []);
     const models: PluginMediaModelList["models"] = [];
     const add = (model: PluginMediaModel, isDefault: boolean, shown: boolean) => {
       if (seen.has(model.id)) return;
@@ -462,6 +483,8 @@ export class PluginMediaProviders {
     const item = await this.#provider(providerId, kind);
     const section = item.media[kind]!;
     const defaults = new Set(section.models.map((model) => model.id));
+    if (shown && kind === "3d" && item.media["3d"]?.processing && ids.includes(item.media["3d"].processing.id))
+      throw new PluginMediaModelChoiceError("The processing connection cannot be enabled as a generation model", 409);
     const listed = section.discoverModels ? this.#listed.get(this.#listKey(item, kind))?.models ?? [] : [];
     await this.choices.update(item.id, kind, (choice) => {
       const hidden = new Set(choice.hidden);
@@ -498,6 +521,7 @@ export class PluginMediaProviders {
     const defaults = section.models as Array<PluginMediaModels[K]>;
     const { hidden, added } = await this.choices.get(item.id, kind);
     const ids = new Set(defaults.map((model) => model.id));
+    if (kind === "3d" && item.media["3d"]?.processing) ids.add(item.media["3d"].processing.id);
     return [
       ...defaults.filter((model) => !hidden.includes(model.id)),
       ...(section.discoverModels ? added.filter((model) => !ids.has(model.id)) : []),
@@ -527,7 +551,7 @@ export class PluginMediaProviders {
       throw new PluginMediaModelChoiceError(`${name} couldn't list its models: ${error}`, 502);
     }
     const models: PluginMediaModel[] = [];
-    const ids = new Set<string>();
+    const ids = new Set<string>(kind === "3d" && item.media["3d"]?.processing ? [item.media["3d"].processing.id] : []);
     let skipped = 0;
     for (const value of values.slice(0, LIST_MAX_MODELS)) {
       const problem = pluginMediaModelProblem(kind, value);
