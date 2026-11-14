@@ -1,5 +1,6 @@
+import { migratedMediaBoard, type MediaMigrationState } from "./media-model-migration.js";
 import { MINIMAX_RETIRED_RETRY } from "../shared/media-migration-errors.js";
-import { migratedMinimaxBoard, legacyMinimaxJob, minimaxJobNotice } from "./minimax-model-migration.js";
+import { legacyMinimaxJob, minimaxJobNotice } from "./minimax-model-migration.js";
 import { Compile } from "typebox/schema";
 import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
@@ -373,7 +374,7 @@ export class CanvasStore {
   readonly #jobs = new Map<string, StoredJob[]>();
   readonly #controllers = new Map<string, AbortController>();
   #closed = false;
-  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner, private readonly minimaxSettingsMigrated = false) {}
+  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner, private readonly mediaMigrations: MediaMigrationState = {}) {}
   #project(id: string) {
     const project = this.projects.get(id);
     if (!project) throw new CanvasError("Project not found", 404);
@@ -454,22 +455,22 @@ export class CanvasStore {
   async #board(id: string, boardId: string): Promise<CanvasBoardDetail> {
     const workspace = this.#project(id).workspacePath;
     if (!(await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) throw new CanvasError("Canvas board not found", 404);
-    const detail = this.minimaxSettingsMigrated
-      ? await this.#migrateMinimaxBoard(workspace, boardId)
+    const detail = this.mediaMigrations.minimax || this.mediaMigrations.seedance
+      ? await this.#migrateMediaBoard(workspace, boardId)
       : await readCanvasBoard(workspace, boardId);
     if (!detail) throw new CanvasError("Canvas board data is missing", 409);
     return detail;
   }
   // compat: since beta.5.8, remove from beta.7 and 2026-12-14. Only future
   // selections move; historical jobs and output provenance retain their owner.
-  async #migrateMinimaxBoard(workspace: string, boardId: string): Promise<CanvasBoardDetail | undefined> {
+  async #migrateMediaBoard(workspace: string, boardId: string): Promise<CanvasBoardDetail | undefined> {
     const name = `boards/${validId(boardId)}.json`, text = await readCanvasFile(workspace, name);
     if (text === undefined) return;
     // Validate the full current board, including tolerated legacy audio, before
     // touching raw JSON. Do not serialize editor-normalized nodes or layout.
     const current = await inspectCanvasBoardText(workspace, boardId, text);
     const raw = JSON.parse(text) as CanvasBoard;
-    const migrated = migratedMinimaxBoard(raw);
+    const migrated = migratedMediaBoard(raw, this.mediaMigrations);
     if (migrated === raw) return current.detail;
     const next = `${JSON.stringify(migrated, null, 2)}\n`;
     if (Buffer.byteLength(next) > 4 * 1024 * 1024) throw new CanvasError("The board is too large to migrate its model selections", 409);
@@ -484,7 +485,7 @@ export class CanvasStore {
       const current = await this.#board(id, board.id);
       if (current.revision !== expected) throw new CanvasError("The board changed. Reload the latest board before saving.", 409);
       if (!isCanvasBoard(board)) throw new CanvasError("Invalid canvas board");
-      if (this.minimaxSettingsMigrated) board = migratedMinimaxBoard(board);
+      board = migratedMediaBoard(board, this.mediaMigrations);
       const index = (await readCanvasIndex(workspace))!;
       const documents = index.documents;
       const existingTables = new Set(current.board.nodes.flatMap((node) => node.type === "table" ? [node.data.tableId] : []));
@@ -545,7 +546,7 @@ export class CanvasStore {
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
-  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(job => publicJob(minimaxJobNotice(job, this.minimaxSettingsMigrated)))); }
+  async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(job => publicJob(minimaxJobNotice(job, this.mediaMigrations.minimax === true)))); }
   async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
     const read = await this.board(id, boardId), reading = read.board.nodes.find((node) => node.id === nodeId);
@@ -866,7 +867,7 @@ export class CanvasStore {
     // A plugin node runs again from its current settings and inputs.
     if (job?.toolId === "plugin-node" && ["failed", "cancelled"].includes(job.status)) return this.#startPlugin(id, job.context!.boardId!, job.context!.nodeId, false);
     if (!job || !job.input || job.toolId === "plugin-node" || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
-    if (this.minimaxSettingsMigrated && legacyMinimaxJob(job)) throw new CanvasError(MINIMAX_RETIRED_RETRY, 409);
+    if (this.mediaMigrations.minimax && legacyMinimaxJob(job)) throw new CanvasError(MINIMAX_RETIRED_RETRY, 409);
     return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }

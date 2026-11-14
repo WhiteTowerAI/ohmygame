@@ -1198,7 +1198,7 @@ describe("MiniMax canvas model migration", () => {
       detail.board.editorLayout.nodes[node.id] = node.position;
     }
     const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
-    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, true);
+    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { minimax: true });
     stores.push(migrating);
     const folder = path.join(state.project.workspacePath, "canvas");
     const file = path.join(folder, "boards", `${state.boardId}.json`);
@@ -1279,5 +1279,55 @@ describe("MiniMax canvas model migration", () => {
     await expect(migrating.board(project.id, boardId)).rejects.toThrow();
     expect(await readFile(file, "utf8")).toBe(bytes);
     expect(await readFile(layoutFile, "utf8")).toBe(layout);
+  });
+});
+
+
+describe("Seedance canvas model migration", () => {
+  it.each([false, true])("maps image and video selections only in committed Seedance profiles (%s)", async (committed) => {
+    const app = createApp({ dataDirectory: await temp(), seedanceSettingsMigrated: committed, minimaxSettingsMigrated: false }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const base = `/projects/${project.id}/canvas`, workspace = (await app.inject(`${base}/workspace`)).json();
+    const boardId = workspace.boards[0].id, folder = path.join(project.workspacePath, "canvas"), file = path.join(folder, "boards", `${boardId}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    const cases = [
+      ["image", "volcengine-ark", "doubao-seedream-5-0-pro-260628", "plugin.ohmygame.seedance.ark"],
+      ["video", "volcengine-ark", "doubao-seedance-2-5-260628", "plugin.ohmygame.seedance.ark"],
+      ["video", "byteplus-modelark", "dreamina-seedance-2-0-260128", "plugin.ohmygame.seedance.byteplus"],
+      ["video", "volcengine-ark", "doubao-seedream-5-0-pro-260628", "volcengine-ark"],
+      ["image", "byteplus-modelark", "doubao-seedream-5-0-pro-260628", "byteplus-modelark"],
+      ["image", "volcengine-ark", "unknown-image", "volcengine-ark"],
+      ["video", "minimax-video-global", "MiniMax-H3", "minimax-video-global"],
+    ] as const;
+    for (const [i, [kind, provider, id]] of cases.entries()) raw.nodes.push({ id: `legacy-${i}`, type: kind, title: "Keep creative direction", data: { ...createAssetGenerationNode(kind, { x: 0, y: 0 }).data, prompt: "A quiet garden", model: { provider, id } } });
+    const bytes = JSON.stringify(raw); await writeFile(file, bytes);
+    const layoutFile = path.join(folder, "editor", `${boardId}.json`), layout = await readFile(layoutFile, "utf8");
+    const historyFile = path.join(folder, "jobs.json"), history = "opaque paid task IDs and original inputs"; await writeFile(historyFile, history);
+    const response = await app.inject(`${base}/boards/${boardId}`);
+    expect(response.statusCode, response.body).toBe(200);
+    const expected = structuredClone(raw);
+    if (committed) for (const [i, [, , , provider]] of cases.entries()) expected.nodes[i].data.model.provider = provider;
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
+    expect(await readFile(layoutFile, "utf8")).toBe(layout);
+    expect(await readFile(historyFile, "utf8")).toBe(history);
+    if (!committed) expect(await readFile(file, "utf8")).toBe(bytes);
+    const after = await readFile(file, "utf8");
+    const again = await app.inject(`${base}/boards/${boardId}`);
+    expect(again.json().revision).toBe(response.json().revision);
+    expect(await readFile(file, "utf8")).toBe(after);
+    // Saving an old selection after migration follows the same mapping.
+    const editing = response.json();
+    editing.board.nodes[0].data.model = { provider: "volcengine-ark", id: "doubao-seedream-5-0-pro-260628" };
+    const saved = await app.inject({ method: "PUT", url: `${base}/boards/${boardId}`, payload: editing });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().board.nodes[0].data.model.provider).toBe(committed ? "plugin.ohmygame.seedance.ark" : "volcengine-ark");
+    expect(await readFile(historyFile, "utf8")).toBe(history);
+    const unreadable = JSON.parse(await readFile(file, "utf8"));
+    unreadable.nodes[0].data.future = { preserve: true };
+    const unreadableBytes = JSON.stringify(unreadable); await writeFile(file, unreadableBytes);
+    const refused = await app.inject(`${base}/boards/${boardId}`);
+    expect(refused.statusCode).toBe(400);
+    expect(await readFile(file, "utf8")).toBe(unreadableBytes);
+    expect(await readFile(historyFile, "utf8")).toBe(history);
   });
 });

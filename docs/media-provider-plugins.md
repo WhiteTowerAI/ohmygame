@@ -442,9 +442,9 @@ package/grants mismatch defer activation without changing settings.
 
 The original `seedance.json` remains byte-identical for legacy task ownership.
 A committed receipt prevents later startups from restoring a key or preference
-the user deliberately changed. This settings step does not rewrite canvas or
-project references, resubmit historical jobs, or retire the built-in providers;
-those transitions follow after their own compatibility checks.
+the user deliberately changed. Saved canvas and project references migrate separately on owning loads as
+described below. Settings migration does not resubmit historical jobs or retire
+the built-in providers; cutover follows its own compatibility checks.
 
 ### Optional MiniMax beta artifact
 
@@ -774,6 +774,25 @@ project metadata queue. Migration preserves the project's modification time
 and does not rewrite job inputs, recovery IDs or canvas history. Read-only
 folder discovery does not initiate migration. Project default migration never
 transfers ownership of unfinished generation tasks.
+
+### Seedance saved selections and defaults
+
+After the verified Seedance settings transaction commits, owning board and
+project loads map reviewed Ark image/video and BytePlus video selections to
+`plugin.ohmygame.seedance.ark` / `plugin.ohmygame.seedance.byteplus`. Mapping checks
+both the region and media kind; an image ID in a video selection, an unsupported
+model or an unrelated provider remains unchanged. MiniMax and Seedance activation
+states are independent.
+
+The same [canvas ownership and preservation rules](#minimax-saved-canvas-selections)
+and [project default lifecycle](#minimax-project-video-defaults) apply, now to both
+image and video defaults. Missing workspace folders, imports, copies, refreshes,
+concurrent edits and explicitly cleared choices retain their existing behavior.
+Unrecognized stored fields are preserved where the store supports them; a board
+or settings file that fails its full validation is refused without rewriting it.
+Existing outputs, task inputs, recovery IDs and history never change owner.
+Retiring built-in Seedance execution and handling old-job retries remain a
+separate cutover step.
 
 ### MiniMax committed-profile cutover
 
