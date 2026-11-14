@@ -345,11 +345,37 @@ not exposed to native plugin code without its secrets capability. These storage
 protections prepare the optional vendor migration; they do not copy keys, rename
 saved model references, enable a plugin, or replace a built-in provider.
 
+### Optional MiniMax beta artifact
+
+The migration preparation target is `@ohmygame/minimax@0.1.0`, published from
+[official plugins #17](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/17).
+Its exact npm tarball integrity is:
+
+```text
+sha512-Haq/K2D644uG1kTVX4ncU+hmDLPkeSq4IYRy0E86IICORoqLv6Ut15tq3ZOyjbqUPTFUCY6ZGHwMHzkX75eHOQ==
+```
+
+The published artifact passed npm signature/integrity checks and the app's plugin
+validator; its packaged files match the tested source. It declares `beta: true`,
+requires API `^2.7.0`, and provides regional `cn`/`global` video providers using
+`cnApiKey`/`globalApiKey`, with `MiniMax-H3` and `MiniMax-H3-Max` models. This is an
+artifact baseline for the migration mapping below, not an installation or
+activation record. It remains optional and outside the preinstalled lock.
+
+Live generation, downloading and quit/reopen recovery still require acceptance
+before replacing the built-in provider. Follow the
+[plugin's local test instructions](https://github.com/WhiteTowerAI/ohmygame-plugins/blob/main/plugins/minimax/README.md#local-testing--本地测试).
+A future migration must check this exact package identity and integrity before
+applying; a different version requires its contract and migration tests reviewed
+again.
+
 ### MiniMax settings inspection (preparation only)
 
-MiniMax remains private and unpublished pending live generation and restart
-acceptance. To inspect migration inputs, close the app and copy its data directory
-to a private local folder, then run from this repository:
+MiniMax is available as the optional `@ohmygame/minimax@0.1.0` beta (OhMyGame
+API 2.7). Publication does not enable migration or replace the built-in provider;
+live generation and restart acceptance remain required before cutover. To inspect
+migration inputs, close the app and copy its data directory to a private local
+folder, then run from this repository:
 
 ```bash
 bun run inspect:minimax-migration --data-dir /absolute/path/to/copied-app-data
@@ -435,9 +461,10 @@ Before enabling migration in the app, complete these separate gates:
 - Verify real generation, result download, stop and restart recovery in both
   regions with the optional adapter. Retrying a recovered request must not start
   a second paid generation. Local stop does not imply vendor cancellation.
-- Obtain publication authorization, publish the accepted package, pin its
-  integrity, and verify the installed package's provider/model contract. The
-  inspection's mapping is a preparation snapshot, not a package lock.
+- Verify the installed package against the exact beta artifact above, including
+  its integrity and provider/model contract. Publication and artifact checks do
+  not establish local installation, grants, enablement or live acceptance. The
+  inspector does not yet enforce this artifact baseline at an activation boundary.
 - Define the migration at each owning load boundary: keys in the key/configuration
   stores, switches and defaults in model preferences, saved references in canvas
   loading. Preserve unknown metadata and refuse unreadable files. Do not bulk-edit

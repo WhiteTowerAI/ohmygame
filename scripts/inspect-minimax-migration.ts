@@ -7,7 +7,7 @@ import { MinimaxSettingsStore } from "../src/daemon/minimax-settings.js";
 import { PluginValues } from "../src/daemon/plugin-values.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 
-// The optional, unpublished adapter's current contract. Recheck against the
+// The optional beta adapter's current contract. Recheck against the
 // integrity-pinned package before implementing activation; this is not a lock.
 export const MINIMAX_MIGRATION_REGIONS = [
   {
