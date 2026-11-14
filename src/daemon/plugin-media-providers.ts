@@ -37,6 +37,8 @@ const RESPONSE_MAX_BYTES = 20 * 1024 * 1024;
 /** One video the app downloads. */
 const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 60_000;
+// Synchronous image generation needs the same budget as the built-in Seedream provider.
+const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 /** A video download, which may be large. */
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const ANSWER_HEADERS = ["content-type", "content-length", "retry-after", "location", "x-request-id"];
@@ -549,7 +551,9 @@ export class PluginMediaProviders {
     let submitted = false;
     const call = (step: string, args: unknown[], stepSignal: AbortSignal) => runMediaAdapter({
       source, file: item.media.adapter, kind, step, args,
-      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined),
+      fetch: (request, fetchSignal) => this.#fetch(item, request, fetchSignal, step === "start" ? () => { submitted = true; } : undefined,
+        kind === "image" && step === "start" ? IMAGE_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
+      ...(kind === "image" && step === "start" ? { callMs: IMAGE_REQUEST_TIMEOUT_MS } : {}),
       log: (message) => this.log(item.entry.id, message),
       signal: stepSignal,
     }).catch((cause: unknown) => {
@@ -680,7 +684,7 @@ export class PluginMediaProviders {
    * `host.fetch`: HTTPS to the plugin's approved hosts, with the key added
    * when asked. `writing` hears of a request sent that isn't a read.
    */
-  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void): Promise<MediaFetchResponse> {
+  async #fetch(item: PluginMediaProvider, request: MediaFetchRequest, signal: AbortSignal, writing?: () => void, timeoutMs = REQUEST_TIMEOUT_MS): Promise<MediaFetchResponse> {
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
     if (!METHODS.has(method)) throw new Error(`host.fetch can't send ${method}`);
@@ -708,7 +712,7 @@ export class PluginMediaProviders {
       ...(body !== undefined && method !== "GET" && method !== "HEAD" ? { body } : {}),
       redirect: "manual",
       credentials: "omit",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     }).catch((cause: unknown) => {
       // Never the address: it may carry the key.
       throw new Error(`${url.host} could not be reached${cause instanceof Error && cause.name === "TimeoutError" ? " in time" : ""}`);
