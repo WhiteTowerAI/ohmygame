@@ -381,6 +381,51 @@ Older hosts cannot load plugins requiring API 2.19. No native audio service is
 switched by this API addition.
 
 
+### Encoded audio receipts (API 2.23)
+
+A recoverable audio `host.submit` with `responseType: "file"` may also specify:
+
+```js
+{
+  requestIdHeader: "X-Api-Request-Id",
+  decode: {
+    format: "jsonl", // "json" for a single object
+    audioField: "data",
+    statusField: "code",
+    successCodes: [0, 20000000]
+  }
+}
+```
+
+The host decodes the top-level Base64 field outside the sandbox, validates every
+object's integer status and saves a single owned audio file before confirming the
+paid receipt. JSON lines may cross network chunks; a final line needs no newline.
+Audio is capped at 64 MiB, encoded input at its Base64 size plus 8 MiB of framing,
+and non-audio metadata at 8 KiB. Empty/invalid/truncated responses, rejected status,
+invalid UTF-8 and exceeded limits fail without saving partial audio. A stream with
+no vendor completion marker is complete only when its HTTP body ends cleanly;
+this API does not invent a stronger vendor guarantee.
+
+The response still exposes `file()`; file bytes never enter the VM or journal
+JSON. `response.metadata` contains the latest top-level non-audio fields merged
+across successful events, with credentials redacted. Unknown metadata is bounded,
+not silently truncated. `text()` and `json()` still reject file responses.
+Adapters validate vendor-specific metadata and may set an output's
+`usageCharacters` to a nonnegative safe integer; it is retained in asset metadata.
+
+`requestIdHeader` asks the host to generate a UUID only when the paid request is
+actually sent. It must be a custom `X-` header, cannot replace a supplied header
+or the credential header, and is returned as `response.requestId`. The generated
+value is kept in the confirmed receipt, outside the original request fingerprint;
+re-entering `host.submit` restores it without another HTTP request. Adapters must
+not generate a fresh random request ID on each recovery. The redacted `x-tt-logid`
+response header is also available for provider tracing.
+
+Both options are limited to recoverable audio file submissions. Missing or
+uncertain receipts keep the existing no-resubmission rule. Existing binary file
+responses and older plugin declarations retain their behavior. These additions
+require `engines.ohmygame-api: "^2.23.0"`.
+
 ### 3D processing and controls (API 2.11)
 
 Declare `engines.ohmygame-api: "^2.11.0"` and `media["3d"].inputFiles: true`

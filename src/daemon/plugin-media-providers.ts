@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { audioResponseEncoding, readEncodedAudio } from "./plugin-audio-response.js";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
@@ -47,7 +48,7 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 /** A video download, which may be large. */
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-const ANSWER_HEADERS = ["content-type", "content-length", "retry-after", "location", "x-request-id", "request-id"];
+const ANSWER_HEADERS = ["content-type", "content-length", "retry-after", "location", "x-request-id", "request-id", "x-tt-logid"];
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 /** A task the adapter keeps between checks. */
 const TASK_MAX_CHARACTERS = 16 * 1024;
@@ -107,7 +108,7 @@ type Answer =
   | { outputs: Output[] }
   | { error: string }
   | { task: unknown; retryAfter?: number };
-type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown };
+type Output = ({ url: string } | { file: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown; usageCharacters?: unknown };
 
 interface RunOptions {
   /** All returned animation outputs must be valid and consumed. */
@@ -446,6 +447,8 @@ export class PluginMediaProviders {
       const output = outputs[0]!;
       if (output.requestId !== undefined && (typeof output.requestId !== "string" || !output.requestId.trim() || output.requestId.length > 512))
         throw new AudioFailure("The plugin returned an invalid request ID");
+      if (output.usageCharacters !== undefined && (!Number.isSafeInteger(output.usageCharacters) || (output.usageCharacters as number) < 0))
+        throw new AudioFailure("The plugin returned an invalid character usage");
       const bytes = await this.#output(item, output, AUDIO_MAX_BYTES, DOWNLOAD_TIMEOUT_MS, AudioFailure, stopped, journal);
       const audio = await inspectAudio(bytes, asked, 502).catch((cause: unknown) => {
         throw asked ? cause : new AudioFailure(`${this.#name(item)} returned a file that isn't playable audio`);
@@ -458,7 +461,7 @@ export class PluginMediaProviders {
         bytes,
         mediaType: AUDIO_MEDIA_TYPES[made],
         model: { provider: model.provider, id: model.id },
-        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec, ...(typeof output.requestId === "string" ? { providerRequestId: output.requestId } : {}) },
+        metadata: { durationMs: audio.durationMs, sampleRate: audio.sampleRate, channels: audio.channels, codec: audio.codec, ...(typeof output.requestId === "string" ? { providerRequestId: output.requestId } : {}), ...(typeof output.usageCharacters === "number" ? { usageCharacters: output.usageCharacters } : {}) },
       };
     });
   }
@@ -1108,6 +1111,9 @@ export class PluginMediaProviders {
     if (request && "submission" in request) throw new Error("host.submit is only available during a recoverable generation");
     if (request.responseType !== undefined && (request.responseType !== "file" || !saveFile))
       throw new Error("Binary responses require host.submit in a recoverable audio generation");
+    if ((request.decode !== undefined || request.requestIdHeader !== undefined) && (request.responseType !== "file" || !saveFile))
+      throw new Error("Audio decoding and request IDs require a recoverable file response");
+    const encoding = request.decode !== undefined ? audioResponseEncoding(request.decode) : undefined;
     const url = this.#allowed(item, request?.url);
     const method = typeof request.method === "string" ? request.method.toUpperCase() : "GET";
     if (!METHODS.has(method)) throw new Error(`host.fetch can't send ${method}`);
@@ -1115,6 +1121,15 @@ export class PluginMediaProviders {
     for (const [name, value] of Object.entries(request.headers && typeof request.headers === "object" ? request.headers : {}))
       if (typeof value === "string") headers.set(name, value);
     headers.delete("cookie");
+    let requestId: string | undefined;
+    if (request.requestIdHeader !== undefined) {
+      const auth = item.media.auth ?? DEFAULT_AUTH;
+      if (typeof request.requestIdHeader !== "string" || !/^x-[a-z0-9-]{1,100}$/i.test(request.requestIdHeader) ||
+        headers.has(request.requestIdHeader) || "header" in auth && request.requestIdHeader.toLowerCase() === auth.header.toLowerCase())
+        throw new Error("Invalid or conflicting request ID header");
+      requestId = randomUUID();
+      headers.set(request.requestIdHeader, requestId);
+    }
     let body: string | FormData | undefined;
     if (request.multipart !== undefined) {
       if (!files) throw new Error("Multipart needs generation-owned input files");
@@ -1168,10 +1183,18 @@ export class PluginMediaProviders {
       if (value !== null) answer[name] = hide(value);
     }
     if (request.responseType === "file" && response.ok) {
+      if (encoding) {
+        const decoded = await readEncodedAudio(response, encoding).catch((cause: unknown) => {
+          throw new Error(hide(cause instanceof Error ? cause.message : String(cause)));
+        });
+        return { status: response.status, headers: answer, body: "", file: await saveFile!(decoded.bytes),
+          metadata: JSON.parse(hideBody(JSON.stringify(decoded.metadata))) as Record<string, unknown>,
+          ...(requestId ? { requestId } : {}) };
+      }
       const bytes = await readCapped(response, url.host, MEDIA_TASK_FILE_MAX_BYTES);
-      return { status: response.status, headers: answer, body: "", file: await saveFile!(bytes) };
+      return { status: response.status, headers: answer, body: "", file: await saveFile!(bytes), ...(requestId ? { requestId } : {}) };
     }
-    return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8")) };
+    return { status: response.status, headers: answer, body: hideBody((await readCapped(response, url.host, RESPONSE_MAX_BYTES)).toString("utf8")), ...(requestId ? { requestId } : {}) };
   }
 
   /** Downloads or decodes one output. */

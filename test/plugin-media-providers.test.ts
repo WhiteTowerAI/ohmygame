@@ -20,6 +20,7 @@ import type { PluginServices } from "../src/daemon/plugin-services.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { ProviderAudio } from "../src/daemon/audio-generation.js";
+import { readEncodedAudio } from "../src/daemon/plugin-audio-response.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -533,6 +534,128 @@ const AUDIO_START = `export default { audio: { async start(input, host) {
 } } };`;
 
 describe("plugin media providers: audio", () => {
+  it.each(["json", "jsonl"] as const)("keeps %s Base64 audio, usage and generated request identity in a small resumable receipt", async format => {
+    const bytes = Buffer.concat([WAV.subarray(0, 44), Buffer.alloc(2 * 1024 * 1024, 0xa5)]);
+    bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(bytes.length - 44, 40);
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", {
+        method: "POST", auth: true, json: input, responseType: "file", requestIdHeader: "X-Api-Request-Id",
+        decode: { format: "${format}", audioField: "audio", statusField: "code", successCodes: [0, 20000000] }
+      });
+      if (response.metadata.audio || response.headers["x-tt-logid"] !== "trace-[key]" || response.metadata.message !== "[key]") throw new Error("Unsafe metadata");
+      return { outputs: [{ ...await response.file(), requestId: response.requestId, usageCharacters: response.metadata.usage.text_words }] };
+    } } };`;
+    const body = format === "json"
+      ? JSON.stringify({ code: 0, audio: bytes.toString("base64"), usage: { text_words: 0 }, message: "private-key" })
+      : [JSON.stringify({ code: 0, audio: bytes.subarray(0, 1024).toString("base64") }), JSON.stringify({ code: 0, audio: bytes.subarray(1024).toString("base64") }), JSON.stringify({ code: 20000000, usage: { text_words: 0 }, message: "private-key" })].join("\r\n");
+    const first = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(body, { headers: { "x-tt-logid": "trace-private-key" } }) });
+    const audio = new ProviderAudio(async () => first.media.audioAdapters(() => true));
+    const input = { prompt: "hello" };
+    const result = await audio.generate(input, undefined, await journalAt());
+    const id = first.requests[0]!.headers["x-api-request-id"];
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(result.metadata).toMatchObject({ providerRequestId: id, usageCharacters: 0 });
+    expect(Buffer.from(result.bytes).equals(bytes)).toBe(true);
+    const receipt = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
+    expect(Buffer.byteLength(receipt)).toBeLessThan(4096);
+    expect(receipt).not.toContain("private-key");
+    const restarted = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => { throw new Error("must not pay again"); } });
+    const restored = await new ProviderAudio(async () => restarted.media.audioAdapters(() => true)).generate(input, undefined, await journalAt());
+    expect(Buffer.from(restored.bytes).equals(bytes)).toBe(true);
+    expect(restored.metadata).toEqual(result.metadata);
+    expect(first.requests).toHaveLength(1); expect(restarted.requests).toHaveLength(0);
+  });
+
+  it("re-enters a confirmed encoded response after interruption without changing its UUID or sending again", async () => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file", requestIdHeader: "X-Api-Request-Id",
+        decode: { format: "json", audioField: "audio", statusField: "code", successCodes: [0] } });
+      await host.fetch("https://api.flow.example/ready");
+      return { outputs: [{ ...await response.file(), requestId: response.requestId }] };
+    } } };`;
+    const first = await setup(source, { media: AUDIO_MEDIA, reply: url => {
+      if (url.endsWith("/ready")) throw new Error("interrupted after confirmed receipt");
+      return Response.json({ code: 0, audio: WAV.toString("base64") });
+    } });
+    await expect(new ProviderAudio(async () => first.media.audioAdapters(() => true)).generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow();
+    const id = first.requests[0]!.headers["x-api-request-id"];
+    expect(first.requests.map(request => request.method)).toEqual(["POST", "GET"]);
+    const restarted = await setup(source, { media: AUDIO_MEDIA, reply: url => {
+      if (!url.endsWith("/ready")) throw new Error("no second paid request");
+      return Response.json({ ready: true });
+    } });
+    const result = await new ProviderAudio(async () => restarted.media.audioAdapters(() => true)).generate({ prompt: "hi" }, undefined, await journalAt());
+    expect(result.metadata?.providerRequestId).toBe(id);
+    expect(Buffer.from(result.bytes).equals(WAV)).toBe(true);
+    expect(restarted.requests.map(request => request.method)).toEqual(["GET"]);
+  });
+
+  it.each([-1, 0.5, "12", Number.MAX_SAFE_INTEGER + 1])("rejects invalid character usage without another paid request: %j", async usage => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file" });
+      return { outputs: [{ ...await response.file(), usageCharacters: ${JSON.stringify(usage)} }] };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA, reply: () => new Response(new Uint8Array(WAV)) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(audio.generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow("invalid character usage");
+    expect(requests).toHaveLength(1);
+  });
+
+  it.each([
+    '{"code":0,"data":"!!!!"}',
+    '{"code":0,"data":"AAAA"}\n{"code":403,"message":"private-key"}',
+    '{"code":0,"data":"AAAA"}\n{"code":',
+    '{"data":"AAAA"}',
+    '{"code":"0","data":"AAAA"}',
+    '{"code":0}',
+    JSON.stringify({ code: 0, data: "AAAA", extra: "x".repeat(8193) }),
+  ])("refuses invalid or rejected encoded audio without replaying a paid request: %#", async body => {
+    const source = `export default { audio: { async start(input, host) {
+      const response = await host.submit("speech", "https://api.flow.example/speech", { method: "POST", auth: true, responseType: "file",
+        decode: { format: "jsonl", audioField: "data", statusField: "code", successCodes: [0, 20000000] } });
+      return { outputs: [await response.file()] };
+    } } };`;
+    const { media, requests } = await setup(source, { key: "private-key", media: AUDIO_MEDIA, reply: () => new Response(body) });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    const error = await audio.generate({ prompt: "hi" }, undefined, await journalAt()).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("private-key");
+    await expect(audio.generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow("response was lost");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("bounds encoded/decoded bytes, cancels rejected streams and handles split UTF-8 and JSON lines", async () => {
+    const encoding = { format: "jsonl" as const, audioField: "data", statusField: "code", successCodes: [0] };
+    const raw = Buffer.from('{"code":0,"data":"AQID","message":"你好"}\n{"code":0,"data":"BAUG"}');
+    const split = new ReadableStream<Uint8Array>({ start(controller) { for (const byte of raw) controller.enqueue(Uint8Array.of(byte)); controller.close(); } });
+    expect(await readEncodedAudio(new Response(split), encoding, 6)).toEqual({ bytes: Buffer.from([1, 2, 3, 4, 5, 6]), metadata: { code: 0, message: "你好" } });
+    await expect(readEncodedAudio(new Response(raw), encoding, 5)).rejects.toThrow("Decoded audio response is too large");
+    const cancelled = vi.fn();
+    const oversized = new Response(new ReadableStream({ cancel: cancelled }), { headers: { "content-length": String(100 * 1024 * 1024) } });
+    await expect(readEncodedAudio(oversized, encoding)).rejects.toThrow("Encoded audio response is too large");
+    expect(cancelled).toHaveBeenCalledOnce();
+    const tooMuch = new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 8)); }, cancel: cancelled }));
+    await expect(readEncodedAudio(tooMuch, encoding, 1)).rejects.toThrow("Encoded audio response is too large");
+    expect(cancelled).toHaveBeenCalledTimes(2);
+    await expect(readEncodedAudio(new Response(Uint8Array.of(0xff)), encoding)).rejects.toThrow();
+  });
+
+  it.each([
+    { decode: { format: "json", audioField: "audio", statusField: "code", successCodes: [] } },
+    { decode: { format: "json", audioField: "audio", statusField: "audio", successCodes: [0] } },
+    { requestIdHeader: "authorization" },
+    { requestIdHeader: "x-existing", headers: { "X-Existing": "value" } },
+  ])("rejects invalid encoded response or request identity options before HTTP: %#", async options => {
+    const source = `export default { audio: { async start(input, host) {
+      await host.submit("speech", "https://api.flow.example/speech", { method: "POST", responseType: "file", ...${JSON.stringify(options)} });
+      return { error: "should not send" };
+    } } };`;
+    const { media, requests } = await setup(source, { media: AUDIO_MEDIA });
+    await expect(new ProviderAudio(async () => media.audioAdapters(() => true)).generate({ prompt: "hi" }, undefined, await journalAt())).rejects.toThrow();
+    expect(requests).toHaveLength(0);
+  });
+
   it("passes declared speech controls and custom voices without changing saved options", async () => {
     const { media, requests } = await setup(AUDIO_START, { media: { audio: { models: [{
       id: "speech", kinds: ["speech"], readsText: true, formats: ["wav"],
