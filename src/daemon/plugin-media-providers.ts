@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
-import type { ImageModel, Model3DModel, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
+import { mergeAnimationClips } from "./merge-animations.js";
+import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
 import { inspectAudio } from "./audio-media.js";
-import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput } from "./model3d.js";
+import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
 import { GenerationShutdown, MediaTaskBusyError, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
@@ -106,6 +109,8 @@ type Answer =
 type Output = ({ url: string } | { base64: string; mediaType?: string }) & { forwardAxis?: unknown; requestId?: unknown };
 
 interface RunOptions {
+  /** All returned animation outputs must be valid and consumed. */
+  outputLimit?: number;
   files?: MediaInputFiles;
   limitMs: number;
   signal?: AbortSignal | undefined;
@@ -384,6 +389,88 @@ export class PluginMediaProviders {
     });
   }
 
+  /** The action picker is read-only; listing cannot submit or upload anything. */
+  async animationActions(model: Model3DModel, options?: Model3DOptions, signal?: AbortSignal): Promise<Model3DAnimationAction[]> {
+    const item = (await this.providers()).find(candidate => candidate.id === model.provider);
+    const processing = item?.media["3d"]?.processing;
+    if (!item || !processing || processing.id !== model.id || !processing.operations.includes("animate")) throw new Model3DGenerationError("The selected plugin has no animation library", 400);
+    const deadline = AbortSignal.timeout(30_000), stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const answer = await runMediaAdapter({
+      source: await this.#source(item, Model3DGenerationError), file: item.media.adapter, kind: "3d", step: "actions",
+      args: [{ model: model.id, ...(options ? { options } : {}), ...modelData(processing) }], signal: stopped, callMs: 30_000,
+      fetch: (request, requestSignal) => {
+        if ("submission" in request || !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase())) throw new Model3DGenerationError("Animation library requests must be read-only", 400);
+        return this.#fetch(item, request, requestSignal, undefined, 30_000);
+      }, log: message => this.log(item.entry.id, message),
+    }).catch((cause: unknown) => { throw new Model3DGenerationError(`${this.#name(item)} animation library: ${cause instanceof Error ? cause.message : String(cause)}`); });
+    if (answer && typeof answer === "object" && "error" in answer && typeof answer.error === "string") throw new Model3DGenerationError(`${this.#name(item)}: ${answer.error.slice(0, 1000)}`);
+    const actions = answer && typeof answer === "object" && "actions" in answer ? answer.actions : undefined;
+    if (!Array.isArray(actions) || actions.length > 5000) throw new Model3DGenerationError("The plugin returned an invalid animation library");
+    const ids = new Set<string>();
+    return actions.map((action: unknown): Model3DAnimationAction => {
+      if (!action || typeof action !== "object") throw new Model3DGenerationError("The plugin returned an invalid animation action");
+      const value = action as Record<string, unknown>, id = value.id;
+      const text = (value: unknown): value is string => typeof value === "string" && !!value.trim() && value.length <= 256;
+      if ((typeof id === "number" ? !Number.isSafeInteger(id) || id < 0 : typeof id !== "string" || !id || id.length > 120)
+        || !text(value.name) || value.category !== undefined && !text(value.category) || value.subCategory !== undefined && !text(value.subCategory)
+        || ids.has(JSON.stringify(id))) throw new Model3DGenerationError("The plugin returned an invalid or repeated animation action");
+      ids.add(JSON.stringify(id));
+      if (value.previewUrl !== undefined) {
+        let url: URL;
+        try { url = new URL(String(value.previewUrl)); } catch { throw new Model3DGenerationError("The plugin returned an invalid animation preview URL"); }
+        if (typeof value.previewUrl !== "string" || value.previewUrl.length > 2048 || !["https:", "http:"].includes(url.protocol) || url.username || url.password
+          || !networkCovers(item.entry.manifest.capabilities?.network, url)) throw new Model3DGenerationError("The animation preview must use an approved network host");
+      }
+      return { id: id as string | number, name: value.name as string, category: value.category as string ?? "Other", subCategory: value.subCategory as string ?? "Other",
+        ...(value.previewUrl ? { previewUrl: value.previewUrl as string } : {}) };
+    });
+  }
+
+  /** Rig and animate a host-owned GLB; every returned batch belongs to one result. */
+  async animate3D(model: Model3DModel, input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel> {
+    const item = (await this.providers()).find(candidate => candidate.id === model.provider);
+    const processing = item?.media["3d"]?.processing;
+    if (!item || !processing || processing.id !== model.id || !processing.operations.includes("animate") || !item.media["3d"]?.inputFiles)
+      throw new Model3DGenerationError("The selected plugin cannot animate this model", 400);
+    if (!input.model.length || input.model.length > MODEL3D_MAX_BYTES) throw new Model3DGenerationError("The source GLB must be between 1 byte and 100 MB", 413);
+    if (!Array.isArray(input.actionIds) || !input.actionIds.length || input.actionIds.length > MAX_ANIMATION_ACTIONS || new Set(input.actionIds).size !== input.actionIds.length
+      || input.actionIds.some(id => typeof id === "number" ? !Number.isInteger(id) || id < 0 : typeof id !== "string" || !id || id.length > 120))
+      throw new Model3DGenerationError(`Choose 1 to ${MAX_ANIMATION_ACTIONS} different animations`, 400);
+    if (input.heightMeters !== undefined && (!Number.isFinite(input.heightMeters) || input.heightMeters <= 0 || input.heightMeters > 100)) throw new Model3DGenerationError("Character height must be between 0 and 100 meters", 400);
+    const metadata = await inspectModel3D(input.model);
+    if (processing.optionProfile === "meshy" && (!metadata.textured || metadata.triangles > 300000)) throw new Model3DGenerationError("Meshy rigging requires a textured model with at most 300000 triangles", 400);
+    const bytes = processing.animationSourceAxis === "+Z" ? await modelFacingPositiveZ(input.model, input.forwardAxis) : input.model;
+    if (bytes.length > MODEL3D_MAX_BYTES) throw new Model3DGenerationError("The normalized source GLB exceeds 100 MB", 413);
+    const forwardAxis = processing.animationSourceAxis ?? input.forwardAxis;
+    const files = new MediaInputFiles();
+    return this.#produce(item, "3d", {
+      model: model.id, operation: "animate", source: files.add(bytes, "model/gltf-binary", "source.glb"),
+      actionIds: input.actionIds, ...(input.heightMeters !== undefined ? { heightMeters: input.heightMeters } : {}),
+      ...(input.options ? { options: input.options } : {}), ...(forwardAxis ? { forwardAxis } : {}), ...modelData(processing),
+    }, { limitMs: (item.media["3d"].maxMinutes ?? 15) * 60_000, signal, Failure: Model3DGenerationError, journal: input.journal, files, outputLimit: MAX_ANIMATION_ACTIONS }, async (outputs, stopped) => {
+      const axis = outputs[0]!.forwardAxis ?? forwardAxis;
+      const ids: string[] = [], batches: Buffer[] = [];
+      let remaining = 2 * MODEL3D_MAX_BYTES;
+      for (const output of outputs) {
+        if (output.forwardAxis !== undefined && output.forwardAxis !== "+X" && output.forwardAxis !== "+Z" || (output.forwardAxis ?? forwardAxis) !== axis)
+          throw new Model3DGenerationError("The plugin returned inconsistent animation axes");
+        if (output.requestId !== undefined && (typeof output.requestId !== "string" || !output.requestId || output.requestId.length > 512)) throw new Model3DGenerationError("The plugin returned an invalid request ID");
+        if (typeof output.requestId === "string") ids.push(output.requestId);
+        if (remaining <= 0) throw new Model3DGenerationError("Animation results exceed 200 MB", 413);
+        const batch = await this.#output(item, output, Math.min(MODEL3D_MAX_BYTES, remaining), DOWNLOAD_TIMEOUT_MS, Model3DGenerationError, stopped);
+        remaining -= batch.length;
+        const inspected = await inspectModel3D(batch);
+        if (!inspected.rigged || !inspected.animations?.length) throw new Model3DGenerationError("The plugin returned a model without rigged animation clips");
+        batches.push(batch);
+      }
+      stopped.throwIfAborted();
+      const merged = await mergeAnimationClips(batches);
+      if (merged.length > MODEL3D_MAX_BYTES) throw new Model3DGenerationError("Merged animation exceeds 100 MB", 413);
+      if ((await inspectModel3D(merged)).animations!.length < input.actionIds.length) throw new Model3DGenerationError("The plugin returned fewer animation clips than requested");
+      return { bytes: merged, mediaType: "model/gltf-binary", ...(axis ? { metadata: { forwardAxis: axis as "+X" | "+Z" } } : {}), ...(ids.length ? { requestId: ids.join(",") } : {}) };
+    });
+  }
+
   /** Makes one picture with a provider's adapter. */
   async generateImage(model: ImageModel, input: Omit<ImageGenerationInput, "imageModel">, signal?: AbortSignal): Promise<GeneratedImage> {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
@@ -638,10 +725,10 @@ export class PluginMediaProviders {
       let answer: Answer;
       if (begun.state === "resume") answer = { task, retryAfter: 1 };
       // The vendor finished in an earlier run: fetch its result again.
-      else if (begun.state === "done") answer = answerOf({ outputs: begun.outputs }, undefined, Failure);
+      else if (begun.state === "done") answer = answerOf({ outputs: begun.outputs }, undefined, Failure, options.outputLimit);
       else {
         try {
-          answer = answerOf(await call("start", [input], stopped), undefined, Failure);
+          answer = answerOf(await call("start", [input], stopped), undefined, Failure, options.outputLimit);
         } catch (cause) {
           // Never send a start again that may have reached the vendor; only `{ error }` says it didn't.
           if (submitted) keep = true;
@@ -662,7 +749,7 @@ export class PluginMediaProviders {
         wait = Math.min(15, wait * 1.5);
         await delay(seconds * 1000, stopped).catch(() => { throw why(stopped); });
         try {
-          answer = answerOf(await call("check", [task], stopped), task, Failure);
+          answer = answerOf(await call("check", [task], stopped), task, Failure, options.outputLimit);
           failures = 0;
         } catch (cause) {
           // Left as it was, the answer has the loop check the same task again after the wait.
@@ -839,7 +926,7 @@ export class PluginMediaProviders {
 }
 
 /** Reads what a step returned; anything else is the adapter's mistake. */
-function answerOf(value: unknown, task: unknown, Failure: Failure): Answer {
+function answerOf(value: unknown, task: unknown, Failure: Failure, outputLimit?: number): Answer {
   const fail = (why: string): never => { throw new Failure(`The plugin's adapter ${why}`); };
   if (!value || typeof value !== "object" || Array.isArray(value)) return fail("returned neither outputs, a task nor an error");
   const answer = value as Record<string, unknown>;
@@ -847,6 +934,7 @@ function answerOf(value: unknown, task: unknown, Failure: Failure): Answer {
   if (Array.isArray(answer.outputs)) {
     const outputs = answer.outputs.filter((output): output is Output => Boolean(output) && typeof output === "object"
       && (typeof (output as { url?: unknown }).url === "string" || typeof (output as { base64?: unknown }).base64 === "string"));
+    if (outputLimit !== undefined && (outputs.length !== answer.outputs.length || outputs.length > outputLimit)) return fail("returned invalid or too many animation outputs");
     return outputs.length ? { outputs } : fail("returned no outputs");
   }
   const next = "task" in answer ? answer.task : task;

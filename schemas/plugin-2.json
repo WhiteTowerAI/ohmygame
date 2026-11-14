@@ -1770,6 +1770,10 @@
                                 {
                                   "type": "string",
                                   "const": "remesh"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "animate"
                                 }
                               ]
                             },
@@ -1868,6 +1872,10 @@
                           },
                           "pbr": {
                             "type": "boolean"
+                          },
+                          "animationSourceAxis": {
+                            "type": "string",
+                            "const": "+Z"
                           }
                         },
                         "additionalProperties": false

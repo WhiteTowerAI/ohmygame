@@ -318,7 +318,8 @@ export class ToolRunner {
     }
     if (toolId === "animate-3d") {
       assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters", "model", "options"]);
-      return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
+      return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
+        await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId)).catch(model3DToolError);
     }
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
@@ -459,7 +460,7 @@ export class ToolRunner {
     return { bytes, metadata };
   }
 
-  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution): Promise<ToolRun> {
+  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined, execution: Model3DExecution, journal: MediaTaskJournal): Promise<ToolRun> {
     const { actionIds, heightMeters } = input;
     if (typeof input.assetId !== "string" || !input.assetId) throw new ToolRunError("Choose a 3D model to animate", 400);
     if (!Array.isArray(actionIds) || actionIds.length < 1 || actionIds.length > MAX_ANIMATION_ACTIONS
@@ -477,11 +478,12 @@ export class ToolRunner {
     if (generator.resolveOperationModel && !connection) throw new ToolRunError("Choose an available animation provider", 400);
     validateOperationOptions(input.options, "animate", connection?.protocol ?? "meshy");
     if ((!connection || connection.protocol === "meshy") && (!source.metadata.textured || source.metadata.triangles > 300_000)) throw new ToolRunError("Meshy rigging requires a textured model with at most 300000 triangles. Retexture or remesh the model first.", 400);
-    return this.#storeModelRun("animate-3d", signal, async () => {
-      const result = await generator.animate!({ model: source.bytes, actionIds, providerModel: input.model, options: input.options, forwardAxis: source.metadata.forwardAxis, execution, ...(heightMeters !== undefined ? { heightMeters } : {}) }, signal);
+    const run = await this.#storeModelRun("animate-3d", signal, async () => {
+      const result = await generator.animate!({ model: source.bytes, actionIds, providerModel: input.model, options: input.options, forwardAxis: source.metadata.forwardAxis, execution, journal, ...(heightMeters !== undefined ? { heightMeters } : {}) }, signal);
       return { ...result, metadata: { ...(source.metadata.forwardAxis ? { forwardAxis: source.metadata.forwardAxis } : {}), ...result.metadata, provider: connection?.provider ?? input.model?.provider ?? "meshy", operation: "animate" } };
     }, undefined, input.model);
-
+    await journal.clear().catch(() => undefined);
+    return run;
   }
 
   /** Saves a generated GLB as a run and a Library asset, undoing both if anything fails part way. */

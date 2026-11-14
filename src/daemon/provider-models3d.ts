@@ -28,7 +28,7 @@ interface ProviderModels3DOptions {
   defaultModel: () => Model3DModelRef | undefined;
   cloud?: CloudModelsClient;
   /** Plugins' model providers that make 3D models from a prompt or pictures. */
-  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D">;
+  plugins?: Pick<PluginMediaProviders, "model3DProviders" | "generate3D" | "animate3D" | "animationActions">;
 }
 
 export class ProviderModels3D implements Model3DGenerator {
@@ -134,11 +134,6 @@ export class ProviderModels3D implements Model3DGenerator {
       : operation === "animate" ? models.find((model) => model.provider === "meshy") : models[0];
     return model && (model.operations ?? ["image"]).includes(operation) ? model : undefined;
   }
-  private async operationConnection(ref: Model3DModelRef | undefined, operation: Model3DOperation, signal?: AbortSignal) {
-    const selected = await this.resolveOperationModel(ref, operation);
-    if (!selected) throw new Model3DGenerationError("The selected 3D operation provider is unavailable", 503);
-    return (await this.connection(selected, signal)).generator;
-  }
   private async connection(model: Model3DModel, signal?: AbortSignal): Promise<{ generator: Connection; settings: CustomModel3DSettings }> {
     if (isNative3DProvider(model.provider)) {
       const connection = this.options[model.provider];
@@ -162,12 +157,19 @@ export class ProviderModels3D implements Model3DGenerator {
     return { generator: cached.generator, settings };
   }
   async animate(input: Model3DAnimationInput, signal?: AbortSignal) {
-    const connection = await this.operationConnection(input.providerModel, "animate", signal);
+    if (input.providerModel && !this.options.isEnabled(input.providerModel.provider)) throw new Model3DGenerationError("The selected 3D provider is disabled", 409);
+    const selected = await this.resolveOperationModel(input.providerModel, "animate");
+    if (!selected) throw new Model3DGenerationError("The selected 3D operation provider is unavailable", 503);
+    if (selected.provider.startsWith("plugin.")) return this.options.plugins!.animate3D(selected, input, signal);
+    const { generator: connection } = await this.connection(selected, signal);
     if (!("animate" in connection)) throw new Model3DGenerationError("This provider has no animation API", 400);
     return connection.animate(input, signal);
   }
   async animations(signal?: AbortSignal, model?: Model3DModelRef, options?: Model3DOptions) {
-    const connection = await this.operationConnection(model, "animate", signal);
+    const selected = await this.resolveOperationModel(model, "animate");
+    if (!selected) throw new Model3DGenerationError("The selected 3D operation provider is unavailable", 503);
+    if (selected.provider.startsWith("plugin.")) return this.options.plugins!.animationActions(selected, options, signal);
+    const { generator: connection } = await this.connection(selected, signal);
     if (!("animations" in connection)) throw new Model3DGenerationError("This provider has no animation library", 400);
     return connection.animations(signal, model, options);
   }

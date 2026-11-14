@@ -28,6 +28,8 @@ export interface Model3DAnimationInput {
   forwardAxis?: Model3DMetadata["forwardAxis"];
   execution?: Model3DExecution;
   heightMeters?: number;
+  /** Keeps plugin rigging and animation steps until the final asset is stored. */
+  journal?: MediaTaskJournal;
 }
 
 export interface Generated3DModel {
