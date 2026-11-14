@@ -1747,3 +1747,18 @@ Startup recovers an interrupted Doubao transaction before any new shared setting
 migration, including in safe mode. An invalid receipt stops startup before those
 writes. Production does not begin a new Doubao migration yet: real-account
 acceptance and application ownership remain separate cutover requirements.
+
+### Prepared Doubao application ownership
+
+After a validated commit, the dormant `doubaoSettingsMigrated` application option
+coordinates catalogs, provider summaries, saved references, fresh requests and
+native settings routes. Both old provider IDs are retired, including the speech
+preview and default-voice update endpoints. The retained native settings are not
+loaded or changed; malformed legacy files cannot trigger a native merge after
+ownership has moved to the plugin. Removing or disabling the plugin leaves it
+unavailable instead of reviving the native connection.
+
+The installed Beta owns new TTS and Seed Audio work, with its migrated default
+voice, output settings and durable request receipts. Native historical paid work
+is never resubmitted automatically. Production startup still leaves the option
+unset pending real-account acceptance; this is preparation, not cutover.
