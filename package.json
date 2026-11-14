@@ -39,6 +39,7 @@
     "prepare:examples": "bun scripts/prepare-examples.ts",
     "rehearse:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/rehearse-minimax-migration.ts",
     "inspect:minimax-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-minimax-migration.ts",
+    "inspect:seedance-migration": "node --conditions=ohmygame-source --import tsx scripts/inspect-seedance-migration.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
     "plugin:check": "node --import tsx scripts/plugin-check.ts",
