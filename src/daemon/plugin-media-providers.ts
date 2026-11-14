@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
 import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { mergeAnimationClips } from "./merge-animations.js";
@@ -9,7 +9,7 @@ import { modelFacingPositiveZ, inspectModel3D } from "./model3d-inspect.js";
 import { remeshPolycountFor } from "../shared/model3d-operations.js";
 import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import { AudioGenerationError, type AudioProviderAdapter } from "./audio-generation.js";
-import { AUDIO_REQUEST_TIMEOUT_MS, inspectAudio } from "./audio-media.js";
+import { AUDIO_REQUEST_TIMEOUT_MS, MAX_AUDIO_BYTES, inspectAudio } from "./audio-media.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DAnimationInput } from "./model3d.js";
 import { networkCovers, PLUGIN_MEDIA_ADAPTER_MAX_BYTES, pluginMediaModelProblem, type PluginMediaKind, type PluginMediaModel, type PluginMediaModelList, type PluginMediaModels, type PluginMediaProcessingModel, type PluginSave3DModel } from "../shared/plugin-manifest.js";
 import { sniffImageType } from "./image-format.js";
@@ -225,6 +225,7 @@ export class PluginMediaProviders {
           protocol: "plugin",
           capabilities: {
             produces: [...model.kinds],
+            ...(model.transcribes ? { transcribes: true } : {}),
             ...(model.readsText ? { readsText: true } : {}),
             ...(model.readsText && (model.voices || item.media.audio?.listVoices) ? { supportsSpeaker: true } : {}),
             ...(model.readsText && item.media.audio?.listVoices ? { requiresVoice: true } : {}),
@@ -257,12 +258,49 @@ export class PluginMediaProviders {
         defaultVoiceId: () => provider.voices[0]!.id,
         voices: async () => ({ voices: provider.voices }),
       } : {}),
+      ...(provider.models.some(model => model.capabilities.transcribes) ? {
+        transcribe: (input: AudioTranscriptionRequest, signal?: AbortSignal) => this.transcribeAudio(provider.id, input, signal),
+      } : {}),
       generate: (input, signal, journal) => {
         const model = provider.models.find((candidate) => candidate.id === input.model?.id);
         if (!model) throw new AudioGenerationError("The selected audio model is unavailable", 400);
         return this.generateAudio(model, input, signal, journal);
       },
     }));
+  }
+
+  /** One explicit transcription request; no polling, paid-step replay or automatic retry. */
+  async transcribeAudio(provider: string, input: AudioTranscriptionRequest, signal?: AbortSignal): Promise<AudioTranscription> {
+    signal?.throwIfAborted();
+    if (!input.bytes.length || input.bytes.length > MAX_AUDIO_BYTES) throw new AudioGenerationError("The audio is empty or too large to transcribe", 413);
+    if (!/^(audio|video)\/[a-zA-Z0-9.+-]{1,100}$/.test(input.mediaType)
+      || input.language !== undefined && (typeof input.language !== "string" || input.language.length > 40))
+      throw new AudioGenerationError("Invalid transcription media type or language", 400);
+    const item = (await this.providers()).find(candidate => candidate.id === provider);
+    if (!item?.media.audio) throw new AudioGenerationError("The selected audio provider is unavailable. Check its plugin and key.", 503);
+    const model = (await this.#models(item, "audio")).find(candidate => candidate.id === input.model?.id && candidate.transcribes);
+    if (!model) throw new AudioGenerationError("The selected transcription model is unavailable", 400);
+    const files = new MediaInputFiles();
+    const name = input.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-200);
+    const audio = files.add(Buffer.from(input.bytes), input.mediaType, !name || name === "." || name === ".." ? "audio" : name);
+    const deadline = AbortSignal.timeout(AUDIO_REQUEST_TIMEOUT_MS), stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const answer = await runMediaAdapter({
+      source: await this.#source(item, AudioFailure), file: item.media.adapter, kind: "audio", step: "transcribe",
+      args: [{ model: model.id, audio, ...(input.language ? { language: input.language } : {}), ...modelData(model) }],
+      signal: stopped, callMs: AUDIO_REQUEST_TIMEOUT_MS,
+      fetch: (request, requestSignal) => this.#fetch(item, request, requestSignal, undefined, AUDIO_REQUEST_TIMEOUT_MS, files),
+      log: message => this.log(item.entry.id, message),
+    }).catch((cause: unknown) => {
+      if (signal?.aborted) throw signal.reason;
+      if (deadline.aborted) throw new AudioFailure(`${this.#name(item)} transcription timed out`, 504);
+      throw new AudioFailure(`${this.#name(item)} transcription: ${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+    if (answer && typeof answer === "object" && "error" in answer && typeof answer.error === "string")
+      throw new AudioFailure(`${this.#name(item)}: ${answer.error.slice(0, 1000)}`);
+    if (!answer || typeof answer !== "object" || !("text" in answer) || typeof answer.text !== "string" || answer.text.length > 1_000_000
+      || "language" in answer && (typeof answer.language !== "string" || !answer.language.trim() || answer.language.length > 40))
+      throw new AudioFailure("The plugin returned an invalid transcript");
+    return { text: answer.text.trim(), ...("language" in answer ? { language: answer.language as string } : {}), model: { provider, id: model.id } };
   }
 
   /** Account voice discovery cannot upload, submit or mutate vendor state. */

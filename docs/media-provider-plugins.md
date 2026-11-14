@@ -268,6 +268,48 @@ owner loads them, retaining task IDs/results and ambiguous-start refusal.
 Unknown fields or future versions are refused before mutation; read-only
 inspection may count an opaque task without claiming it is resumable.
 
+### Transcription (API 2.20)
+
+Set `transcribes: true` on an audio model and require
+`engines.ohmygame-api: "^2.20.0"`. A transcription-only model uses `kinds: []`;
+a model must either produce an audio kind or opt into transcription. Existing
+generation-only models keep their behavior. Transcription-only models appear
+in the audio catalog but are not offered as generation defaults.
+
+The `audio.transcribe(input, host)` step receives `model`, optional `modelData`
+and `language`, and `audio: { file, mediaType, byteLength }`. This is a host-owned
+snapshot of an audio/video input of 1 byte to 64 MiB. The script cannot read
+its raw bytes, base64 or original filesystem path. Use its file handle in the
+existing multipart interface:
+
+```js
+const response = await host.fetch("https://api.example.com/transcribe", {
+  method: "POST", auth: true,
+  multipart: [
+    { name: "model", value: input.model },
+    { name: "file", file: input.audio.file },
+  ],
+});
+if (!response.ok) return { error: "Transcription failed" };
+const result = await response.json();
+return { text: result.text, language: result.language };
+```
+
+Return `{ text, language? }` or `{ error }`. Text is trimmed and limited to
+1,000,000 characters; an optional detected language must be a nonblank string
+of at most 40 characters. An empty transcript is valid (the canvas reports no
+speech found). The host supplies the selected provider/model identity itself.
+The optional input language is forwarded as given, including region codes;
+the adapter converts it to the vendor's language format when needed.
+
+Transcription uses the existing synchronous canvas flow. Calls have a five-minute
+deadline and independent cancellation, recheck current plugin/key permissions,
+and do not retry automatically. There is no task journal or background recovery
+for transcription: `host.submit`, `host.reuse` and binary response mode are
+unavailable. If a response is lost, another explicit attempt may incur another
+vendor charge. All network, credential-redaction and multipart input ownership
+checks still apply. This API does not activate a native-provider migration.
+
 ### Binary audio responses (API 2.19)
 
 For speech, music or sound endpoints that return audio bytes directly, require
@@ -708,10 +750,11 @@ can't promise what the plugin doesn't do.
 7. 3D retexture and remesh are available in API 2.11; animation and its
    action library in API 2.12, shared rigging in API 2.13, balances in API 2.14,
    low-poly ranges in API 2.15, and editable model definitions/defaults in
-   API 2.16. Still needed: transcription and voices
-   listed from the vendor's account; then moving the built-in media providers
-   (Seedance, MiniMax, Meshy, Tripo, Doubao) to official plugins, with their
-   saved keys moved to the plugin's settings.
+   API 2.16. Audio limits and rates are available in API 2.17, account voices
+   in API 2.18, recoverable binary audio in API 2.19, and transcription in
+   API 2.20. Vendor plugins and compatibility activation remain separate from
+   host API support; see the migration sections below for saved settings,
+   references and unfinished task ownership.
 
 
 ## Stored settings before vendor migration
