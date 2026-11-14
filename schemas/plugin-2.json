@@ -1591,6 +1591,9 @@
                       "discoverModels": {
                         "type": "boolean"
                       },
+                      "listVoices": {
+                        "type": "boolean"
+                      },
                       "models": {
                         "type": "array",
                         "items": {

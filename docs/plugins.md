@@ -203,6 +203,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.15.0 | 3D model face-count declarations support 48–2,000,000 faces; requests and saved plugin selections retain low-poly counts while each model enforces its own range. |
 | 2.16.0 | Opt-in 3D model editing preserves manual versions and preset defaults, with explicit generation modes passed as `input.modelSettings`. |
 | 2.17.0 | Audio models declare speech rate, language and per-format sample rates, fractional duration limits and up to 40,000 text characters. |
+| 2.18.0 | Audio providers opt into read-only, paginated account voice discovery with approved HTTPS previews and explicit voice selection. |
 
 ## Agent instructions
 

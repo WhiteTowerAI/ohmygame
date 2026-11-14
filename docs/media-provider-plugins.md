@@ -78,8 +78,26 @@ every provider, such as a first and last frame for video.
   and each format must be declared. `maxTextCharacters` may reach 40,000;
   duration limits may be fractional from 0.1 to 600 seconds. Existing
   declarations retain their defaults. Plugins using these additions need
-  `engines.ohmygame-api: "^2.17.0"`. Account voice discovery and transcription
-  remain separate migration obligations; these fields do not provide them.
+  `engines.ohmygame-api: "^2.17.0"`. Account voice discovery is described below; transcription
+  remains a separate migration obligation.
+  With API 2.18, `media.audio.listVoices: true` uses the adapter's
+  `audio.voices({ search?, pageToken? }, host)` instead of the static list.
+  It returns `{ voices: [{ id, name, previewUrl?, labels? }], nextPageToken? }`.
+  Search is at most 200 characters and page tokens at most 2,000. Each page
+  has at most 500 distinct voices, allowing default voices returned in addition
+  to an account's requested page size; IDs follow the app's voice ID rules
+  (letters, digits, `_`, `-`, at most 256 characters), names are at most 200
+  characters, and labels have at most 20 entries (80-character keys and
+  200-character values). Omit the next token on the last page; returning
+  the requested token is invalid. Previews must be HTTPS URLs on an approved
+  network host, without URL credentials and at most 2,048 characters.
+  Queries have a 30-second deadline and allow only `GET`/`HEAD`; uploads,
+  submissions and shared paid steps are unavailable. No queries run just
+  to build the model catalog. Text-reading models require an explicit voice;
+  the first static or returned voice is never chosen automatically. Saved
+  IDs outside the current page remain valid selections. Declare
+  `engines.ohmygame-api: "^2.18.0"`. Existing static voice lists keep their
+  defaults when `listVoices` is absent.
 - **3D** models (`media["3d"].models`) say the `operations` they make from
   (`text`, a prompt; `image`, pictures of the object), how many pictures they
   take (`maxReferenceImages`, 1 when left out), their `polycount` range and
@@ -177,8 +195,8 @@ plugin API. Every kind's input also has `modelData` when the model has
   validation use the same rule, including discovered models saved in Settings.
 - **Audio:** `model`, `kind` (one of the model's), `prompt` (the words for a
   model that reads text, a description for the rest), `format` (one of the
-  model's), `voiceId` for a model that reads text (one of its `voices`, the
-  first by default), and when asked and the model takes them,
+  model's), `voiceId` for a model that reads text (the first static voice by
+  default; account voices require an explicit choice), and when asked and the model takes them,
   `durationSeconds`, `instrumental`, `loop` and `language`. Speech can carry
   `speed`, from -50 (half as fast) to 100 (twice as fast), 0 when left out.
   Declared `speedRange` limits are checked before dispatch; explicit zero is

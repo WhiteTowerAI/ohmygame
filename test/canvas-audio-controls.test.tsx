@@ -128,17 +128,44 @@ it("checks saved settings against the current model", () => {
 });
 
 it("lists account voices and limits speed for models that speak, and hides both for sound-only models", async () => {
-  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ voices: [{ id: "aria", name: "Aria" }], nextPageToken: "next" }));
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({ voices: [{ id: "aria", name: "Aria" }], nextPageToken: "next" }));
   vi.stubGlobal("fetch", fetch);
   await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={elevenSpeech} listsVoices onChange={vi.fn()} />));
   await vi.waitFor(() => expect(Array.from(host.querySelectorAll("select")[0]!.options).map((option) => option.value)).toEqual(["", "saved", "aria"]));
   expect(String(fetch.mock.calls[0]![0])).toContain("/audio-providers/elevenlabs/voices");
   const speed = host.querySelector<HTMLInputElement>(".audio-control-adjustments input")!;
   expect([speed.min, speed.max]).toEqual(["-30", "20"]);
+  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={elevenSpeech} listsVoices quick inline onChange={vi.fn()} />));
+  expect(host.querySelector('input[type="search"]')).not.toBeNull();
+  await vi.waitFor(() => expect(host.querySelector(".audio-provider-voices > button")).not.toBeNull());
 
   await act(async () => root.render(<CanvasAudioControls value={{}} model={elevenEffect} onChange={vi.fn()} />));
   expect(host.querySelector(".audio-control-adjustments input")).toBeNull();
   expect(Array.from(host.querySelectorAll("label")).some((label) => label.textContent?.startsWith("Language"))).toBe(false);
+});
+
+it("ignores an older voice page after switching providers and preserves the saved choice", async () => {
+  let finish!: (response: Response) => void;
+  const later = new Promise<Response>(resolve => { finish = resolve; });
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async url => {
+    const address = String(url);
+    if (address.includes("pageToken=")) return later;
+    return Response.json({ voices: [{ id: address.includes("other") ? "new" : "first", name: "Voice" }], nextPageToken: "next" });
+  });
+  vi.stubGlobal("fetch", fetch);
+  const change = vi.fn();
+  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={elevenSpeech} listsVoices onChange={change} />));
+  const options = () => Array.from(host.querySelectorAll("select")[0]!.options).map(option => option.value);
+  await vi.waitFor(() => expect(options()).toContain("first"));
+  const more = host.querySelector<HTMLButtonElement>(".audio-provider-voices > button")!;
+  expect(more).toBeDefined();
+  await act(async () => more.click());
+  expect(host.querySelectorAll("select")[0]!.disabled).toBe(true);
+  await act(async () => root.render(<CanvasAudioControls value={{ voiceId: "saved" }} model={{ ...elevenSpeech, provider: "plugin.other.audio" }} listsVoices onChange={change} />));
+  await vi.waitFor(() => expect(options()).toContain("new"));
+  await act(async () => { finish(Response.json({ voices: [{ id: "old-page", name: "Old page" }] })); await later; });
+  expect(options()).toEqual(["", "saved", "new"]);
+  expect(change).not.toHaveBeenCalled();
 });
 
 it("shows the quick voice and speed without their names, and closes the speed slider on a press elsewhere", async () => {

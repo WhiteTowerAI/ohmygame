@@ -560,6 +560,89 @@ describe("plugin media providers: audio", () => {
     expect(requests).toEqual([]);
   }, 15_000);
 
+  it("lists account voices with search and pagination without choosing a default", async () => {
+    const adapter = `export default { audio: {
+      async voices(query, host) { return (await host.fetch("https://api.flow.example/voices?search=" + encodeURIComponent(query.search || "") + "&page=" + encodeURIComponent(query.pageToken || ""), { auth: true })).json(); },
+      async start(input, host) { await host.fetch("https://api.flow.example/v1/audio", { method: "POST", auth: true, json: input }); return { outputs: [{ url: "https://cdn.flow.example/voice.wav" }] }; }
+    } };`;
+    const page = { voices: [{ id: "account-voice", name: "My voice", previewUrl: "https://cdn.flow.example/preview.mp3", labels: { language: "zh" } }], nextPageToken: "page-2" };
+    const { media, requests } = await setup(adapter, { media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>, reply: url => url.includes("/voices?") ? Response.json(page) : url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true)), provider = "plugin.acme.flow.flow";
+    const catalog = await audio.catalog();
+    expect(catalog.providers[0]).not.toHaveProperty("defaultVoiceId");
+    expect(catalog.models[0]!.capabilities).toMatchObject({ supportsSpeaker: true, requiresVoice: true });
+    expect(await audio.voices(provider, { search: "我的 voice", pageToken: "page-1" })).toEqual(page);
+    expect(new URL(requests[0]!.url).searchParams.get("search")).toBe("我的 voice");
+    expect(new URL(requests[0]!.url).searchParams.get("page")).toBe("page-1");
+    expect(requests[0]!.headers.authorization).toBe("Bearer sk-test");
+    requests.length = 0;
+    await expect(audio.generate({ prompt: "Hello" })).rejects.toMatchObject({ statusCode: 400 });
+    expect(requests).toEqual([]);
+    await audio.generate({ prompt: "Hello", voiceId: "account-voice" });
+    expect(JSON.parse(requests[0]!.body!).voiceId).toBe("account-voice");
+  }, 15_000);
+
+  it("rejects writes, malformed pages and unapproved previews in account voice queries", async () => {
+    const declarations = { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>;
+    const pages = [null, { voices: "bad" }, { voices: [{ id: "a", name: "A" }, { id: "a", name: "Again" }] }, { voices: [{ id: "a", name: "A", previewUrl: "https://unapproved.example/a.mp3" }] }, { voices: [{ id: "a", name: "A", previewUrl: "http://cdn.flow.example/a.mp3" }] }, { voices: [], nextPageToken: "x".repeat(2001) }];
+    for (const page of pages) {
+      const { media, requests } = await setup(`export default { audio: { voices() { return ${JSON.stringify(page)}; } } };`, { media: declarations });
+      const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+      await expect(audio.voices("plugin.acme.flow.flow", {})).rejects.toMatchObject({ statusCode: 502 });
+      expect(requests).toEqual([]);
+    }
+    const { media, requests } = await setup(`export default { audio: { async voices(query, host) { await host.fetch("https://api.flow.example/delete", { method: "POST", auth: true }); return { voices: [] }; } } };`, { media: declarations });
+    const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+    await expect(audio.voices("plugin.acme.flow.flow", {})).rejects.toThrow("read-only");
+    expect(requests).toEqual([]);
+  }, 15_000);
+
+  it("rechecks account voice access and does not dispatch cancelled or invalid queries", async () => {
+    const options = { media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>, allowed: true };
+    const { media, requests } = await setup(`export default { audio: { async voices(query, host) { await host.fetch("https://api.flow.example/voices", { auth: true }); return { voices: [] }; } } };`, options);
+    const [adapter] = await media.audioAdapters(() => true);
+    const stopped = new AbortController(); stopped.abort(new Error("closed picker"));
+    await expect(adapter!.voices!({}, stopped.signal)).rejects.toThrow("closed picker");
+    await expect(adapter!.voices!({ search: "x".repeat(201) })).rejects.toMatchObject({ statusCode: 400 });
+    options.allowed = false;
+    await expect(adapter!.voices!({})).rejects.toMatchObject({ statusCode: 503 });
+    expect(requests).toEqual([]);
+    options.allowed = true;
+    await expect(adapter!.voices!({})).resolves.toEqual({ voices: [] });
+    expect(requests).toHaveLength(1);
+  }, 15_000);
+
+  it("allows extra default voices beyond a requested page size while bounding the whole page", async () => {
+    for (const count of [101, 500, 501]) {
+      const voices = Array.from({ length: count }, (_, index) => ({ id: `voice-${index}`, name: `Voice ${index}` }));
+      const { media } = await setup(`export default { audio: { voices() { return ${JSON.stringify({ voices })}; } } };`, { media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media> });
+      const audio = new ProviderAudio(async () => media.audioAdapters(() => true));
+      if (count <= 500) expect((await audio.voices("plugin.acme.flow.flow", {})).voices).toHaveLength(count);
+      else await expect(audio.voices("plugin.acme.flow.flow", {})).rejects.toMatchObject({ statusCode: 502 });
+    }
+  }, 15_000);
+
+  it("cancels an active account voice request without cancelling a separate search", async () => {
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    let calls = 0;
+    const { media } = await setup(`export default { audio: { async voices(query, host) { return (await host.fetch("https://api.flow.example/voices", { auth: true })).json(); } } };`, {
+      media: { audio: { ...AUDIO_MEDIA.audio!, listVoices: true } } as unknown as Partial<Media>,
+      reply: (_url, signal) => {
+        if (++calls > 1) return Response.json({ voices: [] });
+        entered();
+        return new Promise<Response>((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));
+      },
+    });
+    const [adapter] = await media.audioAdapters(() => true), controller = new AbortController();
+    const pending = adapter!.voices!({ search: "first" }, controller.signal);
+    const rejected = expect(pending).rejects.toThrow("closed search");
+    await started;
+    await expect(adapter!.voices!({ search: "second" })).resolves.toEqual({ voices: [] });
+    controller.abort(new Error("closed search"));
+    await rejected;
+  }, 15_000);
+
   it("lists a provider's audio models and voices, and makes speech in its first voice", async () => {
     const { media, requests } = await setup(AUDIO_START, { media: AUDIO_MEDIA, reply: (url) => url.endsWith(".wav") ? new Response(new Uint8Array(WAV)) : undefined });
     const [provider] = await media.audioProviders();

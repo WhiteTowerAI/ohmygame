@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { AudioGenerationRequest, AudioModel, AudioOutputFormat, AudioVoice, GeneratedAudio } from "../shared/audio.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
 import type { ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { mergeAnimationClips } from "./merge-animations.js";
@@ -204,7 +204,7 @@ export class PluginMediaProviders {
   }
 
   /** The audio models of each provider that makes audio, as the audio catalog lists them, with their voices. */
-  async audioProviders(): Promise<Array<{ id: string; name: string; models: AudioModel[]; voices: AudioVoice[] }>> {
+  async audioProviders(): Promise<Array<{ id: string; name: string; models: AudioModel[]; voices: AudioVoice[]; listsVoices?: boolean }>> {
     return Promise.all((await this.providers()).filter((item) => item.media.audio).map(async (item) => {
       const name = this.#name(item);
       const text = (value: string) => localizePluginString(item.entry, value, "en");
@@ -216,6 +216,7 @@ export class PluginMediaProviders {
         id: item.id,
         name,
         voices: [...voices.values()],
+        ...(item.media.audio?.listVoices ? { listsVoices: true } : {}),
         models: models.map((model): AudioModel => ({
           provider: item.id,
           providerName: name,
@@ -225,7 +226,8 @@ export class PluginMediaProviders {
           capabilities: {
             produces: [...model.kinds],
             ...(model.readsText ? { readsText: true } : {}),
-            ...(model.readsText && model.voices ? { supportsSpeaker: true } : {}),
+            ...(model.readsText && (model.voices || item.media.audio?.listVoices) ? { supportsSpeaker: true } : {}),
+            ...(model.readsText && item.media.audio?.listVoices ? { requiresVoice: true } : {}),
             formats: [...(model.formats ?? ["mp3" as const])],
             ...(model.languages ? { languages: [...model.languages] } : {}),
             ...(model.speedRange ? { speedRange: [...model.speedRange] as [number, number] } : {}),
@@ -249,7 +251,9 @@ export class PluginMediaProviders {
       configured: () => true,
       enabled: () => enabled(provider.id),
       models: () => provider.models,
-      ...(provider.voices.length ? {
+      ...(provider.listsVoices ? {
+        voices: (query, signal) => this.audioVoices(provider.id, query, signal),
+      } : provider.voices.length ? {
         defaultVoiceId: () => provider.voices[0]!.id,
         voices: async () => ({ voices: provider.voices }),
       } : {}),
@@ -259,6 +263,59 @@ export class PluginMediaProviders {
         return this.generateAudio(model, input, signal, journal);
       },
     }));
+  }
+
+  /** Account voice discovery cannot upload, submit or mutate vendor state. */
+  async audioVoices(provider: string, query: { search?: string; pageToken?: string }, signal?: AbortSignal): Promise<AudioVoicePage> {
+    if (query.search !== undefined && (typeof query.search !== "string" || query.search.length > 200)
+      || query.pageToken !== undefined && (typeof query.pageToken !== "string" || !query.pageToken || query.pageToken.length > 2000))
+      throw new AudioGenerationError("Invalid voice search or page token", 400);
+    signal?.throwIfAborted();
+    const item = (await this.providers()).find(candidate => candidate.id === provider);
+    if (!item) throw new AudioGenerationError("The selected audio provider is unavailable. Check its plugin and key.", 503);
+    if (!item.media.audio?.listVoices) throw new AudioGenerationError("The selected plugin has no account voice list", 404);
+    const deadline = AbortSignal.timeout(30_000), stopped = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const answer = await runMediaAdapter({
+      source: await this.#source(item, AudioFailure), file: item.media.adapter, kind: "audio", step: "voices",
+      args: [{ ...query }], signal: stopped, callMs: 30_000,
+      fetch: (request, requestSignal) => {
+        if ("submission" in request || "reuse" in request || request.multipart !== undefined || !["GET", "HEAD"].includes((request.method ?? "GET").toUpperCase()))
+          throw new AudioFailure("Voice queries must be read-only", 400);
+        return this.#fetch(item, request, requestSignal, undefined, 30_000);
+      }, log: message => this.log(item.entry.id, message),
+    }).catch((cause: unknown) => {
+      if (signal?.aborted) throw signal.reason;
+      if (deadline.aborted) throw new AudioFailure(`${this.#name(item)} voice query timed out`, 504);
+      throw new AudioFailure(`${this.#name(item)} voices: ${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+    if (answer && typeof answer === "object" && "error" in answer && typeof answer.error === "string")
+      throw new AudioFailure(`${this.#name(item)}: ${answer.error.slice(0, 1000)}`);
+    if (!answer || typeof answer !== "object" || !("voices" in answer) || !Array.isArray(answer.voices) || answer.voices.length > 500)
+      throw new AudioFailure("The plugin returned an invalid voice page");
+    const token = "nextPageToken" in answer ? answer.nextPageToken : undefined;
+    if (token !== undefined && (typeof token !== "string" || !token || token.length > 2000 || token === query.pageToken))
+      throw new AudioFailure("The plugin returned an invalid next voice page token");
+    const ids = new Set<string>();
+    const voices = answer.voices.map((voice: unknown): AudioVoice => {
+      if (!voice || typeof voice !== "object" || Array.isArray(voice)) throw new AudioFailure("The plugin returned an invalid voice");
+      const value = voice as Record<string, unknown>;
+      if (typeof value.id !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(value.id) || value.id.length > AUDIO_VOICE_ID_MAX_LENGTH
+        || typeof value.name !== "string" || !value.name.trim() || value.name.length > 200 || ids.has(value.id))
+        throw new AudioFailure("The plugin returned an invalid or repeated voice");
+      ids.add(value.id);
+      if (value.previewUrl !== undefined) {
+        let url: URL;
+        try { url = new URL(String(value.previewUrl)); } catch { throw new AudioFailure("The plugin returned an invalid voice preview URL"); }
+        if (typeof value.previewUrl !== "string" || value.previewUrl.length > 2048 || url.protocol !== "https:" || url.username || url.password
+          || !networkCovers(item.entry.manifest.capabilities?.network, url)) throw new AudioFailure("The voice preview must use an approved HTTPS host");
+      }
+      if (value.labels !== undefined && (!value.labels || typeof value.labels !== "object" || Array.isArray(value.labels)
+        || Object.keys(value.labels).length > 20 || Object.entries(value.labels).some(([key, label]) => !key || key.length > 80 || typeof label !== "string" || label.length > 200)))
+        throw new AudioFailure("The plugin returned invalid voice labels");
+      return { id: value.id, name: value.name, ...(value.previewUrl !== undefined ? { previewUrl: value.previewUrl as string } : {}),
+        ...(value.labels !== undefined ? { labels: { ...value.labels as Record<string, string> } } : {}) };
+    });
+    return { voices, ...(token !== undefined ? { nextPageToken: token as string } : {}) };
   }
 
   /** The 3D models of each provider that makes them, as the 3D catalog lists them. */
@@ -310,10 +367,13 @@ export class PluginMediaProviders {
     if (sampleRate !== undefined && !rates?.includes(sampleRate))
       throw new AudioGenerationError("The selected audio model doesn't support this sample rate", 400);
     const voices = declared.voices ?? [];
-    if (input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
+    const accountVoices = item.media.audio.listVoices === true;
+    if (accountVoices && declared.readsText && (typeof input.voiceId !== "string" || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId) || input.voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH))
+      throw new AudioGenerationError("Choose an account voice before generating speech", 400);
+    if (!accountVoices && input.voiceId && model.capabilities.readsText && voices.length && !voices.some((voice) => voice.id === input.voiceId))
       throw new AudioGenerationError("The selected voice isn't one this model speaks in", 400);
     const kind = input.kind && model.capabilities.produces.includes(input.kind) ? input.kind : model.capabilities.produces[0]!;
-    const voiceId = model.capabilities.readsText ? input.voiceId ?? voices[0]?.id : undefined;
+    const voiceId = model.capabilities.readsText ? input.voiceId ?? (accountVoices ? undefined : voices[0]?.id) : undefined;
     return this.#produce(item, "audio", {
       model: model.id,
       kind,
