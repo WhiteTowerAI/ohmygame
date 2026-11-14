@@ -1125,3 +1125,24 @@ The user has verified Ark and BytePlus generation and restart recovery. Automate
 cutover checks use simulated providers and published packages without vendor
 requests or changes to a live user profile. Legacy code stays within the stated
 compatibility window for profiles whose migration has not committed.
+
+### 3D Beta package preparation
+
+Meshy `@ohmygame/meshy@0.1.1` and Tripo `@ohmygame/tripo@0.1.0` are
+optional Beta packages requiring API 2.16. Their exact npm SHA-512 values and
+indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
+Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
+`.runtime/tripo-migration-packages/` for integration tests. These fixtures are
+not shipped or added to the preinstalled index.
+
+The read-only package preflight requires one reviewed, managed npm package,
+matching actual bytes and index metadata, complete permissions, and explicit
+every-project enablement. It never installs, enables or changes settings.
+Hyper3D has no reviewed migration package yet.
+
+Native 3D services remain active. Settings/model-definition migration, saved
+canvas/project references and historical task ownership are separate remaining
+steps; each vendor needs real generation and restart acceptance before cutover.
+Existing native task journals must retain their original provider and paid
+stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
+independent from the own-key connection.
