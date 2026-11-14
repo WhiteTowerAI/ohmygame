@@ -4,6 +4,11 @@ const path = require("node:path");
 const { realpathSync } = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
 const [directory, action, boundary] = process.argv.slice(2);
+// Pending source-loader promises and the initially unreferenced IPC channel
+// do not keep Node alive. Own the harness lifetime until completion or a kill.
+setInterval(() => {}, 1000);
+if (process.connected) process.once("disconnect", () => process.exit(1));
+let lastCheckpoint = "starting";
 const rename = fs.rename,
   rm = fs.rm;
 async function checkpointFor(target) {
@@ -22,8 +27,8 @@ async function checkpointFor(target) {
       else throw error;
     }
   }
+  lastCheckpoint = checkpoint;
   if (checkpoint === boundary) {
-    setInterval(() => {}, 1000);
     process.send({ checkpoint });
     await new Promise(() => {});
   }
@@ -54,6 +59,7 @@ syncBuiltinESMExports();
   else if (action === "rollback")
     await migration.rollbackSettingsTransaction(directory);
   else await migration.resumeSettingsTransaction(directory);
+  if (boundary !== "none") throw new Error(`Completed without checkpoint ${boundary}; last: ${lastCheckpoint}`);
 })().then(
   () => process.exit(0),
   (error) => {
