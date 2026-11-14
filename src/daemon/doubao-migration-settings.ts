@@ -6,7 +6,7 @@ import {
   AUDIO_VOICE_ID_PATTERN,
 } from "../shared/audio.js";
 import { keyAction } from "./media-migration-inspection.js";
-import { snapshot, same } from "./media-settings-snapshot.js";
+import { snapshot, same, type Snapshot } from "./media-settings-snapshot.js";
 import { PluginValues } from "./plugin-values.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 
@@ -47,62 +47,8 @@ const voiceValid = (value: unknown): value is string =>
 /** Read-only preflight. Never load DoubaoVoiceSettingsStore: its load merges/deletes legacy files. */
 export async function inspectDoubaoMigration(directory: string) {
   const before = await snapshot(directory, DOUBAO_MIGRATION_FILES);
-  const blockers: string[] = [];
-  let legacyReadable = true;
-  const legacy = DOUBAO_MIGRATION_FILES.slice(0, 3).map((file, index) => {
-    const bytes = before.get(file);
-    if (!bytes) return undefined;
-    try {
-      const value: unknown = JSON.parse(bytes.toString("utf8"));
-      if (
-        !record(value) ||
-        value.version !== 1 ||
-        (value.apiKey !== undefined && typeof value.apiKey !== "string") ||
-        (value.defaultVoiceId !== undefined &&
-          typeof value.defaultVoiceId !== "string") ||
-        (index === 0 &&
-          (!record(value.services) ||
-            Object.values(value.services).some(
-              (v) => v !== null && typeof v !== "string",
-            )))
-      )
-        throw new Error("Invalid source");
-      const allowed =
-        index === 0
-          ? ["version", "apiKey", "services", "defaultVoiceId"]
-          : index === 1
-            ? ["version", "apiKey", "defaultVoiceId"]
-            : ["version", "apiKey"];
-      if (
-        Object.keys(value).some((key) => !allowed.includes(key)) ||
-        (record(value.services) &&
-          Object.keys(value.services).some(
-            (key) => !SERVICES.some((service) => service === key),
-          ))
-      )
-        blockers.push("legacy-settings-unknown-fields");
-      return value;
-    } catch {
-      legacyReadable = false;
-      return undefined;
-    }
-  });
-  if (!legacyReadable) blockers.push("legacy-settings-unreadable");
-  const [current, oldTts, oldSeed] = legacy;
-  const keys = SERVICES.map((service, index) => {
-    if (!legacyReadable) return undefined;
-    if (!current)
-      return (index === 0 ? oldTts : oldSeed)?.apiKey as string | undefined;
-    const override = (current.services as Record<string, string | null>)[
-      service
-    ];
-    return override === null
-      ? undefined
-      : (override ?? (current.apiKey as string | undefined));
-  });
-  const sourceVoice = legacyReadable
-    ? (current?.defaultVoiceId ?? oldTts?.defaultVoiceId)
-    : undefined;
+  const { blockers, legacyReadable, keys, sourceVoice } =
+    sourceSettings(before);
   const plugin = new PluginValues(
     path.join(directory, "plugin-store/configuration.json"),
   );
@@ -247,4 +193,144 @@ export async function inspectDoubaoMigration(directory: string) {
       "transactional-apply-and-rollback",
     ],
   };
+}
+
+function sourceSettings(before: Snapshot) {
+  const blockers: string[] = [];
+  let legacyReadable = true;
+  const legacy = DOUBAO_MIGRATION_FILES.slice(0, 3).map((file, index) => {
+    const bytes = before.get(file);
+    if (!bytes) return undefined;
+    try {
+      const value: unknown = JSON.parse(bytes.toString("utf8"));
+      if (
+        !record(value) ||
+        value.version !== 1 ||
+        (value.apiKey !== undefined && typeof value.apiKey !== "string") ||
+        (value.defaultVoiceId !== undefined &&
+          typeof value.defaultVoiceId !== "string") ||
+        (index === 0 &&
+          (!record(value.services) ||
+            Object.values(value.services).some(
+              (v) => v !== null && typeof v !== "string",
+            )))
+      )
+        throw new Error("Invalid source");
+      const allowed =
+        index === 0
+          ? ["version", "apiKey", "services", "defaultVoiceId"]
+          : index === 1
+            ? ["version", "apiKey", "defaultVoiceId"]
+            : ["version", "apiKey"];
+      if (
+        Object.keys(value).some((key) => !allowed.includes(key)) ||
+        (record(value.services) &&
+          Object.keys(value.services).some(
+            (key) => !SERVICES.some((service) => service === key),
+          ))
+      )
+        blockers.push("legacy-settings-unknown-fields");
+      return value;
+    } catch {
+      legacyReadable = false;
+      return undefined;
+    }
+  });
+  if (!legacyReadable) blockers.push("legacy-settings-unreadable");
+  const [current, oldTts, oldSeed] = legacy;
+  const keys = SERVICES.map((service, index) => {
+    if (!legacyReadable) return undefined;
+    if (!current)
+      return (index === 0 ? oldTts : oldSeed)?.apiKey as string | undefined;
+    const override = (current.services as Record<string, string | null>)[
+      service
+    ];
+    return override === null
+      ? undefined
+      : (override ?? (current.apiKey as string | undefined));
+  });
+  const sourceVoice = legacyReadable
+    ? (current?.defaultVoiceId ?? oldTts?.defaultVoiceId)
+    : undefined;
+  return { blockers, legacyReadable, keys, sourceVoice };
+}
+
+/** Build from the inspected snapshot. Native credentials/legacy stores remain byte-identical. */
+export function proposeDoubaoSettings(
+  original: Snapshot,
+  inspected: Awaited<ReturnType<typeof inspectDoubaoMigration>>,
+) {
+  if (inspected.blockers.length)
+    throw new Error("Doubao settings migration is blocked");
+  const source = sourceSettings(original);
+  if (!source.legacyReadable || source.blockers.length)
+    throw new Error("Invalid Doubao migration source");
+  const parse = (file: string, fallback: Record<string, unknown>) => {
+    const bytes = original.get(file);
+    return bytes ? JSON.parse(bytes.toString("utf8")) : fallback;
+  };
+  const configuration = parse("plugin-store/configuration.json", {
+    version: 1,
+    plugins: {},
+  });
+  const preferences = parse("model-visibility.json", {
+    version: 1,
+    hidden: {},
+  });
+  const beforeConfiguration = JSON.stringify(configuration),
+    beforePreferences = JSON.stringify(preferences);
+  const counts = {
+    keys: 0,
+    providerPreferences: 0,
+    defaultVoice: false,
+    defaultSpeechModel: false,
+    defaultSoundEffectModel: false,
+    defaultMusicModel: false,
+  };
+  if (inspected.key === "copy" || inspected.defaultVoice === "copy") {
+    configuration.plugins = {
+      ...configuration.plugins,
+      [pluginId]: {
+        ...configuration.plugins[pluginId],
+        ...(inspected.key === "copy"
+          ? { apiKey: { type: "secret", value: source.keys[0] } }
+          : {}),
+        ...(inspected.defaultVoice === "copy"
+          ? { defaultVoiceId: { type: "text", value: source.sourceVoice } }
+          : {}),
+      },
+    };
+    counts.keys = inspected.key === "copy" ? 1 : 0;
+    counts.defaultVoice = inspected.defaultVoice === "copy";
+  }
+  if (inspected.visibility.action === "copy") {
+    preferences.hidden = {
+      ...preferences.hidden,
+      [target]: inspected.visibility.hiddenModels,
+    };
+    if (!inspected.visibility.enabled)
+      preferences.disabled = [...(preferences.disabled ?? []), target];
+    counts.providerPreferences = 1;
+  }
+  for (const [kind, field] of [
+    ["speech", "defaultSpeechModel"],
+    ["sound-effect", "defaultSoundEffectModel"],
+    ["music", "defaultMusicModel"],
+  ] as const) {
+    if (inspected.defaultAudioModels[kind]?.action !== "map") continue;
+    preferences[field] = { ...preferences[field], provider: target };
+    counts[field] = true;
+  }
+  const changes: Snapshot<(typeof DOUBAO_MIGRATION_FILES)[number]> = new Map();
+  if (JSON.stringify(configuration) !== beforeConfiguration)
+    changes.set(
+      "plugin-store/configuration.json",
+      Buffer.from(`${JSON.stringify(configuration, null, 2)}\n`),
+    );
+  if (JSON.stringify(preferences) !== beforePreferences)
+    changes.set(
+      "model-visibility.json",
+      Buffer.from(`${JSON.stringify(preferences, null, 2)}\n`),
+    );
+  return { changes, counts };
 }

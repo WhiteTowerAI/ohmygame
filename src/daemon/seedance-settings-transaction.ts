@@ -15,7 +15,7 @@ export const {
   forgetSettingsTransaction,
 } = createSettingsTransaction({
   files: FILES,
-  source: "seedance.json",
+  sources: ["seedance.json"],
   journal: SETTINGS_TRANSACTION_FILE,
   backup: SETTINGS_TRANSACTION_BACKUP,
   label: "Seedance",

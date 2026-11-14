@@ -1,11 +1,17 @@
+import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { inspectDoubaoMigration } from "../scripts/inspect-doubao-migration.js";
 import { snapshot, same } from "../src/daemon/media-settings-snapshot.js";
-import { DOUBAO_MIGRATION_FILES } from "../src/daemon/doubao-migration-settings.js";
+import { DOUBAO_MIGRATION_FILES, proposeDoubaoSettings } from "../src/daemon/doubao-migration-settings.js";
 import { DoubaoVoiceSettingsStore } from "../src/daemon/doubao-voice-settings.js";
+
+import { rehearseDoubaoMigration } from "../scripts/rehearse-doubao-migration.js";
+import { snapshot as doubaoSnapshot } from "../src/daemon/doubao-settings-snapshot.js";
+import { prepareSettingsTransaction, resumeSettingsTransaction, rollbackSettingsTransaction, forgetSettingsTransaction, recoverInterruptedDoubaoSettings, commitSettingsTransaction, hasCommittedSettingsTransaction, SETTINGS_TRANSACTION_FILE, SETTINGS_TRANSACTION_BACKUP } from "../src/daemon/doubao-settings-transaction.js";
+import { killAt } from "./fixtures/settings-transaction-process.js";
 
 const directory = (name: string) =>
   mkdtemp(path.join(tmpdir(), `ohmygame-doubao-${name}-`));
@@ -233,6 +239,108 @@ describe("read-only Doubao plugin migration inspection", () => {
       await symlink(path.join(root, "outside"), path.join(root, "doubao-voice.json"));
       await expect(inspectDoubaoMigration(root)).rejects.toThrow("Invalid settings file");
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});
+
+
+describe("Doubao settings migration rehearsal", () => {
+  const configuration = "plugin-store/configuration.json";
+  const target = "plugin.ohmygame.doubao-voice.doubao-voice";
+  async function staged(check: (root: string) => Promise<void>) {
+    const root = await directory("rehearsal");
+    try {
+      await mkdir(path.join(root, "plugin-store"));
+      for (const [file, value] of Object.entries({
+        "doubao-voice.json": { version: 1, services: {}, apiKey: "private-key", defaultVoiceId: "private-voice" },
+        "volcengine-tts.json": { version: 1, apiKey: "old-private-key", defaultVoiceId: "old-private-voice" },
+        "volcengine-seed-audio.json": { version: 1, apiKey: "old-seed-private-key" },
+        [configuration]: { version: 1, plugins: { "ohmygame/doubao-voice": { unrelated: { type: "text", value: "keep" } }, other: { secret: { type: "secret", value: "other-private-key" } } }, future: { keep: true } },
+        "model-visibility.json": { version: 1, hidden: { "volcengine-tts": ["seed-tts-2.0"], other: ["unknown-model"] }, disabled: ["volcengine-tts", "volcengine-seed-audio", "other"], defaultSpeechModel: { provider: "volcengine-tts", id: "seed-tts-2.0", future: "keep", speed: 20 }, defaultMusicModel: { provider: "volcengine-seed-audio", id: "seed-audio-1.0" }, future: "keep" },
+      })) await writeFile(path.join(root, file), JSON.stringify(value));
+      await check(root);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+  async function plan(root: string) {
+    const original = await doubaoSnapshot(root);
+    const report = await inspectDoubaoMigration(root);
+    expect(report.blockers).toEqual([]);
+    return { original, ...proposeDoubaoSettings(original, report) };
+  }
+  it("copies shared key/default voice, combines hidden models and preserves metadata and all three original sources through rollback", async () => {
+    await staged(async root => {
+      const { original, changes } = await plan(root);
+      expect([...changes.keys()].sort()).toEqual(["model-visibility.json", configuration]);
+      await prepareSettingsTransaction(root, original, changes);
+      await resumeSettingsTransaction(root);
+      const applied = await doubaoSnapshot(root);
+      for (const file of DOUBAO_MIGRATION_FILES.slice(0, 3)) expect(applied.get(file)).toEqual(original.get(file));
+      expect(JSON.parse(applied.get(configuration)!.toString())).toEqual({ version: 1, plugins: { "ohmygame/doubao-voice": { unrelated: { type: "text", value: "keep" }, apiKey: { type: "secret", value: "private-key" }, defaultVoiceId: { type: "text", value: "private-voice" } }, other: { secret: { type: "secret", value: "other-private-key" } } }, future: { keep: true } });
+      const preferences = JSON.parse(applied.get("model-visibility.json")!.toString());
+      expect(preferences.hidden).toEqual({ "volcengine-tts": ["seed-tts-2.0"], other: ["unknown-model"], [target]: ["seed-tts-2.0"] });
+      expect(preferences.disabled).toEqual(["volcengine-tts", "volcengine-seed-audio", "other", target]);
+      expect(preferences.defaultSpeechModel).toEqual({ provider: target, id: "seed-tts-2.0", future: "keep", speed: 20 });
+      expect(preferences.defaultMusicModel).toEqual({ provider: target, id: "seed-audio-1.0" });
+      expect(preferences.future).toBe("keep");
+      expect((await plan(root)).changes.size).toBe(0);
+      await rollbackSettingsTransaction(root);
+      await forgetSettingsTransaction(root);
+      expect(await doubaoSnapshot(root)).toEqual(original);
+    });
+  });
+  it("rehearses on a disposable copy and refuses disconnected/conflicting sources without writing the input", async () => {
+    await staged(async root => {
+      const original = await doubaoSnapshot(root);
+      const report = await rehearseDoubaoMigration(root);
+      expect(report).toMatchObject({ status: "passed", activation: "held", proposed: { keys: 1, defaultVoice: true, defaultSpeechModel: true, defaultMusicModel: true }, checks: { reload: true, idempotent: true, rollback: true, sourceUnchanged: true, cleanup: true } });
+      expect(JSON.stringify(report)).not.toMatch(/private-key|private-voice/);
+      expect(await doubaoSnapshot(root)).toEqual(original);
+      await writeFile(path.join(root, "doubao-voice.json"), JSON.stringify({ version: 1, apiKey: "private-key", services: { "volcengine-tts": null } }));
+      const disconnected = await doubaoSnapshot(root);
+      expect(await rehearseDoubaoMigration(root)).toMatchObject({ status: "blocked", blockers: ["separate-service-connection"] });
+      await expect(prepareSettingsTransaction(root, original, new Map())).rejects.toThrow("Settings changed");
+      expect(await doubaoSnapshot(root)).toEqual(disconnected);
+    });
+  });
+  it("copies legacy-only keys/default voice and retains an unset current source through repeated apply/rollback", async () => {
+    await staged(async root => {
+      await rm(path.join(root, "doubao-voice.json"));
+      await writeFile(path.join(root, "volcengine-seed-audio.json"), JSON.stringify({ version: 1, apiKey: "old-private-key" }));
+      const original = await doubaoSnapshot(root);
+      expect(await rehearseDoubaoMigration(root)).toMatchObject({ status: "passed", proposed: { keys: 1, defaultVoice: true } });
+      expect(await doubaoSnapshot(root)).toEqual(original);
+    });
+  });
+  it.each(DOUBAO_MIGRATION_FILES.slice(0, 3))("rejects changes to immutable source %s, including forged recovery intent", async file => {
+    await staged(async root => {
+      const { original, changes } = await plan(root);
+      await expect(prepareSettingsTransaction(root, original, new Map([...changes, [file, Buffer.from("changed")]]))).rejects.toThrow("Invalid settings migration plan");
+      await prepareSettingsTransaction(root, original, changes);
+      const journalFile = path.join(root, SETTINGS_TRANSACTION_FILE);
+      const { checksum: _, ...payload } = JSON.parse(await readFile(journalFile, "utf8"));
+      payload.files[file].after = Buffer.from("changed").toString("base64");
+      await writeFile(journalFile, JSON.stringify({ ...payload, checksum: createHash("sha256").update(JSON.stringify(payload)).digest("hex") }));
+      await expect(resumeSettingsTransaction(root)).rejects.toThrow("Invalid migration journal transition");
+      expect(await doubaoSnapshot(root)).toEqual(original);
+    });
+  });
+  it("recovers process termination at both target writes and the applied receipt, then commits with immutable source backups", async () => {
+    for (const boundary of [configuration, "model-visibility.json", "applied"]) await staged(async root => {
+      const { original, changes } = await plan(root);
+      await prepareSettingsTransaction(root, original, changes);
+      await killAt(root, "resume", boundary, "doubao");
+      expect(await recoverInterruptedDoubaoSettings(root)).toBe(true);
+      expect(await doubaoSnapshot(root)).toEqual(original);
+      expect(await recoverInterruptedDoubaoSettings(root)).toBe(false);
+      await prepareSettingsTransaction(root, original, changes);
+      await resumeSettingsTransaction(root);
+      await commitSettingsTransaction(root);
+      expect(await hasCommittedSettingsTransaction(root)).toBe(true);
+      const receipt = JSON.parse(await readFile(path.join(root, SETTINGS_TRANSACTION_BACKUP), "utf8"));
+      for (const file of DOUBAO_MIGRATION_FILES.slice(0, 3)) {
+        expect(receipt.files[file].before).toBe(original.get(file)!.toString("base64"));
+        expect(receipt.files[file].after).toBe(receipt.files[file].before);
+      }
+    });
   });
 });
 

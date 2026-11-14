@@ -41,7 +41,7 @@ export const model3DTransactionFiles = (provider: Native3DProviderId) => [
 export function model3DSettingsTransaction(provider: Native3DProviderId) {
   const transaction = createSettingsTransaction({
     files: model3DTransactionFiles(provider),
-    source: `${provider}.json`,
+    sources: [`${provider}.json`],
     journal: `.${provider}-settings-transaction.json`,
     backup: `.${provider}-settings-committed-v1.json`,
     label: provider,

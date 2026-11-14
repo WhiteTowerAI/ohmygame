@@ -33,14 +33,14 @@ async function owned<T>(
 /** A vendor-specific receipt and immutable legacy source share the same transaction engine. */
 export function createSettingsTransaction<File extends string>(options: {
   files: readonly File[];
-  source: File;
+  sources: readonly File[];
   journal: string;
   backup: string;
   label: string;
 }) {
   const {
     files: FILES,
-    source,
+    sources,
     journal: SETTINGS_TRANSACTION_FILE,
     backup: SETTINGS_TRANSACTION_BACKUP,
     label,
@@ -73,7 +73,7 @@ export function createSettingsTransaction<File extends string>(options: {
         before.size !== FILES.length ||
         FILES.some((file) => !before.has(file)) ||
         [...changes.keys()].some(
-          (file) => !FILES.includes(file) || file === source,
+          (file) => !FILES.includes(file) || sources.includes(file),
         ) ||
         [...changes.values()].some((bytes) => bytes === undefined)
       )
@@ -331,7 +331,7 @@ export function createSettingsTransaction<File extends string>(options: {
           throw new Error("Invalid migration journal bytes");
       if (
         entry.before !== entry.after &&
-        (file === source || entry.after === null)
+        (sources.includes(file) || entry.after === null)
       )
         throw new Error("Invalid migration journal transition");
     }
