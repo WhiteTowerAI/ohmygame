@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -16,6 +16,15 @@ import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { ELEVENLABS_RETIRED_RETRY } from "../src/shared/media-migration-errors.js";
 import type { AgentModelRef, RunToolRequest } from "../src/shared/contracts.js";
 import type { AudioKind } from "../src/shared/audio.js";
+
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createApp } from "../src/daemon/app.js";
+import { ELEVENLABS_MIGRATION_PACKAGES } from "../src/daemon/elevenlabs-migration-package.js";
+import { migrateElevenLabsSettings } from "../src/daemon/elevenlabs-settings-migration.js";
+import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { capabilityGrants } from "../src/daemon/project-plugins.js";
+import { ELEVENLABS_RETIRED_PROVIDER } from "../src/shared/media-migration-errors.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 
 const state = { elevenlabs: true };
 const target = "plugin.ohmygame.elevenlabs.elevenlabs";
@@ -346,6 +355,404 @@ describe("prepared ElevenLabs references", () => {
         await tools.close();
       }
       expect(await readFile(file, "utf8")).toBe(bytes);
+    });
+  });
+});
+
+describe("prepared ElevenLabs application ownership", () => {
+  const pin = ELEVENLABS_MIGRATION_PACKAGES[0];
+  const nativeRef = { provider: "elevenlabs", id: "eleven_flash_v2_5" };
+  async function install(directory: string) {
+    const root = path.join(
+      directory,
+      "plugin-store/packages",
+      pin.id,
+      pin.version,
+    );
+    await cp(
+      path.resolve(
+        ".runtime",
+        `${pin.pluginId}-packages`,
+        pin.version,
+        "source",
+      ),
+      root,
+      { recursive: true },
+    );
+    const index = new PluginIndex(
+      path.join(directory, "plugin-store/index.json"),
+    );
+    const added = await index.add(root);
+    if (!added.ok) throw new Error("Invalid published ElevenLabs fixture");
+    await writeFile(
+      path.join(directory, "plugin-store/origins.json"),
+      JSON.stringify({
+        [`${pin.id}@${pin.version}`]: {
+          type: "npm",
+          package: pin.package,
+          version: pin.version,
+          registry: "npmjs",
+        },
+      }),
+    );
+    await writeFile(
+      path.join(directory, "plugin-store/grants.json"),
+      JSON.stringify({
+        schema: 2,
+        plugins: {
+          [pin.id]: {
+            enabled: true,
+            everyProject: true,
+            allowed: capabilityGrants(added.entry.manifest),
+          },
+        },
+        projects: {},
+      }),
+    );
+    await writeFile(
+      path.join(directory, "elevenlabs.json"),
+      JSON.stringify({ version: 1, apiKey: "native-key-canary", future: true }),
+    );
+    await writeFile(
+      path.join(directory, "model-visibility.json"),
+      JSON.stringify({ version: 1, hidden: {}, defaultSpeechModel: nativeRef }),
+    );
+    expect(await migrateElevenLabsSettings(directory)).toEqual({
+      status: "migrated",
+      reasons: [],
+    });
+  }
+  function runtime(directory: string) {
+    return ModelRuntime.create({
+      authPath: path.join(directory, "auth.json"),
+      modelsPath: path.join(directory, "models.json"),
+      modelsStorePath: path.join(directory, "catalog.json"),
+      allowModelNetwork: false,
+    });
+  }
+
+  it("keeps the native connection available when no committed context is supplied", async () => {
+    await fixture(async (directory) => {
+      const file = path.join(directory, "elevenlabs.json"),
+        bytes = JSON.stringify({
+          version: 1,
+          apiKey: "native-key-canary",
+          future: true,
+        });
+      await writeFile(file, bytes);
+      const modelRuntime = await runtime(directory),
+        request = vi.fn<typeof fetch>();
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: request,
+      });
+      try {
+        await app.ready();
+        expect(
+          (await app.inject("/audio-models/catalog"))
+            .json()
+            .models.some(
+              (model: { provider: string }) => model.provider === "elevenlabs",
+            ),
+        ).toBe(true);
+        expect(
+          (await app.inject("/settings/models/providers/elevenlabs")).json(),
+        ).toEqual({ configured: true });
+        expect(request).not.toHaveBeenCalled();
+        expect(await readFile(file, "utf8")).toBe(bytes);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  it("uses the installed Beta for generation, voices and transcription while retiring native settings and paid retries", async () => {
+    await fixture(async (directory) => {
+      const library = new AssetLibrary(directory),
+        projects = new ProjectManager(directory, library);
+      await library.load();
+      await projects.load();
+      const project = await projects.create("Audio ownership", "asset-canvas");
+      await projects.setMediaModelDefaults(project.id, { speech: nativeRef });
+      const oldTools = new ToolRunner(directory, { generate: vi.fn() });
+      const oldCanvas = new CanvasStore(projects, library, oldTools);
+      const boardId = (await oldCanvas.workspace(project.id)).boards[0]!.id;
+      const originalBoard = await oldCanvas.board(project.id, boardId);
+      originalBoard.board.nodes.push({
+        id: "voice",
+        type: "audio",
+        position: { x: 0, y: 0 },
+        data: {
+          prompt: "你好",
+          model: nativeRef,
+          voiceId: "voice-1",
+          speed: 20,
+        },
+      });
+      originalBoard.board.editorLayout.nodes.voice = { x: 0, y: 0 };
+      await oldCanvas.saveBoard(
+        project.id,
+        originalBoard.board,
+        originalBoard.revision,
+      );
+      await oldCanvas.close();
+      await oldTools.close();
+      await mkdir(path.join(directory, "tools"), { recursive: true });
+      const oldJob = {
+        id: "native-paid",
+        recoveryId: "native-receipt",
+        toolId: "generate-audio",
+        title: "Old paid request",
+        createdAt: new Date().toISOString(),
+        status: "failed",
+        error: "Connection lost",
+        model: nativeRef,
+        input: { prompt: "Hello", model: nativeRef, voiceId: "voice-1" },
+        prepared: true,
+        metadata: {},
+      };
+      const jobsFile = path.join(directory, "tools/jobs.json"),
+        oldBytes = JSON.stringify([oldJob]);
+      await writeFile(jobsFile, oldBytes);
+      await install(directory);
+      const nativeFile = path.join(directory, "elevenlabs.json"),
+        nativeBytes = await readFile(nativeFile);
+      const nativeRequest = vi.fn<typeof fetch>(async () => {
+        throw new Error("Native ElevenLabs must not run");
+      });
+      const audio = mp3Fixture(44100);
+      const pluginRequest = vi.fn<typeof fetch>(async (url, init) => {
+        expect(new Headers(init?.headers).get("xi-api-key")).toBe(
+          "native-key-canary",
+        );
+        if (String(url).includes("/v2/voices?"))
+          return Response.json({
+            voices: [{ voice_id: "voice-1", name: "Test voice" }],
+            has_more: false,
+          });
+        if (String(url).endsWith("/speech-to-text")) {
+          const body = init?.body as FormData;
+          expect(body.get("model_id")).toBe("scribe_v2");
+          expect(body.get("language_code")).toBe("zh");
+          return Response.json({ text: "你好，世界。", language_code: "zh" });
+        }
+        expect(String(url)).toBe(
+          "https://api.elevenlabs.io/v1/text-to-speech/voice-1?output_format=mp3_44100_128",
+        );
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          model_id: nativeRef.id,
+          text: "你好",
+          voice_settings: { speed: 1.2 },
+        });
+        return new Response(new Uint8Array(audio), {
+          headers: {
+            "content-type": "audio/mpeg",
+            "request-id": "paid-plugin-result",
+          },
+        });
+      });
+      const modelRuntime = await runtime(directory);
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: nativeRequest,
+        imageFetch: pluginRequest,
+        elevenlabsSettingsMigrated: true,
+      });
+      try {
+        await app.ready();
+        const catalog = (await app.inject("/audio-models/catalog")).json();
+        expect(
+          catalog.models.some(
+            (model: { provider: string }) => model.provider === "elevenlabs",
+          ),
+        ).toBe(false);
+        expect(
+          catalog.models.filter(
+            (model: { provider: string }) => model.provider === target,
+          ),
+        ).toHaveLength(7);
+        const summaries = (await app.inject("/settings/providers")).json();
+        expect(
+          summaries.some((item: { id: string }) => item.id === "elevenlabs"),
+        ).toBe(false);
+        expect(
+          summaries.some((item: { id: string }) => item.id === target),
+        ).toBe(true);
+        for (const [method, suffix, payload] of [
+          ["GET", "", undefined],
+          ["PUT", "", { apiKey: "replacement" }],
+          ["DELETE", "/credential", undefined],
+          ["PATCH", "/enabled", { enabled: true }],
+          ["GET", "/models", undefined],
+        ] as const) {
+          const response = await app.inject({
+            method,
+            url: `/settings/models/providers/elevenlabs${suffix}`,
+            ...(payload ? { payload } : {}),
+          });
+          expect(response.statusCode).toBe(409);
+          expect(response.json()).toEqual({
+            error: ELEVENLABS_RETIRED_PROVIDER,
+          });
+        }
+        const retry = await app.inject({
+          method: "POST",
+          url: "/tool-jobs/native-paid/retry",
+        });
+        expect(retry.statusCode).toBe(409);
+        expect(retry.json().error).toBe(ELEVENLABS_RETIRED_RETRY);
+        expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
+        const board = (
+          await app.inject(`/projects/${project.id}/canvas/boards/${boardId}`)
+        ).json();
+        expect(
+          board.board.nodes.find((node: { id: string }) => node.id === "voice")
+            .data,
+        ).toMatchObject({
+          model: { ...nativeRef, provider: target },
+          voiceId: "voice-1",
+          speed: 20,
+        });
+        expect(
+          JSON.parse(
+            await readFile(
+              path.join(project.workspacePath, ".ohmygame/settings.json"),
+              "utf8",
+            ),
+          ).mediaModelDefaults.speech,
+        ).toEqual({ ...nativeRef, provider: target });
+        const defaults = await app.inject({
+          method: "PUT",
+          url: "/audio-models/speech/default",
+          payload: nativeRef,
+        });
+        expect(defaults.statusCode).toBe(204);
+        expect(
+          (await app.inject("/audio-models/catalog")).json().defaultModels
+            .speech,
+        ).toEqual({ ...nativeRef, provider: target });
+        const voices = await app.inject(
+          `/audio-providers/${encodeURIComponent(target)}/voices?search=Test`,
+        );
+        expect(voices.statusCode, voices.body).toBe(200);
+        expect(voices.json().voices).toEqual([
+          { id: "voice-1", name: "Test voice" },
+        ]);
+        const started = await app.inject({
+          method: "POST",
+          url: "/tools/generate-audio/jobs",
+          payload: {
+            model: nativeRef,
+            prompt: "你好",
+            voiceId: "voice-1",
+            speed: 20,
+            output: { format: "mp3", sampleRate: 44100 },
+          },
+        });
+        expect(started.statusCode, started.body).toBe(202);
+        let completed: any;
+        await expect
+          .poll(
+            async () => {
+              completed = (await app.inject("/tool-jobs"))
+                .json()
+                .find((job: { id: string }) => job.id === started.json().id);
+              return completed?.status;
+            },
+            { timeout: 10_000 },
+          )
+          .not.toBe("running");
+        expect(completed, JSON.stringify(completed)).toMatchObject({
+          status: "succeeded",
+          model: { ...nativeRef, provider: target },
+        });
+        const assetId = completed.run.files[0].assetId;
+        expect(assetId).toBeTruthy();
+        const transcript = await app.inject({
+          method: "POST",
+          url: `/projects/${project.id}/canvas/media`,
+          payload: {
+            operation: "transcribe-audio",
+            assetIds: [assetId],
+            options: { language: "zh-CN" },
+          },
+        });
+        expect(transcript.statusCode, transcript.body).toBe(200);
+        expect(transcript.json()).toEqual({
+          kind: "text",
+          text: "你好，世界。",
+        });
+        expect(pluginRequest).toHaveBeenCalledTimes(3);
+        expect(nativeRequest).not.toHaveBeenCalled();
+        expect(await readFile(nativeFile)).toEqual(nativeBytes);
+        expect(
+          JSON.parse(await readFile(jobsFile, "utf8")).find(
+            (job: { id: string }) => job.id === oldJob.id,
+          ),
+        ).toEqual(oldJob);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 20_000);
+
+  it("does not revive native access when a migrated plugin is disabled or retained native data is unreadable", async () => {
+    await fixture(async (directory) => {
+      await install(directory);
+      const file = path.join(directory, "plugin-store/grants.json"),
+        grants = JSON.parse(await readFile(file, "utf8"));
+      grants.plugins[pin.id].enabled = false;
+      await writeFile(file, JSON.stringify(grants));
+      const nativeFile = path.join(directory, "elevenlabs.json");
+      await writeFile(nativeFile, "retained unreadable native data");
+      const request = vi.fn<typeof fetch>(async () => {
+        throw new Error("No vendor call allowed");
+      });
+      const modelRuntime = await runtime(directory);
+      const app = createApp({
+        dataDirectory: directory,
+        piAgentDirectory: directory,
+        createModelRuntime: async () => modelRuntime,
+        audioFetch: request,
+        imageFetch: request,
+        elevenlabsSettingsMigrated: true,
+      });
+      try {
+        await app.ready();
+        const catalog = (await app.inject("/audio-models/catalog")).json();
+        expect(
+          catalog.models.some(
+            (model: { provider: string }) =>
+              model.provider === target || model.provider === "elevenlabs",
+          ),
+        ).toBe(false);
+        const result = await app.inject({
+          method: "POST",
+          url: "/tools/generate-audio/jobs",
+          payload: { prompt: "Hello", model: nativeRef, voiceId: "voice-1" },
+        });
+        if (result.statusCode === 202) {
+          await expect
+            .poll(
+              async () =>
+                (await app.inject("/tool-jobs"))
+                  .json()
+                  .find((job: { id: string }) => job.id === result.json().id)
+                  ?.status,
+            )
+            .toBe("failed");
+        } else expect(result.statusCode).toBe(400);
+        expect(request).not.toHaveBeenCalled();
+        expect(await readFile(nativeFile, "utf8")).toBe(
+          "retained unreadable native data",
+        );
+      } finally {
+        await app.close();
+      }
     });
   });
 });

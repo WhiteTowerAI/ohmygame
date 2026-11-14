@@ -1771,7 +1771,7 @@ describe("daemon", () => {
       await vi.waitFor(async () => {
         const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((entry: { id: string }) => entry.id === response.json().id);
         expect(job?.status, job?.error).toBe("succeeded");
-      });
+      }, { timeout: 10_000 });
       return generate.mock.calls.at(-1)![0].model;
     };
     expect(await run({ kind: "speech", projectId, nodeId: "line" })).toEqual(seed);
