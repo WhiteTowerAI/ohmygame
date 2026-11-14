@@ -269,8 +269,15 @@ interrupted; **Retry** checks the same task again instead of starting a new
 one:
 
 - While the app shuts down, it doesn't call `cancel`, so the vendor goes on.
-- When the person stops a generation, a step fails, or time runs out, the app
-  calls `cancel` and forgets the task: a retry starts afresh.
+- Repeated check failures retain the submitted task without calling `cancel`.
+  Retry checks that task again; it never pays for a replacement submission.
+- When the person stops or time runs out, the app attempts optional `cancel`
+  and retains the task. Local cancellation is not proof of a remote terminal
+  state. The journal stays leased until the bounded cancellation attempt ends,
+  so a retry cannot race it. The next retry queries the original task; an
+  explicit terminal error then clears the journal. A new generation is a
+  separate intentional action.
+- Stopping or failing a result download retains the paid result for retry.
 - A paid `start` is never repeated for the same request. If a `start` request
   was sent but no answer came back, the retry is refused with a message to
   check the vendor's site. So is a retry whose provider or request changed.

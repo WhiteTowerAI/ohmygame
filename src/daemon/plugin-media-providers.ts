@@ -632,12 +632,19 @@ export class PluginMediaProviders {
       if (shutdown) {
         // The app is closing: keep the task for a retry to resume, and let the vendor go on.
         if (task !== undefined || ready) keep = true;
-      } else if (ready && !signal?.aborted) {
-        // Done, but its result couldn't be had: a retry fetches it again rather than paying anew.
+      } else if (ready) {
+        // A failed or stopped download must not discard an already-paid result.
         keep = true;
       } else if (!settled && task !== undefined) {
-        // Stopped, out of time, or a step failed while the vendor works: tell it, if the adapter can.
-        void call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
+        // A failed check or local stop does not prove that the remote task ended.
+        // Retain ownership even if cancel is missing, fails, or races completion.
+        keep = true;
+        if (stopped.aborted || !journal) {
+          // Non-journaled operations retain their existing cleanup on failure.
+          // Hold the journal lease until this bounded attempt finishes, so a
+          // retry cannot race a detached cancellation of the same remote task.
+          await call("cancel", [task], AbortSignal.timeout(CANCEL_LIMIT_MS)).catch(() => {});
+        }
       }
       throw cause;
     } finally {
