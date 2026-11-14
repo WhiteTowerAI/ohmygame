@@ -1,3 +1,4 @@
+import { acquireProfileOwnership } from "./profile-ownership.js";
 import { ProcessBrowserDriver } from "./browser-driver.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,10 @@ process.on("message", (value: unknown) => {
 });
 
 try {
+  // Own settings before Pi setup, eager plugin loading or any profile migration.
+  // Keep ownership through asynchronous shutdown; crash/kill releases OS locks too.
+  const releaseProfile = acquireProfileOwnership([dataDirectory, piAgentDirectory]);
+  process.once("exit", releaseProfile);
   const networkSettings = new NetworkSettingsService(dataDirectory, {
     environment: process.env,
     initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,

@@ -577,7 +577,8 @@ owning separate queues. It is not a cross-process lock or a transaction for
 synchronous readers; grouped reloads do not yet publish a single atomic snapshot.
 No production route or startup step invokes the rehearsal journal.
 
-Production activation still needs exclusive profile ownership and a coordinated
+The daemon entry point now enforces [profile ownership](runtime-recovery.md#profile-ownership)
+before settings load. Production activation still needs a coordinated startup
 recovery/read barrier, installed-package verification, complete
 project and unfinished-task disposition, and live acceptance. Settings recovery
 does not rewrite canvas jobs or vendor task journals, change recovery IDs, enable

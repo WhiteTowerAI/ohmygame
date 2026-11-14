@@ -10,6 +10,33 @@ preinstalled plugin extraction and local state loading can exceed Fastify's
 default ten-second timeout on Windows; the longer budget keeps that work from
 aborting an otherwise healthy desktop startup.
 
+## Profile ownership
+
+The production and development daemon entry point owns both its data directory
+and Pi settings directory before loading network settings, preparing Pi or
+creating the application. Another daemon sharing either directory fails startup
+with an "already in use" error. Directory aliases resolve to the same owner;
+separate profiles with separate Pi directories can still run together.
+
+Each directory contains a permanent, empty `.ohmygame-owner-v1.sqlite` file. The
+Node runtime holds an exclusive SQLite transaction on it until process exit,
+including asynchronous application shutdown. This uses
+[SQLite OS-backed locking](https://www.sqlite.org/lockingv3.html) through
+[Node's built-in SQLite API](https://nodejs.org/download/release/v24.8.0/docs/api/sqlite.html),
+without a heartbeat or stale-lock takeover. A crash releases the lock; a suspended
+process retains it. Failed acquisition releases any earlier directory it acquired.
+The file stores no settings or credentials and stays empty. Unknown contents,
+links and non-files are refused without replacement. Do not delete, replace or
+read/write this file with other file APIs while an owner is running.
+
+This coordinates daemon entry points using this protocol on local filesystems.
+Older app versions, external editors and another program's Pi process do not
+participate; they must be closed before a future profile migration. Direct
+`createApp()` instances used by embedders/tests remain caller-owned. Network
+filesystems with unreliable file locking are not a supported migration target.
+This ownership prerequisite does not activate MiniMax migration or provide atomic
+visibility across settings caches; those remain separate startup recovery work.
+
 ## Preview lifecycle
 
 See [startup configuration](preview-runtime.md#startup-configuration) for
@@ -80,7 +107,10 @@ behavior. It has no Electron supervisor or service-restart bridge.
 - Only the project retained through recovery pauses its preview. Later projects
   start normally, plugin details load once, and loaded configuration drafts remain intact.
 
-Tests cover these behaviors in `preview.test.ts`, `preview-proxy.test.ts`,
+Tests cover these behaviors in `daemon-process.test.ts`, `preview.test.ts`, `preview-proxy.test.ts`,
 `daemon-supervisor.test.ts`, `runtime-recovery.test.tsx`, and related API tests.
+The Node runtime check also verifies real daemon contention on each directory and
+restart after shutdown. Profile tests use real Node processes for simultaneous
+acquisition, crash release, aliases, suspended owners and partial-acquisition cleanup.
 macOS process behavior and real Vite browser recovery are verified locally.
 Windows command quoting and `taskkill` cleanup require validation on Windows.

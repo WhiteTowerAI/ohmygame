@@ -13,15 +13,27 @@ assert(
 );
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-node-runtime-"));
+const daemonOptions = {
+  daemonEntry: path.join(root, "dist", "daemon", "server.js"),
+  dataDirectory: path.join(directory, "data"),
+  piAgentDirectory: path.join(directory, "pi-agent"),
+  token: "node-runtime-check",
+  allowedOrigins: [],
+};
 let daemon;
 try {
-  daemon = await startDaemon({
-    daemonEntry: path.join(root, "dist", "daemon", "server.js"),
-    dataDirectory: path.join(directory, "data"),
-    piAgentDirectory: path.join(directory, "pi-agent"),
-    token: "node-runtime-check",
-    allowedOrigins: [],
-  });
+  daemon = await startDaemon(daemonOptions);
+  // Real server entry points must acquire ownership before loading any settings.
+  for (const options of [daemonOptions, { ...daemonOptions, dataDirectory: path.join(directory, "other-data") }]) {
+    let unexpected;
+    try {
+      await assert.rejects(async () => { unexpected = await startDaemon(options); }, /data directory is already in use/);
+    } finally { await unexpected?.stop(); }
+  }
+  const health = await fetch(`${daemon.runtime.url}/health`, { headers: { authorization: `Bearer ${daemon.runtime.token}` } });
+  assert.equal(health.status, 200, "Rejected contenders must not disturb the running daemon");
+  await daemon.stop();
+  daemon = await startDaemon(daemonOptions);
   const unauthorized = await fetch(`${daemon.runtime.url}/projects`);
   assert.equal(unauthorized.status, 401);
   for (const route of ["/health", "/projects"]) {
@@ -73,7 +85,7 @@ try {
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon profile exclusion/restart, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
 );
 
 // The built host runs plugins' native code, and its heap limit holds on Node.
