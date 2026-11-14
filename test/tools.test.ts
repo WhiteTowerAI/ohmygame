@@ -16,6 +16,30 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
+  it.each([true, false])("preserves a legacy MiniMax job when cutover rejects retry: %s", async (committed) => {
+    const directory = await temporaryData();
+    const file = path.join(directory, "tools/jobs.json");
+    await mkdir(path.dirname(file), { recursive: true });
+    const input = { prompt: "Preserve intent", model: { provider: "minimax-video-global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" };
+    const bytes = JSON.stringify([{ id: "legacy-minimax", toolId: "generate-video", status: "cancelled", title: "Preserve intent", createdAt: "2026-11-01T00:00:00.000Z", input, prepared: true, recoveryId: "original-owner" }]);
+    await writeFile(file, bytes);
+    const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
+    const runner = new ToolRunner(directory, fakeGenerator(), undefined, { generate }, undefined, undefined, undefined, committed);
+    await runner.load();
+    if (committed) {
+      expect(() => runner.retryJob("legacy-minimax")).toThrow("Check its status in MiniMax");
+      expect(runner.jobs()).toEqual([expect.objectContaining({ id: "legacy-minimax", status: "cancelled", error: expect.stringContaining("Check its status in MiniMax") })]);
+      expect(await readFile(file, "utf8")).toBe(bytes);
+      expect(generate).not.toHaveBeenCalled();
+    } else {
+      runner.retryJob("legacy-minimax");
+      await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed"));
+      expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
+      expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("original-owner");
+    }
+    await runner.close();
+  });
+
   it("rejects removed audio reference and subtitle options before generation", async () => {
     const generate = vi.fn();
     const runner = new ToolRunner(await temporaryData(), fakeGenerator(), undefined, undefined, undefined, undefined, { catalog: () => ({ models: [], providers: [] }), generate });

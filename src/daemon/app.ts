@@ -841,6 +841,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
     minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
     // Made with the plugin services below, before any request comes.
     pluginVideos: {
@@ -918,6 +919,7 @@ export function createApp(options: AppOptions = {}) {
       return { ...input, [key]: { ...selected } };
     },
     options.audioGenerator ?? providerAudio,
+    options.minimaxSettingsMigrated,
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // Explicit legacy bundles are retained for migration fixtures and custom hosts.
@@ -3859,7 +3861,7 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
+    }), ...(options.minimaxSettingsMigrated ? [] : MINIMAX_PROVIDER_IDS).map((providerId) => {
       const definition = MINIMAX_PROVIDERS[providerId];
       const configured = minimaxSettings.get(providerId).configured;
       return {
@@ -3988,6 +3990,7 @@ export function createApp(options: AppOptions = {}) {
     openAIEndpoint,
     seedanceSettings,
     minimaxSettings,
+    minimaxSettingsMigrated: options.minimaxSettingsMigrated,
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,

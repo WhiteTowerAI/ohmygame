@@ -1,3 +1,4 @@
+import { mediaMigrationError } from "./media-migration-errors.js";
 import type { CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import type { CanvasNodeDetails } from "./canvas-node-label.js";
 import type { TableNodeRuntime } from "./canvas-table-node.js";
@@ -256,5 +257,5 @@ export function titleCase(value: string): string {
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return mediaMigrationError(error instanceof Error ? error.message : String(error));
 }

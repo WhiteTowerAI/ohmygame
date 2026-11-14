@@ -1,3 +1,5 @@
+import i18next from "i18next";
+import { MINIMAX_RETIRED_RETRY } from "../src/shared/media-migration-errors.js";
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +13,18 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("explains retired MiniMax retries in the selected UI language", async () => {
+    installWindow();
+    const previousLanguage = i18next.language;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: MINIMAX_RETIRED_RETRY }, { status: 409 })));
+    try {
+      await i18next.changeLanguage("zh-CN");
+      await expect(retryToolJob("legacy-minimax")).rejects.toMatchObject({ status: 409, message: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。" });
+    } finally {
+      await i18next.changeLanguage(previousLanguage);
+    }
+  });
+
   it("exports a restored project's current workspace version", async () => {
     installWindow();
     const id = "archive-restored-project";

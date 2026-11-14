@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 
 describe("ProviderVideos", () => {
+  it.each([false, true])("gates built-in MiniMax catalog and submission on committed cutover: %s", async (committed) => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, undefined, undefined, { minimaxApiKey: () => "retained-key", minimaxSettingsMigrated: committed });
+    const catalog = await videos.catalog();
+    expect(catalog.models.some(model => model.provider === "minimax-video-global")).toBe(!committed);
+    if (committed) await expect(videos.generate({ prompt: "Do not resubmit", model: { provider: "minimax-video-global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" })).rejects.toMatchObject({ statusCode: 409 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to retained keys when the migrated plugin is unavailable", async () => {
+    const request = vi.fn<typeof fetch>();
+    const videos = new ProviderVideos(async () => runtime(false), request, undefined, undefined, { minimaxApiKey: () => "retained-key", minimaxSettingsMigrated: true });
+    await expect(videos.catalog()).resolves.toEqual({ models: [], providers: [] });
+    await expect(videos.generate({ prompt: "No fallback", model: { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" }, duration: 6, resolution: "720p", aspectRatio: "16:9" })).rejects.toMatchObject({ statusCode: 503 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("creates, polls, and downloads an OpenRouter video", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ data: [videoModel()] }))

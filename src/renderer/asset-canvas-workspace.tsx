@@ -2174,7 +2174,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           model3DRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               rememberSettings(node, data);
@@ -2217,7 +2217,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           animateRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -2248,7 +2248,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           audioRuntime: {
             generating: nodeJob?.status === "running",
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
             onChange: (data) => {
               rememberSettings(node, data);
@@ -2282,7 +2282,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         })])),
         generating: nodeJob?.status === "running",
         busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
-        ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+        ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
         onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
         onChange: (params) => {
           setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -2303,7 +2303,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const runtime: MediaNodeRuntime = {
       generating: nodeJob?.status === "running",
       busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
-      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error ? errorMessage(nodeJob.error) : undefined } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
       onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
       onChange: (data) => {
         rememberSettings(node, data);
