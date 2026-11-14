@@ -125,6 +125,11 @@ try {
   assert.equal(JSON.parse(await readFile(boardFile, "utf8")).nodes.find(node => node.id === video.id).data.model.provider, "plugin.ohmygame.minimax.global");
   assert.equal(await readFile(layoutFile, "utf8"), layoutBefore);
 
+  const projectSettingsFile = path.join(story.workspacePath, ".ohmygame/settings.json");
+  const projectSettings = JSON.parse(await readFile(projectSettingsFile, "utf8"));
+  const videoDefault = { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" };
+  await writeFile(projectSettingsFile, JSON.stringify({ ...projectSettings, future: { keep: "portable" }, mediaModelDefaults: { video: { ...videoDefault, provider: "minimax-video-global" } } }));
+  // Export refreshes owned settings and must persist migration before creating the archive.
   const exported = await fetch(`${daemon.runtime.url}/projects/${story.id}/export`, {
     method: "POST", headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(10_000),
   });
@@ -139,6 +144,9 @@ try {
   assert.notEqual(copy.id, story.id);
   assert.equal(copy.type, story.type);
   assert.equal(copy.name, story.name);
+  assert.deepEqual(copy.mediaModelDefaults, { video: videoDefault });
+  assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).mediaModelDefaults, { video: videoDefault });
+  assert.deepEqual(JSON.parse(await readFile(projectSettingsFile, "utf8")).future, { keep: "portable" });
   const createdResponse = await fetch(`${daemon.runtime.url}/connections`, {
     method: "POST", headers, body: JSON.stringify({ displayName: "Node runtime fixture", definition: {
       command: process.execPath, args: [path.join(root, "test", "fixtures", "plugin-mcp-server.mjs")],

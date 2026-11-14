@@ -655,3 +655,19 @@ A historical retry keeps its saved input, provider and recovery ID even if the
 node now selects the plugin. Its output can still attach to that node. Plugin
 removal or disablement does not reverse already migrated selections. Project
 media defaults and builtin catalog cutover remain separate migration steps.
+
+### MiniMax project video defaults
+
+The same committed startup migration enables project default migration. Owning
+project loads, settings refreshes, folder registration, archive imports, copies
+and subsequent saves map known legacy MiniMax video defaults to the plugin.
+Other media defaults and unrecognized model identities stay unchanged. Pending
+settings for an unavailable workspace migrate in the local project record and
+move into the folder when it returns. Clearing a default remains cleared.
+
+Portable settings and local records retain unknown fields; unreadable or newer
+settings and linked files are not replaced. Refreshes and edits share the
+project metadata queue. Migration preserves the project's modification time
+and does not rewrite job inputs, recovery IDs or canvas history. Read-only
+folder discovery does not initiate migration. This does not yet remove the
+built-in provider or transfer ownership of unfinished generation tasks.

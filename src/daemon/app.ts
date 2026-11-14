@@ -668,7 +668,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity);
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, options.minimaxSettingsMigrated);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
