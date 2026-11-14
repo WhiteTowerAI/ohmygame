@@ -482,7 +482,7 @@ export interface OmgStackAttributes {
   align?: "start" | "center" | "end" | "stretch" | "baseline";
   /** Column by default. */
   direction?: "column" | "row";
-  /** A space token; 2 by default. */
+  /** A space token; 4 for columns, 2 for rows by default. */
   gap?: "0" | "1" | "2" | "3" | "4" | "6";
   /** How children are spread along it. */
   justify?: "start" | "center" | "end" | "between";

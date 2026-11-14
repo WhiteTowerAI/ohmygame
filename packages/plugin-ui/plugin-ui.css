@@ -112,6 +112,9 @@
 html { scrollbar-gutter: stable; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: var(--space-4); }
+@media (min-width: 720px) {
+  body { padding: var(--space-6); }
+}
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 
 .omg-row { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; }

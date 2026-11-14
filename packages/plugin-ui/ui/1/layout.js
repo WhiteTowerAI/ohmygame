@@ -87,7 +87,7 @@ class OmgSection extends OmgElement {
       :host { display: block; }
       section { display: flex; flex-direction: column; gap: var(--space-3); }
       .heading { font-size: var(--text-md); }
-      .body { display: flex; flex-direction: column; gap: var(--space-2); }
+      .body { display: flex; flex-direction: column; gap: var(--space-4); }
     `),
   ];
   static template = `
@@ -123,7 +123,7 @@ const SPACES = ["1", "2", "3", "4", "6"];
  * lays its children out in a row or a column, spaced by the app's steps.
  *
  * @attr {"column" | "row"} direction - Column by default.
- * @attr {"0" | "1" | "2" | "3" | "4" | "6"} gap - A space token; 2 by default.
+ * @attr {"0" | "1" | "2" | "3" | "4" | "6"} gap - A space token; 4 for columns, 2 for rows by default.
  * @attr {"start" | "center" | "end" | "stretch" | "baseline"} align - How children line up across it.
  * @attr {"start" | "center" | "end" | "between"} justify - How children are spread along it.
  * @attr {boolean} wrap - Lets a row wrap.
@@ -132,8 +132,8 @@ const SPACES = ["1", "2", "3", "4", "6"];
 class OmgStack extends OmgElement {
   static styles = [
     css(`
-      :host { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-      :host([direction="row"]) { flex-direction: row; align-items: center; }
+      :host { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+      :host([direction="row"]) { flex-direction: row; align-items: center; gap: var(--space-2); }
       :host([wrap]) { flex-wrap: wrap; }
       ${SPACES.map((step) => `:host([gap="${step}"]) { gap: var(--space-${step}); }`).join("\n")}
       :host([gap="0"]) { gap: 0; }
@@ -210,7 +210,7 @@ class OmgGrid extends OmgElement {
   static styles = [
     css(`
       :host { display: block; min-width: 0; }
-      .grid { display: grid; gap: var(--space-3); grid-template-columns: var(--_columns); }
+      .grid { display: grid; gap: var(--space-4); grid-template-columns: var(--_columns); }
       :host([gap="0"]) .grid { gap: 0; }
       ${SPACES.map((step) => `:host([gap="${step}"]) .grid { gap: var(--space-${step}); }`).join("\n")}
     `),
@@ -294,7 +294,7 @@ class OmgCard extends OmgTextWatcher {
     css(`
       :host { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--color-surface-raised); }
       .heading { font-size: var(--text-md); }
-      .body { display: flex; flex-direction: column; gap: var(--space-2); }
+      .body { display: flex; flex-direction: column; gap: var(--space-4); }
     `),
   ];
   static template = `

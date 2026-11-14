@@ -120,7 +120,7 @@ class OmgDisclosure extends OmgElement {
     css(`
       :host { display: block; min-width: 0; }
       button {
-        display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 30px;
+        display: grid; grid-template-columns: var(--space-2) minmax(0, 1fr); align-items: center; gap: var(--space-2); width: 100%; min-height: 30px;
         padding: var(--space-1) 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text);
         font: inherit; font-weight: var(--weight-medium); text-align: start; cursor: pointer;
         transition: background var(--duration-fast);
@@ -128,9 +128,10 @@ class OmgDisclosure extends OmgElement {
       button:not(:disabled):hover { background: color-mix(in srgb, var(--color-hover) 60%, transparent); }
       button:disabled { opacity: 0.4; cursor: default; }
       .heading { min-width: 0; overflow-wrap: anywhere; }
-      .icon { width: 14px; height: 14px; flex: none; color: var(--color-text-secondary); transform: rotate(-90deg); transition: transform var(--duration-fast); }
+      /* Centre the SVG's visible strokes in an 8px track, matching the status dot. */
+      .icon { width: 14px; height: 14px; justify-self: center; color: var(--color-text-secondary); transform: rotate(-90deg); transition: transform var(--duration-fast); }
       :host([open]) .icon { transform: rotate(0deg); }
-      .body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding-top: var(--space-2); padding-inline-start: calc(14px + var(--space-2)); }
+      .body { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; padding-top: var(--space-2); padding-inline-start: var(--space-4); }
     `),
   ];
   static template = `

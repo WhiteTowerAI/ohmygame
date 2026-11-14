@@ -2492,7 +2492,7 @@
             },
             {
               "name": "gap",
-              "description": "A space token; 2 by default.",
+              "description": "A space token; 4 for columns, 2 for rows by default.",
               "type": {
                 "text": "\"0\" | \"1\" | \"2\" | \"3\" | \"4\" | \"6\""
               }

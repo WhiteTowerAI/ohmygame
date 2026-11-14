@@ -16,7 +16,7 @@
             <omg-stack direction="row" wrap>
               <omg-button variant="primary" data-host="toast">Save changes</omg-button>
               <omg-button>Cancel</omg-button>
-              <omg-tooltip content="Fetch remote status without changing the draft."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
+              <omg-tooltip content="Refresh remote status."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
             </omg-stack>
           </omg-section>
           <omg-section heading="Project settings">
@@ -137,7 +137,7 @@
             <omg-stack direction="row">
               <omg-popover label="Build settings"><omg-stack><omg-input label="Output folder" value="dist"></omg-input><omg-checkbox label="Include source maps"></omg-checkbox></omg-stack></omg-popover>
               <omg-menu id="action-menu" label="Actions"></omg-menu>
-              <omg-tooltip content="Fetch the latest remote status without changing your draft."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
+              <omg-tooltip content="Refresh remote status."><omg-button variant="ghost">Refresh</omg-button></omg-tooltip>
             </omg-stack>
             <omg-status id="menu-result">No action selected</omg-status>
           </omg-section>
@@ -250,7 +250,12 @@
             <omg-divider label="Or"></omg-divider>
           </omg-section>
 
-          <omg-section heading="omg-stack" description="Rows and columns spaced by the app's steps.">
+          <omg-section heading="omg-stack" description="16px columns, 8px rows. Explicit gaps override either.">
+            <omg-stack style="max-width: 28rem">
+              <omg-input label="Output folder" value="dist"></omg-input>
+              <omg-input label="Version" value="1.1.0"></omg-input>
+              <omg-stack direction="row" wrap><omg-button variant="primary">Save preset</omg-button><omg-button>Reset</omg-button></omg-stack>
+            </omg-stack>
             <omg-stack direction="row" gap="1"><omg-status>gap 1</omg-status><omg-status>gap 1</omg-status></omg-stack>
             <omg-stack direction="row" gap="6"><omg-status>gap 6</omg-status><omg-status>gap 6</omg-status></omg-stack>
             <omg-stack direction="row" justify="between"><omg-status>between</omg-status><omg-status>between</omg-status></omg-stack>

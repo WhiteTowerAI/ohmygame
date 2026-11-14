@@ -1566,7 +1566,7 @@ Use these to build a panel's layout and interactions. Keep controls on host toke
 | --- | --- |
 | `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
 | `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
-| `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-stack` | A row or column. `direction`, `gap` (`0`, `1`, `2`, `3`, `4`, `6`; defaults to `4` for columns and `2` for rows), `align`, `justify`, `wrap`. |
 | `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
 | `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
 | `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
@@ -1623,6 +1623,15 @@ identity through its icon, content, brand accent and task-specific layout or vis
 Group related fields, keep short values compact and make the primary action clear;
 use cards only when a separate surface helps. Tools and panel actions should share
 domain operations, with business state independent of panel visibility.
+
+Spacing expresses grouping: labels and related content use 4–8px, complete fields
+use 16px, and task sections use 24px. Section, Card, Grid, column Stack, Disclosure
+content and Dialog content default to 16px between children; row Stack uses 8px.
+Explicit `gap` values still win; use `gap="2"` for compact column groups. The page
+stylesheet uses 16px outer padding below 720px and 24px at wider viewports.
+Keep control sizes unchanged and let the containing layout own spacing instead
+of adding margins to every child. Existing panels that need their previous compact
+column spacing can set `gap="2"` or style the container's exposed body part.
 
 The Plugin Builder and game conversations receive these conventions in the generated
 plugin-creator Skill's `references/panels.md` (`src/daemon/plugin-authoring.ts`),
